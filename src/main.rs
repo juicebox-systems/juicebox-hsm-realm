@@ -12,13 +12,25 @@ use types::{AuthToken, Policy};
 async fn main() {
     println!("main: Hello, world!");
 
-    let server_addr = Server::new().start();
+    let server1_addr = Server::new(String::from("server1")).start();
+    let server2_addr = Server::new(String::from("server2")).start();
+    let server3_addr = Server::new(String::from("server3")).start();
 
     let client = Client::new(
-        vec![Realm {
-            address: server_addr,
-            public_key: b"asdf".to_vec(),
-        }],
+        vec![
+            Realm {
+                address: server1_addr,
+                public_key: b"qwer".to_vec(),
+            },
+            Realm {
+                address: server2_addr,
+                public_key: b"asdf".to_vec(),
+            },
+            Realm {
+                address: server3_addr,
+                public_key: b"zxcv".to_vec(),
+            },
+        ],
         AuthToken {
             user: String::from("mario"),
             signature: String::from("it's-a-me!"),
@@ -34,12 +46,14 @@ async fn main() {
         )
         .await
         .expect("register failed");
+    println!();
 
     println!("main: Starting recover with wrong PIN (guess 1)");
     match client.recover(&Pin(b"1212".to_vec())).await {
-        Err(RecoverError::FailedUnlock) => { /* ok */ }
+        Err(RecoverError::Unsuccessful(_)) => { /* ok */ }
         result => panic!("Unexpected result from recover: {result:?}"),
     };
+    println!();
 
     println!("main: Starting recover with correct PIN (guess 2)");
     let secret = client
@@ -50,27 +64,28 @@ async fn main() {
         "main: Recovered secret {:?}",
         String::from_utf8_lossy(&secret.0)
     );
+    println!();
 
     println!("main: Starting recover with wrong PIN (guess 1)");
     match client.recover(&Pin(b"1212".to_vec())).await {
-        Err(RecoverError::FailedUnlock) => { /* ok */ }
+        Err(RecoverError::Unsuccessful(_)) => { /* ok */ }
         result => panic!("Unexpected result from recover: {result:?}"),
     };
+    println!();
 
     println!("main: Starting recover with wrong PIN (guess 2)");
     match client.recover(&Pin(b"1212".to_vec())).await {
-        Err(RecoverError::FailedUnlock) => { /* ok */ }
+        Err(RecoverError::Unsuccessful(_)) => { /* ok */ }
         result => panic!("Unexpected result from recover: {result:?}"),
     };
+    println!();
 
     println!("main: Starting recover with correct PIN (guess 3)");
     match client.recover(&Pin(b"1234".to_vec())).await {
-        Err(RecoverError::NoGuesses) => { /* ok */ }
+        Err(RecoverError::Unsuccessful(_)) => { /* ok */ }
         result => panic!("Unexpected result from recover: {result:?}"),
     };
-
-    println!("main: Deleting secret");
-    client.delete_all().await.expect("delete_all failed");
+    println!();
 
     println!("main: Starting register");
     client
@@ -82,6 +97,11 @@ async fn main() {
         .await
         .expect("register failed");
     println!("main: register succeeded");
+    println!();
+
+    println!("main: Deleting secret");
+    client.delete_all().await.expect("delete_all failed");
+    println!();
 
     println!("main: exiting");
     System::current().stop();
