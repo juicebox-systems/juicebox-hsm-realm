@@ -4,7 +4,7 @@ mod client;
 mod server;
 mod types;
 
-use client::{Client, Pin, Realm, RecoverError, UserSecret};
+use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use server::Server;
 use types::{AuthToken, Policy};
 
@@ -17,20 +17,24 @@ async fn main() {
     let server3_addr = Server::new(String::from("server3")).start();
 
     let client = Client::new(
-        vec![
-            Realm {
-                address: server1_addr,
-                public_key: b"qwer".to_vec(),
-            },
-            Realm {
-                address: server2_addr,
-                public_key: b"asdf".to_vec(),
-            },
-            Realm {
-                address: server3_addr,
-                public_key: b"zxcv".to_vec(),
-            },
-        ],
+        Configuration {
+            realms: vec![
+                Realm {
+                    address: server1_addr,
+                    public_key: b"qwer".to_vec(),
+                },
+                Realm {
+                    address: server2_addr,
+                    public_key: b"asdf".to_vec(),
+                },
+                Realm {
+                    address: server3_addr,
+                    public_key: b"zxcv".to_vec(),
+                },
+            ],
+            register_threshold: 3,
+            recover_threshold: 3,
+        },
         AuthToken {
             user: String::from("mario"),
             signature: String::from("it's-a-me!"),

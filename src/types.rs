@@ -51,15 +51,7 @@ pub struct Policy {
     /// a smaller risk that an adversary could guess the PIN to unlock the
     /// secret, but they have a larger risk that the user will get accidentally
     /// locked out due to typos and transient errors.
-    ///
-    /// Default: `3`.
     pub num_guesses: u16,
-}
-
-impl Default for Policy {
-    fn default() -> Self {
-        Self { num_guesses: 3 }
-    }
 }
 
 /// A share of the password-generating key that has been XORed with

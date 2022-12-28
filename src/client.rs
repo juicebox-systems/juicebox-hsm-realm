@@ -12,6 +12,7 @@ use sharks::Sharks;
 use std::collections::BTreeSet;
 use std::fmt::{self, Debug};
 use std::iter::zip;
+use std::ops::Deref;
 
 use super::types::{
     AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedPgkShare, OprfBlindedResult,
@@ -36,6 +37,79 @@ pub struct Realm {
     /// A long-lived public key for which the service has the matching private
     /// key.
     pub public_key: Vec<u8>,
+}
+
+#[derive(Debug)]
+pub struct Configuration {
+    /// The remote services that the client interacts with.
+    ///
+    /// There must be between `register_threshold` and 255 realms, inclusive.
+    pub realms: Vec<Realm>,
+
+    /// A registration will be considered successful if it's successful on at
+    /// least this many realms.
+    ///
+    /// Must be between `recover_threshold` and `realms.len()`, inclusive.
+    pub register_threshold: u8,
+
+    /// A recovery (or an adversary) will need the cooperation of this many
+    /// realms to retrieve the secret.
+    ///
+    /// Must be between `1` and `realms.len()`, inclusive.
+    pub recover_threshold: u8,
+}
+
+#[derive(Debug)]
+struct CheckedConfiguration(Configuration);
+
+impl CheckedConfiguration {
+    fn from(c: Configuration) -> Self {
+        assert!(
+            !c.realms.is_empty(),
+            "Client needs at least one realm in Configuration"
+        );
+
+        // The secret sharing implementation (`sharks`) doesn't support more
+        // than 255 shares.
+        assert!(
+            u8::try_from(c.realms.len()).is_ok(),
+            "too many realms in Client configuration"
+        );
+
+        assert!(
+            1 <= c.recover_threshold,
+            "Configuration recover_threshold must be at least 1"
+        );
+        assert!(
+            usize::from(c.recover_threshold) <= c.realms.len(),
+            "Configuration recover_threshold cannot exceed number of realms"
+        );
+
+        assert!(
+            c.recover_threshold <= c.register_threshold,
+            "Configuration register_threshold must be at least recover_threshold"
+        );
+        assert!(
+            usize::from(c.register_threshold) <= c.realms.len(),
+            "Configuration register_threshold cannot exceed number of realms"
+        );
+
+        if usize::from(c.recover_threshold) < c.realms.len()
+            || usize::from(c.register_threshold) < c.realms.len()
+        {
+            unimplemented!("thresholds")
+        }
+
+        Self(c)
+    }
+}
+
+impl Deref for CheckedConfiguration {
+    type Target = Configuration;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 /// A user-chosen password that may be low in entropy.
@@ -236,7 +310,7 @@ struct Recover1Success {
 /// particular user.
 #[derive(Debug)]
 pub struct Client {
-    configuration: Vec<Realm>,
+    configuration: CheckedConfiguration,
     auth_token: AuthToken,
 }
 
@@ -247,26 +321,11 @@ impl Client {
     ///
     /// The `auth_token` represents the authority to act as a particular user
     /// and should be valid for the lifetime of the `Client`.
-    pub fn new(configuration: Vec<Realm>, auth_token: AuthToken) -> Self {
-        assert!(!configuration.is_empty(), "Client needs at least one realm");
-
-        // The secret sharing implementation (`sharks`) doesn't support more
-        // than 255 shares.
-        assert!(
-            u8::try_from(configuration.len()).is_ok(),
-            "too many realms in Client configuration"
-        );
-
+    pub fn new(configuration: Configuration, auth_token: AuthToken) -> Self {
         Self {
-            configuration,
+            configuration: CheckedConfiguration::from(configuration),
             auth_token,
         }
-    }
-
-    /// Returns the number of shares needed to reconstruct either the
-    /// PasswordGeneratingKey or the user's secret.
-    fn shares_threshold(&self) -> u8 {
-        u8::try_from(self.configuration.len()).unwrap()
     }
 
     /// Stores a new PIN-protected secret.
@@ -328,6 +387,7 @@ impl Client {
     ) -> Result<RegisterGenSuccess, RegisterGenError> {
         let register1_requests = self
             .configuration
+            .realms
             .iter()
             .map(|realm| self.register1(realm, generation, pin));
 
@@ -338,7 +398,8 @@ impl Client {
         // powering through to phase 2 would waste server time and leave behind
         // cruft. It's better to synchronize here and abort early instead.
         let oprfs_pin = {
-            let mut oprfs_pin: Vec<OprfResult> = Vec::with_capacity(self.configuration.len());
+            let mut oprfs_pin: Vec<OprfResult> =
+                Vec::with_capacity(self.configuration.realms.len());
             // The next generation number that is available on every server (so
             // far).
             let mut retry_generation = None;
@@ -361,41 +422,46 @@ impl Client {
             if let Some(g) = retry_generation {
                 return Err(RegisterGenError::Retry(g));
             }
-            assert_eq!(oprfs_pin.len(), self.configuration.len());
+            assert_eq!(oprfs_pin.len(), self.configuration.realms.len());
             oprfs_pin
         };
 
         let pgk = PasswordGeneratingKey::new_random();
 
         let pgk_shares: Vec<PgkShare> = {
-            Sharks(self.shares_threshold())
+            Sharks(self.configuration.recover_threshold)
                 .dealer_rng(&pgk.0, &mut OsRng)
-                .take(self.configuration.len())
+                .take(self.configuration.realms.len())
                 .map(PgkShare)
                 .collect()
         };
 
         let secret_shares: Vec<UserSecretShare> = {
-            Sharks(self.shares_threshold())
+            Sharks(self.configuration.recover_threshold)
                 .dealer_rng(&secret.0, &mut OsRng)
-                .take(self.configuration.len())
+                .take(self.configuration.realms.len())
                 .map(|share| UserSecretShare(Vec::<u8>::from(&share)))
                 .collect()
         };
 
-        let register2_requests = self.configuration.iter().enumerate().map(|(i, realm)| {
-            self.register2(
-                realm,
-                Register2Args {
-                    generation,
-                    oprf_pin: oprfs_pin[i],
-                    pgk_share: pgk_shares[i].clone(),
-                    password: pgk.password(&realm.public_key),
-                    secret_share: secret_shares[i].clone(),
-                    policy: policy.clone(),
-                },
-            )
-        });
+        let register2_requests = self
+            .configuration
+            .realms
+            .iter()
+            .enumerate()
+            .map(|(i, realm)| {
+                self.register2(
+                    realm,
+                    Register2Args {
+                        generation,
+                        oprf_pin: oprfs_pin[i],
+                        pgk_share: pgk_shares[i].clone(),
+                        password: pgk.password(&realm.public_key),
+                        secret_share: secret_shares[i].clone(),
+                        policy: policy.clone(),
+                    },
+                )
+            });
 
         match try_join_all(register2_requests).await {
             Ok(success) => Ok(RegisterGenSuccess {
@@ -554,6 +620,7 @@ impl Client {
     ) -> Result<RecoverGenSuccess, RecoverGenError> {
         let recover1_requests = self
             .configuration
+            .realms
             .iter()
             .map(|realm| self.recover1(realm, request_generation, pin));
 
@@ -624,7 +691,7 @@ impl Client {
             })
             .collect();
 
-        if pgk_shares.len() != self.configuration.len() {
+        if pgk_shares.len() < usize::from(self.configuration.recover_threshold) {
             return Err(RecoverGenError {
                 error: RecoverError::Unsuccessful(vec![(
                     current_generation,
@@ -634,7 +701,7 @@ impl Client {
             });
         }
 
-        let pgk = match Sharks(self.shares_threshold()).recover(&pgk_shares) {
+        let pgk = match Sharks(self.configuration.recover_threshold).recover(&pgk_shares) {
             Ok(pgk) => PasswordGeneratingKey(pgk),
 
             Err(_) => {
@@ -648,10 +715,10 @@ impl Client {
             }
         };
 
-        let recover2_requests = self
-            .configuration
-            .iter()
-            .map(|realm| self.recover2(realm, current_generation, pgk.password(&realm.public_key)));
+        let recover2_requests =
+            self.configuration.realms.iter().map(|realm| {
+                self.recover2(realm, current_generation, pgk.password(&realm.public_key))
+            });
 
         let secret_shares =
             try_join_all(recover2_requests)
@@ -673,7 +740,7 @@ impl Client {
                 retry: previous_generation,
             })?;
 
-        match Sharks(self.shares_threshold()).recover(&secret_shares) {
+        match Sharks(self.configuration.recover_threshold).recover(&secret_shares) {
             Ok(secret) => Ok(RecoverGenSuccess {
                 generation: current_generation,
                 secret: UserSecret(secret),
@@ -870,6 +937,7 @@ impl Client {
     async fn delete_up_to(&self, up_to: Option<GenerationNumber>) -> Result<(), DeleteError> {
         let requests = self
             .configuration
+            .realms
             .iter()
             .map(|realm| self.delete_on_realm(realm, up_to));
 
