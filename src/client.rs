@@ -94,12 +94,6 @@ impl CheckedConfiguration {
             "Configuration register_threshold cannot exceed number of realms"
         );
 
-        if usize::from(c.recover_threshold) < c.realms.len()
-            || usize::from(c.register_threshold) < c.realms.len()
-        {
-            unimplemented!("thresholds")
-        }
-
         Self(c)
     }
 }
@@ -363,7 +357,7 @@ impl Client {
                     }) => {
                         if found_earlier_generations {
                             if let Err(delete_err) = self.delete_up_to(Some(generation)).await {
-                                println!("warning: register failed to clean up earlier registrations: {delete_err:?}");
+                                println!("client: warning: register failed to clean up earlier registrations: {delete_err:?}");
                             }
                         }
                         Ok(())
@@ -397,16 +391,26 @@ impl Client {
         // event that the desired `generation` is unavailable on some server,
         // powering through to phase 2 would waste server time and leave behind
         // cruft. It's better to synchronize here and abort early instead.
-        let oprfs_pin = {
-            let mut oprfs_pin: Vec<OprfResult> =
-                Vec::with_capacity(self.configuration.realms.len());
+        let oprfs_pin: Vec<Option<OprfResult>> = {
+            let mut oprfs_pin = Vec::with_capacity(self.configuration.realms.len());
             // The next generation number that is available on every server (so
             // far).
             let mut retry_generation = None;
+            let mut network_errors = 0;
             for result in join_all(register1_requests).await {
                 match result {
                     Ok(oprf_pin) => {
-                        oprfs_pin.push(oprf_pin);
+                        oprfs_pin.push(Some(oprf_pin));
+                    }
+                    Err(RegisterGenError::Error(e @ RegisterError::NetworkError(_))) => {
+                        println!("client: warning: transient error during register1: {e:?}");
+                        network_errors += 1;
+                        if self.configuration.realms.len() - network_errors
+                            < usize::from(self.configuration.register_threshold)
+                        {
+                            return Err(RegisterGenError::Error(e));
+                        }
+                        oprfs_pin.push(None);
                     }
                     Err(e @ RegisterGenError::Error(_)) => return Err(e),
                     Err(RegisterGenError::Retry(generation)) => match retry_generation {
@@ -444,24 +448,27 @@ impl Client {
                 .collect()
         };
 
-        let register2_requests = self
-            .configuration
-            .realms
-            .iter()
-            .enumerate()
-            .map(|(i, realm)| {
+        let register2_requests = zip4(
+            &self.configuration.realms,
+            oprfs_pin,
+            pgk_shares,
+            secret_shares,
+        )
+        .filter_map(|(realm, oprf_pin, pgk_share, secret_share)| {
+            oprf_pin.map(|oprf_pin| {
                 self.register2(
                     realm,
                     Register2Args {
                         generation,
-                        oprf_pin: oprfs_pin[i],
-                        pgk_share: pgk_shares[i].clone(),
+                        oprf_pin,
+                        pgk_share,
                         password: pgk.password(&realm.public_key),
-                        secret_share: secret_shares[i].clone(),
+                        secret_share,
                         policy: policy.clone(),
                     },
                 )
-            });
+            })
+        });
 
         match try_join_all(register2_requests).await {
             Ok(success) => Ok(RegisterGenSuccess {
@@ -580,7 +587,7 @@ impl Client {
                 }) => {
                     if found_earlier_generations {
                         if let Err(delete_err) = self.delete_up_to(Some(generation)).await {
-                            println!("warning: recover failed to clean up earlier registrations: {delete_err:?}");
+                            println!("client: warning: recover failed to clean up earlier registrations: {delete_err:?}");
                         }
                     }
                     Ok(secret)
@@ -641,9 +648,16 @@ impl Client {
                     pgk_shares.push((generation, pgk_share));
                 }
 
+                Err(RecoverGenError {
+                    error: error @ RecoverError::NetworkError(_),
+                    retry: _,
+                }) => {
+                    println!("client: warning: transient error during recover1: {error:?}");
+                }
+
                 Err(
                     e @ RecoverGenError {
-                        error: RecoverError::NetworkError(_) | RecoverError::InvalidAuth,
+                        error: RecoverError::InvalidAuth,
                         retry: _,
                     },
                 ) => {
@@ -720,25 +734,39 @@ impl Client {
                 self.recover2(realm, current_generation, pgk.password(&realm.public_key))
             });
 
-        let secret_shares =
-            try_join_all(recover2_requests)
-                .await
-                .map_err(|error| RecoverGenError {
-                    error,
-                    retry: previous_generation,
-                })?;
+        let recover2_results = join_all(recover2_requests).await;
 
-        let secret_shares: Vec<sharks::Share> = secret_shares
-            .iter()
-            .map(|share| sharks::Share::try_from(share.0.as_slice()))
-            .collect::<Result<_, _>>()
-            .map_err(|_| RecoverGenError {
-                error: RecoverError::Unsuccessful(vec![(
-                    current_generation,
-                    UnsuccessfulRecoverReason::ProtocolError,
-                )]),
-                retry: previous_generation,
-            })?;
+        let mut secret_shares = Vec::<sharks::Share>::new();
+        for result in recover2_results {
+            match result {
+                Ok(secret_share) => match sharks::Share::try_from(secret_share.0.as_slice()) {
+                    Ok(secret_share) => {
+                        secret_shares.push(secret_share);
+                    }
+
+                    Err(_) => {
+                        return Err(RecoverGenError {
+                            error: RecoverError::Unsuccessful(vec![(
+                                current_generation,
+                                UnsuccessfulRecoverReason::ProtocolError,
+                            )]),
+                            retry: previous_generation,
+                        })
+                    }
+                },
+
+                Err(error @ RecoverError::NetworkError(_)) => {
+                    println!("client: warning: transient error during recover2: {error:?}");
+                }
+
+                Err(error) => {
+                    return Err(RecoverGenError {
+                        error,
+                        retry: previous_generation,
+                    })
+                }
+            }
+        }
 
         match Sharks(self.configuration.recover_threshold).recover(&secret_shares) {
             Ok(secret) => Ok(RecoverGenSuccess {
@@ -969,4 +997,19 @@ impl Client {
             },
         }
     }
+}
+
+fn zip4<A, B, C, D>(
+    a: A,
+    b: B,
+    c: C,
+    d: D,
+) -> impl Iterator<Item = (A::Item, B::Item, C::Item, D::Item)>
+where
+    A: IntoIterator,
+    B: IntoIterator,
+    C: IntoIterator,
+    D: IntoIterator,
+{
+    zip(zip(a, b), zip(c, d)).map(|((a, b), (c, d))| (a, b, c, d))
 }

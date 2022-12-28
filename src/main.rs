@@ -10,11 +10,12 @@ use types::{AuthToken, Policy};
 
 #[actix_rt::main]
 async fn main() {
-    println!("main: Hello, world!");
-
+    println!("main: Starting 4 servers");
     let server1_addr = Server::new(String::from("server1")).start();
     let server2_addr = Server::new(String::from("server2")).start();
     let server3_addr = Server::new(String::from("server3")).start();
+    let server4_addr = Server::new(String::from("dead-server4")).start();
+    println!();
 
     let client = Client::new(
         Configuration {
@@ -30,6 +31,10 @@ async fn main() {
                 Realm {
                     address: server3_addr,
                     public_key: b"zxcv".to_vec(),
+                },
+                Realm {
+                    address: server4_addr,
+                    public_key: b"uiop".to_vec(),
                 },
             ],
             register_threshold: 3,
@@ -50,6 +55,7 @@ async fn main() {
         )
         .await
         .expect("register failed");
+    println!("main: register succeeded");
     println!();
 
     println!("main: Starting recover with wrong PIN (guess 1)");
@@ -104,7 +110,14 @@ async fn main() {
     println!();
 
     println!("main: Deleting secret");
-    client.delete_all().await.expect("delete_all failed");
+    match client.delete_all().await {
+        Ok(()) => {
+            println!("main: delete succeeded");
+        }
+        Err(e) => {
+            println!("main: warning: delete failed: {e:?}");
+        }
+    }
     println!();
 
     println!("main: exiting");

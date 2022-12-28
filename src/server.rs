@@ -133,6 +133,15 @@ impl Server {
 
 impl Actor for Server {
     type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        let name = &self.name;
+        println!("{name}: starting");
+        if name.starts_with("dead-") {
+            println!("{name}: exiting immediately (since my name starts with 'dead-')");
+            ctx.stop()
+        }
+    }
 }
 
 impl Handler<Register1Request> for Server {
