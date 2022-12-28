@@ -8,12 +8,10 @@ use hmac::{Hmac, Mac};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use sha2::Sha256;
+use sharks::Sharks;
 use std::collections::BTreeSet;
 use std::fmt::{self, Debug};
 use std::iter::zip;
-
-mod trivial_sharing;
-use trivial_sharing::RecombineError;
 
 use super::types::{
     AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedPgkShare, OprfBlindedResult,
@@ -140,9 +138,10 @@ struct PasswordGeneratingKey(Vec<u8>);
 impl PasswordGeneratingKey {
     /// Generates a new key with random data.
     fn new_random() -> Self {
-        // The PGK should be the same size as the OPRF output,
+        // The PGK should be one byte smaller than the OPRF output,
         // so that the PGK shares can be masked with the OPRF output.
-        let mut pgk = vec![0u8; oprf_output_size()];
+        // The `sharks` library adds an extra byte for the x-coordinate.
+        let mut pgk = vec![0u8; oprf_output_size() - 1];
         OsRng.fill_bytes(&mut pgk);
         Self(pgk)
     }
@@ -155,16 +154,37 @@ impl PasswordGeneratingKey {
     }
 }
 
+/// Error return type for [`PgkShare::try_from_masked`].
+#[derive(Debug)]
+struct LengthMismatchError;
+
 /// A share of the [`PasswordGeneratingKey`].
 ///
 /// The version of this that is XORed with `OPRF(PIN)` is
 /// [`MaskedPgkShare`](super::types::MaskedPgkShare).
 #[derive(Clone)]
-struct PgkShare(pub Vec<u8>);
+struct PgkShare(sharks::Share);
 
-impl From<Vec<u8>> for PgkShare {
-    fn from(value: Vec<u8>) -> Self {
-        Self(value)
+impl PgkShare {
+    fn try_from_masked(
+        masked_share: &MaskedPgkShare,
+        oprf_pin: &[u8],
+    ) -> Result<Self, LengthMismatchError> {
+        if masked_share.0.len() == oprf_pin.len() {
+            let share: Vec<u8> = zip(oprf_pin, &masked_share.0).map(|(a, b)| a ^ b).collect();
+            match sharks::Share::try_from(share.as_slice()) {
+                Ok(share) => Ok(Self(share)),
+                Err(_) => Err(LengthMismatchError),
+            }
+        } else {
+            Err(LengthMismatchError)
+        }
+    }
+
+    fn mask(&self, oprf_pin: &[u8]) -> MaskedPgkShare {
+        let share = Vec::from(&self.0);
+        assert_eq!(oprf_pin.len(), share.len());
+        MaskedPgkShare(zip(oprf_pin, share).map(|(a, b)| a ^ b).collect())
     }
 }
 
@@ -229,10 +249,24 @@ impl Client {
     /// and should be valid for the lifetime of the `Client`.
     pub fn new(configuration: Vec<Realm>, auth_token: AuthToken) -> Self {
         assert!(!configuration.is_empty(), "Client needs at least one realm");
+
+        // The secret sharing implementation (`sharks`) doesn't support more
+        // than 255 shares.
+        assert!(
+            u8::try_from(configuration.len()).is_ok(),
+            "too many realms in Client configuration"
+        );
+
         Self {
             configuration,
             auth_token,
         }
+    }
+
+    /// Returns the number of shares needed to reconstruct either the
+    /// PasswordGeneratingKey or the user's secret.
+    fn shares_threshold(&self) -> u8 {
+        u8::try_from(self.configuration.len()).unwrap()
     }
 
     /// Stores a new PIN-protected secret.
@@ -332,10 +366,22 @@ impl Client {
         };
 
         let pgk = PasswordGeneratingKey::new_random();
-        let pgk_shares: Vec<PgkShare> =
-            trivial_sharing::split(&pgk.0, self.configuration.len(), &mut OsRng);
-        let secret_shares: Vec<UserSecretShare> =
-            trivial_sharing::split(&secret.0, self.configuration.len(), &mut OsRng);
+
+        let pgk_shares: Vec<PgkShare> = {
+            Sharks(self.shares_threshold())
+                .dealer_rng(&pgk.0, &mut OsRng)
+                .take(self.configuration.len())
+                .map(PgkShare)
+                .collect()
+        };
+
+        let secret_shares: Vec<UserSecretShare> = {
+            Sharks(self.shares_threshold())
+                .dealer_rng(&secret.0, &mut OsRng)
+                .take(self.configuration.len())
+                .map(|share| UserSecretShare(Vec::<u8>::from(&share)))
+                .collect()
+        };
 
         let register2_requests = self.configuration.iter().enumerate().map(|(i, realm)| {
             self.register2(
@@ -418,9 +464,7 @@ impl Client {
             policy,
         }: Register2Args,
     ) -> Result<RegisterGenSuccess, RegisterError> {
-        assert_eq!(oprf_pin.len(), pgk_share.0.len());
-        let masked_pgk_share =
-            MaskedPgkShare(zip(oprf_pin, pgk_share.0).map(|(a, b)| a ^ b).collect());
+        let masked_pgk_share = pgk_share.mask(&oprf_pin);
 
         let register2_request = realm.address.send(Register2Request {
             auth_token: self.auth_token.clone(),
@@ -569,7 +613,7 @@ impl Client {
         // realm for some generation, but their generations may not have
         // agreed.
 
-        let pgk_shares: Vec<Vec<u8>> = pgk_shares
+        let pgk_shares: Vec<sharks::Share> = pgk_shares
             .into_iter()
             .filter_map(|(generation, share)| {
                 if generation == current_generation {
@@ -590,12 +634,10 @@ impl Client {
             });
         }
 
-        let pgk = match trivial_sharing::recombine(pgk_shares) {
+        let pgk = match Sharks(self.shares_threshold()).recover(&pgk_shares) {
             Ok(pgk) => PasswordGeneratingKey(pgk),
 
-            Err(RecombineError::NoShares) => unreachable!(),
-
-            Err(RecombineError::ShareLengthsDiffer) => {
+            Err(_) => {
                 return Err(RecoverGenError {
                     error: RecoverError::Unsuccessful(vec![(
                         current_generation,
@@ -619,22 +661,32 @@ impl Client {
                     retry: previous_generation,
                 })?;
 
-        match trivial_sharing::recombine(secret_shares.iter().map(|s| &s.0)) {
+        let secret_shares: Vec<sharks::Share> = secret_shares
+            .iter()
+            .map(|share| sharks::Share::try_from(share.0.as_slice()))
+            .collect::<Result<_, _>>()
+            .map_err(|_| RecoverGenError {
+                error: RecoverError::Unsuccessful(vec![(
+                    current_generation,
+                    UnsuccessfulRecoverReason::ProtocolError,
+                )]),
+                retry: previous_generation,
+            })?;
+
+        match Sharks(self.shares_threshold()).recover(&secret_shares) {
             Ok(secret) => Ok(RecoverGenSuccess {
                 generation: current_generation,
                 secret: UserSecret(secret),
                 found_earlier_generations: previous_generation.is_some(),
             }),
 
-            Err(RecombineError::NoShares | RecombineError::ShareLengthsDiffer) => {
-                Err(RecoverGenError {
-                    error: RecoverError::Unsuccessful(vec![(
-                        current_generation,
-                        UnsuccessfulRecoverReason::ProtocolError,
-                    )]),
-                    retry: previous_generation,
-                })
-            }
+            Err(_) => Err(RecoverGenError {
+                error: RecoverError::Unsuccessful(vec![(
+                    current_generation,
+                    UnsuccessfulRecoverReason::ProtocolError,
+                )]),
+                retry: previous_generation,
+            }),
         }
     }
 
@@ -755,21 +807,15 @@ impl Client {
                 }
             })?;
 
-        if oprf_pin.len() != oprf_output_size() || masked_pgk_share.0.len() != oprf_output_size() {
-            return Err(RecoverGenError {
+        let pgk_share = PgkShare::try_from_masked(&masked_pgk_share, &oprf_pin).map_err(|_| {
+            RecoverGenError {
                 error: RecoverError::Unsuccessful(vec![(
                     generation,
                     UnsuccessfulRecoverReason::ProtocolError,
                 )]),
                 retry: previous_generation,
-            });
-        }
-
-        let pgk_share = PgkShare(
-            zip(oprf_pin, masked_pgk_share.0)
-                .map(|(a, b)| a ^ b)
-                .collect(),
-        );
+            }
+        })?;
 
         Ok(Recover1Success {
             generation,
