@@ -45,23 +45,26 @@ fn oprf<R: Rng + CryptoRng>(input: &[u8], rng: &mut R) -> OprfResult {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("random: OsRng", |b| b.iter(|| random(&mut OsRng)));
-    c.bench_function("random: ChaCha RNG", |b| {
+    let mut group = c.benchmark_group("voprf");
+    group.throughput(criterion::Throughput::Elements(1));
+
+    group.bench_function("random: OsRng", |b| b.iter(|| random(&mut OsRng)));
+    group.bench_function("random: ChaCha RNG", |b| {
         let mut rng = ChaCha12Rng::seed_from_u64(7);
         b.iter(|| random(&mut rng))
     });
 
-    c.bench_function("client blind", |b| {
+    group.bench_function("client blind", |b| {
         let mut rng = ChaCha12Rng::seed_from_u64(7);
         b.iter(|| client_blind(black_box(b"1234"), &mut rng))
     });
 
-    c.bench_function("server evaluate", |b| {
+    group.bench_function("server evaluate", |b| {
         let blinded_input = client_blind(b"1234", &mut OsRng).message;
         b.iter(|| server_evaluate(black_box(&blinded_input)));
     });
 
-    c.bench_function("client unblind", |b| {
+    group.bench_function("client unblind", |b| {
         let input = b"1234";
         let blinded_input = client_blind(input, &mut OsRng);
         let blinded_result = server_evaluate(&blinded_input.message);
@@ -74,10 +77,12 @@ fn criterion_benchmark(c: &mut Criterion) {
         })
     });
 
-    c.bench_function("oprf", |b| {
+    group.bench_function("oprf", |b| {
         let mut rng = ChaCha12Rng::seed_from_u64(7);
         b.iter(|| oprf(black_box(b"1234"), &mut rng))
     });
+
+    group.finish();
 }
 
 criterion_group!(benches, criterion_benchmark);
