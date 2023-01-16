@@ -1,6 +1,10 @@
 use actix::prelude::*;
+use tracing::{info, Level};
+use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::FmtSubscriber;
 
 mod client;
+mod realm;
 mod server;
 mod types;
 
@@ -8,8 +12,45 @@ use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use server::Server;
 use types::{AuthToken, Policy};
 
+async fn initialize_realm() -> Result<(), realm::cluster::NewRealmError> {
+    use realm::agent::Agent;
+    use realm::hsm::{Hsm, RealmKey};
+    use realm::store::Store;
+
+    info!("creating in-memory store");
+    let store = Store::new().start();
+
+    let num_hsms = 5;
+    info!(count = num_hsms, "creating HSMs and agents");
+    let agents: Vec<Addr<Agent>> = {
+        let key = RealmKey::random();
+        (1..=num_hsms)
+            .map(|i| {
+                let hsm = Hsm::new(format!("hsm{i:02}"), key.clone()).start();
+                Agent::new(format!("agent{i:02}"), hsm, store.clone()).start()
+            })
+            .collect()
+    };
+
+    let realm_id = realm::cluster::new_realm(&agents).await?;
+    info!(?realm_id, "initialized cluster");
+    Ok(())
+}
+
 #[actix_rt::main]
 async fn main() {
+    let subscriber = FmtSubscriber::builder()
+        .with_file(true)
+        .with_line_number(true)
+        .with_max_level(Level::DEBUG)
+        .with_span_events(FmtSpan::ACTIVE)
+        .with_target(false)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).unwrap();
+    info!("set up tracing");
+
+    initialize_realm().await.unwrap();
+
     println!("main: Starting 4 servers");
     let server1_addr = Server::new(String::from("server1")).start();
     let server2_addr = Server::new(String::from("server2")).start();
