@@ -15,11 +15,13 @@ type KeySlice = BitSlice<u8, Msb0>;
 // TODO
 //  probably a bunch of stuff that should be pub but isn't
 //  blake hasher
-//  proof validation
 //  tree overlay
 //         delta changes to support this
 //         apply overlay to earlier proof
 //         remove ealier deltas
+//  split
+//      "simple split" where the root is split into 2
+//      "complex split" split on arbitary keys
 //  int node hash uses whole bytes of prefix path. needs to distingush between 0001 and 00010
 //  compact_keyslice_str should be a wrapper type?
 //  docs
@@ -29,7 +31,7 @@ pub struct Tree<H: NodeHasher<HO>, HO> {
     hasher: H,
     _marker: PhantomData<HO>,
 }
-impl<H: NodeHasher<HO>, HO: HashOutput + Eq> Tree<H, HO> {
+impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     pub fn new(hasher: H) -> Self {
         Tree {
             hasher,
@@ -177,14 +179,6 @@ pub struct InteriorNode<HO> {
     right: Option<Branch<HO>>,
     hash: HO,
 }
-impl<HO> InteriorNode<HO> {
-    fn branch(&self, dir: Dir) -> &Option<Branch<HO>> {
-        match dir {
-            Dir::Left => &self.left,
-            Dir::Right => &self.right,
-        }
-    }
-}
 impl<HO: HashOutput> InteriorNode<HO> {
     fn new<H: NodeHasher<HO>>(
         h: &H,
@@ -232,8 +226,12 @@ impl<HO: HashOutput> InteriorNode<HO> {
         }
         h.calc_hash(&parts)
     }
-}
-impl<HO: HashOutput> InteriorNode<HO> {
+    fn branch(&self, dir: Dir) -> &Option<Branch<HO>> {
+        match dir {
+            Dir::Left => &self.left,
+            Dir::Right => &self.right,
+        }
+    }
     fn with_new_child<H: NodeHasher<HO>>(
         self,
         h: &H,
@@ -329,7 +327,7 @@ pub struct ReadProof<HO> {
     // followed the dirs[0] direction in path[0]. This will be 1 smaller than the path.
     dirs: Vec<Dir>,
 }
-impl<HO> ReadProof<HO> {
+impl<HO: HashOutput> ReadProof<HO> {
     fn new(key: &[u8], root: InteriorNode<HO>) -> Self {
         ReadProof {
             key: key.to_vec(),
@@ -351,8 +349,7 @@ impl<HO> ReadProof<HO> {
         }
         p
     }
-}
-impl<HO: HashOutput + Eq> ReadProof<HO> {
+
     // verify returns tree if the Proof is valid. This includes the
     // path check and hash verification.
     fn verify<H: NodeHasher<HO>>(&self, h: &H) -> bool {
@@ -484,7 +481,7 @@ pub trait TreeStoreReader<HO> {
     fn fetch(&self, k: &[u8]) -> Result<Node<HO>, TreeStoreError>;
 }
 
-pub trait HashOutput: Copy {
+pub trait HashOutput: Copy + Eq + Debug {
     fn as_u8(&self) -> &[u8];
 }
 
