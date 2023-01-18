@@ -3,7 +3,7 @@ use actix::prelude::*;
 use super::super::hsm::types as hsm_types;
 use hsm_types::{
     CapturedStatement, Configuration, EntryHmac, GroupConfigurationStatement, GroupId, HsmId,
-    LogIndex, RealmId,
+    LogIndex, RealmId, SecretsRequest, SecretsResponse, UserId,
 };
 
 #[derive(Debug, Message)]
@@ -102,4 +102,23 @@ pub enum ReadCapturedResponse {
     InvalidGroup,
     None,
     NoHsm,
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "AppResponse")]
+pub struct AppRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+    pub uid: UserId,
+    pub request: SecretsRequest,
+}
+
+#[derive(Debug, MessageResponse)]
+pub enum AppResponse {
+    Ok(SecretsResponse),
+    NoHsm,
+    NoStore,
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
 }

@@ -8,7 +8,7 @@ use super::agent::types::{
     NewRealmResponse, StatusRequest,
 };
 use super::agent::Agent;
-use super::hsm::types::{Configuration, HsmId, LogIndex, RealmId};
+use super::hsm::types::{Configuration, GroupStatus, HsmId, LeaderStatus, LogIndex, RealmId};
 
 #[derive(Debug)]
 pub enum NewRealmError {
@@ -122,23 +122,29 @@ pub async fn new_realm(group: &[Addr<Agent>]) -> Result<RealmId, NewRealmError> 
             .send(StatusRequest {})
             .await
             .map_err(NewRealmError::NetworkError)?;
-        if let Some(hsm) = status.hsm {
-            if let Some(realm) = hsm.realm {
-                if realm.id == realm_id {
-                    if let Some(group) = realm.groups.iter().find(|group| group.id == group_id) {
-                        if let Some(committed) = group.committed {
-                            if committed >= LogIndex(1) {
-                                info!(
-                                    ?realm_id,
-                                    ?group_id,
-                                    ?committed,
-                                    "realm initialization complete"
-                                );
-                                return Ok(realm_id);
-                            }
-                        }
-                    }
-                }
+        let Some(hsm) = status.hsm else { continue };
+        let Some(realm) = hsm.realm else { continue };
+        if realm.id != realm_id {
+            continue;
+        }
+        let group = realm.groups.iter().find(|group| group.id == group_id);
+        if let Some(GroupStatus {
+            leader:
+                Some(LeaderStatus {
+                    committed: Some(committed),
+                    ..
+                }),
+            ..
+        }) = group
+        {
+            if *committed >= LogIndex(1) {
+                info!(
+                    ?realm_id,
+                    ?group_id,
+                    ?committed,
+                    "realm initialization complete"
+                );
+                return Ok(realm_id);
             }
         }
 

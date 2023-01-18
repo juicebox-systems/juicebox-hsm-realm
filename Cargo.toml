@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 actix = "0.13.0"
 actix-rt = "2.7.0"
+bitvec = "1.0.1"
 digest = "0.10.6"
 futures = "0.3.25"
 hmac = "0.12.1"

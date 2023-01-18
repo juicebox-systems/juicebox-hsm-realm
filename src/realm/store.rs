@@ -6,10 +6,11 @@ use tracing::trace;
 pub mod types;
 
 use super::agent::Agent;
-use super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId};
+use super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordMap};
 use types::{
     AddressEntry, AppendRequest, AppendResponse, GetAddressesRequest, GetAddressesResponse,
-    ReadRequest, ReadResponse, SetAddressRequest, SetAddressResponse,
+    ReadEntryRequest, ReadEntryResponse, ReadLatestRequest, ReadLatestResponse, SetAddressRequest,
+    SetAddressResponse,
 };
 
 pub struct Store {
@@ -19,7 +20,7 @@ pub struct Store {
 
 struct GroupState {
     log: Vec<LogEntry>, // never empty
-    data: Vec<u8>,
+    data: RecordMap,
 }
 
 impl Store {
@@ -70,24 +71,46 @@ impl Handler<AppendRequest> for Store {
     }
 }
 
-impl Handler<ReadRequest> for Store {
-    type Result = ReadResponse;
+impl Handler<ReadEntryRequest> for Store {
+    type Result = ReadEntryResponse;
 
-    fn handle(&mut self, request: ReadRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, request: ReadEntryRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        type Response = ReadEntryResponse;
         trace!(?request);
         let response = match self.groups.get(&(request.realm, request.group)) {
-            None => ReadResponse::Discarded { start: LogIndex(1) },
+            None => Response::Discarded { start: LogIndex(1) },
 
             Some(state) => {
                 let first = state.log.first().unwrap();
                 let last = state.log.last().unwrap();
                 if request.index < first.index {
-                    ReadResponse::Discarded { start: first.index }
+                    Response::Discarded { start: first.index }
                 } else if request.index > last.index {
-                    ReadResponse::DoesNotExist { last: last.index }
+                    Response::DoesNotExist { last: last.index }
                 } else {
                     let offset = usize::try_from(request.index.0 - first.index.0).unwrap();
-                    ReadResponse::Ok(state.log.get(offset).unwrap().clone())
+                    Response::Ok(state.log.get(offset).unwrap().clone())
+                }
+            }
+        };
+        trace!(?response);
+        response
+    }
+}
+
+impl Handler<ReadLatestRequest> for Store {
+    type Result = ReadLatestResponse;
+
+    fn handle(&mut self, request: ReadLatestRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        trace!(?request);
+        let response = match self.groups.get(&(request.realm, request.group)) {
+            None => ReadLatestResponse::None,
+
+            Some(state) => {
+                let last = state.log.last().unwrap();
+                ReadLatestResponse::Ok {
+                    entry: last.clone(),
+                    data: state.data.clone(),
                 }
             }
         };

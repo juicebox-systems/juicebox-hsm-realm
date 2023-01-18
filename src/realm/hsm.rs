@@ -4,19 +4,22 @@ use hmac::{Hmac, Mac};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use sha2::Sha256;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use tracing::{info, trace, warn};
 
+mod app;
 pub mod types;
 
+use app::RecordChange;
 use types::{
-    BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest, CaptureNextResponse,
-    CapturedStatement, CommitRequest, CommitResponse, Configuration, DataHash, EntryHmac,
-    GroupConfigurationStatement, GroupId, GroupStatus, HsmId, JoinGroupRequest, JoinGroupResponse,
-    JoinRealmRequest, JoinRealmResponse, LogEntry, LogIndex, NewRealmRequest, NewRealmResponse,
-    NewRealmResponseOk, OwnedPrefix, ReadCapturedRequest, ReadCapturedResponse, RealmId,
-    RealmStatus, StatusRequest, StatusResponse,
+    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
+    CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse, Configuration, DataHash,
+    EntryHmac, GroupConfigurationStatement, GroupId, GroupStatus, HsmId, JoinGroupRequest,
+    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus, LogEntry, LogIndex,
+    NewRealmRequest, NewRealmResponse, NewRealmResponseOk, OwnedPrefix, ReadCapturedRequest,
+    ReadCapturedResponse, RealmId, RealmStatus, RecordMap, SecretsResponse, StatusRequest,
+    StatusResponse, UserId,
 };
 
 #[derive(Clone)]
@@ -30,9 +33,9 @@ impl fmt::Debug for RealmKey {
 
 impl RealmKey {
     pub fn random() -> Self {
-        let mut id = digest::Key::<Hmac<Sha256>>::default();
-        OsRng.fill_bytes(&mut id);
-        Self(id)
+        let mut key = digest::Key::<Hmac<Sha256>>::default();
+        OsRng.fill_bytes(&mut key);
+        Self(key)
     }
 }
 
@@ -161,9 +164,9 @@ impl<'a> EntryHmacBuilder<'a> {
         mac.update(b"|");
         mac.update(&self.index.0.to_be_bytes());
         mac.update(b"|");
-        mac.update(&self.owned_prefix.bits.to_be_bytes());
-        mac.update(b"|");
-        mac.update(&self.owned_prefix.mask.to_be_bytes());
+        for bit in self.owned_prefix.0.iter() {
+            mac.update(if *bit { b"1" } else { b"0" });
+        }
         mac.update(b"|");
         mac.update(&self.data_hash.0);
         mac.update(b"|");
@@ -177,6 +180,29 @@ impl<'a> EntryHmacBuilder<'a> {
 
     fn verify(&self, key: &RealmKey, hmac: &EntryHmac) -> Result<(), digest::MacError> {
         self.calculate(key).verify(&hmac.0)
+    }
+}
+
+impl RecordMap {
+    fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
+    fn hash(&self) -> DataHash {
+        let mut hash = Sha256::new();
+        for (uid, record) in &self.0 {
+            for bit in &uid.0 {
+                if *bit {
+                    hash.update(b"1");
+                } else {
+                    hash.update(b"0");
+                }
+            }
+            hash.update(":");
+            hash.update(record.serialized());
+            hash.update(";");
+        }
+        DataHash(hash.finalize())
     }
 }
 
@@ -207,16 +233,19 @@ struct VolatileState {
 }
 
 struct LeaderVolatileGroupState {
-    #[allow(dead_code)]
-    log: VolatileLog,
+    log: Vec<LeaderLogEntry>, // never empty
     committed: Option<LogIndex>,
 }
 
-struct VolatileLog {
-    #[allow(dead_code)]
-    start_index: LogIndex,
-    #[allow(dead_code)]
-    entries: Vec<LogEntry>,
+struct LeaderLogEntry {
+    entry: LogEntry,
+    /// If set, this is a change to the data that resulted in the log entry.
+    /// If `None`, either the change happened before this HSM became leader,
+    /// or the log entry didn't change the data.
+    delta: Option<(UserId, RecordChange)>,
+    /// A possible response to the client. This must not be externalized until
+    /// after the entry has been committed.
+    response: Option<SecretsResponse>,
 }
 
 impl Hsm {
@@ -244,36 +273,38 @@ impl Handler<StatusRequest> for Hsm {
 
     fn handle(&mut self, request: StatusRequest, _ctx: &mut Context<Self>) -> Self::Result {
         trace!(hsm = self.name, ?request);
-        let response = StatusResponse {
-            id: self.persistent.id,
-            realm: self.persistent.realm.as_ref().map(|realm| RealmStatus {
-                id: realm.id,
-                groups: realm
-                    .groups
-                    .iter()
-                    .map(|(group_id, group)| {
-                        let configuration = group.configuration.clone();
-                        let captured = group.captured.clone();
-                        match self.volatile.leader.get(group_id) {
-                            Some(leader) => GroupStatus {
+        let response =
+            StatusResponse {
+                id: self.persistent.id,
+                realm: self.persistent.realm.as_ref().map(|realm| RealmStatus {
+                    id: realm.id,
+                    groups: realm
+                        .groups
+                        .iter()
+                        .map(|(group_id, group)| {
+                            let configuration = group.configuration.clone();
+                            let captured = group.captured.clone();
+                            GroupStatus {
                                 id: *group_id,
                                 configuration,
-                                is_leader: true,
                                 captured,
-                                committed: leader.committed,
-                            },
-                            None => GroupStatus {
-                                id: *group_id,
-                                configuration,
-                                is_leader: false,
-                                captured,
-                                committed: None,
-                            },
-                        }
-                    })
-                    .collect(),
-            }),
-        };
+                                leader: self.volatile.leader.get(group_id).map(|leader| {
+                                    LeaderStatus {
+                                        committed: leader.committed,
+                                        owned_prefix: leader
+                                            .log
+                                            .last()
+                                            .expect("leader's log is never empty")
+                                            .entry
+                                            .owned_prefix
+                                            .clone(),
+                                    }
+                                }),
+                            }
+                        })
+                        .collect(),
+                }),
+            };
         trace!(hsm = self.name, ?response);
         response
     }
@@ -312,9 +343,9 @@ impl Handler<NewRealmRequest> for Hsm {
             });
 
             let index = LogIndex(1);
-            let owned_prefix = OwnedPrefix { bits: 0, mask: 0 };
-            let data = Vec::new();
-            let data_hash = DataHash(Sha256::digest(&data));
+            let owned_prefix = OwnedPrefix::full();
+            let data = RecordMap::new();
+            let data_hash = data.hash();
             let prev_hmac = EntryHmac::zero();
 
             let entry_hmac = EntryHmacBuilder {
@@ -338,10 +369,11 @@ impl Handler<NewRealmRequest> for Hsm {
             self.volatile.leader.insert(
                 group_id,
                 LeaderVolatileGroupState {
-                    log: VolatileLog {
-                        start_index: index,
-                        entries: Vec::from([entry.clone()]),
-                    },
+                    log: vec![LeaderLogEntry {
+                        entry: entry.clone(),
+                        delta: None,
+                        response: None,
+                    }],
                     committed: None,
                 },
             );
@@ -516,11 +548,26 @@ impl Handler<BecomeLeaderRequest> for Hsm {
 
                         Some(group) => match &group.captured {
                             None => return Response::NotCaptured { have: None },
-                            Some((captured_index, _captured_hmac)) => {
-                                if request.index != *captured_index {
+                            Some((captured_index, captured_hmac)) => {
+                                if request.last_entry.index != *captured_index
+                                    || request.last_entry.entry_hmac != *captured_hmac
+                                {
                                     return Response::NotCaptured {
                                         have: Some(*captured_index),
                                     };
+                                }
+                                if (EntryHmacBuilder {
+                                    realm: request.realm,
+                                    group: request.group,
+                                    index: request.last_entry.index,
+                                    owned_prefix: &request.last_entry.owned_prefix,
+                                    data_hash: &request.last_entry.data_hash,
+                                    prev_hmac: &request.last_entry.prev_hmac,
+                                })
+                                .verify(&self.persistent.realm_key, &request.last_entry.entry_hmac)
+                                .is_err()
+                                {
+                                    return Response::InvalidHmac;
                                 }
                             }
                         },
@@ -532,10 +579,11 @@ impl Handler<BecomeLeaderRequest> for Hsm {
                 .leader
                 .entry(request.group)
                 .or_insert_with(|| LeaderVolatileGroupState {
-                    log: VolatileLog {
-                        start_index: LogIndex(request.index.0 + 1),
-                        entries: Vec::new(),
-                    },
+                    log: vec![LeaderLogEntry {
+                        entry: request.last_entry,
+                        delta: None,
+                        response: None,
+                    }],
                     committed: None,
                 });
             Response::Ok
@@ -594,76 +642,208 @@ impl Handler<CommitRequest> for Hsm {
         type Response = CommitResponse;
         trace!(hsm = self.name, ?request);
 
-        let response = (|| match &self.persistent.realm {
-            None => Response::InvalidRealm,
+        let response = (|| {
+            let Some(realm) = &self.persistent.realm else {
+                return Response::InvalidRealm;
+            };
+            if realm.id != request.realm {
+                return Response::InvalidRealm;
+            }
 
-            Some(realm) => {
-                if realm.id != request.realm {
-                    return Response::InvalidRealm;
+            let Some(group) = realm.groups.get(&request.group) else {
+                return Response::InvalidGroup;
+            };
+
+            let Some(leader) = self.volatile.leader.get_mut(&request.group) else {
+                return Response::NotLeader;
+            };
+
+            if let Some(committed) = leader.committed {
+                if committed >= request.index {
+                    return Response::AlreadyCommitted { committed };
                 }
+            }
 
-                match realm.groups.get(&request.group) {
-                    None => Response::InvalidGroup,
-
-                    Some(group) => {
-                        let leader = match self.volatile.leader.get_mut(&request.group) {
-                            Some(leader) => {
-                                if let Some(i) = leader.committed {
-                                    if i > request.index {
-                                        return Response::Ok {
-                                            committed: leader.committed,
-                                        };
-                                    }
-                                }
-                                leader
-                            }
-                            None => return Response::NotLeader,
-                        };
-
-                        let captures = request
-                            .captures
-                            .iter()
-                            .filter_map(|(hsm_id, captured_statement)| {
-                                (group.configuration.0.contains(hsm_id)
-                                    && CapturedStatementBuilder {
-                                        hsm: *hsm_id,
-                                        realm: request.realm,
-                                        group: request.group,
-                                        index: request.index,
-                                        entry_hmac: &request.entry_hmac,
-                                    }
-                                    .verify(&self.persistent.realm_key, captured_statement)
-                                    .is_ok())
-                                .then_some(*hsm_id)
-                            })
-                            .chain(match &group.captured {
-                                Some((index, entry_hmac))
-                                    if *index == request.index
-                                        && *entry_hmac == request.entry_hmac =>
-                                {
-                                    Some(self.persistent.id)
-                                }
-                                _ => None,
-                            })
-                            .collect::<HashSet<HsmId>>()
-                            .len();
-
-                        if captures > group.configuration.0.len() / 2 {
-                            info!(hsm = self.name, index = ?request.index, "leader committed entry");
-                            leader.committed = Some(request.index);
-                            CommitResponse::Ok {
-                                committed: leader.committed,
-                            }
-                        } else {
-                            warn!(hsm = self.name, "no quorum. buggy caller?");
-                            CommitResponse::NoQuorum
+            let captures = request
+                .captures
+                .iter()
+                .filter_map(|(hsm_id, captured_statement)| {
+                    (group.configuration.0.contains(hsm_id)
+                        && CapturedStatementBuilder {
+                            hsm: *hsm_id,
+                            realm: request.realm,
+                            group: request.group,
+                            index: request.index,
+                            entry_hmac: &request.entry_hmac,
                         }
+                        .verify(&self.persistent.realm_key, captured_statement)
+                        .is_ok())
+                    .then_some(*hsm_id)
+                })
+                .chain(match &group.captured {
+                    Some((index, entry_hmac))
+                        if *index == request.index && *entry_hmac == request.entry_hmac =>
+                    {
+                        Some(self.persistent.id)
                     }
+                    _ => None,
+                })
+                .collect::<HashSet<HsmId>>()
+                .len();
+
+            if captures > group.configuration.0.len() / 2 {
+                info!(hsm = self.name, index = ?request.index, "leader committed entry");
+                // todo: skip already committed entries
+                let responses = leader
+                    .log
+                    .iter_mut()
+                    .filter(|entry| entry.entry.index <= request.index)
+                    .filter_map(|entry| {
+                        entry
+                            .response
+                            .take()
+                            .map(|r| (entry.entry.entry_hmac.clone(), r))
+                    })
+                    .collect();
+                leader.committed = Some(request.index);
+                CommitResponse::Ok {
+                    committed: leader.committed,
+                    responses,
                 }
+            } else {
+                warn!(hsm = self.name, "no quorum. buggy caller?");
+                CommitResponse::NoQuorum
             }
         })();
 
         trace!(hsm = self.name, ?response);
         response
+    }
+}
+
+impl Handler<AppRequest> for Hsm {
+    type Result = AppResponse;
+
+    fn handle(&mut self, request: AppRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        type Response = AppResponse;
+        trace!(hsm = self.name, ?request);
+
+        let response = match &self.persistent.realm {
+            Some(realm) if realm.id == request.realm => {
+                if realm.groups.contains_key(&request.group) {
+                    if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
+                        handle_app_request(request, &self.persistent, leader)
+                    } else {
+                        Response::NotLeader
+                    }
+                } else {
+                    Response::InvalidGroup
+                }
+            }
+
+            None | Some(_) => Response::InvalidRealm,
+        };
+
+        trace!(hsm = self.name, ?response);
+        response
+    }
+}
+
+fn handle_app_request(
+    request: AppRequest,
+    persistent: &PersistentState,
+    leader: &mut LeaderVolatileGroupState,
+) -> AppResponse {
+    type Response = AppResponse;
+
+    let mut data = {
+        let start_index = leader.log.first().expect("log never empty").entry.index;
+        let Some(offset) =
+            (request.index.0)
+            .checked_sub(start_index.0)
+            .and_then(|offset| usize::try_from(offset).ok()) else {
+            return Response::StaleIndex;
+        };
+
+        let mut iter = leader.log.iter().skip(offset);
+        if let Some(request_entry) = iter.next() {
+            if request_entry.entry.data_hash != request.data.hash() {
+                return Response::InvalidData;
+            }
+        } else {
+            return Response::StaleIndex;
+        };
+
+        let mut data = request.data;
+        for entry in iter.clone() {
+            match &entry.delta {
+                Some((uid, change)) => {
+                    if *uid == request.uid {
+                        return Response::Busy;
+                    }
+                    match change {
+                        RecordChange::Update(record) => {
+                            data.0.insert(uid.clone(), record.clone());
+                        }
+                        RecordChange::Delete => {
+                            data.0.remove(uid);
+                        }
+                    }
+                }
+                None => {}
+            }
+        }
+        data
+    };
+    let last_entry = leader.log.last().unwrap();
+
+    let record = data.0.get(&request.uid);
+    let (client_response, change) = app::process(request.request, record);
+    let delta = match change {
+        Some(change) => {
+            match &change {
+                RecordChange::Update(record) => {
+                    data.0.insert(request.uid.clone(), record.clone());
+                }
+                RecordChange::Delete => {
+                    data.0.remove(&request.uid);
+                }
+            }
+            Some((request.uid, change))
+        }
+        None => None,
+    };
+
+    let index = LogIndex(last_entry.entry.index.0 + 1);
+    let owned_prefix = last_entry.entry.owned_prefix.clone();
+    let data_hash = data.hash();
+    let prev_hmac = last_entry.entry.entry_hmac.clone();
+
+    let entry_hmac = EntryHmacBuilder {
+        realm: request.realm,
+        group: request.group,
+        index,
+        owned_prefix: &owned_prefix,
+        data_hash: &data_hash,
+        prev_hmac: &prev_hmac,
+    }
+    .build(&persistent.realm_key);
+
+    let new_entry = LogEntry {
+        index,
+        owned_prefix,
+        data_hash,
+        prev_hmac,
+        entry_hmac,
+    };
+
+    leader.log.push(LeaderLogEntry {
+        entry: new_entry.clone(),
+        delta,
+        response: Some(client_response),
+    });
+    Response::Ok {
+        entry: new_entry,
+        data,
     }
 }

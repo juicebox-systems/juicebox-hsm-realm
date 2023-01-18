@@ -1,5 +1,9 @@
 use actix::prelude::*;
-use tracing::{info, Level};
+use bitvec::prelude::*;
+use futures::future::join_all;
+use std::iter::zip;
+use std::str::FromStr;
+use tracing::{debug, info, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::FmtSubscriber;
 
@@ -12,13 +16,23 @@ use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use server::Server;
 use types::{AuthToken, Policy};
 
-async fn initialize_realm() -> Result<(), realm::cluster::NewRealmError> {
-    use realm::agent::Agent;
-    use realm::hsm::{Hsm, RealmKey};
-    use realm::store::Store;
+use realm::agent::Agent;
+use realm::hsm::types::{RealmId, SecretsRequest, SecretsResponse, UserId};
+use realm::hsm::{Hsm, RealmKey};
+use realm::load_balancer::types::{ClientRequest, ClientResponse};
+use realm::load_balancer::LoadBalancer;
+use realm::store::Store;
 
+async fn initialize_realm(
+) -> Result<(RealmId, Vec<Addr<LoadBalancer>>), realm::cluster::NewRealmError> {
     info!("creating in-memory store");
     let store = Store::new().start();
+
+    let num_load_balancers = 2;
+    info!(count = num_load_balancers, "creating load balancers");
+    let load_balancers: Vec<Addr<LoadBalancer>> = (1..=num_load_balancers)
+        .map(|i| LoadBalancer::new(format!("lb{i}"), store.clone()).start())
+        .collect();
 
     let num_hsms = 5;
     info!(count = num_hsms, "creating HSMs and agents");
@@ -34,22 +48,81 @@ async fn initialize_realm() -> Result<(), realm::cluster::NewRealmError> {
 
     let realm_id = realm::cluster::new_realm(&agents).await?;
     info!(?realm_id, "initialized cluster");
-    Ok(())
+
+    Ok((realm_id, load_balancers))
 }
 
 #[actix_rt::main]
 async fn main() {
+    let log_level = std::env::var("LOGLEVEL")
+        .map(|s| match Level::from_str(&s) {
+            Ok(level) => level,
+            Err(e) => panic!("failed to parse LOGLEVEL: {e}"),
+        })
+        .unwrap_or(Level::DEBUG);
     let subscriber = FmtSubscriber::builder()
         .with_file(true)
         .with_line_number(true)
-        .with_max_level(Level::DEBUG)
+        .with_max_level(log_level)
         .with_span_events(FmtSpan::ACTIVE)
         .with_target(false)
         .finish();
     tracing::subscriber::set_global_default(subscriber).unwrap();
-    info!("set up tracing");
+    info!(
+        max_level = %log_level,
+        "set up tracing. you can set verbosity with env var LOGLEVEL."
+    );
 
-    initialize_realm().await.unwrap();
+    let (realm_id, load_balancers) = initialize_realm().await.unwrap();
+
+    let uids = [
+        UserId(bitvec::bitvec![0, 0]),
+        UserId(bitvec::bitvec![0, 1]),
+        UserId(bitvec::bitvec![1, 0]),
+    ];
+    join_all(
+        zip(uids.iter().cycle(), load_balancers.iter().cycle())
+            .take(297)
+            .map(|(uid, load_balancer)| async move {
+                let result = load_balancer
+                    .send(ClientRequest {
+                        realm: realm_id,
+                        uid: uid.clone(),
+                        request: SecretsRequest::Increment,
+                    })
+                    .await
+                    .unwrap();
+                match result {
+                    ClientResponse::Ok(SecretsResponse::Increment(new_value)) => {
+                        debug!(?uid, new_value, "incremented")
+                    }
+                    ClientResponse::Unavailable => todo!(),
+                }
+            }),
+    )
+    .await;
+
+    info!("reading counts after many parallel requests");
+    join_all(uids.iter().map(|uid| {
+        let load_balancer = load_balancers[0].clone();
+        async move {
+            let result = load_balancer
+                .send(ClientRequest {
+                    realm: realm_id,
+                    uid: uid.clone(),
+                    request: SecretsRequest::Increment,
+                })
+                .await
+                .unwrap();
+            match result {
+                ClientResponse::Ok(SecretsResponse::Increment(new_value)) => {
+                    info!(?uid, new_value, "incremented")
+                }
+                ClientResponse::Unavailable => todo!(),
+            }
+        }
+    }))
+    .await;
 
     println!("main: Starting 4 servers");
     let server1_addr = Server::new(String::from("server1")).start();

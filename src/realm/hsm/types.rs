@@ -1,7 +1,11 @@
 use actix::prelude::*;
+use bitvec::prelude::BitVec;
 use hmac::Hmac;
 use sha2::Sha256;
+use std::collections::BTreeMap;
 use std::fmt;
+
+use super::app::Record;
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq)]
 pub struct RealmId(pub [u8; 16]);
@@ -39,6 +43,23 @@ impl fmt::Debug for HsmId {
     }
 }
 
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
+pub struct UserId(pub BitVec);
+
+impl fmt::Debug for UserId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0b")?;
+        for bit in &self.0 {
+            if *bit {
+                write!(f, "1")?;
+            } else {
+                write!(f, "0")?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LogIndex(pub u64);
 
@@ -56,7 +77,7 @@ pub struct LogEntry {
 }
 
 /// See [super::EntryHmacBuilder].
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct EntryHmac(pub digest::Output<Hmac<Sha256>>);
 
 impl EntryHmac {
@@ -74,13 +95,34 @@ impl fmt::Debug for EntryHmac {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct OwnedPrefix {
-    pub bits: u16,
-    pub mask: u8,
+#[derive(Clone)]
+pub struct OwnedPrefix(pub BitVec);
+
+impl OwnedPrefix {
+    pub fn full() -> Self {
+        Self(BitVec::new())
+    }
+
+    pub fn contains(&self, uid: &UserId) -> bool {
+        uid.0.starts_with(&self.0)
+    }
 }
 
-#[derive(Clone)]
+impl fmt::Debug for OwnedPrefix {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0b")?;
+        for bit in &self.0 {
+            if *bit {
+                write!(f, "1")?;
+            } else {
+                write!(f, "0")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
 pub struct DataHash(pub digest::Output<Sha256>);
 
 impl fmt::Debug for DataHash {
@@ -91,6 +133,9 @@ impl fmt::Debug for DataHash {
         Ok(())
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct RecordMap(pub(super) BTreeMap<UserId, Record>);
 
 /// Set of HSMs forming a group.
 ///
@@ -145,9 +190,15 @@ pub struct RealmStatus {
 pub struct GroupStatus {
     pub id: GroupId,
     pub configuration: Configuration,
-    pub is_leader: bool,
     pub captured: Option<(LogIndex, EntryHmac)>,
+    pub leader: Option<LeaderStatus>,
+}
+
+#[derive(Debug)]
+pub struct LeaderStatus {
     pub committed: Option<LogIndex>,
+    // Note: this might not be committed yet.
+    pub owned_prefix: OwnedPrefix,
 }
 
 #[derive(Debug, Message)]
@@ -169,7 +220,7 @@ pub struct NewRealmResponseOk {
     pub group: GroupId,
     pub statement: GroupConfigurationStatement,
     pub entry: LogEntry,
-    pub data: Vec<u8>,
+    pub data: RecordMap,
 }
 
 #[derive(Debug, Message)]
@@ -231,7 +282,7 @@ pub enum CaptureNextResponse {
 pub struct BecomeLeaderRequest {
     pub realm: RealmId,
     pub group: GroupId,
-    pub index: LogIndex,
+    pub last_entry: LogEntry,
 }
 
 #[derive(Debug, MessageResponse)]
@@ -239,6 +290,7 @@ pub enum BecomeLeaderResponse {
     Ok,
     InvalidRealm,
     InvalidGroup,
+    InvalidHmac,
     NotCaptured { have: Option<LogIndex> },
 }
 
@@ -274,9 +326,52 @@ pub struct CommitRequest {
 
 #[derive(Debug, MessageResponse)]
 pub enum CommitResponse {
-    Ok { committed: Option<LogIndex> },
+    Ok {
+        committed: Option<LogIndex>,
+        responses: Vec<(EntryHmac, SecretsResponse)>,
+    },
+    AlreadyCommitted {
+        committed: LogIndex,
+    },
     NoQuorum,
     InvalidRealm,
     InvalidGroup,
     NotLeader,
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "AppResponse")]
+pub struct AppRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+    pub uid: UserId,
+    pub request: SecretsRequest,
+    pub index: LogIndex,
+    // TODO: With a Merkle tree, this would be a record and a proof.
+    pub data: RecordMap,
+}
+
+#[derive(Debug, MessageResponse)]
+pub enum AppResponse {
+    Ok {
+        entry: LogEntry,
+        // TODO: With a Merkle tree, this would be a record and a proof.
+        data: RecordMap,
+    },
+    InvalidRealm,
+    InvalidGroup,
+    StaleIndex,
+    Busy,
+    NotLeader,
+    InvalidData,
+}
+
+#[derive(Clone, Debug)]
+pub enum SecretsRequest {
+    Increment,
+}
+
+#[derive(Debug)]
+pub enum SecretsResponse {
+    Increment(u64),
 }
