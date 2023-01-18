@@ -1,7 +1,7 @@
 use actix::prelude::*;
 
 use super::super::agent::Agent;
-use super::super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId};
+use super::super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordMap};
 
 #[derive(Debug, Message)]
 #[rtype(result = "AppendResponse")]
@@ -9,7 +9,7 @@ pub struct AppendRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub entry: LogEntry,
-    pub data: Vec<u8>,
+    pub data: RecordMap,
 }
 
 #[derive(Debug, MessageResponse)]
@@ -19,18 +19,31 @@ pub enum AppendResponse {
 }
 
 #[derive(Debug, Message)]
-#[rtype(result = "ReadResponse")]
-pub struct ReadRequest {
+#[rtype(result = "ReadEntryResponse")]
+pub struct ReadEntryRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub index: LogIndex,
 }
 
 #[derive(Debug, MessageResponse)]
-pub enum ReadResponse {
+pub enum ReadEntryResponse {
     Ok(LogEntry),
     Discarded { start: LogIndex },
     DoesNotExist { last: LogIndex },
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "ReadLatestResponse")]
+pub struct ReadLatestRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+}
+
+#[derive(Debug, MessageResponse)]
+pub enum ReadLatestResponse {
+    Ok { entry: LogEntry, data: RecordMap },
+    None,
 }
 
 #[derive(Debug, Message)]
