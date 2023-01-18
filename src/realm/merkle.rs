@@ -30,7 +30,7 @@ pub struct Tree<H: NodeHasher<HO>, HO> {
     hasher: H,
     _marker: PhantomData<HO>,
 }
-impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
+impl<H: NodeHasher<HO>, HO: HashOutput + Eq> Tree<H, HO> {
     pub fn new(hasher: H) -> Self {
         Tree {
             hasher,
@@ -80,13 +80,15 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         }
     }
 
-    pub fn add<V: Serialize>(
+    pub fn insert<V: Serialize>(
         &mut self,
         mut rp: ReadProof<V, HO>,
         v: V,
-    ) -> Result<Delta<V, HO>, TreeStoreError> {
+    ) -> Result<Delta<V, HO>, InsertError> {
+        if !rp.verify(&self.hasher) {
+            return Err(InsertError::InvalidProof);
+        }
         let path_prefix = rp.prefix_of_path();
-        assert!(rp.key.starts_with(&path_prefix));
         let mut delta = Delta::new(LeafNode::new(&self.hasher, v));
         let key = &rp.key[path_prefix.len()..];
         let tail = rp
@@ -268,10 +270,13 @@ pub struct LeafNode<V, HO> {
 }
 impl<V: Serialize, HO> LeafNode<V, HO> {
     fn new<H: NodeHasher<HO>>(hasher: &H, v: V) -> LeafNode<V, HO> {
-        // TODO: This shouldn't be serde_json.
-        let s = serde_json::to_vec(&v).expect("it should of worked");
-        let h = hasher.calc_hash(&[&s]);
+        let h = Self::calc_hash(hasher, &v);
         LeafNode { value: v, hash: h }
+    }
+    fn calc_hash<H: NodeHasher<HO>>(hasher: &H, v: &V) -> HO {
+        // TODO: This shouldn't be serde_json.
+        let s = serde_json::to_vec(v).expect("it should of worked");
+        hasher.calc_hash(&[&s])
     }
 }
 
@@ -354,6 +359,81 @@ impl<V, HO> ReadProof<V, HO> {
         p
     }
 }
+impl<V: Serialize, HO: HashOutput + Eq> ReadProof<V, HO> {
+    // verify returns tree if the Proof is valid. This includes the
+    // path check and hash verification.
+    fn verify<H: NodeHasher<HO>>(&self, h: &H) -> bool {
+        // Do some basic sanity checks of the Proof struct first.
+        if self.key.is_empty() {
+            return false;
+        }
+        if self.path.len() != self.dirs.len() + 1 {
+            return false;
+        }
+        // Verify the provided path is for the key.
+        // 1. Verify the path all the way to the last interior node.
+        let pp = self.prefix_of_path();
+        if pp.len() >= self.key.len() || !self.key.starts_with(&pp) {
+            return false;
+        }
+        // 2. Verify the tail of the path. This depends on if there's
+        // a leaf or not.
+        let key_tail = &self.key[pp.len()..];
+        let tail_node = self
+            .path
+            .last()
+            .expect("we verified above that path contains at least one item");
+        match &self.leaf {
+            // If there's a leaf, then the last interior node should have
+            // a branch that points the leaf. The branches key prefix
+            // should match what's left of the key.
+            Some(_) => match tail_node.branch(Dir::from(key_tail[0])) {
+                None => {
+                    return false;
+                }
+                Some(b) => {
+                    if key_tail != b.prefix {
+                        return false;
+                    }
+                }
+            },
+            None => {
+                // If there's no leaf then we need to verify that there isn't
+                // a branch from the tail node that could lead to our key. This
+                // prevents an attack where a tail intermedite node is removed
+                // from the proof to try and claim the key doesn't exist.
+                match tail_node.branch(Dir::from(key_tail[0])) {
+                    None => {
+                        // The branch that would lead to the leaf if it existed
+                        // is empty, so that's fine.
+                    }
+                    Some(b) => {
+                        // This branch shouldn't lead to a node that could
+                        // contain the leaf.
+                        if key_tail.starts_with(&b.prefix) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Verify all the hashes match.
+        if let Some(leaf) = &self.leaf {
+            let exp_hash = LeafNode::calc_hash(h, &leaf.value);
+            if exp_hash != leaf.hash {
+                return false;
+            }
+        }
+        for n in &self.path {
+            let exp_hash = InteriorNode::calc_hash(h, &n.left, &n.right);
+            if exp_hash != n.hash {
+                return false;
+            }
+        }
+        true
+    }
+}
 
 pub struct Delta<V, HO> {
     add: Vec<InteriorNode<HO>>,
@@ -388,6 +468,11 @@ impl<V, HO> Delta<V, HO> {
             remove: Vec::new(),
         }
     }
+}
+
+#[derive(Debug)]
+pub enum InsertError {
+    InvalidProof,
 }
 
 #[derive(Clone)]
@@ -509,7 +594,7 @@ mod tests {
     fn first_insert() {
         let (mut tree, mut root, mut store) = new_empty_tree();
         let rp = tree.read(&store, &root, &[1, 2, 3]).unwrap();
-        let d = tree.add(rp, 42).unwrap();
+        let d = tree.insert(rp, 42).unwrap();
         assert_eq!(1, d.add.len());
         assert_eq!(42, d.leaf.value);
         assert_eq!(root, d.remove[0]);
@@ -524,17 +609,9 @@ mod tests {
     #[test]
     fn insert_some() {
         let (mut tree, mut root, mut store) = new_empty_tree();
-        let rp = tree.read(&store, &root, &[2, 6, 8]).unwrap();
-        let d = tree.add(rp, 42).unwrap();
-        root = store.apply(d).unwrap();
-
-        let rp = tree.read(&store, &root, &[4, 4, 6]).unwrap();
-        let d = tree.add(rp, 43).unwrap();
-        root = store.apply(d).unwrap();
-
-        let rp = tree.read(&store, &root, &[0, 2, 3]).unwrap();
-        let d = tree.add(rp, 44).unwrap();
-        root = store.apply(d).unwrap();
+        root = tree_insert(&mut tree, &mut store, root, &[2, 6, 8], 42);
+        root = tree_insert(&mut tree, &mut store, root, &[4, 4, 6], 43);
+        root = tree_insert(&mut tree, &mut store, root, &[0, 2, 3], 44);
 
         let p = tree.read(&store, &root, &[2, 6, 8]).unwrap();
         assert_eq!(42, p.leaf.unwrap().value);
@@ -545,18 +622,10 @@ mod tests {
     #[test]
     fn update_some() {
         let (mut tree, mut root, mut store) = new_empty_tree();
-        let rp = tree.read(&store, &root, &[2, 6, 8]).unwrap();
-        let d = tree.add(rp, 42).unwrap();
-        root = store.apply(d).unwrap();
-
-        let rp = tree.read(&store, &root, &[4, 4, 6]).unwrap();
-        let d = tree.add(rp, 43).unwrap();
-        root = store.apply(d).unwrap();
-
+        root = tree_insert(&mut tree, &mut store, root, &[2, 6, 8], 42);
+        root = tree_insert(&mut tree, &mut store, root, &[4, 4, 6], 43);
         // now do a read/write for an existing key
-        let rp = tree.read(&store, &root, &[4, 4, 6]).unwrap();
-        let d = tree.add(rp, 44).unwrap();
-        root = store.apply(d).unwrap();
+        root = tree_insert(&mut tree, &mut store, root, &[4, 4, 6], 44);
 
         let rp = tree.read(&store, &root, &[4, 4, 6]).unwrap();
         assert_eq!(44, rp.leaf.unwrap().value);
@@ -574,21 +643,57 @@ mod tests {
             expected.insert(key.to_vec(), i);
 
             // write our new key/value
-            let rp = tree.read(&store, &root, &key).unwrap();
-            let d = tree
-                .add(rp, i)
-                .expect(&format!("failed to insert {}th key", i));
-            root = store.apply(d).unwrap();
+            root = tree_insert(&mut tree, &mut store, root, &key, i);
 
             // verify we can read all the key/values we've stored.
             for (k, v) in expected.iter() {
-                let p = tree.read(&store, &root, &k).unwrap();
+                let p = tree.read(&store, &root, k).unwrap();
                 assert_eq!(*v, p.leaf.unwrap().value);
             }
             // if i == 16 {
             //     tree_to_dot(root, &store, "many.dot").unwrap();
             // }
         }
+    }
+
+    #[test]
+    fn test_read_proof_verify() {
+        let (mut tree, mut root, mut store) = new_empty_tree();
+        root = tree_insert(&mut tree, &mut store, root, &[1], 1);
+        root = tree_insert(&mut tree, &mut store, root, &[5], 2);
+
+        let mut p = tree.read(&store, &root, &[5]).unwrap();
+        assert!(p.verify(&tree.hasher));
+
+        // claim there's no leaf
+        p.leaf = None;
+        assert!(!p.verify(&tree.hasher));
+
+        let mut p = tree.read(&store, &root, &[5]).unwrap();
+        // truncate the tail of the path to claim there's no leaf
+        p.leaf = None;
+        p.path.pop();
+        p.dirs.pop();
+        assert!(!p.verify(&tree.hasher));
+
+        let mut p = tree.read(&store, &root, &[5]).unwrap();
+        // futz with the path
+        p.key = KeyVec::from_slice(&[3]);
+        assert!(!p.verify(&tree.hasher), "{}", p.key);
+
+        // futz with the value (checks the hash)
+        let mut p = tree.read(&store, &root, &[5]).unwrap();
+        if let Some(ref mut l) = p.leaf {
+            l.value += 1;
+        }
+        assert!(!p.verify(&tree.hasher));
+
+        // futz with a node (checks the hash)
+        let mut p = tree.read(&store, &root, &[5]).unwrap();
+        if let Some(ref mut b) = &mut p.path[0].left {
+            b.prefix.pop();
+        }
+        assert!(!p.verify(&tree.hasher));
     }
 
     #[test]
@@ -621,6 +726,19 @@ mod tests {
         let root_hash = root_node.hash;
         store.insert(root_hash, Node::Interior(root_node));
         (t, root_hash, store)
+    }
+
+    // helper to insert a value into the tree and update the store
+    fn tree_insert<V: Serialize + Clone>(
+        tree: &mut Tree<TestHasher, TestHash>,
+        store: &mut MemStore<V, TestHash>,
+        root: TestHash,
+        key: &[u8],
+        val: V,
+    ) -> TestHash {
+        let rp = tree.read(store, &root, key).unwrap();
+        let d = tree.insert(rp, val).unwrap();
+        store.apply(d).unwrap()
     }
 
     struct MemStore<V, HO> {
