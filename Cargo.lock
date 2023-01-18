@@ -655,8 +655,6 @@ dependencies = [
  "hmac",
  "rand",
  "rand_chacha",
- "serde",
- "serde_json",
  "sha2",
  "sharks",
  "subtle",
