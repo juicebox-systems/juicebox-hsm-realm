@@ -88,20 +88,26 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         let path_prefix = rp.prefix_of_path();
         assert!(rp.key.starts_with(&path_prefix));
         let mut delta = Delta::new(LeafNode::new(&self.hasher, v));
+        let key = &rp.key[path_prefix.len()..];
+        let tail = rp
+            .path
+            .pop()
+            .expect("the path should always include at least the root");
+
         match rp.leaf {
             Some(l) => {
-                // there's an existing path to the correct leaf, we just need to remember to
-                // delete the old leaf.
+                // There's an existing path to the correct leaf. We need to delete the old
+                // leaf. We also recalculate the hash for tail node with the new leaf
+                let (updated_n, old_hash) =
+                    tail.with_new_child_hash(&self.hasher, Dir::from(key[0]), delta.leaf.hash);
+                delta.add.push(updated_n);
+                delta.remove.push(old_hash);
                 delta.remove.push(l.hash);
+                // the remained of the path is updated below.
             }
             None => {
                 // We need to mutate the tree to add a path to our new leaf. The mutation starts
                 // at the last node in the path.
-                let key = &rp.key[path_prefix.len()..];
-                let tail = rp
-                    .path
-                    .pop()
-                    .expect("the path should always include at least the root");
                 let dir = Dir::from(key[0]);
                 match tail.branch(dir) {
                     None => {
@@ -144,15 +150,13 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 }
             }
         }
-        // At this point, path contains the list of existing nodes that were traversed to find out
+        // At this point, rp.path contains the list of existing nodes that were traversed to find out
         // where to insert new item, and they need updating with new hashes.
-        // Delta contains the mutations to get from the end of 'path' to the new leaf. If delta.add
-        // is empty then the leaf is the only new item. Otherwise the last item in delta.add is the
-        // highest interior node already processed. The last item in path needs updating with its hash
-        let mut child_hash = match delta.add.last() {
-            Some(n) => n.hash,
-            None => delta.leaf.hash,
-        };
+        // Delta contains the mutations to get from the end of 'path' to the new leaf. The last item
+        // in delta is the child of the last item in rp.path. Regardless of if there was an existing
+        // leaf or not, the above code has already updated the leaf and the last interior node.
+        assert!(!delta.add.is_empty());
+        let mut child_hash = delta.add.last().unwrap().hash;
         loop {
             match rp.path.pop() {
                 None => break,
@@ -536,6 +540,26 @@ mod tests {
         assert_eq!(42, p.leaf.unwrap().value);
         assert_eq!(3, p.path.len());
         assert_eq!(root, p.path[0].hash);
+    }
+
+    #[test]
+    fn update_some() {
+        let (mut tree, mut root, mut store) = new_empty_tree();
+        let rp = tree.read(&store, &root, &[2, 6, 8]).unwrap();
+        let d = tree.add(rp, 42).unwrap();
+        root = store.apply(d).unwrap();
+
+        let rp = tree.read(&store, &root, &[4, 4, 6]).unwrap();
+        let d = tree.add(rp, 43).unwrap();
+        root = store.apply(d).unwrap();
+
+        // now do a read/write for an existing key
+        let rp = tree.read(&store, &root, &[4, 4, 6]).unwrap();
+        let d = tree.add(rp, 44).unwrap();
+        root = store.apply(d).unwrap();
+
+        let rp = tree.read(&store, &root, &[4, 4, 6]).unwrap();
+        assert_eq!(44, rp.leaf.unwrap().value);
     }
 
     #[test]
