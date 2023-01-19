@@ -43,9 +43,29 @@ pub struct JoinRealmRequest {
 
 #[derive(Debug, MessageResponse)]
 pub enum JoinRealmResponse {
-    Ok,
-    HaveRealm,
+    Ok { hsm: HsmId },
+    HaveOtherRealm,
     NoHsm,
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "NewGroupResponse")]
+pub struct NewGroupRequest {
+    pub realm: RealmId,
+    pub configuration: Configuration,
+}
+
+#[derive(Debug, MessageResponse)]
+pub enum NewGroupResponse {
+    Ok {
+        group: GroupId,
+        statement: GroupConfigurationStatement,
+    },
+    InvalidRealm,
+    InvalidConfiguration,
+    NoHsm,
+    NoStore,
+    StorePreconditionFailed,
 }
 
 #[derive(Debug, Message)]

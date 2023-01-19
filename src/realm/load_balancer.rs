@@ -57,11 +57,13 @@ async fn refresh(name: &str, store: Addr<Store>) -> HashMap<RealmId, Vec<Partiti
                         let realm = realms.entry(status.id).or_default();
                         for group in status.groups {
                             if let Some(leader) = group.leader {
-                                realm.push(Partition {
-                                    group: group.id,
-                                    owned_prefix: leader.owned_prefix,
-                                    leader: agent.clone(),
-                                });
+                                if let Some(owned_prefix) = leader.owned_prefix {
+                                    realm.push(Partition {
+                                        group: group.id,
+                                        owned_prefix,
+                                        leader: agent.clone(),
+                                    });
+                                }
                             }
                         }
                     }

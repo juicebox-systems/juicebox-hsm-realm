@@ -17,9 +17,9 @@ use types::{
     CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse, Configuration, DataHash,
     EntryHmac, GroupConfigurationStatement, GroupId, GroupStatus, HsmId, JoinGroupRequest,
     JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus, LogEntry, LogIndex,
-    NewRealmRequest, NewRealmResponse, NewRealmResponseOk, OwnedPrefix, ReadCapturedRequest,
-    ReadCapturedResponse, RealmId, RealmStatus, RecordMap, SecretsResponse, StatusRequest,
-    StatusResponse, UserId,
+    NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
+    OwnedPrefix, ReadCapturedRequest, ReadCapturedResponse, RealmId, RealmStatus, RecordMap,
+    SecretsResponse, StatusRequest, StatusResponse, UserId,
 };
 
 #[derive(Clone)]
@@ -149,7 +149,7 @@ struct EntryHmacBuilder<'a> {
     realm: RealmId,
     group: GroupId,
     index: LogIndex,
-    owned_prefix: &'a OwnedPrefix,
+    owned_prefix: &'a Option<OwnedPrefix>,
     data_hash: &'a DataHash,
     prev_hmac: &'a EntryHmac,
 }
@@ -164,8 +164,13 @@ impl<'a> EntryHmacBuilder<'a> {
         mac.update(b"|");
         mac.update(&self.index.0.to_be_bytes());
         mac.update(b"|");
-        for bit in self.owned_prefix.0.iter() {
-            mac.update(if *bit { b"1" } else { b"0" });
+        match self.owned_prefix {
+            Some(owned_prefix) => {
+                for bit in owned_prefix.0.iter() {
+                    mac.update(if *bit { b"1" } else { b"0" });
+                }
+            }
+            None => mac.update(b"none"),
         }
         mac.update(b"|");
         mac.update(&self.data_hash.0);
@@ -262,6 +267,73 @@ impl Hsm {
             },
         }
     }
+
+    fn create_new_group(
+        &mut self,
+        realm: RealmId,
+        configuration: Configuration,
+        owned_prefix: Option<OwnedPrefix>,
+    ) -> NewGroupInfo {
+        let group = GroupId::random();
+        let statement = GroupConfigurationStatementBuilder {
+            realm,
+            group,
+            configuration: &configuration,
+        }
+        .build(&self.persistent.realm_key);
+
+        let existing = self.persistent.realm.as_mut().unwrap().groups.insert(
+            group,
+            PersistentGroupState {
+                configuration,
+                captured: None,
+            },
+        );
+        assert!(existing.is_none());
+
+        let index = LogIndex(1);
+        let data = RecordMap::new();
+        let data_hash = data.hash();
+        let prev_hmac = EntryHmac::zero();
+
+        let entry_hmac = EntryHmacBuilder {
+            realm,
+            group,
+            index,
+            owned_prefix: &owned_prefix,
+            data_hash: &data_hash,
+            prev_hmac: &prev_hmac,
+        }
+        .build(&self.persistent.realm_key);
+
+        let entry = LogEntry {
+            index,
+            owned_prefix,
+            data_hash,
+            prev_hmac,
+            entry_hmac,
+        };
+
+        self.volatile.leader.insert(
+            group,
+            LeaderVolatileGroupState {
+                log: vec![LeaderLogEntry {
+                    entry: entry.clone(),
+                    delta: None,
+                    response: None,
+                }],
+                committed: None,
+            },
+        );
+
+        NewGroupInfo {
+            realm,
+            group,
+            statement,
+            entry,
+            data,
+        }
+    }
 }
 
 impl Actor for Hsm {
@@ -324,67 +396,13 @@ impl Handler<NewRealmRequest> for Hsm {
             Response::InvalidConfiguration
         } else {
             let realm_id = RealmId::random();
-            let group_id = GroupId::random();
-            let statement = GroupConfigurationStatementBuilder {
-                realm: realm_id,
-                group: group_id,
-                configuration: &request.configuration,
-            }
-            .build(&self.persistent.realm_key);
             self.persistent.realm = Some(PersistentRealmState {
                 id: realm_id,
-                groups: HashMap::from([(
-                    group_id,
-                    PersistentGroupState {
-                        configuration: request.configuration,
-                        captured: None,
-                    },
-                )]),
+                groups: HashMap::new(),
             });
-
-            let index = LogIndex(1);
-            let owned_prefix = OwnedPrefix::full();
-            let data = RecordMap::new();
-            let data_hash = data.hash();
-            let prev_hmac = EntryHmac::zero();
-
-            let entry_hmac = EntryHmacBuilder {
-                realm: realm_id,
-                group: group_id,
-                index,
-                owned_prefix: &owned_prefix,
-                data_hash: &data_hash,
-                prev_hmac: &prev_hmac,
-            }
-            .build(&self.persistent.realm_key);
-
-            let entry = LogEntry {
-                index,
-                owned_prefix,
-                data_hash,
-                prev_hmac,
-                entry_hmac,
-            };
-
-            self.volatile.leader.insert(
-                group_id,
-                LeaderVolatileGroupState {
-                    log: vec![LeaderLogEntry {
-                        entry: entry.clone(),
-                        delta: None,
-                        response: None,
-                    }],
-                    committed: None,
-                },
-            );
-
-            Response::Ok(NewRealmResponseOk {
-                realm: realm_id,
-                group: group_id,
-                statement,
-                entry,
-                data,
-            })
+            let group_info =
+                self.create_new_group(realm_id, request.configuration, Some(OwnedPrefix::full()));
+            Response::Ok(group_info)
         };
         trace!(hsm = self.name, ?response);
         response
@@ -396,14 +414,56 @@ impl Handler<JoinRealmRequest> for Hsm {
 
     fn handle(&mut self, request: JoinRealmRequest, _ctx: &mut Context<Self>) -> Self::Result {
         trace!(hsm = self.name, ?request);
-        let response = if self.persistent.realm.is_some() {
-            JoinRealmResponse::HaveRealm
+
+        let response = match &self.persistent.realm {
+            Some(realm) => {
+                if realm.id == request.realm {
+                    JoinRealmResponse::Ok {
+                        hsm: self.persistent.id,
+                    }
+                } else {
+                    JoinRealmResponse::HaveOtherRealm
+                }
+            }
+            None => {
+                self.persistent.realm = Some(PersistentRealmState {
+                    id: request.realm,
+                    groups: HashMap::new(),
+                });
+                JoinRealmResponse::Ok {
+                    hsm: self.persistent.id,
+                }
+            }
+        };
+
+        trace!(hsm = self.name, ?response);
+        response
+    }
+}
+
+impl Handler<NewGroupRequest> for Hsm {
+    type Result = NewGroupResponse;
+
+    fn handle(&mut self, request: NewGroupRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        type Response = NewGroupResponse;
+        trace!(hsm = self.name, ?request);
+
+        let Some(realm) = &mut self.persistent.realm else {
+            trace!(hsm = self.name, response = ?Response::InvalidRealm);
+            return Response::InvalidRealm;
+        };
+
+        let response = if realm.id != request.realm {
+            Response::InvalidRealm
+        } else if !request.configuration.is_ok()
+            || !request.configuration.0.contains(&self.persistent.id)
+        {
+            Response::InvalidConfiguration
         } else {
-            self.persistent.realm = Some(PersistentRealmState {
-                id: request.realm,
-                groups: HashMap::new(),
-            });
-            JoinRealmResponse::Ok
+            let owned_prefix: Option<OwnedPrefix> = None;
+            let group_info =
+                self.create_new_group(request.realm, request.configuration, owned_prefix);
+            Response::Ok(group_info)
         };
         trace!(hsm = self.name, ?response);
         response
@@ -711,7 +771,12 @@ impl Handler<CommitRequest> for Hsm {
                     responses,
                 }
             } else {
-                warn!(hsm = self.name, "no quorum. buggy caller?");
+                warn!(
+                    hsm = self.name,
+                    captures,
+                    total = group.configuration.0.len(),
+                    "no quorum. buggy caller?"
+                );
                 CommitResponse::NoQuorum
             }
         })();
