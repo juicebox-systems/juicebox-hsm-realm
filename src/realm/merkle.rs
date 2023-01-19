@@ -45,7 +45,15 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         InteriorNode::new(&self.hasher, None, None)
     }
 
-    pub fn insert(&mut self, mut rp: ReadProof<HO>, v: Vec<u8>) -> Result<Delta<HO>, InsertError> {
+    // Insert a new value for the leaf described by the read proof. Returns a set
+    // of changes that need making to the tree storage. In the event the insert results
+    // in no changes (i.e. the insert is inserting the same value as its current value)
+    // None is returned.
+    pub fn insert(
+        &mut self,
+        mut rp: ReadProof<HO>,
+        v: Vec<u8>,
+    ) -> Result<Option<Delta<HO>>, InsertError> {
         if !rp.verify(&self.hasher) {
             return Err(InsertError::InvalidProof);
         }
@@ -59,8 +67,13 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
         match rp.leaf {
             Some(l) => {
-                // There's an existing path to the correct leaf. We need to delete the old
-                // leaf. We also recalculate the hash for tail node with the new leaf
+                // There's an existing path to the correct leaf. If the leaf hash hasn't changed
+                // then there's nothing to do.
+                if l.hash == delta.leaf.hash {
+                    return Ok(None);
+                }
+                // We need to delete the old leaf. We also recalculate the hash for tail node with
+                // the new leaf.
                 let (updated_n, old_hash) =
                     tail.with_new_child_hash(&self.hasher, Dir::from(key[0]), delta.leaf.hash);
                 delta.add.push(updated_n);
@@ -122,7 +135,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         let child_hash = delta.add.last().unwrap().hash;
         let k = KeySlice::from_slice(&rp.key);
         self.update_path_hashes(&mut delta, k, &mut rp.path, child_hash);
-        Ok(delta)
+        Ok(Some(delta))
     }
 
     // Recursively walks down the list of nodes following the correct branch for the key. Once it reaches the bottom
@@ -484,7 +497,7 @@ mod tests {
     fn first_insert() {
         let (mut tree, mut root, mut store) = new_empty_tree();
         let rp = read(&store, &root, &[1, 2, 3]).unwrap();
-        let d = tree.insert(rp, [42].to_vec()).unwrap();
+        let d = tree.insert(rp, [42].to_vec()).unwrap().unwrap();
         assert_eq!(1, d.add.len());
         assert_eq!([42].to_vec(), d.leaf.value);
         assert_eq!(root, d.remove[0]);
@@ -523,6 +536,11 @@ mod tests {
         let rp = read(&store, &root, &[4, 4, 6]).unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
         check_tree_invariants(&tree.hasher, root, &store);
+
+        // writing the same value again shouldn't do anything dumb, like cause the leaf to be deleted.
+        root = tree_insert(&mut tree, &mut store, root, &[4, 4, 6], [44].to_vec());
+        let rp = read(&store, &root, &[4, 4, 6]).unwrap();
+        assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
     }
 
     #[test]
@@ -630,8 +648,10 @@ mod tests {
         val: Vec<u8>,
     ) -> TestHash {
         let rp = read(store, &root, key).unwrap();
-        let d = tree.insert(rp, val).unwrap();
-        let new_root = store.apply(d);
+        let new_root = match tree.insert(rp, val).unwrap() {
+            None => root,
+            Some(d) => store.apply(d),
+        };
         check_tree_invariants(&tree.hasher, new_root, store);
         new_root
     }
