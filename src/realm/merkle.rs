@@ -4,12 +4,14 @@ use bitvec::{order::Msb0, prelude::BitOrder, slice::BitSlice, store::BitStore, v
 use std::{
     collections::VecDeque,
     fmt::{Debug, Display},
+    hash::Hash,
     iter::zip,
     marker::PhantomData,
 };
 
 pub mod agent;
 pub mod dot;
+mod overlay;
 
 type KeyVec = BitVec<u8, Msb0>;
 type KeySlice = BitSlice<u8, Msb0>;
@@ -21,28 +23,40 @@ type KeySlice = BitSlice<u8, Msb0>;
 //         delta changes to support this
 //         apply overlay to earlier proof
 //         remove ealier deltas
+//         verify that proof was from a recent root.
+//
 //  split
 //      "simple split" where the root is split into 2
 //      "complex split" split on arbitary keys
 //  int node hash uses whole bytes of prefix path. needs to distingush between 0001 and 00010
 //  compact_keyslice_str should be a wrapper type?
+//  remove hash from nodes rely on hash being in parent?
+//  check that inserting the same key/value doesn't end up killing the leaf.
 //  docs
 //  more tests
 
 pub struct Tree<H: NodeHasher<HO>, HO> {
     hasher: H,
+    overlay: overlay::TreeOverlay<HO>,
     _marker: PhantomData<HO>,
 }
-impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
-    pub fn new(hasher: H) -> Self {
-        Tree {
+impl<H: NodeHasher<HO>, HO: HashOutput + Hash> Tree<H, HO> {
+    pub fn new_tree(hasher: H) -> (Self, InteriorNode<HO>) {
+        let root = InteriorNode::new(&hasher, None, None);
+        let t = Tree {
             hasher,
+            overlay: overlay::TreeOverlay::new(root.hash, 15),
             _marker: PhantomData,
-        }
+        };
+        (t, root)
     }
 
-    pub fn empty_root(&self) -> InteriorNode<HO> {
-        InteriorNode::new(&self.hasher, None, None)
+    pub fn with_existing_root(hasher: H, root: HO) -> Self {
+        Tree {
+            hasher,
+            overlay: overlay::TreeOverlay::new(root, 15),
+            _marker: PhantomData,
+        }
     }
 
     // Insert a new value for the leaf described by the read proof. Returns a set
@@ -51,12 +65,17 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     // None is returned.
     pub fn insert(
         &mut self,
-        mut rp: ReadProof<HO>,
+        rp: ReadProof<HO>,
         v: Vec<u8>,
     ) -> Result<Option<Delta<HO>>, InsertError> {
         if !rp.verify(&self.hasher) {
             return Err(InsertError::InvalidProof);
         }
+        let mut rp = match self.overlay.read(&rp) {
+            None => return Err(InsertError::StaleProof),
+            Some(p) => p,
+        };
+
         let path_prefix = rp.prefix_to_path_tail();
         let mut delta = Delta::new(LeafNode::new(&self.hasher, &rp.key, v));
         let key = &KeySlice::from_slice(&rp.key)[path_prefix.len()..];
@@ -135,6 +154,8 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         let child_hash = delta.add.last().unwrap().hash;
         let k = KeySlice::from_slice(&rp.key);
         self.update_path_hashes(&mut delta, k, &mut rp.path, child_hash);
+
+        self.overlay.add_delta(&delta);
         Ok(Some(delta))
     }
 
@@ -416,6 +437,7 @@ impl<HO: HashOutput> ReadProof<HO> {
 }
 
 pub struct Delta<HO> {
+    // Nodes are in tail -> root order.
     add: Vec<InteriorNode<HO>>,
     leaf: LeafNode<HO>,
     remove: Vec<HO>,
@@ -448,11 +470,20 @@ impl<HO> Delta<HO> {
             remove: Vec::new(),
         }
     }
+    fn root(&self) -> &HO {
+        &self
+            .add
+            .last()
+            .expect("add should contain at least a new root")
+            .hash
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum InsertError {
     InvalidProof,
+    // The ReadProof is too old, calculate a newer one and try again.
+    StaleProof,
 }
 
 pub trait HashOutput: Copy + Eq + Debug {
@@ -608,6 +639,45 @@ mod tests {
     }
 
     #[test]
+    fn test_insert_pipeline() {
+        let (mut tree, mut root, mut store) = new_empty_tree();
+        root = tree_insert(&mut tree, &mut store, root, &[1], [1].to_vec());
+        let rp_1 = read(&store, &root, &[1]).unwrap();
+        let rp_2 = read(&store, &root, &[2]).unwrap();
+        let rp_3 = read(&store, &root, &[3]).unwrap();
+        let d1 = tree.insert(rp_1, [11].to_vec()).unwrap().unwrap();
+        let d2 = tree.insert(rp_2, [12].to_vec()).unwrap().unwrap();
+        let d3 = tree.insert(rp_3, [13].to_vec()).unwrap().unwrap();
+        root = store.apply(d1);
+        check_tree_invariants(&tree.hasher, root, &store);
+        root = store.apply(d2);
+        check_tree_invariants(&tree.hasher, root, &store);
+        root = store.apply(d3);
+        check_tree_invariants(&tree.hasher, root, &store);
+
+        let rp_1 = read(&store, &root, &[1]).unwrap();
+        assert_eq!([11].to_vec(), rp_1.leaf.unwrap().value);
+        let rp_2 = read(&store, &root, &[2]).unwrap();
+        assert_eq!([12].to_vec(), rp_2.leaf.unwrap().value);
+        let rp_3 = read(&store, &root, &[3]).unwrap();
+        assert_eq!([13].to_vec(), rp_3.leaf.unwrap().value);
+    }
+
+    #[test]
+    fn test_stale_proof() {
+        let (mut tree, mut root, mut store) = new_empty_tree();
+        root = tree_insert(&mut tree, &mut store, root, &[1], [1].to_vec());
+        let rp_1 = read(&store, &root, &[1]).unwrap();
+        for i in 0..20 {
+            root = tree_insert(&mut tree, &mut store, root, &[2], [i].to_vec());
+        }
+        let d = tree
+            .insert(rp_1, [11].to_vec())
+            .expect_err("should of failed");
+        assert_eq!(InsertError::StaleProof, d);
+    }
+
+    #[test]
     fn test_common_prefix_with_prefix() {
         let a: &BitSlice<u8> = BitSlice::from_slice(&[1, 2, 3]);
         let b = BitSlice::from_slice(&[1, 0, 0]);
@@ -630,8 +700,7 @@ mod tests {
     }
 
     fn new_empty_tree() -> (Tree<TestHasher, TestHash>, TestHash, MemStore<TestHash>) {
-        let t = Tree::new(TestHasher {});
-        let root_node = t.empty_root();
+        let (t, root_node) = Tree::new_tree(TestHasher {});
         let mut store = MemStore::new();
         let root_hash = root_node.hash;
         store.insert(root_hash, Node::Interior(root_node));
@@ -759,7 +828,8 @@ mod tests {
             TestHash(h.finish().to_le_bytes())
         }
     }
-    #[derive(Clone, Copy, PartialEq, Eq)]
+
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
     struct TestHash([u8; 8]);
     impl HashOutput for TestHash {
         fn as_u8(&self) -> &[u8] {
