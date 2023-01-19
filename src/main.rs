@@ -1,7 +1,8 @@
 use actix::prelude::*;
 use bitvec::prelude::*;
-use futures::future::join_all;
-use std::iter::zip;
+use futures::future::{join_all, try_join_all};
+use std::iter;
+use std::ops::RangeFrom;
 use std::str::FromStr;
 use tracing::{debug, info, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -17,40 +18,39 @@ use server::Server;
 use types::{AuthToken, Policy};
 
 use realm::agent::Agent;
-use realm::hsm::types::{RealmId, SecretsRequest, SecretsResponse, UserId};
+use realm::hsm::types::{SecretsRequest, SecretsResponse, UserId};
 use realm::hsm::{Hsm, RealmKey};
 use realm::load_balancer::types::{ClientRequest, ClientResponse};
 use realm::load_balancer::LoadBalancer;
 use realm::store::Store;
 
-async fn initialize_realm(
-) -> Result<(RealmId, Vec<Addr<LoadBalancer>>), realm::cluster::NewRealmError> {
-    info!("creating in-memory store");
-    let store = Store::new().start();
+/// Creates HSMs and their agents.
+///
+/// This module exists to encapsulate the secret shared between the HSMs.
+mod hsm_gen {
+    use super::*;
 
-    let num_load_balancers = 2;
-    info!(count = num_load_balancers, "creating load balancers");
-    let load_balancers: Vec<Addr<LoadBalancer>> = (1..=num_load_balancers)
-        .map(|i| LoadBalancer::new(format!("lb{i}"), store.clone()).start())
-        .collect();
+    pub struct HsmGenerator {
+        secret: RealmKey,
+        counter: RangeFrom<usize>,
+    }
 
-    let num_hsms = 5;
-    info!(count = num_hsms, "creating HSMs and agents");
-    let agents: Vec<Addr<Agent>> = {
-        let key = RealmKey::random();
-        (1..=num_hsms)
-            .map(|i| {
-                let hsm = Hsm::new(format!("hsm{i:02}"), key.clone()).start();
-                Agent::new(format!("agent{i:02}"), hsm, store.clone()).start()
-            })
-            .collect()
-    };
+    impl HsmGenerator {
+        pub fn new() -> Self {
+            Self {
+                secret: RealmKey::random(),
+                counter: 1..,
+            }
+        }
 
-    let realm_id = realm::cluster::new_realm(&agents).await?;
-    info!(?realm_id, "initialized cluster");
-
-    Ok((realm_id, load_balancers))
+        pub fn create_hsm(&mut self, store: Addr<Store>) -> Addr<Agent> {
+            let i = self.counter.next().unwrap();
+            let hsm = Hsm::new(format!("hsm{i:02}"), self.secret.clone()).start();
+            Agent::new(format!("agent{i:02}"), hsm, store).start()
+        }
+    }
 }
+use hsm_gen::HsmGenerator;
 
 #[actix_rt::main]
 async fn main() {
@@ -73,15 +73,63 @@ async fn main() {
         "set up tracing. you can set verbosity with env var LOGLEVEL."
     );
 
-    let (realm_id, load_balancers) = initialize_realm().await.unwrap();
+    info!("creating in-memory store");
+    let store = Store::new().start();
 
+    let num_load_balancers = 2;
+    info!(count = num_load_balancers, "creating load balancers");
+    let load_balancers: Vec<Addr<LoadBalancer>> = (1..=num_load_balancers)
+        .map(|i| LoadBalancer::new(format!("lb{i}"), store.clone()).start())
+        .collect();
+
+    let mut hsm_generator = HsmGenerator::new();
+
+    let num_hsms = 5;
+    info!(count = num_hsms, "creating initial HSMs and agents");
+    let group1: Vec<Addr<Agent>> = iter::repeat_with(|| hsm_generator.create_hsm(store.clone()))
+        .take(num_hsms)
+        .collect();
+    let (realm_id, group_id1) = realm::cluster::new_realm(&group1).await.unwrap();
+    info!(?realm_id, group_id = ?group_id1, "initialized cluster");
+
+    info!("creating additional groups");
+    let group2: Vec<Addr<Agent>> = iter::repeat_with(|| hsm_generator.create_hsm(store.clone()))
+        .take(5)
+        .collect();
+    let group3: Vec<Addr<Agent>> = iter::repeat_with(|| hsm_generator.create_hsm(store.clone()))
+        .take(4)
+        .collect();
+    let new_groups = try_join_all([
+        realm::cluster::new_group(realm_id, &group2),
+        realm::cluster::new_group(realm_id, &group3),
+        realm::cluster::new_group(realm_id, &group1),
+    ])
+    .await
+    .unwrap();
+    info!(?realm_id, ?new_groups, "created groups");
+
+    let num_hsms = 5;
+    info!(count = num_hsms, "creating group2 on new HSMs");
+    let group_id2 = realm::cluster::new_group(realm_id, &group2).await.unwrap();
+    info!(?realm_id, group_id = ?group_id2, "initialized group");
+
+    let num_hsms = 4;
+    info!(count = num_hsms, "creating group3 on new HSMs");
+    let group_id3 = realm::cluster::new_group(realm_id, &group2).await.unwrap();
+    info!(?realm_id, group_id = ?group_id3, "initialized group");
+
+    info!(count = num_hsms, "creating group4 on first group's HSMs");
+    let group_id4 = realm::cluster::new_group(realm_id, &group1).await.unwrap();
+    info!(?realm_id, group_id = ?group_id4, "initialized group");
+
+    info!("incrementing a bunch");
     let uids = [
         UserId(bitvec::bitvec![0, 0]),
         UserId(bitvec::bitvec![0, 1]),
         UserId(bitvec::bitvec![1, 0]),
     ];
     join_all(
-        zip(uids.iter().cycle(), load_balancers.iter().cycle())
+        iter::zip(uids.iter().cycle(), load_balancers.iter().cycle())
             .take(297)
             .map(|(uid, load_balancer)| async move {
                 let result = load_balancer

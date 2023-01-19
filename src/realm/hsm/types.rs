@@ -72,7 +72,7 @@ impl LogIndex {
 #[derive(Clone, Debug)]
 pub struct LogEntry {
     pub index: LogIndex,
-    pub owned_prefix: OwnedPrefix,
+    pub owned_prefix: Option<OwnedPrefix>,
     pub data_hash: DataHash,
     pub prev_hmac: EntryHmac,
     pub entry_hmac: EntryHmac,
@@ -204,7 +204,7 @@ pub struct GroupStatus {
 pub struct LeaderStatus {
     pub committed: Option<LogIndex>,
     // Note: this might not be committed yet.
-    pub owned_prefix: OwnedPrefix,
+    pub owned_prefix: Option<OwnedPrefix>,
 }
 
 #[derive(Debug, Message)]
@@ -215,13 +215,13 @@ pub struct NewRealmRequest {
 
 #[derive(Debug, MessageResponse)]
 pub enum NewRealmResponse {
-    Ok(NewRealmResponseOk),
+    Ok(NewGroupInfo),
     HaveRealm,
     InvalidConfiguration,
 }
 
 #[derive(Debug)]
-pub struct NewRealmResponseOk {
+pub struct NewGroupInfo {
     pub realm: RealmId,
     pub group: GroupId,
     pub statement: GroupConfigurationStatement,
@@ -237,8 +237,22 @@ pub struct JoinRealmRequest {
 
 #[derive(Debug, MessageResponse)]
 pub enum JoinRealmResponse {
-    Ok,
-    HaveRealm,
+    Ok { hsm: HsmId },
+    HaveOtherRealm,
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "NewGroupResponse")]
+pub struct NewGroupRequest {
+    pub realm: RealmId,
+    pub configuration: Configuration,
+}
+
+#[derive(Debug, MessageResponse)]
+pub enum NewGroupResponse {
+    Ok(NewGroupInfo),
+    InvalidRealm,
+    InvalidConfiguration,
 }
 
 #[derive(Debug, Message)]
@@ -264,7 +278,7 @@ pub struct CaptureNextRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub index: LogIndex,
-    pub owned_prefix: OwnedPrefix,
+    pub owned_prefix: Option<OwnedPrefix>,
     pub data_hash: DataHash,
     pub prev_hmac: EntryHmac,
     pub entry_hmac: EntryHmac,

@@ -27,8 +27,9 @@ use hsm_types::{
 };
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewRealmRequest, NewRealmResponse,
-    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse,
+    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
+    NewRealmRequest, NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest,
+    StatusResponse,
 };
 
 #[derive(Debug)]
@@ -437,26 +438,28 @@ impl Handler<NewRealmRequest> for Agent {
             .into_actor(self)
             .map(move |response, agent, ctx| {
                 if let Response::Ok { realm, group, .. } = response {
-                    let new_realm_index = LogIndex(1);
-                    agent.start_watching(realm, group, new_realm_index, ctx);
-                    let existing = agent.leader.insert(
-                        (realm, group),
-                        LeaderState {
-                            append_queue: HashMap::new(),
-                            appending: NotAppending {
-                                next: new_realm_index.next(),
-                            },
-                            response_channels: HashMap::new(),
-                        },
-                    );
-                    assert!(existing.is_none());
-                    agent.collect_captures(realm, group, ctx);
+                    finish_new_group(agent, realm, group, ctx);
                 }
                 trace!(agent = agent.name, ?response);
                 response
             }),
         )
     }
+}
+
+fn finish_new_group(agent: &mut Agent, realm: RealmId, group: GroupId, ctx: &mut Context<Agent>) {
+    let index = LogIndex(1);
+    agent.start_watching(realm, group, index, ctx);
+    let existing = agent.leader.insert(
+        (realm, group),
+        LeaderState {
+            append_queue: HashMap::new(),
+            appending: NotAppending { next: index.next() },
+            response_channels: HashMap::new(),
+        },
+    );
+    assert!(existing.is_none());
+    agent.collect_captures(realm, group, ctx);
 }
 
 impl Handler<JoinRealmRequest> for Agent {
@@ -477,12 +480,79 @@ impl Handler<JoinRealmRequest> for Agent {
                 .await
             {
                 Err(_) => Response::NoHsm,
-                Ok(HsmResponse::HaveRealm) => Response::HaveRealm,
-                Ok(HsmResponse::Ok) => Response::Ok,
+                Ok(HsmResponse::HaveOtherRealm) => Response::HaveOtherRealm,
+                Ok(HsmResponse::Ok { hsm }) => Response::Ok { hsm },
             };
             trace!(agent = name, ?response);
             response
         })
+    }
+}
+
+impl Handler<NewGroupRequest> for Agent {
+    type Result = ResponseActFuture<Self, NewGroupResponse>;
+
+    fn handle(&mut self, request: NewGroupRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        type Response = NewGroupResponse;
+        let name = self.name.clone();
+        trace!(agent = name, ?request);
+        let hsm = self.hsm.clone();
+        let store = self.store.clone();
+        let realm = request.realm;
+
+        Box::pin(
+            async move {
+                let new_group_response = match hsm
+                    .send(hsm_types::NewGroupRequest {
+                        realm,
+                        configuration: request.configuration,
+                    })
+                    .await
+                {
+                    Err(_) => return Response::NoHsm,
+
+                    Ok(hsm_types::NewGroupResponse::InvalidRealm) => return Response::InvalidRealm,
+
+                    Ok(hsm_types::NewGroupResponse::InvalidConfiguration) => {
+                        return Response::InvalidConfiguration
+                    }
+
+                    Ok(hsm_types::NewGroupResponse::Ok(response)) => response,
+                };
+
+                info!(
+                    agent = name,
+                    ?realm,
+                    group = ?new_group_response.group,
+                    "appending log entry for new group"
+                );
+                assert_eq!(new_group_response.entry.index, LogIndex(1));
+                match store
+                    .send(AppendRequest {
+                        realm,
+                        group: new_group_response.group,
+                        entry: new_group_response.entry,
+                        data: new_group_response.data,
+                    })
+                    .await
+                {
+                    Ok(AppendResponse::Ok) => Response::Ok {
+                        group: new_group_response.group,
+                        statement: new_group_response.statement,
+                    },
+                    Ok(AppendResponse::PreconditionFailed) => Response::StorePreconditionFailed,
+                    Err(_) => Response::NoStore,
+                }
+            }
+            .into_actor(self)
+            .map(move |response, agent, ctx| {
+                if let Response::Ok { group, .. } = response {
+                    finish_new_group(agent, realm, group, ctx);
+                }
+                trace!(agent = agent.name, ?response);
+                response
+            }),
+        )
     }
 }
 
