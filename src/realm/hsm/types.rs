@@ -382,6 +382,7 @@ pub enum AppResponse {
     InvalidGroup,
     StaleIndex,
     Busy,
+    NotOwner,
     NotLeader,
     InvalidData,
 }

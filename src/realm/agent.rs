@@ -782,7 +782,7 @@ async fn start_app_request(
                 sleep(Duration::from_millis(1)).await;
                 continue;
             }
-            Ok(HsmResponse::NotLeader) => return Err(Response::NotLeader),
+            Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => return Err(Response::NotLeader),
             Ok(HsmResponse::InvalidData) => panic!(),
 
             Ok(HsmResponse::Ok { entry, data }) => {
