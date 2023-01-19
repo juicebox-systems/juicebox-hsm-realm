@@ -2,6 +2,7 @@
 
 use bitvec::{order::Msb0, prelude::BitOrder, slice::BitSlice, store::BitStore, vec::BitVec};
 use std::{
+    collections::VecDeque,
     fmt::{Debug, Display},
     iter::zip,
     marker::PhantomData,
@@ -56,7 +57,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         let mut res = ReadProof::new(k, root);
         let mut key = KeySlice::from_slice(k);
         loop {
-            let n = res.path.last().unwrap();
+            let n = res.path.back().unwrap();
             let d = Dir::from(key[0]);
             match n.branch(d) {
                 None => return Ok(res),
@@ -67,7 +68,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     key = &key[b.prefix.len()..];
                     match store.fetch(b.hash.as_u8())? {
                         Node::Interior(int) => {
-                            res.add_to_path(int, d);
+                            res.path.push_back(int);
                             continue;
                         }
                         Node::Leaf(v) => {
@@ -85,12 +86,12 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         if !rp.verify(&self.hasher) {
             return Err(InsertError::InvalidProof);
         }
-        let path_prefix = rp.prefix_of_path();
+        let path_prefix = rp.prefix_to_path_tail();
         let mut delta = Delta::new(LeafNode::new(&self.hasher, &rp.key, v));
         let key = &KeySlice::from_slice(&rp.key)[path_prefix.len()..];
         let tail = rp
             .path
-            .pop()
+            .pop_back()
             .expect("the path should always include at least the root");
 
         match rp.leaf {
@@ -155,21 +156,35 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         // in delta is the child of the last item in rp.path. Regardless of if there was an existing
         // leaf or not, the above code has already updated the leaf and the last interior node.
         assert!(!delta.add.is_empty());
-        let mut child_hash = delta.add.last().unwrap().hash;
-        loop {
-            match rp.path.pop() {
-                None => break,
-                Some(n) => {
-                    let dir = rp.dirs.pop().unwrap();
-                    let (new_n, old_hash) = n.with_new_child_hash(&self.hasher, dir, child_hash);
-                    child_hash = new_n.hash;
-                    delta.add.push(new_n);
-                    delta.remove.push(old_hash);
-                }
-            }
-        }
-        assert!(rp.dirs.is_empty());
+        let child_hash = delta.add.last().unwrap().hash;
+        let k = KeySlice::from_slice(&rp.key);
+        self.update_path_hashes(&mut delta, k, &mut rp.path, child_hash);
         Ok(delta)
+    }
+
+    // Recursively walks down the list of nodes following the correct branch for the key. Once it reaches the bottom
+    // it will calculate a new hash and pass it back up the chain. Nodes are expected to be in the order root->leaf.
+    // child_hash contains the hash that is passed to the very bottom node. It returns the newly calculated hash.
+    fn update_path_hashes(
+        &self,
+        delta: &mut Delta<HO>,
+        k: &KeySlice,
+        nodes: &mut VecDeque<InteriorNode<HO>>,
+        child_hash: HO,
+    ) -> HO {
+        if nodes.is_empty() {
+            return child_hash;
+        }
+        let dir = Dir::from(k[0]);
+        let node = nodes.pop_front().unwrap();
+        let b = node.branch(dir).as_ref().unwrap();
+        let new_child_hash =
+            self.update_path_hashes(delta, &k[b.prefix.len()..], nodes, child_hash);
+        let (new_n, old_hash) = node.with_new_child_hash(&self.hasher, dir, new_child_hash);
+        let new_hash = new_n.hash;
+        delta.add.push(new_n);
+        delta.remove.push(old_hash);
+        new_hash
     }
 }
 
@@ -322,29 +337,30 @@ pub struct ReadProof<HO> {
     leaf: Option<LeafNode<HO>>,
     // The path in root -> leaf order of the nodes traversed to get to the leaf. Or if the leaf
     // doesn't exist the furtherest existing node in the path of the key.
-    path: Vec<InteriorNode<HO>>,
-    // The direction to take for each item in the path. i.e. to get from path[0] to path[1] it
-    // followed the dirs[0] direction in path[0]. This will be 1 smaller than the path.
-    dirs: Vec<Dir>,
+    path: VecDeque<InteriorNode<HO>>,
 }
 impl<HO: HashOutput> ReadProof<HO> {
     fn new(key: &[u8], root: InteriorNode<HO>) -> Self {
-        ReadProof {
+        let mut p = ReadProof {
             key: key.to_vec(),
             leaf: None,
-            path: vec![root],
-            dirs: Vec::new(),
-        }
+            path: VecDeque::new(),
+        };
+        p.path.push_back(root);
+        p
     }
-    fn add_to_path(&mut self, n: InteriorNode<HO>, d: Dir) {
-        self.path.push(n);
-        self.dirs.push(d);
-    }
-    fn prefix_of_path(&self) -> KeyVec {
-        let mut p = KeyVec::with_capacity(self.key.len());
-        for (n, d) in zip(&self.path, &self.dirs) {
-            if let Some(b) = n.branch(*d) {
-                p.extend(&b.prefix);
+    // returns the key prefix of the contained path. It does not include
+    // any prefix that decends from the last node.
+    fn prefix_to_path_tail(&self) -> KeyVec {
+        let mut key = KeySlice::from_slice(&self.key);
+        let mut p = KeyVec::with_capacity(key.len());
+        for (i, n) in self.path.iter().enumerate() {
+            // don't add anything from the last node
+            if i < self.path.len() - 1 {
+                if let Some(b) = n.branch(Dir::from(key[0])) {
+                    key = &key[b.prefix.len()..];
+                    p.extend(&b.prefix);
+                }
             }
         }
         p
@@ -354,15 +370,12 @@ impl<HO: HashOutput> ReadProof<HO> {
     // path check and hash verification.
     fn verify<H: NodeHasher<HO>>(&self, h: &H) -> bool {
         // Do some basic sanity checks of the Proof struct first.
-        if self.key.is_empty() {
-            return false;
-        }
-        if self.path.len() != self.dirs.len() + 1 {
+        if self.key.is_empty() || self.path.is_empty() {
             return false;
         }
         // Verify the provided path is for the key.
         // 1. Verify the path all the way to the last interior node.
-        let pp = self.prefix_of_path();
+        let pp = self.prefix_to_path_tail();
         let key = KeySlice::from_slice(&self.key);
         if pp.len() >= key.len() || !key.starts_with(&pp) {
             return false;
@@ -372,7 +385,7 @@ impl<HO: HashOutput> ReadProof<HO> {
         let key_tail = &key[pp.len()..];
         let tail_node = self
             .path
-            .last()
+            .back()
             .expect("we verified above that path contains at least one item");
         match &self.leaf {
             // If there's a leaf, then the last interior node should have
@@ -597,8 +610,7 @@ mod tests {
         let mut p = tree.read(&store, &root, &[5]).unwrap();
         // truncate the tail of the path to claim there's no leaf
         p.leaf = None;
-        p.path.pop();
-        p.dirs.pop();
+        p.path.pop_back();
         assert!(!p.verify(&tree.hasher));
 
         let mut p = tree.read(&store, &root, &[5]).unwrap();
