@@ -472,11 +472,12 @@ mod tests {
 
     #[test]
     fn get_nothing() {
-        let (_tree, root, store) = new_empty_tree();
+        let (tree, root, store) = new_empty_tree();
         let p = read(&store, &root, &[1, 2, 3]).unwrap();
         assert_eq!(1, p.path.len());
         assert_eq!(root, p.path[0].hash);
         assert!(p.leaf.is_none());
+        check_tree_invariants(&tree.hasher, root, &store);
     }
 
     #[test]
@@ -488,11 +489,13 @@ mod tests {
         assert_eq!([42].to_vec(), d.leaf.value);
         assert_eq!(root, d.remove[0]);
         root = store.apply(d);
+        check_tree_invariants(&tree.hasher, root, &store);
 
         let p = read(&store, &root, &[1, 2, 3]).unwrap();
         assert_eq!([42].to_vec(), p.leaf.as_ref().unwrap().value);
         assert_eq!(1, p.path.len());
         assert_eq!(root, p.path[0].hash);
+        check_tree_invariants(&tree.hasher, root, &store);
     }
 
     #[test]
@@ -506,6 +509,7 @@ mod tests {
         assert_eq!([42].to_vec(), p.leaf.unwrap().value);
         assert_eq!(3, p.path.len());
         assert_eq!(root, p.path[0].hash);
+        check_tree_invariants(&tree.hasher, root, &store);
     }
 
     #[test]
@@ -518,6 +522,7 @@ mod tests {
 
         let rp = read(&store, &root, &[4, 4, 6]).unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
+        check_tree_invariants(&tree.hasher, root, &store);
     }
 
     #[test]
@@ -612,6 +617,7 @@ mod tests {
         let mut store = MemStore::new();
         let root_hash = root_node.hash;
         store.insert(root_hash, Node::Interior(root_node));
+        check_tree_invariants(&t.hasher, root_hash, &store);
         (t, root_hash, store)
     }
 
@@ -625,7 +631,67 @@ mod tests {
     ) -> TestHash {
         let rp = read(store, &root, key).unwrap();
         let d = tree.insert(rp, val).unwrap();
-        store.apply(d)
+        let new_root = store.apply(d);
+        check_tree_invariants(&tree.hasher, new_root, store);
+        new_root
+    }
+
+    // walks the tree starting at root verifying all the invariants are all true
+    //      1. only the root may have an empty branch
+    //      2. the left branch prefix always starts with a 0
+    //      3. the right branch prefix always starts with a 1
+    //      5. the leaf -> root hashes are verified.
+    fn check_tree_invariants<HO: HashOutput>(
+        hasher: &impl NodeHasher<HO>,
+        root: HO,
+        store: &impl TreeStoreReader<HO>,
+    ) {
+        let root_hash = check_tree_node_invariants(hasher, true, root, KeySlice::empty(), store);
+        assert_eq!(root_hash, root);
+    }
+    fn check_tree_node_invariants<HO: HashOutput>(
+        hasher: &impl NodeHasher<HO>,
+        is_at_root: bool,
+        node: HO,
+        path: &KeySlice,
+        store: &impl TreeStoreReader<HO>,
+    ) -> HO {
+        match store.fetch(node.as_u8()).unwrap() {
+            Node::Leaf(l) => {
+                let exp_hash = LeafNode::calc_hash(hasher, &path.to_bitvec().into_vec(), &l.value);
+                assert_eq!(exp_hash, l.hash);
+                exp_hash
+            }
+            Node::Interior(int) => {
+                match &int.left {
+                    None => assert!(is_at_root),
+                    Some(b) => {
+                        assert!(!b.prefix.is_empty());
+                        assert!(!b.prefix[0]);
+                        let mut new_path = path.to_bitvec();
+                        new_path.extend(&b.prefix);
+                        let exp_child_hash =
+                            check_tree_node_invariants(hasher, false, b.hash, &new_path, store);
+                        assert_eq!(exp_child_hash, b.hash);
+                    }
+                }
+                match &int.right {
+                    None => assert!(is_at_root),
+                    Some(b) => {
+                        assert!(!b.prefix.is_empty());
+                        assert!(b.prefix[0]);
+                        let mut new_path = path.to_bitvec();
+                        new_path.extend(&b.prefix);
+                        let exp_child_hash =
+                            check_tree_node_invariants(hasher, false, b.hash, &new_path, store);
+                        assert_eq!(exp_child_hash, b.hash);
+                    }
+                }
+                let exp_hash = InteriorNode::calc_hash(hasher, &int.left, &int.right);
+                assert_eq!(exp_hash, int.hash);
+                exp_hash
+            }
+        }
     }
 
     struct MemStore<HO> {
