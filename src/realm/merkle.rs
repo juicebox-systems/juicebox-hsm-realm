@@ -8,6 +8,7 @@ use std::{
     marker::PhantomData,
 };
 
+pub mod agent;
 pub mod dot;
 
 type KeyVec = BitVec<u8, Msb0>;
@@ -42,44 +43,6 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
     pub fn empty_root(&self) -> InteriorNode<HO> {
         InteriorNode::new(&self.hasher, None, None)
-    }
-
-    pub fn read<R: TreeStoreReader<HO>>(
-        &self,
-        store: &R,
-        root_hash: &HO,
-        k: &[u8],
-    ) -> Result<ReadProof<HO>, TreeStoreError> {
-        let root = match store.fetch(root_hash.as_u8())? {
-            Node::Interior(int) => int,
-            Node::Leaf(_) => panic!("found unexpected leaf node"),
-        };
-        let mut res = ReadProof::new(k, root);
-        let mut key = KeySlice::from_slice(k);
-        loop {
-            let n = res.path.back().unwrap();
-            let d = Dir::from(key[0]);
-            match n.branch(d) {
-                None => return Ok(res),
-                Some(b) => {
-                    if !key.starts_with(&b.prefix) {
-                        return Ok(res);
-                    }
-                    key = &key[b.prefix.len()..];
-                    match store.fetch(b.hash.as_u8())? {
-                        Node::Interior(int) => {
-                            res.path.push_back(int);
-                            continue;
-                        }
-                        Node::Leaf(v) => {
-                            assert!(key.is_empty());
-                            res.leaf = Some(v);
-                            return Ok(res);
-                        }
-                    }
-                }
-            }
-        }
     }
 
     pub fn insert(&mut self, mut rp: ReadProof<HO>, v: Vec<u8>) -> Result<Delta<HO>, InsertError> {
@@ -479,21 +442,6 @@ pub enum InsertError {
     InvalidProof,
 }
 
-#[derive(Clone)]
-pub enum Node<HO> {
-    Interior(InteriorNode<HO>),
-    Leaf(LeafNode<HO>),
-}
-
-#[derive(Debug)]
-pub enum TreeStoreError {
-    NoSuchRecord,
-}
-
-pub trait TreeStoreReader<HO> {
-    fn fetch(&self, k: &[u8]) -> Result<Node<HO>, TreeStoreError>;
-}
-
 pub trait HashOutput: Copy + Eq + Debug {
     fn as_u8(&self) -> &[u8];
 }
@@ -515,14 +463,17 @@ fn common_prefix<'a, 'b, U: BitStore, O: BitOrder>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        agent::{read, Node, TreeStoreError, TreeStoreReader},
+        *,
+    };
     use rand::{rngs::StdRng, RngCore, SeedableRng};
     use std::{collections::HashMap, hash::Hasher};
 
     #[test]
     fn get_nothing() {
-        let (tree, root, store) = new_empty_tree();
-        let p = tree.read(&store, &root, &[1, 2, 3]).unwrap();
+        let (_tree, root, store) = new_empty_tree();
+        let p = read(&store, &root, &[1, 2, 3]).unwrap();
         assert_eq!(1, p.path.len());
         assert_eq!(root, p.path[0].hash);
         assert!(p.leaf.is_none());
@@ -531,14 +482,14 @@ mod tests {
     #[test]
     fn first_insert() {
         let (mut tree, mut root, mut store) = new_empty_tree();
-        let rp = tree.read(&store, &root, &[1, 2, 3]).unwrap();
+        let rp = read(&store, &root, &[1, 2, 3]).unwrap();
         let d = tree.insert(rp, [42].to_vec()).unwrap();
         assert_eq!(1, d.add.len());
         assert_eq!([42].to_vec(), d.leaf.value);
         assert_eq!(root, d.remove[0]);
-        root = store.apply(d).unwrap();
+        root = store.apply(d);
 
-        let p = tree.read(&store, &root, &[1, 2, 3]).unwrap();
+        let p = read(&store, &root, &[1, 2, 3]).unwrap();
         assert_eq!([42].to_vec(), p.leaf.as_ref().unwrap().value);
         assert_eq!(1, p.path.len());
         assert_eq!(root, p.path[0].hash);
@@ -551,7 +502,7 @@ mod tests {
         root = tree_insert(&mut tree, &mut store, root, &[4, 4, 6], [43].to_vec());
         root = tree_insert(&mut tree, &mut store, root, &[0, 2, 3], [44].to_vec());
 
-        let p = tree.read(&store, &root, &[2, 6, 8]).unwrap();
+        let p = read(&store, &root, &[2, 6, 8]).unwrap();
         assert_eq!([42].to_vec(), p.leaf.unwrap().value);
         assert_eq!(3, p.path.len());
         assert_eq!(root, p.path[0].hash);
@@ -565,7 +516,7 @@ mod tests {
         // now do a read/write for an existing key
         root = tree_insert(&mut tree, &mut store, root, &[4, 4, 6], [44].to_vec());
 
-        let rp = tree.read(&store, &root, &[4, 4, 6]).unwrap();
+        let rp = read(&store, &root, &[4, 4, 6]).unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
     }
 
@@ -585,7 +536,7 @@ mod tests {
 
             // verify we can read all the key/values we've stored.
             for (k, v) in expected.iter() {
-                let p = tree.read(&store, &root, k).unwrap();
+                let p = read(&store, &root, k).unwrap();
                 assert_eq!([*v].to_vec(), p.leaf.unwrap().value);
             }
             // if i == 16 {
@@ -600,33 +551,33 @@ mod tests {
         root = tree_insert(&mut tree, &mut store, root, &[1], [1].to_vec());
         root = tree_insert(&mut tree, &mut store, root, &[5], [2].to_vec());
 
-        let mut p = tree.read(&store, &root, &[5]).unwrap();
+        let mut p = read(&store, &root, &[5]).unwrap();
         assert!(p.verify(&tree.hasher));
 
         // claim there's no leaf
         p.leaf = None;
         assert!(!p.verify(&tree.hasher));
 
-        let mut p = tree.read(&store, &root, &[5]).unwrap();
+        let mut p = read(&store, &root, &[5]).unwrap();
         // truncate the tail of the path to claim there's no leaf
         p.leaf = None;
         p.path.pop_back();
         assert!(!p.verify(&tree.hasher));
 
-        let mut p = tree.read(&store, &root, &[5]).unwrap();
+        let mut p = read(&store, &root, &[5]).unwrap();
         // futz with the path
         p.key[0] = 2;
         assert!(!p.verify(&tree.hasher));
 
         // futz with the value (checks the hash)
-        let mut p = tree.read(&store, &root, &[5]).unwrap();
+        let mut p = read(&store, &root, &[5]).unwrap();
         if let Some(ref mut l) = p.leaf {
             l.value[0] += 1;
         }
         assert!(!p.verify(&tree.hasher));
 
         // futz with a node (checks the hash)
-        let mut p = tree.read(&store, &root, &[5]).unwrap();
+        let mut p = read(&store, &root, &[5]).unwrap();
         if let Some(ref mut b) = &mut p.path[0].left {
             b.prefix.pop();
         }
@@ -672,9 +623,9 @@ mod tests {
         key: &[u8],
         val: Vec<u8>,
     ) -> TestHash {
-        let rp = tree.read(store, &root, key).unwrap();
+        let rp = read(store, &root, key).unwrap();
         let d = tree.insert(rp, val).unwrap();
-        store.apply(d).unwrap()
+        store.apply(d)
     }
 
     struct MemStore<HO> {
@@ -689,7 +640,7 @@ mod tests {
     }
     impl<HO: HashOutput> MemStore<HO> {
         // Returns the new root hash.
-        fn apply(&mut self, delta: Delta<HO>) -> Result<HO, TreeStoreError> {
+        fn apply(&mut self, delta: Delta<HO>) -> HO {
             self.insert(delta.leaf.hash, Node::Leaf(delta.leaf));
             let root_hash = delta.add.last().unwrap().hash;
             for a in delta.add {
@@ -698,7 +649,7 @@ mod tests {
             for h in delta.remove {
                 self.nodes.remove(h.as_u8());
             }
-            Ok(root_hash)
+            root_hash
         }
         fn insert(&mut self, k: HO, n: Node<HO>) {
             self.nodes.insert(k.as_u8().to_vec(), n);

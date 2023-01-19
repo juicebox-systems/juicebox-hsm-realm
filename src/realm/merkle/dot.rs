@@ -3,7 +3,7 @@ use std::{
     io::{BufWriter, Write},
 };
 
-use super::{Branch, Dir, HashOutput, KeySlice, Node, TreeStoreReader};
+use super::{agent::Node, agent::TreeStoreReader, Branch, Dir, HashOutput, KeySlice};
 
 // Creates a dot file for a visualization of the tree starting
 // at the supplied root hash.
