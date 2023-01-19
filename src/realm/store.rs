@@ -45,7 +45,7 @@ impl Handler<AppendRequest> for Store {
             Occupied(mut bucket) => {
                 let state = bucket.get_mut();
                 let last = state.log.last().unwrap();
-                if request.entry.index == LogIndex(last.index.0 + 1) {
+                if request.entry.index == last.index.next() {
                     state.log.push(request.entry);
                     state.data = request.data;
                     AppendResponse::Ok

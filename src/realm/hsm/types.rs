@@ -63,6 +63,12 @@ impl fmt::Debug for UserId {
 #[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LogIndex(pub u64);
 
+impl LogIndex {
+    pub fn next(&self) -> Self {
+        Self(self.0.checked_add(1).unwrap())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct LogEntry {
     pub index: LogIndex,
