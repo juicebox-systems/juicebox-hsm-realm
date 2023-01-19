@@ -797,7 +797,16 @@ impl Handler<AppRequest> for Hsm {
             Some(realm) if realm.id == request.realm => {
                 if realm.groups.contains_key(&request.group) {
                     if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
-                        handle_app_request(request, &self.persistent, leader)
+                        if (leader.log.last().unwrap().entry)
+                            .owned_prefix
+                            .as_ref()
+                            .filter(|owned| owned.contains(&request.uid))
+                            .is_some()
+                        {
+                            handle_app_request(request, &self.persistent, leader)
+                        } else {
+                            Response::NotOwner
+                        }
                     } else {
                         Response::NotLeader
                     }
