@@ -41,8 +41,21 @@ pub struct Agent {
 
 #[derive(Debug)]
 struct LeaderState {
+    /// Log entries may be received out of order from the HSM. They are buffered
+    /// here until they can be appended to the log in order.
+    append_queue: HashMap<LogIndex, AppendRequest>,
+    /// This serves as a mutex to prevent multiple concurrent appends to the
+    /// store.
+    appending: AppendingState,
     response_channels: HashMap<EntryHmac, oneshot::Sender<SecretsResponse>>,
 }
+
+#[derive(Debug)]
+enum AppendingState {
+    NotAppending { next: LogIndex },
+    Appending,
+}
+use AppendingState::{Appending, NotAppending};
 
 impl Agent {
     pub fn new(name: String, hsm: Addr<Hsm>, store: Addr<Store>) -> Self {
@@ -100,7 +113,7 @@ impl Agent {
                                 debug!(agent = name, ?realm, ?group, hsm=?hsm_id, ?entry.index,
                                     "HSM captured entry");
                                 // TODO: cache capture statement
-                                LogIndex(next_index.0 + 1)
+                                next_index.next()
                             }
                             Ok(r) => todo!("{r:#?}"),
                         }
@@ -402,6 +415,7 @@ impl Handler<NewRealmRequest> for Agent {
                     group = ?new_realm_response.group,
                     "appending log entry for new realm"
                 );
+                assert_eq!(new_realm_response.entry.index, LogIndex(1));
                 match store
                     .send(AppendRequest {
                         realm: new_realm_response.realm,
@@ -423,10 +437,15 @@ impl Handler<NewRealmRequest> for Agent {
             .into_actor(self)
             .map(move |response, agent, ctx| {
                 if let Response::Ok { realm, group, .. } = response {
-                    agent.start_watching(realm, group, LogIndex(1), ctx);
+                    let new_realm_index = LogIndex(1);
+                    agent.start_watching(realm, group, new_realm_index, ctx);
                     let existing = agent.leader.insert(
                         (realm, group),
                         LeaderState {
+                            append_queue: HashMap::new(),
+                            appending: NotAppending {
+                                next: new_realm_index.next(),
+                            },
                             response_channels: HashMap::new(),
                         },
                     );
@@ -606,7 +625,7 @@ impl Handler<AppRequest> for Agent {
             start_app_request(request, name, hsm, store.clone())
                 .into_actor(self)
                 .then(
-                    move |result, agent, _ctx| -> LocalBoxActorFuture<Self, AppResponse> {
+                    move |result, agent, ctx| -> LocalBoxActorFuture<Self, AppResponse> {
                         match result {
                             Err(response) => Box::pin(future::ready(response)),
                             Ok(append_request) => {
@@ -617,17 +636,25 @@ impl Handler<AppRequest> for Agent {
                                 leader
                                     .response_channels
                                     .insert(append_request.entry.entry_hmac.clone(), sender);
+
+                                let existing = leader
+                                    .append_queue
+                                    .insert(append_request.entry.index, append_request);
+                                assert!(existing.is_none());
+
+                                match leader.appending {
+                                    NotAppending { next } => {
+                                        leader.appending = Appending;
+                                        keep_appending(ctx, store, agent, realm, group, next);
+                                    }
+                                    Appending => { /* do nothing */ }
+                                }
+
                                 Box::pin(
                                     async move {
-                                        match store.send(append_request).await {
-                                            Err(_) => Response::NoStore,
-                                            Ok(AppendResponse::PreconditionFailed) => {
-                                                todo!("stop leading")
-                                            }
-                                            Ok(AppendResponse::Ok) => match receiver.await {
-                                                Ok(response) => Response::Ok(response),
-                                                Err(oneshot::Canceled) => Response::NotLeader,
-                                            },
+                                        match receiver.await {
+                                            Ok(response) => Response::Ok(response),
+                                            Err(oneshot::Canceled) => Response::NotLeader,
                                         }
                                     }
                                     .into_actor(agent),
@@ -704,4 +731,41 @@ async fn start_app_request(
             }
         };
     }
+}
+
+/// Precondition: `leader.appending` is Appending because this task is the one
+/// doing the appending.
+fn keep_appending(
+    ctx: &mut actix::Context<Agent>,
+    store: Addr<Store>,
+    agent: &mut Agent,
+    realm: RealmId,
+    group: GroupId,
+    next: LogIndex,
+) {
+    let Some(leader) = agent.leader.get_mut(&(realm, group)) else {
+        return;
+    };
+    assert!(matches!(leader.appending, Appending));
+    let Some(request) = leader.append_queue.remove(&next) else {
+        leader.appending = NotAppending { next };
+        return;
+    };
+    let store2 = store.clone();
+
+    ctx.spawn(Box::pin(
+        async move {
+            match store2.send(request).await {
+                Err(_) => todo!(),
+                Ok(AppendResponse::PreconditionFailed) => {
+                    todo!("stop leading")
+                }
+                Ok(AppendResponse::Ok) => {}
+            }
+        }
+        .into_actor(agent)
+        .map(move |_, agent, ctx| {
+            keep_appending(ctx, store, agent, realm, group, next.next());
+        }),
+    ));
 }

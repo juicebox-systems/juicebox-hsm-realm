@@ -495,7 +495,7 @@ impl Handler<CaptureNextRequest> for Hsm {
                                 }
                             }
                             Some((captured_index, captured_hmac)) => {
-                                if request.index != LogIndex(captured_index.0 + 1) {
+                                if request.index != captured_index.next() {
                                     return Response::MissingPrev;
                                 }
                                 if request.prev_hmac != *captured_hmac {
@@ -814,7 +814,7 @@ fn handle_app_request(
         None => None,
     };
 
-    let index = LogIndex(last_entry.entry.index.0 + 1);
+    let index = last_entry.entry.index.next();
     let owned_prefix = last_entry.entry.owned_prefix.clone();
     let data_hash = data.hash();
     let prev_hmac = last_entry.entry.entry_hmac.clone();
