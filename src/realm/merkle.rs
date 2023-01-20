@@ -25,7 +25,6 @@ type KeySlice = BitSlice<u8, Msb0>;
 //  split
 //      "simple split" where the root is split into 2
 //      "complex split" split on arbitary keys
-//  int node hash uses whole bytes of prefix path. needs to distingush between 0001 and 00010
 //  compact_keyslice_str should be a wrapper type?
 //  remove hash from nodes rely on hash being in parent?
 //  docs
@@ -211,14 +210,20 @@ impl<HO: HashOutput> InteriorNode<HO> {
         left: &Option<Branch<HO>>,
         right: &Option<Branch<HO>>,
     ) -> HO {
-        let mut parts: [&[u8]; 5] = [&[], &[], &[42], &[], &[]];
+        let mut parts: [&[u8]; 7] = [&[], &[], &[], &[42], &[], &[], &[]];
+        let left_len;
+        let right_len;
         if let Some(b) = left {
-            parts[0] = b.prefix.as_raw_slice();
-            parts[1] = b.hash.as_u8();
+            left_len = b.prefix.len().to_le_bytes();
+            parts[0] = &left_len;
+            parts[1] = b.prefix.as_raw_slice();
+            parts[2] = b.hash.as_u8();
         }
         if let Some(b) = right {
-            parts[3] = b.prefix.as_raw_slice();
-            parts[4] = b.hash.as_u8();
+            right_len = b.prefix.len().to_le_bytes();
+            parts[3] = &right_len;
+            parts[4] = b.prefix.as_raw_slice();
+            parts[5] = b.hash.as_u8();
         }
         h.calc_hash(&parts)
     }
@@ -668,6 +673,47 @@ mod tests {
             .insert(rp_1, [11].to_vec())
             .expect_err("should of failed");
         assert_eq!(InsertError::StaleProof, d);
+    }
+
+    #[test]
+    fn test_prefix_hash() {
+        let h = TestHasher {};
+        let k1 = KeyVec::from_element(0b00110000);
+        let k2 = KeyVec::from_element(0b11010000);
+        let a = InteriorNode::new(
+            &h,
+            Some(Branch::new(
+                k1[..4].into(),
+                TestHash([1, 2, 3, 4, 5, 6, 7, 8]),
+            )),
+            Some(Branch::new(
+                k2[..5].into(),
+                TestHash([8, 7, 6, 5, 4, 3, 2, 1]),
+            )),
+        );
+        let b = InteriorNode::new(
+            &h,
+            Some(Branch::new(
+                k1[..5].into(),
+                TestHash([1, 2, 3, 4, 5, 6, 7, 8]),
+            )),
+            Some(Branch::new(
+                k2[..6].into(),
+                TestHash([8, 7, 6, 5, 4, 3, 2, 1]),
+            )),
+        );
+        assert_ne!(a.hash, b.hash);
+    }
+
+    #[test]
+    fn test_leaf_hash() {
+        let h = TestHasher {};
+        let v = vec![1, 2, 3, 4, 5, 6, 8, 9];
+        let k1 = vec![1, 2];
+        let k2 = vec![1, 4];
+        let ha = LeafNode::calc_hash(&h, &k1, &v);
+        let hb = LeafNode::calc_hash(&h, &k2, &v);
+        assert_ne!(ha, hb);
     }
 
     #[test]
