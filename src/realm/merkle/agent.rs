@@ -29,7 +29,7 @@ pub fn read<R: TreeStoreReader<HO>, HO: HashOutput + Hash>(
     let mut res = ReadProof::new(k, root);
     let mut key = KeySlice::from_slice(k);
     loop {
-        let n = res.path.back().unwrap();
+        let n = res.path.last().unwrap();
         let d = Dir::from(key[0]);
         match n.branch(d) {
             None => return Ok(res),
@@ -40,7 +40,7 @@ pub fn read<R: TreeStoreReader<HO>, HO: HashOutput + Hash>(
                 key = &key[b.prefix.len()..];
                 match store.fetch(b.hash.as_u8())? {
                     Node::Interior(int) => {
-                        res.path.push_back(int);
+                        res.path.push(int);
                         continue;
                     }
                     Node::Leaf(v) => {

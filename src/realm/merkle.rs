@@ -2,7 +2,7 @@
 
 use bitvec::{order::Msb0, prelude::BitOrder, slice::BitSlice, store::BitStore, vec::BitVec};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     fmt::{Debug, Display},
     hash::Hash,
     iter::zip,
@@ -317,16 +317,16 @@ pub struct ReadProof<HO> {
     leaf: Option<LeafNode<HO>>,
     // The path in root -> leaf order of the nodes traversed to get to the leaf. Or if the leaf
     // doesn't exist the furtherest existing node in the path of the key.
-    path: VecDeque<InteriorNode<HO>>,
+    path: Vec<InteriorNode<HO>>,
 }
 impl<HO: HashOutput> ReadProof<HO> {
     fn new(key: &[u8], root: InteriorNode<HO>) -> Self {
         let mut p = ReadProof {
             key: key.to_vec(),
             leaf: None,
-            path: VecDeque::new(),
+            path: Vec::new(),
         };
-        p.path.push_back(root);
+        p.path.push(root);
         p
     }
     // returns the key prefix of the contained path. It does not include
@@ -334,13 +334,11 @@ impl<HO: HashOutput> ReadProof<HO> {
     fn prefix_to_path_tail(&self) -> KeyVec {
         let mut key = KeySlice::from_slice(&self.key);
         let mut p = KeyVec::with_capacity(key.len());
-        for (i, n) in self.path.iter().enumerate() {
+        for n in &self.path[..self.path.len() - 1] {
             // don't add anything from the last node
-            if i < self.path.len() - 1 {
-                if let Some(b) = n.branch(Dir::from(key[0])) {
-                    key = &key[b.prefix.len()..];
-                    p.extend(&b.prefix);
-                }
+            if let Some(b) = n.branch(Dir::from(key[0])) {
+                key = &key[b.prefix.len()..];
+                p.extend(&b.prefix);
             }
         }
         p
@@ -365,7 +363,7 @@ impl<HO: HashOutput> ReadProof<HO> {
         let key_tail = &key[pp.len()..];
         let tail_node = self
             .path
-            .back()
+            .last()
             .expect("we verified above that path contains at least one item");
         match &self.leaf {
             // If there's a leaf, then the last interior node should have
@@ -610,7 +608,7 @@ mod tests {
         let mut p = read(&store, &root, &[5]).unwrap();
         // truncate the tail of the path to claim there's no leaf
         p.leaf = None;
-        p.path.pop_back();
+        p.path.pop();
         assert!(!p.verify(&tree.hasher));
 
         let mut p = read(&store, &root, &[5]).unwrap();
