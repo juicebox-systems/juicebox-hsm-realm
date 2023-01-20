@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::Hash;
 
 use super::{agent::Node, Delta, HashOutput};
 
@@ -11,8 +10,9 @@ pub struct TreeOverlay<HO> {
     pub nodes: HashMap<HO, Node<HO>>,
     changes: VecDeque<DeltaCleanup<HO>>,
 }
-impl<HO: HashOutput + Hash> TreeOverlay<HO> {
-    //
+impl<HO: HashOutput> TreeOverlay<HO> {
+    // Create a new TreeOverlay given the Tree's latest root hash. For
+    // most effient memory usage max_deltas should be a power of 2 -1. e.g. 15.
     pub fn new(latest_root: HO, max_deltas: u16) -> Self {
         let mut o = TreeOverlay {
             nodes: HashMap::new(),

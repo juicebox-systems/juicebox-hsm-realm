@@ -6,10 +6,10 @@ use std::{
     fmt::{Debug, Display},
     hash::Hash,
     iter::zip,
-    marker::PhantomData,
 };
 
-use crate::realm::merkle::agent::Node;
+use self::agent::Node;
+use self::overlay::TreeOverlay;
 
 pub mod agent;
 pub mod dot;
@@ -33,25 +33,25 @@ type KeySlice = BitSlice<u8, Msb0>;
 
 pub struct Tree<H: NodeHasher<HO>, HO> {
     hasher: H,
-    overlay: overlay::TreeOverlay<HO>,
-    _marker: PhantomData<HO>,
+    overlay: TreeOverlay<HO>,
 }
 impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
+    // Creates a new empty tree. Returns the Tree along with its initial root node.
     pub fn new_tree(hasher: H) -> (Self, InteriorNode<HO>) {
         let root = InteriorNode::new(&hasher, None, None);
         let t = Tree {
             hasher,
-            overlay: overlay::TreeOverlay::new(root.hash, 15),
-            _marker: PhantomData,
+            overlay: TreeOverlay::new(root.hash, 15),
         };
         (t, root)
     }
 
+    // Create a new Tree instance for a previously constructed tree given the root hash
+    // of the tree's content.
     pub fn with_existing_root(hasher: H, root: HO) -> Self {
         Tree {
             hasher,
-            overlay: overlay::TreeOverlay::new(root, 15),
-            _marker: PhantomData,
+            overlay: TreeOverlay::new(root, 15),
         }
     }
 

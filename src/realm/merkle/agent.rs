@@ -1,7 +1,5 @@
 use super::{Dir, HashOutput, InteriorNode, KeySlice, LeafNode, ReadProof};
 
-use std::hash::Hash;
-
 #[derive(Clone)]
 pub enum Node<HO> {
     Interior(InteriorNode<HO>),
@@ -17,7 +15,7 @@ pub trait TreeStoreReader<HO> {
     fn fetch(&self, k: &[u8]) -> Result<Node<HO>, TreeStoreError>;
 }
 
-pub fn read<R: TreeStoreReader<HO>, HO: HashOutput + Hash>(
+pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
     store: &R,
     root_hash: &HO,
     k: &[u8],
