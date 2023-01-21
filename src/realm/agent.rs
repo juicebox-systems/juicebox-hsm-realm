@@ -9,16 +9,16 @@ use std::collections::btree_map::Entry::{Occupied, Vacant};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::time::Duration;
-use tracing::{debug, info, trace, warn};
+use tracing::{info, trace, warn};
 
 pub mod types;
 
 use super::hsm::types as hsm_types;
 use super::hsm::Hsm;
 use super::store::types::{
-    AddressEntry, AppendRequest, AppendResponse, GetAddressesRequest, GetAddressesResponse,
-    ReadEntryRequest, ReadEntryResponse, ReadLatestRequest, ReadLatestResponse, SetAddressRequest,
-    SetAddressResponse,
+    AddressEntry, AppendRequest, AppendResponse, DataChange, GetAddressesRequest,
+    GetAddressesResponse, ReadEntryRequest, ReadEntryResponse, ReadLatestRequest,
+    ReadLatestResponse, SetAddressRequest, SetAddressResponse,
 };
 use super::store::Store;
 use hsm_types::{
@@ -26,10 +26,12 @@ use hsm_types::{
     EntryHmac, GroupId, HsmId, LogIndex, RealmId, SecretsResponse,
 };
 use types::{
-    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
-    NewRealmRequest, NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest,
-    StatusResponse,
+    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
+    CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
+    JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
+    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse, TransferInRequest,
+    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
+    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 
 #[derive(Debug)]
@@ -96,22 +98,19 @@ impl Agent {
                         next_index
                     }
                     Ok(ReadEntryResponse::Ok(entry)) => {
-                        debug!(agent = name, ?realm, ?group, ?entry.index, "found log entry");
+                        let index = entry.index;
+                        trace!(agent = name, ?realm, ?group, ?index, "found log entry");
                         match hsm
                             .send(CaptureNextRequest {
                                 realm,
                                 group,
-                                index: entry.index,
-                                owned_prefix: entry.owned_prefix,
-                                data_hash: entry.data_hash,
-                                prev_hmac: entry.prev_hmac,
-                                entry_hmac: entry.entry_hmac,
+                                entry,
                             })
                             .await
                         {
                             Err(_) => todo!(),
                             Ok(CaptureNextResponse::Ok { hsm_id, .. }) => {
-                                debug!(agent = name, ?realm, ?group, hsm=?hsm_id, ?entry.index,
+                                trace!(agent = name, ?realm, ?group, hsm=?hsm_id, ?index,
                                     "HSM captured entry");
                                 // TODO: cache capture statement
                                 next_index.next()
@@ -128,7 +127,7 @@ impl Agent {
 
     fn collect_captures(&mut self, realm_id: RealmId, group_id: GroupId, ctx: &mut Context<Self>) {
         let name = self.name.clone();
-        info!(agent = name, realm = ?realm_id, group = ?group_id, "start collecting captures");
+        trace!(agent = name, realm = ?realm_id, group = ?group_id, "start collecting captures");
         let hsm = self.hsm.clone();
         ctx.spawn(Box::pin(
             self.find_peers(realm_id, group_id)
@@ -189,31 +188,45 @@ impl Agent {
                             ctx.spawn(Box::pin(
                                 async move {
                                     if let Some(commit_request) = commit_request {
-                                        info!(
+                                        trace!(
                                             agent = name,
                                             index = ?commit_request.index,
                                             num_captures = commit_request.captures.len(),
                                             "requesting HSM to commit index");
                                         let response = hsm.send(commit_request).await;
-                                        if let Ok(CommitResponse::Ok {
-                                            committed,
-                                            responses,
-                                        }) = response
-                                        {
-                                            info!(
-                                                agent = name,
-                                                ?committed,
-                                                ?responses,
-                                                "HSM committed entry"
-                                            );
-                                            responses
-                                        } else {
-                                            warn!(
-                                                agent = name,
-                                                ?response,
-                                                "commit response not ok"
-                                            );
-                                            Vec::new()
+                                        match response {
+                                            Ok(CommitResponse::Ok {
+                                                committed,
+                                                responses,
+                                            }) => {
+                                                trace!(
+                                                    agent = name,
+                                                    ?committed,
+                                                    ?responses,
+                                                    "HSM committed entry"
+                                                );
+                                                responses
+                                            },
+                                            Ok(CommitResponse::AlreadyCommitted { .. }) => {
+                                                // TODO: this happens a lot now
+                                                // because this doesn't remember
+                                                // what it's already asked the HSM
+                                                // to commit.
+                                                trace!(
+                                                    agent = name,
+                                                    ?response,
+                                                    "commit response not ok"
+                                                );
+                                                Vec::new()
+                                            },
+                                            _ =>{
+                                                warn!(
+                                                    agent = name,
+                                                    ?response,
+                                                    "commit response not ok"
+                                                );
+                                                Vec::new()
+                                            }
                                         }
                                     } else {
                                         Vec::new()
@@ -422,7 +435,8 @@ impl Handler<NewRealmRequest> for Agent {
                         realm: new_realm_response.realm,
                         group: new_realm_response.group,
                         entry: new_realm_response.entry,
-                        data: new_realm_response.data,
+                        data: DataChange::Set(new_realm_response.data),
+                        transferring_out: DataChange::None,
                     })
                     .await
                 {
@@ -532,7 +546,8 @@ impl Handler<NewGroupRequest> for Agent {
                         realm,
                         group: new_group_response.group,
                         entry: new_group_response.entry,
-                        data: new_group_response.data,
+                        data: DataChange::Set(new_group_response.data),
+                        transferring_out: DataChange::None,
                     })
                     .await
                 {
@@ -679,6 +694,298 @@ impl Handler<ReadCapturedRequest> for Agent {
     }
 }
 
+impl Handler<TransferOutRequest> for Agent {
+    type Result = ResponseActFuture<Self, TransferOutResponse>;
+
+    fn handle(&mut self, request: TransferOutRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        type Response = TransferOutResponse;
+        type HsmResponse = hsm_types::TransferOutResponse;
+        let name = self.name.clone();
+        trace!(agent = name, ?request);
+        let realm = request.realm;
+        let source = request.source;
+        let hsm = self.hsm.clone();
+        let store = self.store.clone();
+        let store2 = self.store.clone();
+
+        Box::pin(
+            async move {
+                let (entry, data) = match store
+                    .send(ReadLatestRequest {
+                        realm: request.realm,
+                        group: request.source,
+                    })
+                    .await
+                {
+                    Err(_) => return Err(Response::NoStore),
+                    Ok(ReadLatestResponse::Ok { entry, data, .. }) => (entry, data),
+                    Ok(ReadLatestResponse::None) => todo!(),
+                };
+
+                match hsm
+                    .send(hsm_types::TransferOutRequest {
+                        realm: request.realm,
+                        source: request.source,
+                        destination: request.destination,
+                        prefix: request.prefix,
+                        index: entry.index,
+                        data,
+                    })
+                    .await
+                {
+                    Err(_) => Err(Response::NoHsm),
+                    Ok(HsmResponse::InvalidRealm) => Err(Response::InvalidRealm),
+                    Ok(HsmResponse::InvalidGroup) => Err(Response::InvalidGroup),
+                    Ok(HsmResponse::NotLeader) => Err(Response::NotLeader),
+                    Ok(HsmResponse::NotOwner) => Err(Response::NotOwner),
+                    Ok(HsmResponse::StaleIndex) => todo!(),
+                    Ok(HsmResponse::InvalidData) => panic!(),
+                    Ok(HsmResponse::Ok {
+                        entry,
+                        keeping,
+                        transferring,
+                    }) => Ok((entry, keeping, transferring)),
+                }
+            }
+            .into_actor(self)
+            .map(move |result, agent, ctx| match result {
+                Err(response) => response,
+                Ok((entry, keeping, transferring)) => {
+                    let data_hash = entry.data_hash.clone();
+                    append(
+                        ctx,
+                        store2,
+                        agent,
+                        AppendRequest {
+                            realm,
+                            group: source,
+                            entry,
+                            data: DataChange::Set(keeping),
+                            transferring_out: DataChange::Set(transferring),
+                        },
+                    );
+                    Response::Ok { data_hash }
+                }
+            })
+            .map(|response, agent, _ctx| {
+                trace!(agent = agent.name, ?response);
+                response
+            }),
+        )
+    }
+}
+
+impl Handler<TransferNonceRequest> for Agent {
+    type Result = ResponseFuture<TransferNonceResponse>;
+
+    fn handle(&mut self, request: TransferNonceRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        type Response = TransferNonceResponse;
+        type HsmResponse = hsm_types::TransferNonceResponse;
+        let name = self.name.clone();
+        trace!(agent = name, ?request);
+        let hsm = self.hsm.clone();
+
+        Box::pin(async move {
+            let response = match hsm
+                .send(hsm_types::TransferNonceRequest {
+                    realm: request.realm,
+                    destination: request.destination,
+                })
+                .await
+            {
+                Err(_) => Response::NoHsm,
+                Ok(HsmResponse::Ok(nonce)) => Response::Ok(nonce),
+                Ok(HsmResponse::InvalidRealm) => Response::InvalidRealm,
+                Ok(HsmResponse::InvalidGroup) => Response::InvalidGroup,
+                Ok(HsmResponse::NotLeader) => Response::NotLeader,
+            };
+            trace!(agent = name, ?response);
+            response
+        })
+    }
+}
+
+impl Handler<TransferStatementRequest> for Agent {
+    type Result = ResponseFuture<TransferStatementResponse>;
+
+    fn handle(
+        &mut self,
+        request: TransferStatementRequest,
+        _ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        type Response = TransferStatementResponse;
+        type HsmResponse = hsm_types::TransferStatementResponse;
+        let name = self.name.clone();
+        trace!(agent = name, ?request);
+        let hsm = self.hsm.clone();
+
+        Box::pin(async move {
+            let response = loop {
+                break match hsm
+                    .send(hsm_types::TransferStatementRequest {
+                        realm: request.realm,
+                        source: request.source,
+                        destination: request.destination,
+                        nonce: request.nonce,
+                    })
+                    .await
+                {
+                    Err(_) => Response::NoHsm,
+                    Ok(HsmResponse::Ok(statement)) => Response::Ok(statement),
+                    Ok(HsmResponse::InvalidRealm) => Response::InvalidRealm,
+                    Ok(HsmResponse::InvalidGroup) => Response::InvalidGroup,
+                    Ok(HsmResponse::NotLeader) => Response::NotLeader,
+                    Ok(HsmResponse::NotTransferring) => Response::NotTransferring,
+                    Ok(HsmResponse::Busy) => {
+                        sleep(Duration::from_millis(1)).await;
+                        continue;
+                    }
+                };
+            };
+            trace!(agent = name, ?response);
+            response
+        })
+    }
+}
+
+impl Handler<TransferInRequest> for Agent {
+    type Result = ResponseActFuture<Self, TransferInResponse>;
+
+    fn handle(&mut self, request: TransferInRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        type Response = TransferInResponse;
+        type HsmResponse = hsm_types::TransferInResponse;
+        let name = self.name.clone();
+        trace!(agent = name, ?request);
+        let hsm = self.hsm.clone();
+        let store = self.store.clone();
+        let store2 = self.store.clone();
+
+        Box::pin(
+            async move {
+                let data = match store
+                    .send(ReadLatestRequest {
+                        realm: request.realm,
+                        group: request.source,
+                    })
+                    .await
+                {
+                    Err(_) => todo!(),
+                    Ok(ReadLatestResponse::Ok {
+                        entry,
+                        transferring_out,
+                        ..
+                    }) => {
+                        if entry.data_hash != request.data_hash {
+                            todo!()
+                        }
+                        transferring_out.expect("TODO")
+                    }
+                    Ok(ReadLatestResponse::None) => todo!(),
+                };
+
+                match hsm
+                    .send(hsm_types::TransferInRequest {
+                        realm: request.realm,
+                        destination: request.destination,
+                        data,
+                        data_hash: request.data_hash,
+                        prefix: request.prefix,
+                        nonce: request.nonce,
+                        statement: request.statement,
+                    })
+                    .await
+                {
+                    Err(_) => Err(Response::NoHsm),
+                    Ok(HsmResponse::InvalidRealm) => Err(Response::InvalidRealm),
+                    Ok(HsmResponse::InvalidGroup) => Err(Response::InvalidGroup),
+                    Ok(HsmResponse::NotLeader) => Err(Response::NotLeader),
+                    Ok(HsmResponse::UnacceptablePrefix) => Err(Response::UnacceptablePrefix),
+                    Ok(HsmResponse::InvalidNonce) => Err(Response::InvalidNonce),
+                    Ok(HsmResponse::InvalidStatement) => Err(Response::InvalidStatement),
+                    Ok(HsmResponse::InvalidData) => panic!(),
+                    Ok(HsmResponse::Ok { entry, data }) => Ok((entry, data)),
+                }
+            }
+            .into_actor(self)
+            .map(move |result, agent, ctx| match result {
+                Err(response) => response,
+                Ok((entry, data)) => {
+                    append(
+                        ctx,
+                        store2,
+                        agent,
+                        AppendRequest {
+                            realm: request.realm,
+                            group: request.destination,
+                            entry,
+                            data: DataChange::Set(data),
+                            transferring_out: DataChange::None,
+                        },
+                    );
+                    Response::Ok
+                }
+            })
+            .map(|response, agent, _ctx| {
+                trace!(agent = agent.name, ?response);
+                response
+            }),
+        )
+    }
+}
+
+impl Handler<CompleteTransferRequest> for Agent {
+    type Result = ResponseActFuture<Self, CompleteTransferResponse>;
+
+    fn handle(
+        &mut self,
+        request: CompleteTransferRequest,
+        _ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        type Response = CompleteTransferResponse;
+        type HsmResponse = hsm_types::CompleteTransferResponse;
+        let name = self.name.clone();
+        trace!(agent = name, ?request);
+        let hsm = self.hsm.clone();
+        let store = self.store.clone();
+
+        Box::pin(
+            hsm.send(hsm_types::CompleteTransferRequest {
+                realm: request.realm,
+                source: request.source,
+                destination: request.destination,
+                prefix: request.prefix,
+            })
+            .into_actor(self)
+            .map(move |result, agent, ctx| match result {
+                Err(_) => Response::NoHsm,
+                Ok(HsmResponse::InvalidRealm) => Response::InvalidRealm,
+                Ok(HsmResponse::InvalidGroup) => Response::InvalidGroup,
+                Ok(HsmResponse::NotLeader) => Response::NotLeader,
+                Ok(HsmResponse::NotTransferring) => Response::Ok,
+                Ok(HsmResponse::Ok(entry)) => {
+                    append(
+                        ctx,
+                        store,
+                        agent,
+                        AppendRequest {
+                            realm: request.realm,
+                            group: request.source,
+                            entry,
+                            data: DataChange::None,
+                            transferring_out: DataChange::Delete,
+                        },
+                    );
+                    Response::Ok
+                }
+            })
+            .map(|response, agent, _ctx| {
+                trace!(agent = agent.name, ?response);
+                response
+            }),
+        )
+    }
+}
+
 impl Handler<AppRequest> for Agent {
     type Result = ResponseActFuture<Self, AppResponse>;
 
@@ -706,20 +1013,7 @@ impl Handler<AppRequest> for Agent {
                                 leader
                                     .response_channels
                                     .insert(append_request.entry.entry_hmac.clone(), sender);
-
-                                let existing = leader
-                                    .append_queue
-                                    .insert(append_request.entry.index, append_request);
-                                assert!(existing.is_none());
-
-                                match leader.appending {
-                                    NotAppending { next } => {
-                                        leader.appending = Appending;
-                                        keep_appending(ctx, store, agent, realm, group, next);
-                                    }
-                                    Appending => { /* do nothing */ }
-                                }
-
+                                append(ctx, store, agent, append_request);
                                 Box::pin(
                                     async move {
                                         match receiver.await {
@@ -759,7 +1053,7 @@ async fn start_app_request(
             .await
         {
             Err(_) => return Err(Response::NoStore),
-            Ok(ReadLatestResponse::Ok { entry, data }) => (entry, data),
+            Ok(ReadLatestResponse::Ok { entry, data, .. }) => (entry, data),
             Ok(ReadLatestResponse::None) => todo!(),
         };
 
@@ -796,10 +1090,36 @@ async fn start_app_request(
                     realm: request.realm,
                     group: request.group,
                     entry,
-                    data,
+                    data: DataChange::Set(data),
+                    transferring_out: DataChange::None,
                 });
             }
         };
+    }
+}
+
+/// Precondition: agent is leader.
+fn append(
+    ctx: &mut actix::Context<Agent>,
+    store: Addr<Store>,
+    agent: &mut Agent,
+    append_request: AppendRequest,
+) {
+    let realm = append_request.realm;
+    let group = append_request.group;
+
+    let leader = agent.leader.get_mut(&(realm, group)).unwrap();
+    let existing = leader
+        .append_queue
+        .insert(append_request.entry.index, append_request);
+    assert!(existing.is_none());
+
+    match leader.appending {
+        NotAppending { next } => {
+            leader.appending = Appending;
+            keep_appending(ctx, store, agent, realm, group, next);
+        }
+        Appending => { /* do nothing */ }
     }
 }
 

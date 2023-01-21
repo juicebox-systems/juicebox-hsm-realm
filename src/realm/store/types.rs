@@ -9,7 +9,15 @@ pub struct AppendRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub entry: LogEntry,
-    pub data: RecordMap,
+    pub data: DataChange,
+    pub transferring_out: DataChange,
+}
+
+#[derive(Debug)]
+pub enum DataChange {
+    Set(RecordMap),
+    Delete,
+    None,
 }
 
 #[derive(Debug, MessageResponse)]
@@ -41,8 +49,13 @@ pub struct ReadLatestRequest {
 }
 
 #[derive(Debug, MessageResponse)]
+#[allow(clippy::large_enum_variant)]
 pub enum ReadLatestResponse {
-    Ok { entry: LogEntry, data: RecordMap },
+    Ok {
+        entry: LogEntry,
+        data: RecordMap,
+        transferring_out: Option<RecordMap>,
+    },
     None,
 }
 

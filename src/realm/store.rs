@@ -8,9 +8,9 @@ pub mod types;
 use super::agent::Agent;
 use super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordMap};
 use types::{
-    AddressEntry, AppendRequest, AppendResponse, GetAddressesRequest, GetAddressesResponse,
-    ReadEntryRequest, ReadEntryResponse, ReadLatestRequest, ReadLatestResponse, SetAddressRequest,
-    SetAddressResponse,
+    AddressEntry, AppendRequest, AppendResponse, DataChange, GetAddressesRequest,
+    GetAddressesResponse, ReadEntryRequest, ReadEntryResponse, ReadLatestRequest,
+    ReadLatestResponse, SetAddressRequest, SetAddressResponse,
 };
 
 pub struct Store {
@@ -21,6 +21,7 @@ pub struct Store {
 struct GroupState {
     log: Vec<LogEntry>, // never empty
     data: RecordMap,
+    transferring_out: Option<RecordMap>,
 }
 
 impl Store {
@@ -41,13 +42,31 @@ impl Handler<AppendRequest> for Store {
 
     fn handle(&mut self, request: AppendRequest, _ctx: &mut Context<Self>) -> Self::Result {
         trace!(?request);
+
         let response = match self.groups.entry((request.realm, request.group)) {
             Occupied(mut bucket) => {
                 let state = bucket.get_mut();
                 let last = state.log.last().unwrap();
                 if request.entry.index == last.index.next() {
                     state.log.push(request.entry);
-                    state.data = request.data;
+                    match request.data {
+                        DataChange::Set(data) => {
+                            state.data = data;
+                        }
+                        DataChange::Delete => {
+                            panic!("not allowed to delete a group's data (because that spreads Option everywhere for not much benefit)");
+                        }
+                        DataChange::None => {}
+                    }
+                    match request.transferring_out {
+                        DataChange::Set(data) => {
+                            state.transferring_out = Some(data);
+                        }
+                        DataChange::Delete => {
+                            state.transferring_out = None;
+                        }
+                        DataChange::None => {}
+                    }
                     AppendResponse::Ok
                 } else {
                     AppendResponse::PreconditionFailed
@@ -56,11 +75,21 @@ impl Handler<AppendRequest> for Store {
 
             Vacant(bucket) => {
                 if request.entry.index == LogIndex(1) {
-                    bucket.insert(GroupState {
-                        log: vec![request.entry],
-                        data: request.data,
-                    });
-                    AppendResponse::Ok
+                    if let (DataChange::Set(data), DataChange::None) =
+                        (request.data, request.transferring_out)
+                    {
+                        let state = GroupState {
+                            log: vec![request.entry],
+                            data,
+                            transferring_out: None,
+                        };
+                        bucket.insert(state);
+                        AppendResponse::Ok
+                    } else {
+                        panic!(
+                            "must initialize a group with data and without transferring_out state"
+                        );
+                    }
                 } else {
                     AppendResponse::PreconditionFailed
                 }
@@ -111,6 +140,7 @@ impl Handler<ReadLatestRequest> for Store {
                 ReadLatestResponse::Ok {
                     entry: last.clone(),
                     data: state.data.clone(),
+                    transferring_out: state.transferring_out.clone(),
                 }
             }
         };

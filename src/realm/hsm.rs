@@ -6,7 +6,7 @@ use rand::RngCore;
 use sha2::Sha256;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
-use tracing::{info, trace, warn};
+use tracing::{trace, warn};
 
 mod app;
 pub mod types;
@@ -14,12 +14,15 @@ pub mod types;
 use app::RecordChange;
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
-    CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse, Configuration, DataHash,
-    EntryHmac, GroupConfigurationStatement, GroupId, GroupStatus, HsmId, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus, LogEntry, LogIndex,
-    NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
-    OwnedPrefix, ReadCapturedRequest, ReadCapturedResponse, RealmId, RealmStatus, RecordMap,
-    SecretsResponse, StatusRequest, StatusResponse, UserId,
+    CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse, CompleteTransferRequest,
+    CompleteTransferResponse, Configuration, DataHash, EntryHmac, GroupConfigurationStatement,
+    GroupId, GroupStatus, HsmId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
+    JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupInfo, NewGroupRequest,
+    NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedPrefix, ReadCapturedRequest,
+    ReadCapturedResponse, RealmId, RealmStatus, RecordMap, SecretsResponse, StatusRequest,
+    StatusResponse, TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
+    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatement,
+    TransferStatementRequest, TransferStatementResponse, TransferringOut, UserId,
 };
 
 #[derive(Clone)]
@@ -151,6 +154,7 @@ struct EntryHmacBuilder<'a> {
     index: LogIndex,
     owned_prefix: &'a Option<OwnedPrefix>,
     data_hash: &'a DataHash,
+    transferring_out: &'a Option<TransferringOut>,
     prev_hmac: &'a EntryHmac,
 }
 
@@ -164,16 +168,42 @@ impl<'a> EntryHmacBuilder<'a> {
         mac.update(b"|");
         mac.update(&self.index.0.to_be_bytes());
         mac.update(b"|");
+
         match self.owned_prefix {
             Some(owned_prefix) => {
-                for bit in owned_prefix.0.iter() {
+                for bit in &owned_prefix.0 {
                     mac.update(if *bit { b"1" } else { b"0" });
                 }
             }
             None => mac.update(b"none"),
         }
+
         mac.update(b"|");
         mac.update(&self.data_hash.0);
+        mac.update(b"|");
+
+        match self.transferring_out {
+            Some(TransferringOut {
+                destination,
+                prefix,
+                data_hash,
+                at,
+            }) => {
+                mac.update(&destination.0);
+                mac.update(b"|");
+                for bit in &prefix.0 {
+                    mac.update(if *bit { b"1" } else { b"0" });
+                }
+                mac.update(b"|");
+                mac.update(&data_hash.0);
+                mac.update(b"|");
+                mac.update(&at.0.to_be_bytes());
+            }
+            None => {
+                mac.update(b"none|none|none|none");
+            }
+        }
+
         mac.update(b"|");
         mac.update(&self.prev_hmac.0);
         mac
@@ -185,6 +215,71 @@ impl<'a> EntryHmacBuilder<'a> {
 
     fn verify(&self, key: &RealmKey, hmac: &EntryHmac) -> Result<(), digest::MacError> {
         self.calculate(key).verify(&hmac.0)
+    }
+
+    fn verify_entry(
+        key: &RealmKey,
+        realm: RealmId,
+        group: GroupId,
+        entry: &'a LogEntry,
+    ) -> Result<(), digest::MacError> {
+        Self {
+            realm,
+            group,
+            index: entry.index,
+            owned_prefix: &entry.owned_prefix,
+            data_hash: &entry.data_hash,
+            transferring_out: &entry.transferring_out,
+            prev_hmac: &entry.prev_hmac,
+        }
+        .verify(key, &entry.entry_hmac)
+    }
+}
+
+impl TransferNonce {
+    pub fn random() -> Self {
+        let mut nonce = [0u8; 16];
+        OsRng.fill_bytes(&mut nonce);
+        Self(nonce)
+    }
+}
+
+struct TransferStatementBuilder<'a> {
+    realm: RealmId,
+    prefix: &'a OwnedPrefix,
+    data_hash: &'a DataHash,
+    destination: GroupId,
+    nonce: TransferNonce,
+}
+
+impl<'a> TransferStatementBuilder<'a> {
+    fn calculate(&self, key: &RealmKey) -> Hmac<Sha256> {
+        let mut mac = Hmac::<Sha256>::new(&key.0);
+        mac.update(b"transfer|");
+        mac.update(&self.realm.0);
+        mac.update(b"|");
+        for bit in &self.prefix.0 {
+            mac.update(if *bit { b"1" } else { b"0" });
+        }
+        mac.update(b"|");
+        mac.update(&self.data_hash.0);
+        mac.update(b"|");
+        mac.update(&self.destination.0);
+        mac.update(b"|");
+        mac.update(&self.nonce.0);
+        mac
+    }
+
+    fn build(&self, key: &RealmKey) -> TransferStatement {
+        TransferStatement(self.calculate(key).finalize().into_bytes())
+    }
+
+    fn verify(
+        &self,
+        key: &RealmKey,
+        statement: &TransferStatement,
+    ) -> Result<(), digest::MacError> {
+        self.calculate(key).verify(&statement.0)
     }
 }
 
@@ -240,13 +335,14 @@ struct VolatileState {
 struct LeaderVolatileGroupState {
     log: Vec<LeaderLogEntry>, // never empty
     committed: Option<LogIndex>,
+    incoming: Option<TransferNonce>,
 }
 
 struct LeaderLogEntry {
     entry: LogEntry,
-    /// If set, this is a change to the data that resulted in the log entry.
-    /// If `None`, either the change happened before this HSM became leader,
-    /// or the log entry didn't change the data.
+    /// This is used to determine if a client request may be processed (only if
+    /// there are no uncommitted changes to that record). If set, this is a
+    /// change to the record that resulted in the log entry.
     delta: Option<(UserId, RecordChange)>,
     /// A possible response to the client. This must not be externalized until
     /// after the entry has been committed.
@@ -294,6 +390,7 @@ impl Hsm {
         let index = LogIndex(1);
         let data = RecordMap::new();
         let data_hash = data.hash();
+        let transferring_out = None;
         let prev_hmac = EntryHmac::zero();
 
         let entry_hmac = EntryHmacBuilder {
@@ -301,6 +398,7 @@ impl Hsm {
             group,
             index,
             owned_prefix: &owned_prefix,
+            transferring_out: &transferring_out,
             data_hash: &data_hash,
             prev_hmac: &prev_hmac,
         }
@@ -310,6 +408,7 @@ impl Hsm {
             index,
             owned_prefix,
             data_hash,
+            transferring_out,
             prev_hmac,
             entry_hmac,
         };
@@ -323,6 +422,7 @@ impl Hsm {
                     response: None,
                 }],
                 committed: None,
+                incoming: None,
             },
         );
 
@@ -527,15 +627,12 @@ impl Handler<CaptureNextRequest> for Hsm {
                     return Response::InvalidRealm;
                 }
 
-                if (EntryHmacBuilder {
-                    realm: request.realm,
-                    group: request.group,
-                    index: request.index,
-                    owned_prefix: &request.owned_prefix,
-                    data_hash: &request.data_hash,
-                    prev_hmac: &request.prev_hmac,
-                })
-                .verify(&self.persistent.realm_key, &request.entry_hmac)
+                if EntryHmacBuilder::verify_entry(
+                    &self.persistent.realm_key,
+                    request.realm,
+                    request.group,
+                    &request.entry,
+                )
                 .is_err()
                 {
                     return Response::InvalidHmac;
@@ -547,18 +644,18 @@ impl Handler<CaptureNextRequest> for Hsm {
                     Some(group) => {
                         match &group.captured {
                             None => {
-                                if request.index != LogIndex(1) {
+                                if request.entry.index != LogIndex(1) {
                                     return Response::MissingPrev;
                                 }
-                                if request.prev_hmac != EntryHmac::zero() {
+                                if request.entry.prev_hmac != EntryHmac::zero() {
                                     return Response::InvalidChain;
                                 }
                             }
                             Some((captured_index, captured_hmac)) => {
-                                if request.index != captured_index.next() {
+                                if request.entry.index != captured_index.next() {
                                     return Response::MissingPrev;
                                 }
-                                if request.prev_hmac != *captured_hmac {
+                                if request.entry.prev_hmac != *captured_hmac {
                                     return Response::InvalidChain;
                                 }
                             }
@@ -568,11 +665,11 @@ impl Handler<CaptureNextRequest> for Hsm {
                             hsm: self.persistent.id,
                             realm: request.realm,
                             group: request.group,
-                            index: request.index,
-                            entry_hmac: &request.entry_hmac,
+                            index: request.entry.index,
+                            entry_hmac: &request.entry.entry_hmac,
                         }
                         .build(&self.persistent.realm_key);
-                        group.captured = Some((request.index, request.entry_hmac));
+                        group.captured = Some((request.entry.index, request.entry.entry_hmac));
                         Response::Ok {
                             hsm_id: self.persistent.id,
                             captured: statement,
@@ -616,15 +713,12 @@ impl Handler<BecomeLeaderRequest> for Hsm {
                                         have: Some(*captured_index),
                                     };
                                 }
-                                if (EntryHmacBuilder {
-                                    realm: request.realm,
-                                    group: request.group,
-                                    index: request.last_entry.index,
-                                    owned_prefix: &request.last_entry.owned_prefix,
-                                    data_hash: &request.last_entry.data_hash,
-                                    prev_hmac: &request.last_entry.prev_hmac,
-                                })
-                                .verify(&self.persistent.realm_key, &request.last_entry.entry_hmac)
+                                if EntryHmacBuilder::verify_entry(
+                                    &self.persistent.realm_key,
+                                    request.realm,
+                                    request.group,
+                                    &request.last_entry,
+                                )
                                 .is_err()
                                 {
                                     return Response::InvalidHmac;
@@ -645,6 +739,7 @@ impl Handler<BecomeLeaderRequest> for Hsm {
                         response: None,
                     }],
                     committed: None,
+                    incoming: None,
                 });
             Response::Ok
         })();
@@ -752,7 +847,7 @@ impl Handler<CommitRequest> for Hsm {
                 .len();
 
             if captures > group.configuration.0.len() / 2 {
-                info!(hsm = self.name, index = ?request.index, "leader committed entry");
+                trace!(hsm = self.name, index = ?request.index, "leader committed entry");
                 // todo: skip already committed entries
                 let responses = leader
                     .log
@@ -779,6 +874,405 @@ impl Handler<CommitRequest> for Hsm {
                 );
                 CommitResponse::NoQuorum
             }
+        })();
+
+        trace!(hsm = self.name, ?response);
+        response
+    }
+}
+
+impl Handler<TransferOutRequest> for Hsm {
+    type Result = TransferOutResponse;
+
+    fn handle(&mut self, request: TransferOutRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        type Response = TransferOutResponse;
+        trace!(hsm = self.name, ?request);
+
+        let response = (|| {
+            let Some(realm) = &self.persistent.realm else {
+                return Response::InvalidRealm;
+            };
+            if realm.id != request.realm {
+                return Response::InvalidRealm;
+            }
+
+            if realm.groups.get(&request.source).is_none() {
+                return Response::InvalidGroup;
+            };
+
+            let Some(leader) = self.volatile.leader.get_mut(&request.source) else {
+                return Response::NotLeader;
+            };
+
+            let last_entry = &leader.log.last().unwrap().entry;
+
+            // Note: The owned_prefix found in the last entry might not have
+            // committed yet. We think that's OK. The source group won't
+            // produce a transfer statement unless this last entry and the
+            // transferring out entry have committed.
+            let Some(owned_prefix) = &last_entry.owned_prefix else {
+                return Response::NotOwner;
+            };
+
+            // TODO: This will always return StaleIndex if we're pipelining
+            // changes while transferring ownership. We need to bring
+            // `request.data` forward by applying recent changes to it.
+            if request.index != last_entry.index {
+                return Response::StaleIndex;
+            }
+            if request.data.hash() != last_entry.data_hash {
+                return Response::InvalidData;
+            }
+
+            // This support two options: moving out the entire owned
+            // prefix, or moving out the owned prefix plus one more bit.
+            let keeping_prefix: Option<OwnedPrefix>;
+            let keeping_data;
+            let keeping_hash;
+            let transferring_prefix = request.prefix.clone();
+            let transferring_data;
+            let transferring_hash;
+            if request.prefix == *owned_prefix {
+                keeping_prefix = None;
+                keeping_data = RecordMap::new();
+                keeping_hash = keeping_data.hash();
+                transferring_data = request.data; // TODO: check hash
+                transferring_hash = last_entry.data_hash.clone();
+            } else if request.prefix.0.len() == owned_prefix.0.len() + 1
+                && request.prefix.0.starts_with(&owned_prefix.0)
+            {
+                let keeping_0;
+                let prefix1;
+                keeping_prefix = Some(OwnedPrefix({
+                    let mut keeping_prefix = request.prefix.0.clone();
+                    let transferring_1 = keeping_prefix.pop().unwrap();
+                    if transferring_1 {
+                        keeping_0 = true;
+                        keeping_prefix.push(false);
+                        prefix1 = request.prefix.0;
+                    } else {
+                        keeping_0 = false;
+                        keeping_prefix.push(true);
+                        prefix1 = keeping_prefix.clone();
+                    }
+                    keeping_prefix
+                }));
+                let mut data0 = request.data;
+                let data1 = RecordMap(data0.0.split_off(&UserId(prefix1)));
+                if keeping_0 {
+                    keeping_data = data0;
+                    transferring_data = data1;
+                } else {
+                    keeping_data = data1;
+                    transferring_data = data0;
+                }
+                keeping_hash = keeping_data.hash();
+                transferring_hash = transferring_data.hash();
+            } else {
+                return Response::NotOwner;
+            }
+
+            let index = last_entry.index.next();
+            let transferring_out = Some(TransferringOut {
+                destination: request.destination,
+                prefix: transferring_prefix,
+                data_hash: transferring_hash,
+                at: index,
+            });
+            let prev_hmac = last_entry.entry_hmac.clone();
+
+            let entry_hmac = EntryHmacBuilder {
+                realm: request.realm,
+                group: request.source,
+                index,
+                owned_prefix: &keeping_prefix,
+                data_hash: &keeping_hash,
+                transferring_out: &transferring_out,
+                prev_hmac: &prev_hmac,
+            }
+            .build(&self.persistent.realm_key);
+
+            let entry = LogEntry {
+                index,
+                owned_prefix: keeping_prefix,
+                data_hash: keeping_hash,
+                transferring_out,
+                prev_hmac,
+                entry_hmac,
+            };
+
+            leader.log.push(LeaderLogEntry {
+                entry: entry.clone(),
+                delta: None,
+                response: None,
+            });
+
+            TransferOutResponse::Ok {
+                entry,
+                keeping: keeping_data,
+                transferring: transferring_data,
+            }
+        })();
+
+        trace!(hsm = self.name, ?response);
+        response
+    }
+}
+
+impl Handler<TransferNonceRequest> for Hsm {
+    type Result = TransferNonceResponse;
+
+    fn handle(&mut self, request: TransferNonceRequest, _ctx: &mut Self::Context) -> Self::Result {
+        type Response = TransferNonceResponse;
+        trace!(hsm = self.name, ?request);
+
+        let response = (|| {
+            let Some(realm) = &self.persistent.realm else {
+                return Response::InvalidRealm;
+            };
+            if realm.id != request.realm {
+                return Response::InvalidRealm;
+            }
+
+            if realm.groups.get(&request.destination).is_none() {
+                return Response::InvalidGroup;
+            };
+
+            let Some(leader) = self.volatile.leader.get_mut(&request.destination) else {
+                return Response::NotLeader;
+            };
+
+            let nonce = TransferNonce::random();
+            leader.incoming = Some(nonce);
+            Response::Ok(nonce)
+        })();
+
+        trace!(hsm = self.name, ?response);
+        response
+    }
+}
+
+impl Handler<TransferStatementRequest> for Hsm {
+    type Result = TransferStatementResponse;
+
+    fn handle(
+        &mut self,
+        request: TransferStatementRequest,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        type Response = TransferStatementResponse;
+        trace!(hsm = self.name, ?request);
+        let response = (|| {
+            let Some(realm) = &self.persistent.realm else {
+                return Response::InvalidRealm;
+            };
+            if realm.id != request.realm {
+                return Response::InvalidRealm;
+            }
+
+            if realm.groups.get(&request.source).is_none() {
+                return Response::InvalidGroup;
+            };
+
+            let Some(leader) = self.volatile.leader.get_mut(&request.source) else {
+                return Response::NotLeader;
+            };
+
+            let Some(TransferringOut {
+                destination,
+                prefix,
+                data_hash,
+                at: transferring_at,
+            }) = &leader.log.last().unwrap().entry.transferring_out else {
+                return Response::NotTransferring;
+            };
+            if *destination != request.destination {
+                return Response::NotTransferring;
+            }
+            if !matches!(leader.committed, Some(c) if c >= *transferring_at) {
+                return Response::Busy;
+            }
+
+            let statement = TransferStatementBuilder {
+                realm: request.realm,
+                destination: *destination,
+                prefix,
+                data_hash,
+                nonce: request.nonce,
+            }
+            .build(&self.persistent.realm_key);
+
+            Response::Ok(statement)
+        })();
+
+        trace!(hsm = self.name, ?response);
+        response
+    }
+}
+
+impl Handler<TransferInRequest> for Hsm {
+    type Result = TransferInResponse;
+
+    fn handle(&mut self, request: TransferInRequest, _ctx: &mut Self::Context) -> Self::Result {
+        type Response = TransferInResponse;
+        trace!(hsm = self.name, ?request);
+
+        let response = (|| {
+            let Some(realm) = &self.persistent.realm else {
+                return Response::InvalidRealm;
+            };
+            if realm.id != request.realm {
+                return Response::InvalidRealm;
+            }
+
+            if realm.groups.get(&request.destination).is_none() {
+                return Response::InvalidGroup;
+            };
+
+            let Some(leader) = self.volatile.leader.get_mut(&request.destination) else {
+                return Response::NotLeader;
+            };
+
+            if leader.incoming != Some(request.nonce) {
+                return Response::InvalidNonce;
+            }
+            leader.incoming = None;
+
+            let last_entry = &leader.log.last().unwrap().entry;
+            if last_entry.owned_prefix.is_some() {
+                // merging prefixes is currently unsupported
+                return Response::UnacceptablePrefix;
+            }
+
+            if (TransferStatementBuilder {
+                realm: request.realm,
+                destination: request.destination,
+                prefix: &request.prefix,
+                data_hash: &request.data_hash,
+                nonce: request.nonce,
+            })
+            .verify(&self.persistent.realm_key, &request.statement)
+            .is_err()
+            {
+                return Response::InvalidStatement;
+            }
+
+            if request.data.hash() != request.data_hash {
+                return Response::InvalidData;
+            }
+
+            let index = last_entry.index.next();
+            let owned_prefix = Some(request.prefix);
+            let data = request.data;
+            let data_hash = request.data_hash;
+            let transferring_out = last_entry.transferring_out.clone();
+            let prev_hmac = last_entry.entry_hmac.clone();
+
+            let entry_hmac = EntryHmacBuilder {
+                realm: request.realm,
+                group: request.destination,
+                index,
+                owned_prefix: &owned_prefix,
+                data_hash: &data_hash,
+                transferring_out: &transferring_out,
+                prev_hmac: &prev_hmac,
+            }
+            .build(&self.persistent.realm_key);
+
+            let entry = LogEntry {
+                index,
+                owned_prefix,
+                data_hash,
+                transferring_out,
+                prev_hmac,
+                entry_hmac,
+            };
+
+            leader.log.push(LeaderLogEntry {
+                entry: entry.clone(),
+                delta: None,
+                response: None,
+            });
+
+            Response::Ok { entry, data }
+        })();
+
+        trace!(hsm = self.name, ?response);
+        response
+    }
+}
+
+impl Handler<CompleteTransferRequest> for Hsm {
+    type Result = CompleteTransferResponse;
+
+    fn handle(
+        &mut self,
+        request: CompleteTransferRequest,
+        _ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        type Response = CompleteTransferResponse;
+        trace!(hsm = self.name, ?request);
+
+        let response = (|| {
+            let Some(realm) = &self.persistent.realm else {
+                return Response::InvalidRealm;
+            };
+            if realm.id != request.realm {
+                return Response::InvalidRealm;
+            }
+
+            if realm.groups.get(&request.source).is_none() {
+                return Response::InvalidGroup;
+            };
+
+            let Some(leader) = self.volatile.leader.get_mut(&request.source) else {
+                return Response::NotLeader;
+            };
+
+            let last_entry = &leader.log.last().unwrap().entry;
+            if let Some(transferring_out) = &last_entry.transferring_out {
+                if transferring_out.destination != request.destination
+                    || transferring_out.prefix != request.prefix
+                {
+                    return Response::NotTransferring;
+                }
+            } else {
+                return Response::NotTransferring;
+            };
+
+            let index = last_entry.index.next();
+            let owned_prefix = last_entry.owned_prefix.clone();
+            let data_hash = last_entry.data_hash.clone();
+            let transferring_out = None;
+            let prev_hmac = last_entry.entry_hmac.clone();
+
+            let entry_hmac = EntryHmacBuilder {
+                realm: request.realm,
+                group: request.source,
+                index,
+                owned_prefix: &owned_prefix,
+                data_hash: &data_hash,
+                transferring_out: &transferring_out,
+                prev_hmac: &prev_hmac,
+            }
+            .build(&self.persistent.realm_key);
+
+            let entry = LogEntry {
+                index,
+                owned_prefix,
+                data_hash,
+                transferring_out,
+                prev_hmac,
+                entry_hmac,
+            };
+
+            leader.log.push(LeaderLogEntry {
+                entry: entry.clone(),
+                delta: None,
+                response: None,
+            });
+
+            Response::Ok(entry)
         })();
 
         trace!(hsm = self.name, ?response);
@@ -852,6 +1346,9 @@ fn handle_app_request(
         for entry in iter.clone() {
             match &entry.delta {
                 Some((uid, change)) => {
+                    // TODO: Rethink whether we even need this check. Is there
+                    // a problem with allowing pipelining within a single
+                    // record?
                     if *uid == request.uid {
                         return Response::Busy;
                     }
@@ -891,6 +1388,7 @@ fn handle_app_request(
     let index = last_entry.entry.index.next();
     let owned_prefix = last_entry.entry.owned_prefix.clone();
     let data_hash = data.hash();
+    let transferring_out = last_entry.entry.transferring_out.clone();
     let prev_hmac = last_entry.entry.entry_hmac.clone();
 
     let entry_hmac = EntryHmacBuilder {
@@ -899,6 +1397,7 @@ fn handle_app_request(
         index,
         owned_prefix: &owned_prefix,
         data_hash: &data_hash,
+        transferring_out: &transferring_out,
         prev_hmac: &prev_hmac,
     }
     .build(&persistent.realm_key);
@@ -907,6 +1406,7 @@ fn handle_app_request(
         index,
         owned_prefix,
         data_hash,
+        transferring_out,
         prev_hmac,
         entry_hmac,
     };

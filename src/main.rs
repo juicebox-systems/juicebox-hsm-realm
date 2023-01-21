@@ -4,7 +4,7 @@ use futures::future::{join_all, try_join_all};
 use std::iter;
 use std::ops::RangeFrom;
 use std::str::FromStr;
-use tracing::{debug, info, Level};
+use tracing::{info, trace, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::FmtSubscriber;
 
@@ -18,7 +18,7 @@ use server::Server;
 use types::{AuthToken, Policy};
 
 use realm::agent::Agent;
-use realm::hsm::types::{SecretsRequest, SecretsResponse, UserId};
+use realm::hsm::types::{OwnedPrefix, SecretsRequest, SecretsResponse, UserId};
 use realm::hsm::{Hsm, RealmKey};
 use realm::load_balancer::types::{ClientRequest, ClientResponse};
 use realm::load_balancer::LoadBalancer;
@@ -99,38 +99,66 @@ async fn main() {
     let group3: Vec<Addr<Agent>> = iter::repeat_with(|| hsm_generator.create_hsm(store.clone()))
         .take(4)
         .collect();
-    let new_groups = try_join_all([
+    let mut groups = try_join_all([
         realm::cluster::new_group(realm_id, &group2),
         realm::cluster::new_group(realm_id, &group3),
         realm::cluster::new_group(realm_id, &group1),
     ])
     .await
     .unwrap();
-    info!(?realm_id, ?new_groups, "created groups");
+    info!(?realm_id, new_groups = ?groups, "created groups");
 
-    let num_hsms = 5;
-    info!(count = num_hsms, "creating group2 on new HSMs");
-    let group_id2 = realm::cluster::new_group(realm_id, &group2).await.unwrap();
-    info!(?realm_id, group_id = ?group_id2, "initialized group");
+    groups.insert(0, group_id1);
+    info!(
+        source = ?groups[0],
+        destination = ?groups[1],
+        "transferring ownership of entire uid-space"
+    );
+    realm::cluster::transfer(realm_id, groups[0], groups[1], OwnedPrefix::full(), &store)
+        .await
+        .unwrap();
 
-    let num_hsms = 4;
-    info!(count = num_hsms, "creating group3 on new HSMs");
-    let group_id3 = realm::cluster::new_group(realm_id, &group2).await.unwrap();
-    info!(?realm_id, group_id = ?group_id3, "initialized group");
+    info!("growing the cluster to 4 partitions");
+    realm::cluster::transfer(
+        realm_id,
+        groups[1],
+        groups[2],
+        OwnedPrefix(bitvec![1]),
+        &store,
+    )
+    .await
+    .unwrap();
 
-    info!(count = num_hsms, "creating group4 on first group's HSMs");
-    let group_id4 = realm::cluster::new_group(realm_id, &group1).await.unwrap();
-    info!(?realm_id, group_id = ?group_id4, "initialized group");
+    realm::cluster::transfer(
+        realm_id,
+        groups[1],
+        groups[0],
+        OwnedPrefix(bitvec![0, 0]),
+        &store,
+    )
+    .await
+    .unwrap();
+
+    realm::cluster::transfer(
+        realm_id,
+        groups[2],
+        groups[3],
+        OwnedPrefix(bitvec![1, 1]),
+        &store,
+    )
+    .await
+    .unwrap();
 
     info!("incrementing a bunch");
     let uids = [
         UserId(bitvec::bitvec![0, 0]),
         UserId(bitvec::bitvec![0, 1]),
         UserId(bitvec::bitvec![1, 0]),
+        UserId(bitvec::bitvec![1, 1]),
     ];
     join_all(
         iter::zip(uids.iter().cycle(), load_balancers.iter().cycle())
-            .take(297)
+            .take(99 * uids.len())
             .map(|(uid, load_balancer)| async move {
                 let result = load_balancer
                     .send(ClientRequest {
@@ -142,7 +170,7 @@ async fn main() {
                     .unwrap();
                 match result {
                     ClientResponse::Ok(SecretsResponse::Increment(new_value)) => {
-                        debug!(?uid, new_value, "incremented")
+                        trace!(?uid, new_value, "incremented")
                     }
                     ClientResponse::Unavailable => todo!(),
                 }

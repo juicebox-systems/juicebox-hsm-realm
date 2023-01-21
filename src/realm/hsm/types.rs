@@ -74,12 +74,23 @@ pub struct LogEntry {
     pub index: LogIndex,
     pub owned_prefix: Option<OwnedPrefix>,
     pub data_hash: DataHash,
+    pub transferring_out: Option<TransferringOut>,
     pub prev_hmac: EntryHmac,
     pub entry_hmac: EntryHmac,
     // TODO:
-    // migrating out
     // pub committed: LogIndex,
     // pub committed_statement: CommittedStatement,
+}
+
+#[derive(Clone, Debug)]
+pub struct TransferringOut {
+    pub destination: GroupId,
+    pub prefix: OwnedPrefix,
+    pub data_hash: DataHash,
+    /// This is the first log index when this struct was placed in the source
+    /// group's log. It's used by the source group to determine whether
+    /// transferring out has committed.
+    pub at: LogIndex,
 }
 
 /// See [super::EntryHmacBuilder].
@@ -101,7 +112,7 @@ impl fmt::Debug for EntryHmac {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct OwnedPrefix(pub BitVec);
 
 impl OwnedPrefix {
@@ -168,6 +179,31 @@ impl fmt::Debug for GroupConfigurationStatement {
 pub struct CapturedStatement(pub digest::Output<Hmac<Sha256>>);
 
 impl fmt::Debug for CapturedStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TransferNonce(pub [u8; 16]);
+
+impl fmt::Debug for TransferNonce {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+/// See [super::TransferStatementBuilder].
+#[derive(Clone)]
+pub struct TransferStatement(pub digest::Output<Hmac<Sha256>>);
+
+impl fmt::Debug for TransferStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in self.0 {
             write!(f, "{byte:02x}")?;
@@ -277,11 +313,7 @@ pub enum JoinGroupResponse {
 pub struct CaptureNextRequest {
     pub realm: RealmId,
     pub group: GroupId,
-    pub index: LogIndex,
-    pub owned_prefix: Option<OwnedPrefix>,
-    pub data_hash: DataHash,
-    pub prev_hmac: EntryHmac,
-    pub entry_hmac: EntryHmac,
+    pub entry: LogEntry,
 }
 
 #[derive(Debug, MessageResponse)]
@@ -360,6 +392,113 @@ pub enum CommitResponse {
 }
 
 #[derive(Debug, Message)]
+#[rtype(result = "TransferOutResponse")]
+pub struct TransferOutRequest {
+    pub realm: RealmId,
+    pub source: GroupId,
+    pub destination: GroupId,
+    pub prefix: OwnedPrefix,
+    pub index: LogIndex,
+    pub data: RecordMap,
+}
+
+#[derive(Debug, MessageResponse)]
+#[allow(clippy::large_enum_variant)]
+pub enum TransferOutResponse {
+    Ok {
+        entry: LogEntry,
+        keeping: RecordMap,
+        transferring: RecordMap,
+    },
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+    /// This is also returned when asking for a split that's more than one more
+    /// bit beyond the currently owned prefix.
+    NotOwner,
+    StaleIndex,
+    InvalidData,
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "TransferNonceResponse")]
+pub struct TransferNonceRequest {
+    pub realm: RealmId,
+    pub destination: GroupId,
+}
+
+#[derive(Debug, MessageResponse)]
+pub enum TransferNonceResponse {
+    Ok(TransferNonce),
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "TransferStatementResponse")]
+pub struct TransferStatementRequest {
+    pub realm: RealmId,
+    pub source: GroupId,
+    pub destination: GroupId,
+    pub nonce: TransferNonce,
+}
+
+#[derive(Debug, MessageResponse)]
+pub enum TransferStatementResponse {
+    Ok(TransferStatement),
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+    NotTransferring,
+    Busy,
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "TransferInResponse")]
+pub struct TransferInRequest {
+    pub realm: RealmId,
+    pub destination: GroupId,
+    pub data: RecordMap,
+    pub data_hash: DataHash,
+    pub prefix: OwnedPrefix,
+    pub nonce: TransferNonce,
+    pub statement: TransferStatement,
+}
+
+#[derive(Debug, MessageResponse)]
+#[allow(clippy::large_enum_variant)]
+pub enum TransferInResponse {
+    Ok { entry: LogEntry, data: RecordMap },
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+    UnacceptablePrefix,
+    InvalidNonce,
+    InvalidStatement,
+    InvalidData,
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "CompleteTransferResponse")]
+pub struct CompleteTransferRequest {
+    pub realm: RealmId,
+    pub source: GroupId,
+    pub destination: GroupId,
+    pub prefix: OwnedPrefix,
+}
+
+#[derive(Debug, MessageResponse)]
+#[allow(clippy::large_enum_variant)]
+pub enum CompleteTransferResponse {
+    Ok(LogEntry),
+    NotTransferring,
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+}
+
+#[derive(Debug, Message)]
 #[rtype(result = "AppResponse")]
 pub struct AppRequest {
     pub realm: RealmId,
@@ -372,6 +511,7 @@ pub struct AppRequest {
 }
 
 #[derive(Debug, MessageResponse)]
+#[allow(clippy::large_enum_variant)]
 pub enum AppResponse {
     Ok {
         entry: LogEntry,
