@@ -19,13 +19,15 @@ pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
     store: &R,
     root_hash: &HO,
     k: &[u8],
+    prefix_size: usize,
 ) -> Result<ReadProof<HO>, TreeStoreError> {
     let root = match store.fetch(root_hash.as_u8())? {
         Node::Interior(int) => int,
         Node::Leaf(_) => panic!("found unexpected leaf node"),
     };
-    let mut res = ReadProof::new(k, root);
+    let mut res = ReadProof::new(k, prefix_size, root);
     let mut key = KeySlice::from_slice(k);
+    key = &key[prefix_size..];
     loop {
         let n = res.path.last().unwrap();
         let d = Dir::from(key[0]);

@@ -32,24 +32,32 @@ type KeySlice = BitSlice<u8, Msb0>;
 
 pub struct Tree<H: NodeHasher<HO>, HO> {
     hasher: H,
+    key_size: usize,
     overlay: TreeOverlay<HO>,
 }
 impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
-    // Creates a new empty tree. Returns the Tree along with its initial root node.
-    pub fn new_tree(hasher: H) -> (Self, InteriorNode<HO>) {
-        let root = InteriorNode::new(&hasher, None, None);
+    // Creates a new empty tree. Returns the Tree along with its initial root node. If this tree is
+    // a partition of a larger tree, then pass the prefix of this partition. key_size should be the
+    // total size of a key in bits including any prefix from being a partition.
+    pub fn new_tree(hasher: H, tree_prefix: &KeyVec, key_size: usize) -> (Self, InteriorNode<HO>) {
+        assert!(key_size % 8 == 0);
+        let root = InteriorNode::new(&hasher, tree_prefix, None, None);
         let t = Tree {
             hasher,
+            key_size,
             overlay: TreeOverlay::new(root.hash, 15),
         };
         (t, root)
     }
 
     // Create a new Tree instance for a previously constructed tree given the root hash
-    // of the tree's content.
-    pub fn with_existing_root(hasher: H, root: HO) -> Self {
+    // of the tree's content. key_size should be the total size of a key in bits including
+    // any prefix from being a partition.
+    pub fn with_existing_root(hasher: H, key_size: usize, root: HO) -> Self {
+        assert!(key_size % 8 == 0);
         Tree {
             hasher,
+            key_size,
             overlay: TreeOverlay::new(root, 15),
         }
     }
@@ -63,18 +71,27 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         rp: ReadProof<HO>,
         v: Vec<u8>,
     ) -> Result<Option<Delta<HO>>, InsertError> {
+        if rp.key.len() * 8 != self.key_size {
+            return Err(InsertError::InvalidKey);
+        }
         if !rp.verify(&self.hasher) {
             return Err(InsertError::InvalidProof);
         }
         if !self.overlay.roots.contains(&rp.path[0].hash) {
             return Err(InsertError::StaleProof);
         }
+        let prefix_size = rp.prefix_size;
         // Convert the proof into a map of hash -> node.
         let (proof_nodes, key) = rp.make_node_map();
 
         let mut delta = Delta::new(LeafNode::new(&self.hasher, &key, v));
-        let key = KeySlice::from_slice(&key);
-        match self.insert_into_tree(&proof_nodes, &mut delta, self.overlay.latest_root, key) {
+        match self.insert_into_tree(
+            &proof_nodes,
+            &mut delta,
+            self.overlay.latest_root,
+            KeySlice::from_slice(&key),
+            prefix_size,
+        ) {
             Err(e) => Err(e),
             Ok(None) => Ok(None),
             Ok(Some(_)) => {
@@ -89,7 +106,10 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         proof_nodes: &HashMap<HO, Node<HO>>,
         delta: &mut Delta<HO>,
         node: HO,
-        key: &KeySlice,
+        whole_key: &KeySlice,
+        // key_pos represents the point where the key is split between the prefix leading to this node,
+        // and the tail of key left to traverse.
+        key_pos: usize,
     ) -> Result<Option<HO>, InsertError> {
         //
         match self
@@ -108,59 +128,75 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 }
             }
             Some(Node::Interior(int)) => {
-                let dir = Dir::from(key[0]);
+                let dir = Dir::from(whole_key[key_pos]);
                 match int.branch(dir) {
                     None => {
                         // There's no existing entry for the branch we want to use. We update it to point to the new leaf.
-                        let new_b = Branch::new(key.into(), delta.leaf.hash);
-                        let updated_n = int.with_new_child(&self.hasher, dir, new_b);
+                        let new_b = Branch::new(whole_key[key_pos..].into(), delta.leaf.hash);
+                        let updated_n = int.with_new_child(
+                            &self.hasher,
+                            &whole_key[..key_pos].into(),
+                            dir,
+                            new_b,
+                        );
                         let new_hash = updated_n.hash;
                         delta.add.push(updated_n);
                         delta.remove.push(int.hash);
                         Ok(Some(new_hash))
                     }
                     Some(b) => {
-                        if key.starts_with(&b.prefix) {
+                        if whole_key[key_pos..].starts_with(&b.prefix) {
                             // The branch goes along our keypath, head down the path.
-                            return match self.insert_into_tree(
+                            match self.insert_into_tree(
                                 proof_nodes,
                                 delta,
                                 b.hash,
-                                &key[b.prefix.len()..],
+                                whole_key,
+                                key_pos + b.prefix.len(),
                             ) {
                                 Err(e) => Err(e),
                                 Ok(None) => Ok(None),
                                 Ok(Some(child_hash)) => {
-                                    let updated_n =
-                                        int.with_new_child_hash(&self.hasher, dir, child_hash);
+                                    let updated_n = int.with_new_child_hash(
+                                        &self.hasher,
+                                        &whole_key[..key_pos].into(),
+                                        dir,
+                                        child_hash,
+                                    );
                                     let new_hash = updated_n.hash;
                                     delta.add.push(updated_n);
                                     delta.remove.push(int.hash);
                                     Ok(Some(new_hash))
                                 }
-                            };
+                            }
+                        } else {
+                            // Branch points to somewhere else.
+                            // We need to create a new child interior node from this branch that
+                            // contains (new_leaf, prev_branch_dest).
+                            // The current branch should have its prefix shortened to the common prefix.
+                            let kp = &whole_key[key_pos..key_pos + b.prefix.len()];
+                            let comm = common_prefix(kp, &b.prefix);
+                            let new_child = InteriorNode::construct(
+                                &self.hasher,
+                                &whole_key[..key_pos + comm.len()].into(),
+                                Some(Branch::new(
+                                    whole_key[key_pos + comm.len()..].into(),
+                                    delta.leaf.hash,
+                                )),
+                                Some(Branch::new(b.prefix[comm.len()..].into(), b.hash)),
+                            );
+                            let updated_n = int.with_new_child(
+                                &self.hasher,
+                                &whole_key[..key_pos].into(),
+                                dir,
+                                Branch::new(comm.into(), new_child.hash),
+                            );
+                            let new_hash = updated_n.hash;
+                            delta.add.push(new_child);
+                            delta.add.push(updated_n);
+                            delta.remove.push(int.hash);
+                            Ok(Some(new_hash))
                         }
-                        // Branch points to somewhere else.
-                        // We need to create a new child interior node from this branch that
-                        // contains (new_leaf, prev_branch_dest).
-                        // The current branch should have its prefix shortened to the common prefix.
-                        let kp = &key[..b.prefix.len()];
-                        let comm = common_prefix(kp, &b.prefix);
-                        let new_child = InteriorNode::construct(
-                            &self.hasher,
-                            Some(Branch::new(key[comm.len()..].into(), delta.leaf.hash)),
-                            Some(Branch::new(b.prefix[comm.len()..].into(), b.hash)),
-                        );
-                        let updated_n = int.with_new_child(
-                            &self.hasher,
-                            dir,
-                            Branch::new(comm.into(), new_child.hash),
-                        );
-                        let new_hash = updated_n.hash;
-                        delta.add.push(new_child);
-                        delta.add.push(updated_n);
-                        delta.remove.push(int.hash);
-                        Ok(Some(new_hash))
                     }
                 }
             }
@@ -177,12 +213,13 @@ pub struct InteriorNode<HO> {
 impl<HO: HashOutput> InteriorNode<HO> {
     fn new<H: NodeHasher<HO>>(
         h: &H,
+        key_prefix: &KeyVec,
         left: Option<Branch<HO>>,
         right: Option<Branch<HO>>,
     ) -> InteriorNode<HO> {
         Branch::assert_dir(&left, Dir::Left);
         Branch::assert_dir(&right, Dir::Right);
-        let hash = Self::calc_hash(h, &left, &right);
+        let hash = Self::calc_hash(h, key_prefix, &left, &right);
         InteriorNode { left, right, hash }
     }
     // construct returns a new InteriorNode with the supplied children. It will determine
@@ -190,40 +227,45 @@ impl<HO: HashOutput> InteriorNode<HO> {
     // TODO: get rid of new and always use this?
     fn construct<H: NodeHasher<HO>>(
         h: &H,
+        key_prefix: &KeyVec,
         a: Option<Branch<HO>>,
         b: Option<Branch<HO>>,
     ) -> InteriorNode<HO> {
         match (&a, &b) {
-            (None, None) => Self::new(h, None, None),
+            (None, None) => Self::new(h, key_prefix, None, None),
             (Some(x), _) => {
                 let (l, r) = if x.dir() == Dir::Left { (a, b) } else { (b, a) };
-                Self::new(h, l, r)
+                Self::new(h, key_prefix, l, r)
             }
             (_, Some(x)) => {
                 let (l, r) = if x.dir() == Dir::Left { (b, a) } else { (a, b) };
-                Self::new(h, l, r)
+                Self::new(h, key_prefix, l, r)
             }
         }
     }
     fn calc_hash<H: NodeHasher<HO>>(
         h: &H,
+        key_prefix: &KeyVec,
         left: &Option<Branch<HO>>,
         right: &Option<Branch<HO>>,
     ) -> HO {
-        let mut parts: [&[u8]; 7] = [&[], &[], &[], &[42], &[], &[], &[]];
+        let mut parts: [&[u8]; 9] = [&[], &[], &[], &[], &[], &[42], &[], &[], &[]];
+        let kp_len = key_prefix.len().to_le_bytes();
+        parts[0] = &kp_len;
+        parts[1] = key_prefix.as_raw_slice();
         let left_len;
-        let right_len;
         if let Some(b) = left {
             left_len = b.prefix.len().to_le_bytes();
-            parts[0] = &left_len;
-            parts[1] = b.prefix.as_raw_slice();
-            parts[2] = b.hash.as_u8();
+            parts[2] = &left_len;
+            parts[3] = b.prefix.as_raw_slice();
+            parts[4] = b.hash.as_u8();
         }
+        let right_len;
         if let Some(b) = right {
             right_len = b.prefix.len().to_le_bytes();
-            parts[3] = &right_len;
-            parts[4] = b.prefix.as_raw_slice();
-            parts[5] = b.hash.as_u8();
+            parts[6] = &right_len;
+            parts[7] = b.prefix.as_raw_slice();
+            parts[8] = b.hash.as_u8();
         }
         h.calc_hash(&parts)
     }
@@ -236,23 +278,25 @@ impl<HO: HashOutput> InteriorNode<HO> {
     fn with_new_child<H: NodeHasher<HO>>(
         &self,
         h: &H,
+        key_prefix: &KeyVec,
         dir: Dir,
         child: Branch<HO>,
     ) -> InteriorNode<HO> {
         match dir {
-            Dir::Left => InteriorNode::new(h, Some(child), self.right.clone()),
-            Dir::Right => InteriorNode::new(h, self.left.clone(), Some(child)),
+            Dir::Left => InteriorNode::new(h, key_prefix, Some(child), self.right.clone()),
+            Dir::Right => InteriorNode::new(h, key_prefix, self.left.clone(), Some(child)),
         }
     }
     fn with_new_child_hash<H: NodeHasher<HO>>(
         &self,
         h: &H,
+        key_prefix: &KeyVec,
         dir: Dir,
         hash: HO,
     ) -> InteriorNode<HO> {
         let b = self.branch(dir).as_ref().unwrap();
         let nb = Branch::new(b.prefix.clone(), hash);
-        self.with_new_child(h, dir, nb)
+        self.with_new_child(h, key_prefix, dir, nb)
     }
 }
 
@@ -318,107 +362,161 @@ impl Display for Dir {
     }
 }
 pub struct ReadProof<HO> {
+    // Key is the full key.
     key: Vec<u8>,
+    // The number of bits from the start of the key that are the partition prefix for the tree
+    // partition.
+    prefix_size: usize,
     leaf: Option<LeafNode<HO>>,
     // The path in root -> leaf order of the nodes traversed to get to the leaf. Or if the leaf
     // doesn't exist the furtherest existing node in the path of the key.
     path: Vec<InteriorNode<HO>>,
 }
 impl<HO: HashOutput> ReadProof<HO> {
-    fn new(key: &[u8], root: InteriorNode<HO>) -> Self {
+    fn new(key: &[u8], prefix_size: usize, root: InteriorNode<HO>) -> Self {
         let mut p = ReadProof {
             key: key.to_vec(),
+            prefix_size,
             leaf: None,
             path: Vec::new(),
         };
         p.path.push(root);
         p
     }
-    // returns the key prefix of the contained path. It does not include
-    // any prefix that decends from the last node.
-    fn prefix_to_path_tail(&self) -> KeyVec {
-        let mut key = KeySlice::from_slice(&self.key);
-        let mut p = KeyVec::with_capacity(key.len());
-        for n in &self.path[..self.path.len() - 1] {
-            // don't add anything from the last node
-            if let Some(b) = n.branch(Dir::from(key[0])) {
-                key = &key[b.prefix.len()..];
-                p.extend(&b.prefix);
-            }
-        }
-        p
-    }
 
-    // verify returns tree if the Proof is valid. This includes the
+    // Verify returns tree if the Proof is valid. This includes the
     // path check and hash verification.
     fn verify<H: NodeHasher<HO>>(&self, h: &H) -> bool {
         // Do some basic sanity checks of the Proof struct first.
-        if self.key.is_empty() || self.path.is_empty() {
+        if self.key.is_empty() || self.path.is_empty() || self.prefix_size >= self.key.len() * 8 {
             return false;
         }
-        // Verify the provided path is for the key.
-        // 1. Verify the path all the way to the last interior node.
-        let pp = self.prefix_to_path_tail();
-        let key = KeySlice::from_slice(&self.key);
-        if pp.len() >= key.len() || !key.starts_with(&pp) {
-            return false;
-        }
-        // 2. Verify the tail of the path. This depends on if there's
-        // a leaf or not.
-        let key_tail = &key[pp.len()..];
-        let tail_node = self
-            .path
-            .last()
-            .expect("we verified above that path contains at least one item");
-        match &self.leaf {
-            // If there's a leaf, then the last interior node should have
-            // a branch that points the leaf. The branches key prefix
-            // should match what's left of the key.
-            Some(_) => match tail_node.branch(Dir::from(key_tail[0])) {
-                None => {
-                    return false;
-                }
-                Some(b) => {
-                    if key_tail != b.prefix {
-                        return false;
-                    }
-                }
-            },
-            None => {
-                // If there's no leaf then we need to verify that there isn't
-                // a branch from the tail node that could lead to our key. This
-                // prevents an attack where a tail intermedite node is removed
-                // from the proof to try and claim the key doesn't exist.
-                match tail_node.branch(Dir::from(key_tail[0])) {
-                    None => {
-                        // The branch that would lead to the leaf if it existed
-                        // is empty, so that's fine.
-                    }
-                    Some(b) => {
-                        // This branch shouldn't lead to a node that could
-                        // contain the leaf.
-                        if key_tail.starts_with(&b.prefix) {
-                            return false;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Verify all the hashes match.
+        // Verify the leaf hash matches
         if let Some(leaf) = &self.leaf {
             let exp_hash = LeafNode::calc_hash(h, &self.key, &leaf.value);
             if exp_hash != leaf.hash {
                 return false;
             }
         }
-        for n in &self.path {
-            let exp_hash = InteriorNode::calc_hash(h, &n.left, &n.right);
-            if exp_hash != n.hash {
-                return false;
+        // We can't directly verify that key[..prefix_size] is correct, however as the
+        // entire key prefix is in each hash, the hash verifications will spot if someone
+        // tampers with that leading part of the key.
+        self.verify_path(
+            h,
+            KeySlice::from_slice(&self.key),
+            self.prefix_size,
+            &self.path[0],
+            &self.path[1..],
+        )
+        .is_ok()
+    }
+
+    // Walks down the path and
+    //      1. verifies the key & path match.
+    //      2. verifies the terminal conditions are correct.
+    //          a. If there's a leaf the last interior node should have a branch to it.
+    //          b. If there's no leaf, the last interior node should not have a branch
+    //             that could possibly lead to the key.
+    //      3. recalculates & verifies the hashes on the way back up.
+    fn verify_path<H: NodeHasher<HO>>(
+        &self,
+        h: &H,
+        whole_key: &KeySlice,
+        key_pos: usize,
+        node: &InteriorNode<HO>,
+        path_tail: &[InteriorNode<HO>],
+    ) -> Result<HO, ()> {
+        let dir = Dir::from(whole_key[key_pos]);
+        match node.branch(dir).as_ref() {
+            None => {
+                match &self.leaf {
+                    Some(_) => {
+                        // If there's no branch, there can't be a leaf.
+                        Err(())
+                    }
+                    None => {
+                        // We reached an empty branch and there's no existing leaf.
+                        // We should be at the bottom of the path.
+                        if !path_tail.is_empty() {
+                            return Err(());
+                        }
+                        // verify this nodes hash.
+                        let ch = InteriorNode::calc_hash(
+                            h,
+                            &whole_key[..key_pos].into(),
+                            &node.left,
+                            &node.right,
+                        );
+                        if ch != node.hash {
+                            return Err(());
+                        }
+                        Ok(ch)
+                    }
+                }
+            }
+            Some(b) => {
+                if path_tail.is_empty() {
+                    // This is the last InteriorNode on the path. This should point
+                    // to the leaf, or to a different key altogether.
+                    match &self.leaf {
+                        Some(lh) => {
+                            // The branch prefix should point to the remainder of the key
+                            // and it should have the leaf's hash.
+                            if (whole_key[key_pos..] != b.prefix) || (lh.hash != b.hash) {
+                                return Err(());
+                            }
+                            let nh = node.with_new_child_hash(
+                                h,
+                                &whole_key[..key_pos].into(),
+                                dir,
+                                lh.hash,
+                            );
+                            if nh.hash != node.hash {
+                                return Err(());
+                            }
+                            Ok(nh.hash)
+                        }
+                        None => {
+                            // This branch should not be able to lead to the key.
+                            if whole_key[key_pos..].starts_with(&b.prefix) {
+                                return Err(());
+                            }
+                            let nh = InteriorNode::calc_hash(
+                                h,
+                                &whole_key[..key_pos].into(),
+                                &node.left,
+                                &node.right,
+                            );
+                            if nh != node.hash {
+                                return Err(());
+                            }
+                            Ok(nh)
+                        }
+                    }
+                } else {
+                    // keep going down
+                    if whole_key[key_pos..key_pos + b.prefix.len()] != b.prefix {
+                        return Err(());
+                    }
+                    let child_h = self.verify_path(
+                        h,
+                        whole_key,
+                        key_pos + b.prefix.len(),
+                        &path_tail[0],
+                        &path_tail[1..],
+                    )?;
+                    if child_h != b.hash {
+                        return Err(());
+                    }
+                    let nh =
+                        node.with_new_child_hash(h, &whole_key[..key_pos].into(), dir, child_h);
+                    if nh.hash != node.hash {
+                        return Err(());
+                    }
+                    Ok(nh.hash)
+                }
             }
         }
-        true
     }
 
     // Consumes the proof returning a hashmap containing all the nodes in the proof along with the key.
@@ -482,6 +580,8 @@ pub enum InsertError {
     InvalidProof,
     // The ReadProof is too old, calculate a newer one and try again.
     StaleProof,
+    // Invalid key. The supplied key is not the correct size.
+    InvalidKey,
 }
 
 pub trait HashOutput: Hash + Copy + Eq + Debug {
@@ -514,81 +614,155 @@ mod tests {
 
     #[test]
     fn get_nothing() {
-        let (tree, root, store) = new_empty_tree();
-        let p = read(&store, &root, &[1, 2, 3]).unwrap();
+        let (tree, root, store) = new_empty_tree(&KeyVec::new(), 24);
+        let p = read(&store, &root, &[1, 2, 3], 0).unwrap();
         assert_eq!(1, p.path.len());
         assert_eq!(root, p.path[0].hash);
         assert!(p.leaf.is_none());
-        check_tree_invariants(&tree.hasher, root, &store);
+        check_tree_invariants(&tree.hasher, &BitVec::new(), root, &store);
     }
 
     #[test]
     fn first_insert() {
-        let (mut tree, mut root, mut store) = new_empty_tree();
-        let rp = read(&store, &root, &[1, 2, 3]).unwrap();
+        let (mut tree, mut root, mut store) = new_empty_tree(&KeyVec::new(), 24);
+        let rp = read(&store, &root, &[1, 2, 3], 0).unwrap();
         let d = tree.insert(rp, [42].to_vec()).unwrap().unwrap();
         assert_eq!(1, d.add.len());
         assert_eq!([42].to_vec(), d.leaf.value);
         assert_eq!(root, d.remove[0]);
         root = store.apply(d);
-        check_tree_invariants(&tree.hasher, root, &store);
+        check_tree_invariants(&tree.hasher, &BitVec::new(), root, &store);
 
-        let p = read(&store, &root, &[1, 2, 3]).unwrap();
+        let p = read(&store, &root, &[1, 2, 3], 0).unwrap();
         assert_eq!([42].to_vec(), p.leaf.as_ref().unwrap().value);
         assert_eq!(1, p.path.len());
         assert_eq!(root, p.path[0].hash);
-        check_tree_invariants(&tree.hasher, root, &store);
+        check_tree_invariants(&tree.hasher, &BitVec::new(), root, &store);
     }
 
     #[test]
     fn insert_some() {
-        let (mut tree, mut root, mut store) = new_empty_tree();
-        root = tree_insert(&mut tree, &mut store, root, &[2, 6, 8], [42].to_vec());
-        root = tree_insert(&mut tree, &mut store, root, &[4, 4, 6], [43].to_vec());
-        root = tree_insert(&mut tree, &mut store, root, &[0, 2, 3], [44].to_vec());
+        let prefix = KeyVec::new();
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 24);
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            root,
+            &[2, 6, 8],
+            &prefix,
+            [42].to_vec(),
+        );
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            root,
+            &[4, 4, 6],
+            &prefix,
+            [43].to_vec(),
+        );
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            root,
+            &[0, 2, 3],
+            &prefix,
+            [44].to_vec(),
+        );
 
-        let p = read(&store, &root, &[2, 6, 8]).unwrap();
+        let p = read(&store, &root, &[2, 6, 8], prefix.len()).unwrap();
         assert_eq!([42].to_vec(), p.leaf.unwrap().value);
         assert_eq!(3, p.path.len());
         assert_eq!(root, p.path[0].hash);
-        check_tree_invariants(&tree.hasher, root, &store);
+        check_tree_invariants(&tree.hasher, &prefix, root, &store);
     }
 
     #[test]
     fn update_some() {
-        let (mut tree, mut root, mut store) = new_empty_tree();
-        root = tree_insert(&mut tree, &mut store, root, &[2, 6, 8], [42].to_vec());
-        root = tree_insert(&mut tree, &mut store, root, &[4, 4, 6], [43].to_vec());
+        let mut prefix = KeyVec::new();
+        prefix.push(false);
+        prefix.push(false);
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 24);
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            root,
+            &[2, 6, 8],
+            &prefix,
+            [42].to_vec(),
+        );
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            root,
+            &[4, 4, 6],
+            &prefix,
+            [43].to_vec(),
+        );
         // now do a read/write for an existing key
-        root = tree_insert(&mut tree, &mut store, root, &[4, 4, 6], [44].to_vec());
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            root,
+            &[4, 4, 6],
+            &prefix,
+            [44].to_vec(),
+        );
 
-        let rp = read(&store, &root, &[4, 4, 6]).unwrap();
+        let rp = read(&store, &root, &[4, 4, 6], prefix.len()).unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
-        check_tree_invariants(&tree.hasher, root, &store);
+        check_tree_invariants(&tree.hasher, &prefix, root, &store);
 
         // writing the same value again shouldn't do anything dumb, like cause the leaf to be deleted.
-        root = tree_insert(&mut tree, &mut store, root, &[4, 4, 6], [44].to_vec());
-        let rp = read(&store, &root, &[4, 4, 6]).unwrap();
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            root,
+            &[4, 4, 6],
+            &prefix,
+            [44].to_vec(),
+        );
+        let rp = read(&store, &root, &[4, 4, 6], prefix.len()).unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
     }
 
     #[test]
-    fn test_insert_lots() {
-        let (mut tree, mut root, mut store) = new_empty_tree();
+    fn test_insert_lots_empty_prefix() {
+        test_insert_lots_with_prefix(&KeyVec::new());
+    }
+    #[test]
+    fn test_insert_lots_prefix_1bit() {
+        let mut p1 = KeyVec::new();
+        p1.push(false);
+        test_insert_lots_with_prefix(&p1);
+    }
+    #[test]
+    fn test_insert_lots_prefix_2bit() {
+        let mut p2 = KeyVec::new();
+        p2.push(true);
+        p2.push(false);
+        test_insert_lots_with_prefix(&p2);
+    }
+
+    fn test_insert_lots_with_prefix(prefix: &KeyVec) {
+        let (mut tree, mut root, mut store) = new_empty_tree(prefix, 32);
         let seed = [0u8; 32];
         let mut rng: StdRng = SeedableRng::from_seed(seed);
-        let mut key = [0u8; 4];
+        let mut rkey = [0u8; 4];
         let mut expected = HashMap::new();
         for i in 0..150 {
-            rng.fill_bytes(&mut key);
-            expected.insert(key.to_vec(), i);
+            rng.fill_bytes(&mut rkey);
+            // We need to ensure our generated keys have the correct prefix.
+            let mut k = KeyVec::from_slice(&rkey);
+            k[..prefix.len()].copy_from_bitslice(&prefix);
+            let key = k.into_vec();
+            expected.insert(key.clone(), i);
 
             // write our new key/value
-            root = tree_insert(&mut tree, &mut store, root, &key, [i].to_vec());
+            root = tree_insert(&mut tree, &mut store, root, &key, prefix, [i].to_vec());
 
             // verify we can read all the key/values we've stored.
             for (k, v) in expected.iter() {
-                let p = read(&store, &root, k).unwrap();
+                let p = read(&store, &root, &k, prefix.len()).unwrap();
                 assert_eq!([*v].to_vec(), p.leaf.unwrap().value);
             }
             // if i == 16 {
@@ -599,37 +773,38 @@ mod tests {
 
     #[test]
     fn test_read_proof_verify() {
-        let (mut tree, mut root, mut store) = new_empty_tree();
-        root = tree_insert(&mut tree, &mut store, root, &[1], [1].to_vec());
-        root = tree_insert(&mut tree, &mut store, root, &[5], [2].to_vec());
+        let prefix = KeyVec::new();
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 8);
+        root = tree_insert(&mut tree, &mut store, root, &[1], &prefix, [1].to_vec());
+        root = tree_insert(&mut tree, &mut store, root, &[5], &prefix, [2].to_vec());
 
-        let mut p = read(&store, &root, &[5]).unwrap();
+        let mut p = read(&store, &root, &[5], prefix.len()).unwrap();
         assert!(p.verify(&tree.hasher));
 
         // claim there's no leaf
         p.leaf = None;
         assert!(!p.verify(&tree.hasher));
 
-        let mut p = read(&store, &root, &[5]).unwrap();
+        let mut p = read(&store, &root, &[5], prefix.len()).unwrap();
         // truncate the tail of the path to claim there's no leaf
         p.leaf = None;
         p.path.pop();
         assert!(!p.verify(&tree.hasher));
 
-        let mut p = read(&store, &root, &[5]).unwrap();
+        let mut p = read(&store, &root, &[5], prefix.len()).unwrap();
         // futz with the path
         p.key[0] = 2;
         assert!(!p.verify(&tree.hasher));
 
         // futz with the value (checks the hash)
-        let mut p = read(&store, &root, &[5]).unwrap();
+        let mut p = read(&store, &root, &[5], prefix.len()).unwrap();
         if let Some(ref mut l) = p.leaf {
             l.value[0] += 1;
         }
         assert!(!p.verify(&tree.hasher));
 
         // futz with a node (checks the hash)
-        let mut p = read(&store, &root, &[5]).unwrap();
+        let mut p = read(&store, &root, &[5], prefix.len()).unwrap();
         if let Some(ref mut b) = &mut p.path[0].left {
             b.prefix.pop();
         }
@@ -638,36 +813,53 @@ mod tests {
 
     #[test]
     fn test_insert_pipeline() {
-        let (mut tree, mut root, mut store) = new_empty_tree();
-        root = tree_insert(&mut tree, &mut store, root, &[1], [1].to_vec());
-        let rp_1 = read(&store, &root, &[1]).unwrap();
-        let rp_2 = read(&store, &root, &[2]).unwrap();
-        let rp_3 = read(&store, &root, &[3]).unwrap();
+        let prefix = KeyVec::new();
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 8);
+        root = tree_insert(&mut tree, &mut store, root, &[1], &prefix, [1].to_vec());
+        let rp_1 = read(&store, &root, &[1], prefix.len()).unwrap();
+        let rp_2 = read(&store, &root, &[2], prefix.len()).unwrap();
+        let rp_3 = read(&store, &root, &[3], prefix.len()).unwrap();
         let d1 = tree.insert(rp_1, [11].to_vec()).unwrap().unwrap();
         let d2 = tree.insert(rp_2, [12].to_vec()).unwrap().unwrap();
         let d3 = tree.insert(rp_3, [13].to_vec()).unwrap().unwrap();
         root = store.apply(d1);
-        check_tree_invariants(&tree.hasher, root, &store);
+        check_tree_invariants(&tree.hasher, &prefix, root, &store);
         root = store.apply(d2);
-        check_tree_invariants(&tree.hasher, root, &store);
+        check_tree_invariants(&tree.hasher, &prefix, root, &store);
         root = store.apply(d3);
-        check_tree_invariants(&tree.hasher, root, &store);
+        check_tree_invariants(&tree.hasher, &prefix, root, &store);
 
-        let rp_1 = read(&store, &root, &[1]).unwrap();
+        let rp_1 = read(&store, &root, &[1], prefix.len()).unwrap();
         assert_eq!([11].to_vec(), rp_1.leaf.unwrap().value);
-        let rp_2 = read(&store, &root, &[2]).unwrap();
+        let rp_2 = read(&store, &root, &[2], prefix.len()).unwrap();
         assert_eq!([12].to_vec(), rp_2.leaf.unwrap().value);
-        let rp_3 = read(&store, &root, &[3]).unwrap();
+        let rp_3 = read(&store, &root, &[3], prefix.len()).unwrap();
         assert_eq!([13].to_vec(), rp_3.leaf.unwrap().value);
     }
 
     #[test]
     fn test_stale_proof() {
-        let (mut tree, mut root, mut store) = new_empty_tree();
-        root = tree_insert(&mut tree, &mut store, root, &[1], [1].to_vec());
-        let rp_1 = read(&store, &root, &[1]).unwrap();
+        let mut prefix = KeyVec::new();
+        prefix.push(true);
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 8);
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            root,
+            &[0b10000000],
+            &prefix,
+            [1].to_vec(),
+        );
+        let rp_1 = read(&store, &root, &[0b10000000], prefix.len()).unwrap();
         for i in 0..20 {
-            root = tree_insert(&mut tree, &mut store, root, &[2], [i].to_vec());
+            root = tree_insert(
+                &mut tree,
+                &mut store,
+                root,
+                &[0b11000000],
+                &prefix,
+                [i].to_vec(),
+            );
         }
         let d = tree
             .insert(rp_1, [11].to_vec())
@@ -676,12 +868,43 @@ mod tests {
     }
 
     #[test]
-    fn test_prefix_hash() {
+    fn test_empty_root_prefix_hash() {
+        let h = TestHasher {};
+        let root = InteriorNode::new(&h, &BitVec::new(), None, None);
+        let p0 = KeyVec::repeat(false, 1);
+        let root_p0 = InteriorNode::new(&h, &p0, None, None);
+        let p1 = KeyVec::repeat(true, 1);
+        let root_p1 = InteriorNode::new(&h, &p1, None, None);
+        assert_ne!(root.hash, root_p0.hash);
+        assert_ne!(root.hash, root_p1.hash);
+        assert_ne!(root_p0.hash, root_p1.hash);
+    }
+
+    #[test]
+    fn test_node_prefix_hash() {
+        let h = TestHasher {};
+        let b1 = Some(Branch::new(
+            KeyVec::from_element(0b00000000),
+            TestHash([1, 2, 3, 4, 5, 6, 7, 8]),
+        ));
+        let b2 = Some(Branch::new(
+            KeyVec::from_element(0b11111111),
+            TestHash([1, 2, 3, 4, 5, 6, 7, 8]),
+        ));
+        // Two identical interior nodes, but different prefixes should hash differently.
+        let n1 = InteriorNode::new(&h, &KeyVec::from_element(0), b1.clone(), b2.clone());
+        let n2 = InteriorNode::new(&h, &KeyVec::from_element(1), b1.clone(), b2.clone());
+        assert_ne!(n1.hash, n2.hash);
+    }
+
+    #[test]
+    fn test_branch_prefix_hash() {
         let h = TestHasher {};
         let k1 = KeyVec::from_element(0b00110000);
         let k2 = KeyVec::from_element(0b11010000);
         let a = InteriorNode::new(
             &h,
+            &KeyVec::from_element(1),
             Some(Branch::new(
                 k1[..4].into(),
                 TestHash([1, 2, 3, 4, 5, 6, 7, 8]),
@@ -693,6 +916,7 @@ mod tests {
         );
         let b = InteriorNode::new(
             &h,
+            &KeyVec::from_element(1),
             Some(Branch::new(
                 k1[..5].into(),
                 TestHash([1, 2, 3, 4, 5, 6, 7, 8]),
@@ -738,12 +962,15 @@ mod tests {
         assert_eq!(8, c.len());
     }
 
-    fn new_empty_tree() -> (Tree<TestHasher, TestHash>, TestHash, MemStore<TestHash>) {
-        let (t, root_node) = Tree::new_tree(TestHasher {});
+    fn new_empty_tree(
+        prefix: &KeyVec,
+        key_size: usize,
+    ) -> (Tree<TestHasher, TestHash>, TestHash, MemStore<TestHash>) {
+        let (t, root_node) = Tree::new_tree(TestHasher {}, prefix, key_size);
         let mut store = MemStore::new();
         let root_hash = root_node.hash;
         store.insert(root_hash, Node::Interior(root_node));
-        check_tree_invariants(&t.hasher, root_hash, &store);
+        check_tree_invariants(&t.hasher, prefix, root_hash, &store);
         (t, root_hash, store)
     }
 
@@ -753,14 +980,20 @@ mod tests {
         store: &mut MemStore<TestHash>,
         root: TestHash,
         key: &[u8],
+        prefix: &KeyVec,
         val: Vec<u8>,
     ) -> TestHash {
-        let rp = read(store, &root, key).unwrap();
+        // spot stupid test bugs
+        assert!(
+            KeySlice::from_slice(key).starts_with(prefix),
+            "test bug, key should start with the correct prefix",
+        );
+        let rp = read(store, &root, key, prefix.len()).unwrap();
         let new_root = match tree.insert(rp, val).unwrap() {
             None => root,
             Some(d) => store.apply(d),
         };
-        check_tree_invariants(&tree.hasher, new_root, store);
+        check_tree_invariants(&tree.hasher, prefix, new_root, store);
         new_root
     }
 
@@ -771,17 +1004,18 @@ mod tests {
     //      5. the leaf -> root hashes are verified.
     fn check_tree_invariants<HO: HashOutput>(
         hasher: &impl NodeHasher<HO>,
+        key_prefix: &KeyVec,
         root: HO,
         store: &impl TreeStoreReader<HO>,
     ) {
-        let root_hash = check_tree_node_invariants(hasher, true, root, KeySlice::empty(), store);
+        let root_hash = check_tree_node_invariants(hasher, true, root, key_prefix, store);
         assert_eq!(root_hash, root);
     }
     fn check_tree_node_invariants<HO: HashOutput>(
         hasher: &impl NodeHasher<HO>,
         is_at_root: bool,
         node: HO,
-        path: &KeySlice,
+        path: &KeyVec,
         store: &impl TreeStoreReader<HO>,
     ) -> HO {
         match store.fetch(node.as_u8()).unwrap() {
@@ -796,7 +1030,7 @@ mod tests {
                     Some(b) => {
                         assert!(!b.prefix.is_empty());
                         assert!(!b.prefix[0]);
-                        let mut new_path = path.to_bitvec();
+                        let mut new_path = path.clone();
                         new_path.extend(&b.prefix);
                         let exp_child_hash =
                             check_tree_node_invariants(hasher, false, b.hash, &new_path, store);
@@ -808,14 +1042,14 @@ mod tests {
                     Some(b) => {
                         assert!(!b.prefix.is_empty());
                         assert!(b.prefix[0]);
-                        let mut new_path = path.to_bitvec();
+                        let mut new_path = path.clone();
                         new_path.extend(&b.prefix);
                         let exp_child_hash =
                             check_tree_node_invariants(hasher, false, b.hash, &new_path, store);
                         assert_eq!(exp_child_hash, b.hash);
                     }
                 }
-                let exp_hash = InteriorNode::calc_hash(hasher, &int.left, &int.right);
+                let exp_hash = InteriorNode::calc_hash(hasher, &path, &int.left, &int.right);
                 assert_eq!(exp_hash, int.hash);
                 exp_hash
             }
