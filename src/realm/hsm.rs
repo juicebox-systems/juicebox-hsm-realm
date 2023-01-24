@@ -19,10 +19,10 @@ use types::{
     GroupId, GroupStatus, HsmId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
     JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupInfo, NewGroupRequest,
     NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedPrefix, ReadCapturedRequest,
-    ReadCapturedResponse, RealmId, RealmStatus, RecordMap, SecretsResponse, StatusRequest,
-    StatusResponse, TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
-    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatement,
-    TransferStatementRequest, TransferStatementResponse, TransferringOut, UserId,
+    ReadCapturedResponse, RealmId, RealmStatus, RecordId, RecordMap, SecretsResponse,
+    StatusRequest, StatusResponse, TransferInRequest, TransferInResponse, TransferNonce,
+    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
+    TransferStatement, TransferStatementRequest, TransferStatementResponse, TransferringOut,
 };
 
 #[derive(Clone)]
@@ -343,7 +343,7 @@ struct LeaderLogEntry {
     /// This is used to determine if a client request may be processed (only if
     /// there are no uncommitted changes to that record). If set, this is a
     /// change to the record that resulted in the log entry.
-    delta: Option<(UserId, RecordChange)>,
+    delta: Option<(RecordId, RecordChange)>,
     /// A possible response to the client. This must not be externalized until
     /// after the entry has been committed.
     response: Option<SecretsResponse>,
@@ -958,7 +958,7 @@ impl Handler<TransferOutRequest> for Hsm {
                     keeping_prefix
                 }));
                 let mut data0 = request.data;
-                let data1 = RecordMap(data0.0.split_off(&UserId(prefix1)));
+                let data1 = RecordMap(data0.0.split_off(&RecordId(prefix1)));
                 if keeping_0 {
                     keeping_data = data0;
                     transferring_data = data1;
@@ -1294,7 +1294,7 @@ impl Handler<AppRequest> for Hsm {
                         if (leader.log.last().unwrap().entry)
                             .owned_prefix
                             .as_ref()
-                            .filter(|owned| owned.contains(&request.uid))
+                            .filter(|owned| owned.contains(&request.rid))
                             .is_some()
                         {
                             handle_app_request(request, &self.persistent, leader)
@@ -1345,19 +1345,19 @@ fn handle_app_request(
         let mut data = request.data;
         for entry in iter.clone() {
             match &entry.delta {
-                Some((uid, change)) => {
+                Some((rid, change)) => {
                     // TODO: Rethink whether we even need this check. Is there
                     // a problem with allowing pipelining within a single
                     // record?
-                    if *uid == request.uid {
+                    if *rid == request.rid {
                         return Response::Busy;
                     }
                     match change {
                         RecordChange::Update(record) => {
-                            data.0.insert(uid.clone(), record.clone());
+                            data.0.insert(rid.clone(), record.clone());
                         }
                         RecordChange::Delete => {
-                            data.0.remove(uid);
+                            data.0.remove(rid);
                         }
                     }
                 }
@@ -1368,19 +1368,19 @@ fn handle_app_request(
     };
     let last_entry = leader.log.last().unwrap();
 
-    let record = data.0.get(&request.uid);
+    let record = data.0.get(&request.rid);
     let (client_response, change) = app::process(request.request, record);
     let delta = match change {
         Some(change) => {
             match &change {
                 RecordChange::Update(record) => {
-                    data.0.insert(request.uid.clone(), record.clone());
+                    data.0.insert(request.rid.clone(), record.clone());
                 }
                 RecordChange::Delete => {
-                    data.0.remove(&request.uid);
+                    data.0.remove(&request.rid);
                 }
             }
-            Some((request.uid, change))
+            Some((request.rid, change))
         }
         None => None,
     };

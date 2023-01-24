@@ -114,7 +114,7 @@ async fn handle_client_request(
     };
 
     for partition in partitions {
-        if !partition.owned_prefix.contains(&request.uid) {
+        if !partition.owned_prefix.contains(&request.rid) {
             continue;
         }
 
@@ -123,7 +123,7 @@ async fn handle_client_request(
             .send(AppRequest {
                 realm: request.realm,
                 group: partition.group,
-                uid: request.uid.clone(),
+                rid: request.rid.clone(),
                 request: request.request.clone(),
             })
             .await;

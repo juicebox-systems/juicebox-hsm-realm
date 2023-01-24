@@ -44,9 +44,9 @@ impl fmt::Debug for HsmId {
 }
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
-pub struct UserId(pub BitVec);
+pub struct RecordId(pub BitVec);
 
-impl fmt::Debug for UserId {
+impl fmt::Debug for RecordId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "0b")?;
         for bit in &self.0 {
@@ -120,8 +120,8 @@ impl OwnedPrefix {
         Self(BitVec::new())
     }
 
-    pub fn contains(&self, uid: &UserId) -> bool {
-        uid.0.starts_with(&self.0)
+    pub fn contains(&self, rid: &RecordId) -> bool {
+        rid.0.starts_with(&self.0)
     }
 }
 
@@ -152,7 +152,7 @@ impl fmt::Debug for DataHash {
 }
 
 #[derive(Clone, Debug)]
-pub struct RecordMap(pub(super) BTreeMap<UserId, Record>);
+pub struct RecordMap(pub(super) BTreeMap<RecordId, Record>);
 
 /// Set of HSMs forming a group.
 ///
@@ -503,7 +503,7 @@ pub enum CompleteTransferResponse {
 pub struct AppRequest {
     pub realm: RealmId,
     pub group: GroupId,
-    pub uid: UserId,
+    pub rid: RecordId,
     pub request: SecretsRequest,
     pub index: LogIndex,
     // TODO: With a Merkle tree, this would be a record and a proof.

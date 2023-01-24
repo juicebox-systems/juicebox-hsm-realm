@@ -3,8 +3,8 @@ use actix::prelude::*;
 use super::super::hsm::types as hsm_types;
 use hsm_types::{
     CapturedStatement, Configuration, DataHash, EntryHmac, GroupConfigurationStatement, GroupId,
-    HsmId, LogIndex, OwnedPrefix, RealmId, SecretsRequest, SecretsResponse, TransferNonce,
-    TransferStatement, UserId,
+    HsmId, LogIndex, OwnedPrefix, RealmId, RecordId, SecretsRequest, SecretsResponse,
+    TransferNonce, TransferStatement,
 };
 
 #[derive(Debug, Message)]
@@ -230,7 +230,7 @@ pub enum CompleteTransferResponse {
 pub struct AppRequest {
     pub realm: RealmId,
     pub group: GroupId,
-    pub uid: UserId,
+    pub rid: RecordId,
     pub request: SecretsRequest,
 }
 
