@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{agent::Node, Delta, HashOutput};
+use super::{agent::Node, Delta, HashOutput, SplitResult};
 
 // TreeOverlay keeps track of recent changes and can be used to get an upto date
 // view of the tree for a recent ReadProof.
@@ -28,9 +28,6 @@ impl<HO: HashOutput> TreeOverlay<HO> {
         // We apply the delta to nodes, and keep track of what was added.
         // When a delta is expired its used to remove entries
         // from nodes.
-        if self.changes.len() == self.changes.capacity() - 1 {
-            self.expire_oldest_delta();
-        }
         let mut c = DeltaCleanup {
             root: *d.root(),
             to_remove: Vec::with_capacity(d.add.len() + 1),
@@ -43,7 +40,14 @@ impl<HO: HashOutput> TreeOverlay<HO> {
         }
         self.roots.insert(c.root);
         self.latest_root = c.root;
-        self.changes.push_back(c);
+        self.add_cleanup(c);
+    }
+
+    fn add_cleanup(&mut self, dc: DeltaCleanup<HO>) {
+        if self.changes.len() == self.changes.capacity() - 1 {
+            self.expire_oldest_delta();
+        }
+        self.changes.push_back(dc);
     }
 
     pub fn expire_oldest_delta(&mut self) {
@@ -53,6 +57,25 @@ impl<HO: HashOutput> TreeOverlay<HO> {
             }
             self.roots.remove(&d.root);
         };
+    }
+
+    // Captures that the tree was split and half of it given away.
+    // We reset all our state to start at this new root so that
+    // we can ensure that subsequent operations are based on the split
+    // view of the tree.
+    pub fn tree_has_split(&mut self, s: &SplitResult<HO>) {
+        self.roots.clear();
+        self.nodes.clear();
+        self.changes.clear();
+        self.roots.insert(s.keeping.root_hash);
+        self.latest_root = s.keeping.root_hash;
+        if let Some(k) = &s.keeping.add {
+            self.add_cleanup(DeltaCleanup {
+                root: s.keeping.root_hash,
+                to_remove: vec![k.hash],
+            });
+            self.nodes.insert(k.hash, Node::Interior(k.clone()));
+        }
     }
 }
 
