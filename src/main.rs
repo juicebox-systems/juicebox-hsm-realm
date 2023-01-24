@@ -17,8 +17,11 @@ use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use server::Server;
 use types::{AuthToken, Policy};
 
-use realm::agent::Agent;
-use realm::hsm::types::{OwnedPrefix, SecretsRequest, SecretsResponse, UserId};
+use realm::agent::{
+    types::{TenantId, UserId},
+    Agent,
+};
+use realm::hsm::types::{OwnedPrefix, RecordId, SecretsRequest, SecretsResponse};
 use realm::hsm::{Hsm, RealmKey};
 use realm::load_balancer::types::{ClientRequest, ClientResponse};
 use realm::load_balancer::LoadBalancer;
@@ -150,27 +153,28 @@ async fn main() {
     .unwrap();
 
     info!("incrementing a bunch");
-    let uids = [
-        UserId(bitvec::bitvec![0, 0]),
-        UserId(bitvec::bitvec![0, 1]),
-        UserId(bitvec::bitvec![1, 0]),
-        UserId(bitvec::bitvec![1, 1]),
+    let tenant_id = TenantId(bitvec::bitvec![0, 1]);
+    let rids: [RecordId; 4] = [
+        (tenant_id.clone(), UserId(bitvec::bitvec![0, 0])).into(),
+        (tenant_id.clone(), UserId(bitvec::bitvec![0, 1])).into(),
+        (tenant_id.clone(), UserId(bitvec::bitvec![1, 0])).into(),
+        (tenant_id, UserId(bitvec::bitvec![1, 1])).into(),
     ];
     join_all(
-        iter::zip(uids.iter().cycle(), load_balancers.iter().cycle())
-            .take(99 * uids.len())
-            .map(|(uid, load_balancer)| async move {
+        iter::zip(rids.iter().cycle(), load_balancers.iter().cycle())
+            .take(99 * rids.len())
+            .map(|(rid, load_balancer)| async move {
                 let result = load_balancer
                     .send(ClientRequest {
                         realm: realm_id,
-                        uid: uid.clone(),
+                        rid: rid.clone(),
                         request: SecretsRequest::Increment,
                     })
                     .await
                     .unwrap();
                 match result {
                     ClientResponse::Ok(SecretsResponse::Increment(new_value)) => {
-                        trace!(?uid, new_value, "incremented")
+                        trace!(?rid, new_value, "incremented")
                     }
                     ClientResponse::Unavailable => todo!(),
                 }
@@ -179,20 +183,20 @@ async fn main() {
     .await;
 
     info!("reading counts after many parallel requests");
-    join_all(uids.iter().map(|uid| {
+    join_all(rids.iter().map(|rid| {
         let load_balancer = load_balancers[0].clone();
         async move {
             let result = load_balancer
                 .send(ClientRequest {
                     realm: realm_id,
-                    uid: uid.clone(),
+                    rid: rid.clone(),
                     request: SecretsRequest::Increment,
                 })
                 .await
                 .unwrap();
             match result {
                 ClientResponse::Ok(SecretsResponse::Increment(new_value)) => {
-                    info!(?uid, new_value, "incremented")
+                    info!(?rid, new_value, "incremented")
                 }
                 ClientResponse::Unavailable => todo!(),
             }

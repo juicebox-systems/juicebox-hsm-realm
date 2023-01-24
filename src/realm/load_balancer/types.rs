@@ -1,12 +1,12 @@
 use actix::prelude::*;
 
-use super::super::hsm::types::{RealmId, SecretsRequest, SecretsResponse, UserId};
+use super::super::hsm::types::{RealmId, RecordId, SecretsRequest, SecretsResponse};
 
 #[derive(Clone, Debug, Message)]
 #[rtype(result = "ClientResponse")]
 pub struct ClientRequest {
     pub realm: RealmId,
-    pub uid: UserId,
+    pub rid: RecordId,
     pub request: SecretsRequest,
 }
 

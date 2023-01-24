@@ -1,10 +1,14 @@
+use std::fmt;
+
 use actix::prelude::*;
+use bitvec::{prelude::Msb0, slice::BitSlice, vec::BitVec};
+use sha2::{Digest, Sha256};
 
 use super::super::hsm::types as hsm_types;
 use hsm_types::{
     CapturedStatement, Configuration, DataHash, EntryHmac, GroupConfigurationStatement, GroupId,
-    HsmId, LogIndex, OwnedPrefix, RealmId, SecretsRequest, SecretsResponse, TransferNonce,
-    TransferStatement, UserId,
+    HsmId, LogIndex, OwnedPrefix, RealmId, RecordId, SecretsRequest, SecretsResponse,
+    TransferNonce, TransferStatement,
 };
 
 #[derive(Debug, Message)]
@@ -230,7 +234,7 @@ pub enum CompleteTransferResponse {
 pub struct AppRequest {
     pub realm: RealmId,
     pub group: GroupId,
-    pub uid: UserId,
+    pub rid: RecordId,
     pub request: SecretsRequest,
 }
 
@@ -242,4 +246,65 @@ pub enum AppResponse {
     InvalidRealm,
     InvalidGroup,
     NotLeader,
+}
+
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
+pub struct UserId(pub BitVec);
+
+impl fmt::Debug for UserId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0b")?;
+        for bit in &self.0 {
+            if *bit {
+                write!(f, "1")?;
+            } else {
+                write!(f, "0")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
+pub struct TenantId(pub BitVec);
+
+impl fmt::Debug for TenantId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0b")?;
+        for bit in &self.0 {
+            if *bit {
+                write!(f, "1")?;
+            } else {
+                write!(f, "0")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl From<(TenantId, UserId)> for RecordId {
+    fn from(value: (TenantId, UserId)) -> Self {
+        let mut h = Sha256::new();
+        for bit in &value.0 .0 {
+            if *bit {
+                h.update([1]);
+            } else {
+                h.update([0]);
+            }
+        }
+        h.update([b'|']);
+        for bit in &value.1 .0 {
+            if *bit {
+                h.update([1]);
+            } else {
+                h.update([0]);
+            }
+        }
+        // TODO: This is dumb, we need to align on a u8 based BitVec across the board i think.
+        let res: [u8; 32] = h.finalize().into();
+        let mut r = BitVec::with_capacity(256);
+        let bs = BitSlice::<u8, Msb0>::from_slice(&res);
+        r.extend(bs);
+        RecordId(r)
+    }
 }

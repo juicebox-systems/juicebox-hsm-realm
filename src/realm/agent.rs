@@ -1061,7 +1061,7 @@ async fn start_app_request(
             .send(hsm_types::AppRequest {
                 realm: request.realm,
                 group: request.group,
-                uid: request.uid.clone(),
+                rid: request.rid.clone(),
                 request: request.request.clone(),
                 index: entry.index,
                 data,
