@@ -1,14 +1,29 @@
 use super::{Dir, HashOutput, InteriorNode, KeySlice, LeafNode, ReadProof};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Node<HO> {
     Interior(InteriorNode<HO>),
     Leaf(LeafNode<HO>),
+}
+impl<HO: HashOutput> Node<HO> {
+    pub fn hash(&self) -> HO {
+        match self {
+            Node::Interior(int) => int.hash,
+            Node::Leaf(leaf) => leaf.hash,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub enum TreeStoreError {
     NoSuchRecord,
+}
+
+#[derive(Debug)]
+pub struct StoreDelta<HO: HashOutput> {
+    pub root: HO,
+    pub add: Vec<Node<HO>>,
+    pub remove: Vec<HO>,
 }
 
 pub trait TreeStoreReader<HO> {

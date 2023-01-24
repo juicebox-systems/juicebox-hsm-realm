@@ -5,18 +5,18 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Display},
     hash::Hash,
-    iter::zip,
+    iter::{once, zip},
 };
 
-use self::agent::Node;
+use self::agent::{Node, StoreDelta};
 use self::overlay::TreeOverlay;
 
 pub mod agent;
 pub mod dot;
 mod overlay;
 
-type KeyVec = BitVec<u8, Msb0>;
-type KeySlice = BitSlice<u8, Msb0>;
+pub type KeyVec = BitVec<u8, Msb0>;
+pub type KeySlice = BitSlice<u8, Msb0>;
 
 // TODO
 //  probably a bunch of stuff that should be pub but isn't
@@ -38,18 +38,15 @@ pub struct Tree<H: NodeHasher<HO>, HO> {
     overlay: TreeOverlay<HO>,
 }
 impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
-    // Creates a new empty tree. Returns the Tree along with its initial root node. If this tree is
-    // a partition of a larger tree, then pass the prefix of this partition. key_size should be the
-    // total size of a key in bits including any prefix from being a partition.
-    pub fn new_tree(hasher: H, tree_prefix: &KeyVec, key_size: usize) -> (Self, InteriorNode<HO>) {
-        assert!(key_size % 8 == 0);
-        let root = InteriorNode::new(&hasher, tree_prefix, None, None);
-        let t = Tree {
-            hasher,
-            key_size,
-            overlay: TreeOverlay::new(root.hash, 15),
-        };
-        (t, root)
+    // Creates a new empty tree. Returns the storage delta required to create the tree. If this tree is
+    // a partition of a larger tree, then pass the prefix of this partition.
+    pub fn new_tree(hasher: &H, tree_prefix: &KeyVec) -> StoreDelta<HO> {
+        let root = InteriorNode::new(hasher, tree_prefix, None, None);
+        StoreDelta {
+            root: root.hash,
+            add: vec![Node::Interior(root)],
+            remove: Vec::new(),
+        }
     }
 
     // Create a new Tree instance for a previously constructed tree given the root hash
@@ -382,7 +379,7 @@ impl<HO: HashOutput> InteriorNode<HO> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct LeafNode<HO> {
     value: Vec<u8>,
     hash: HO,
@@ -443,6 +440,7 @@ impl Display for Dir {
         }
     }
 }
+#[derive(Debug)]
 pub struct ReadProof<HO> {
     // Key is the full key.
     key: Vec<u8>,
@@ -464,6 +462,10 @@ impl<HO: HashOutput> ReadProof<HO> {
         };
         p.path.push(root);
         p
+    }
+
+    pub fn root_hash(&self) -> HO {
+        self.path[0].hash
     }
 
     // Verify returns tree if the Proof is valid. This includes the
@@ -625,6 +627,31 @@ pub struct SplitResult<HO> {
     // The new root for the tree that is being given away to another group/partition.
     giving: SplitRoot<HO>,
 }
+impl<HO: HashOutput> SplitResult<HO> {
+    pub fn store_delta(self) -> (StoreDelta<HO>, StoreDelta<HO>) {
+        let l = StoreDelta {
+            add: self
+                .keeping
+                .add
+                .into_iter()
+                .map(|n| Node::Interior(n))
+                .collect(),
+            remove: vec![self.old_root],
+            root: self.keeping.root_hash,
+        };
+        let r = StoreDelta {
+            add: self
+                .giving
+                .add
+                .into_iter()
+                .map(|n| Node::Interior(n))
+                .collect(),
+            remove: Vec::new(),
+            root: self.giving.root_hash,
+        };
+        (l, r)
+    }
+}
 pub struct SplitRoot<HO> {
     // The new root hash of this split off branch.
     root_hash: HO,
@@ -633,12 +660,11 @@ pub struct SplitRoot<HO> {
     // A new node to add to node storage.
     add: Option<InteriorNode<HO>>,
 }
-
 pub struct Delta<HO> {
     // Nodes are in tail -> root order.
-    add: Vec<InteriorNode<HO>>,
-    leaf: LeafNode<HO>,
-    remove: Vec<HO>,
+    pub add: Vec<InteriorNode<HO>>,
+    pub leaf: LeafNode<HO>,
+    pub remove: Vec<HO>,
 }
 impl<HO: Debug> Debug for Delta<HO> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -660,7 +686,7 @@ impl<HO: Debug> Debug for Delta<HO> {
         Ok(())
     }
 }
-impl<HO> Delta<HO> {
+impl<HO: HashOutput> Delta<HO> {
     fn new(new_leaf: LeafNode<HO>) -> Self {
         Delta {
             leaf: new_leaf,
@@ -668,12 +694,25 @@ impl<HO> Delta<HO> {
             remove: Vec::new(),
         }
     }
-    fn root(&self) -> &HO {
+    pub fn root(&self) -> &HO {
         &self
             .add
             .last()
             .expect("add should contain at least a new root")
             .hash
+    }
+    pub fn store_delta(self) -> StoreDelta<HO> {
+        let root = *self.root();
+        StoreDelta {
+            add: self
+                .add
+                .into_iter()
+                .map(|n| Node::Interior(n))
+                .chain(once(Node::Leaf(self.leaf)))
+                .collect(),
+            remove: self.remove,
+            root,
+        }
     }
 }
 
@@ -1157,11 +1196,12 @@ mod tests {
         prefix: &KeyVec,
         key_size: usize,
     ) -> (Tree<TestHasher, TestHash>, TestHash, MemStore<TestHash>) {
-        let (t, root_node) = Tree::new_tree(TestHasher {}, prefix, key_size);
+        let h = TestHasher {};
+        let delta = Tree::new_tree(&h, prefix);
         let mut store = MemStore::new();
-        let root_hash = root_node.hash;
-        store.insert(root_hash, Node::Interior(root_node));
-        check_tree_invariants(&t.hasher, prefix, root_hash, &store);
+        let root_hash = store.apply_store_delta(delta);
+        check_tree_invariants(&h, prefix, root_hash, &store);
+        let t = Tree::with_existing_root(h, key_size, root_hash);
         (t, root_hash, store)
     }
 
@@ -1258,6 +1298,15 @@ mod tests {
         }
     }
     impl<HO: HashOutput> MemStore<HO> {
+        fn apply_store_delta(&mut self, d: StoreDelta<HO>) -> HO {
+            for n in d.add {
+                self.insert(n.hash(), n);
+            }
+            for r in d.remove {
+                self.nodes.remove(r.as_u8());
+            }
+            d.root
+        }
         fn apply_split(&mut self, s: &SplitResult<HO>) {
             if let Some(n) = &s.keeping.add {
                 self.insert(n.hash, Node::Interior(n.clone()));
