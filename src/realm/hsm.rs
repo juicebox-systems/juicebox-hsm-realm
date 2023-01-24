@@ -25,6 +25,8 @@ use types::{
     TransferStatement, TransferStatementRequest, TransferStatementResponse, TransferringOut,
 };
 
+use self::types::Partition;
+
 #[derive(Clone)]
 pub struct RealmKey(digest::Key<Hmac<Sha256>>);
 
@@ -152,8 +154,7 @@ struct EntryHmacBuilder<'a> {
     realm: RealmId,
     group: GroupId,
     index: LogIndex,
-    owned_prefix: &'a Option<OwnedPrefix>,
-    data_hash: &'a DataHash,
+    partition: &'a Option<Partition>,
     transferring_out: &'a Option<TransferringOut>,
     prev_hmac: &'a EntryHmac,
 }
@@ -169,33 +170,32 @@ impl<'a> EntryHmacBuilder<'a> {
         mac.update(&self.index.0.to_be_bytes());
         mac.update(b"|");
 
-        match self.owned_prefix {
-            Some(owned_prefix) => {
-                for bit in &owned_prefix.0 {
+        match self.partition {
+            Some(p) => {
+                for bit in &p.prefix.0 {
                     mac.update(if *bit { b"1" } else { b"0" });
                 }
+                mac.update(b"|");
+                mac.update(&p.hash.0);
             }
             None => mac.update(b"none"),
         }
 
         mac.update(b"|");
-        mac.update(&self.data_hash.0);
-        mac.update(b"|");
 
         match self.transferring_out {
             Some(TransferringOut {
                 destination,
-                prefix,
-                data_hash,
+                partition,
                 at,
             }) => {
                 mac.update(&destination.0);
                 mac.update(b"|");
-                for bit in &prefix.0 {
+                for bit in &partition.prefix.0 {
                     mac.update(if *bit { b"1" } else { b"0" });
                 }
                 mac.update(b"|");
-                mac.update(&data_hash.0);
+                mac.update(&partition.hash.0);
                 mac.update(b"|");
                 mac.update(&at.0.to_be_bytes());
             }
@@ -227,8 +227,7 @@ impl<'a> EntryHmacBuilder<'a> {
             realm,
             group,
             index: entry.index,
-            owned_prefix: &entry.owned_prefix,
-            data_hash: &entry.data_hash,
+            partition: &entry.partition,
             transferring_out: &entry.transferring_out,
             prev_hmac: &entry.prev_hmac,
         }
@@ -246,8 +245,7 @@ impl TransferNonce {
 
 struct TransferStatementBuilder<'a> {
     realm: RealmId,
-    prefix: &'a OwnedPrefix,
-    data_hash: &'a DataHash,
+    partition: &'a Partition,
     destination: GroupId,
     nonce: TransferNonce,
 }
@@ -258,11 +256,11 @@ impl<'a> TransferStatementBuilder<'a> {
         mac.update(b"transfer|");
         mac.update(&self.realm.0);
         mac.update(b"|");
-        for bit in &self.prefix.0 {
+        for bit in &self.partition.prefix.0 {
             mac.update(if *bit { b"1" } else { b"0" });
         }
         mac.update(b"|");
-        mac.update(&self.data_hash.0);
+        mac.update(&self.partition.hash.0);
         mac.update(b"|");
         mac.update(&self.destination.0);
         mac.update(b"|");
@@ -388,8 +386,19 @@ impl Hsm {
         assert!(existing.is_none());
 
         let index = LogIndex(1);
-        let data = RecordMap::new();
-        let data_hash = data.hash();
+        let (partition, data) = match &owned_prefix {
+            None => (None, None),
+            Some(prefix) => {
+                let data = RecordMap::new();
+                (
+                    Some(Partition {
+                        prefix: prefix.clone(),
+                        hash: data.hash(),
+                    }),
+                    Some(data),
+                )
+            }
+        };
         let transferring_out = None;
         let prev_hmac = EntryHmac::zero();
 
@@ -397,17 +406,15 @@ impl Hsm {
             realm,
             group,
             index,
-            owned_prefix: &owned_prefix,
+            partition: &partition,
             transferring_out: &transferring_out,
-            data_hash: &data_hash,
             prev_hmac: &prev_hmac,
         }
         .build(&self.persistent.realm_key);
 
         let entry = LogEntry {
             index,
-            owned_prefix,
-            data_hash,
+            partition: partition.clone(),
             transferring_out,
             prev_hmac,
             entry_hmac,
@@ -431,6 +438,7 @@ impl Hsm {
             group,
             statement,
             entry,
+            partition,
             data,
         }
     }
@@ -468,8 +476,9 @@ impl Handler<StatusRequest> for Hsm {
                                             .last()
                                             .expect("leader's log is never empty")
                                             .entry
-                                            .owned_prefix
-                                            .clone(),
+                                            .partition
+                                            .as_ref()
+                                            .map(|p| p.prefix.clone()),
                                     }
                                 }),
                             }
@@ -910,7 +919,7 @@ impl Handler<TransferOutRequest> for Hsm {
             // committed yet. We think that's OK. The source group won't
             // produce a transfer statement unless this last entry and the
             // transferring out entry have committed.
-            let Some(owned_prefix) = &last_entry.owned_prefix else {
+            let Some(owned_partition) = &last_entry.partition else {
                 return Response::NotOwner;
             };
 
@@ -920,54 +929,58 @@ impl Handler<TransferOutRequest> for Hsm {
             if request.index != last_entry.index {
                 return Response::StaleIndex;
             }
-            if request.data.hash() != last_entry.data_hash {
+            if request.data.hash() != owned_partition.hash {
                 return Response::InvalidData;
             }
 
             // This support two options: moving out the entire owned
             // prefix, or moving out the owned prefix plus one more bit.
-            let keeping_prefix: Option<OwnedPrefix>;
-            let keeping_data;
-            let keeping_hash;
-            let transferring_prefix = request.prefix.clone();
+            let keeping_partition: Option<Partition>;
+            let keeping_data: Option<RecordMap>;
+            let transferring_partition: Partition;
             let transferring_data;
-            let transferring_hash;
-            if request.prefix == *owned_prefix {
-                keeping_prefix = None;
-                keeping_data = RecordMap::new();
-                keeping_hash = keeping_data.hash();
-                transferring_data = request.data; // TODO: check hash
-                transferring_hash = last_entry.data_hash.clone();
-            } else if request.prefix.0.len() == owned_prefix.0.len() + 1
-                && request.prefix.0.starts_with(&owned_prefix.0)
+
+            if request.prefix == owned_partition.prefix {
+                keeping_partition = None;
+                keeping_data = None;
+                transferring_partition = owned_partition.clone();
+                transferring_data = request.data;
+            } else if request.prefix.0.len() == owned_partition.prefix.0.len() + 1
+                && request.prefix.0.starts_with(&owned_partition.prefix.0)
             {
                 let keeping_0;
                 let prefix1;
-                keeping_prefix = Some(OwnedPrefix({
+                let keeping_prefix = OwnedPrefix({
                     let mut keeping_prefix = request.prefix.0.clone();
                     let transferring_1 = keeping_prefix.pop().unwrap();
                     if transferring_1 {
                         keeping_0 = true;
                         keeping_prefix.push(false);
-                        prefix1 = request.prefix.0;
+                        prefix1 = request.prefix.0.clone();
                     } else {
                         keeping_0 = false;
                         keeping_prefix.push(true);
                         prefix1 = keeping_prefix.clone();
                     }
                     keeping_prefix
-                }));
+                });
                 let mut data0 = request.data;
                 let data1 = RecordMap(data0.0.split_off(&RecordId(prefix1)));
                 if keeping_0 {
-                    keeping_data = data0;
+                    keeping_data = Some(data0);
                     transferring_data = data1;
                 } else {
-                    keeping_data = data1;
+                    keeping_data = Some(data1);
                     transferring_data = data0;
                 }
-                keeping_hash = keeping_data.hash();
-                transferring_hash = transferring_data.hash();
+                keeping_partition = Some(Partition {
+                    hash: keeping_data.as_ref().unwrap().hash(),
+                    prefix: keeping_prefix,
+                });
+                transferring_partition = Partition {
+                    hash: transferring_data.hash(),
+                    prefix: request.prefix,
+                };
             } else {
                 return Response::NotOwner;
             }
@@ -975,8 +988,7 @@ impl Handler<TransferOutRequest> for Hsm {
             let index = last_entry.index.next();
             let transferring_out = Some(TransferringOut {
                 destination: request.destination,
-                prefix: transferring_prefix,
-                data_hash: transferring_hash,
+                partition: transferring_partition,
                 at: index,
             });
             let prev_hmac = last_entry.entry_hmac.clone();
@@ -985,8 +997,7 @@ impl Handler<TransferOutRequest> for Hsm {
                 realm: request.realm,
                 group: request.source,
                 index,
-                owned_prefix: &keeping_prefix,
-                data_hash: &keeping_hash,
+                partition: &keeping_partition,
                 transferring_out: &transferring_out,
                 prev_hmac: &prev_hmac,
             }
@@ -994,8 +1005,7 @@ impl Handler<TransferOutRequest> for Hsm {
 
             let entry = LogEntry {
                 index,
-                owned_prefix: keeping_prefix,
-                data_hash: keeping_hash,
+                partition: keeping_partition,
                 transferring_out,
                 prev_hmac,
                 entry_hmac,
@@ -1080,8 +1090,7 @@ impl Handler<TransferStatementRequest> for Hsm {
 
             let Some(TransferringOut {
                 destination,
-                prefix,
-                data_hash,
+                partition,
                 at: transferring_at,
             }) = &leader.log.last().unwrap().entry.transferring_out else {
                 return Response::NotTransferring;
@@ -1096,8 +1105,7 @@ impl Handler<TransferStatementRequest> for Hsm {
             let statement = TransferStatementBuilder {
                 realm: request.realm,
                 destination: *destination,
-                prefix,
-                data_hash,
+                partition,
                 nonce: request.nonce,
             }
             .build(&self.persistent.realm_key);
@@ -1139,7 +1147,7 @@ impl Handler<TransferInRequest> for Hsm {
             leader.incoming = None;
 
             let last_entry = &leader.log.last().unwrap().entry;
-            if last_entry.owned_prefix.is_some() {
+            if last_entry.partition.is_some() {
                 // merging prefixes is currently unsupported
                 return Response::UnacceptablePrefix;
             }
@@ -1147,8 +1155,7 @@ impl Handler<TransferInRequest> for Hsm {
             if (TransferStatementBuilder {
                 realm: request.realm,
                 destination: request.destination,
-                prefix: &request.prefix,
-                data_hash: &request.data_hash,
+                partition: &request.partition,
                 nonce: request.nonce,
             })
             .verify(&self.persistent.realm_key, &request.statement)
@@ -1157,14 +1164,13 @@ impl Handler<TransferInRequest> for Hsm {
                 return Response::InvalidStatement;
             }
 
-            if request.data.hash() != request.data_hash {
+            if request.data.hash() != request.partition.hash {
                 return Response::InvalidData;
             }
 
             let index = last_entry.index.next();
-            let owned_prefix = Some(request.prefix);
             let data = request.data;
-            let data_hash = request.data_hash;
+            let partition = Some(request.partition);
             let transferring_out = last_entry.transferring_out.clone();
             let prev_hmac = last_entry.entry_hmac.clone();
 
@@ -1172,8 +1178,7 @@ impl Handler<TransferInRequest> for Hsm {
                 realm: request.realm,
                 group: request.destination,
                 index,
-                owned_prefix: &owned_prefix,
-                data_hash: &data_hash,
+                partition: &partition,
                 transferring_out: &transferring_out,
                 prev_hmac: &prev_hmac,
             }
@@ -1181,8 +1186,7 @@ impl Handler<TransferInRequest> for Hsm {
 
             let entry = LogEntry {
                 index,
-                owned_prefix,
-                data_hash,
+                partition,
                 transferring_out,
                 prev_hmac,
                 entry_hmac,
@@ -1232,7 +1236,7 @@ impl Handler<CompleteTransferRequest> for Hsm {
             let last_entry = &leader.log.last().unwrap().entry;
             if let Some(transferring_out) = &last_entry.transferring_out {
                 if transferring_out.destination != request.destination
-                    || transferring_out.prefix != request.prefix
+                    || transferring_out.partition.prefix != request.prefix
                 {
                     return Response::NotTransferring;
                 }
@@ -1241,8 +1245,7 @@ impl Handler<CompleteTransferRequest> for Hsm {
             };
 
             let index = last_entry.index.next();
-            let owned_prefix = last_entry.owned_prefix.clone();
-            let data_hash = last_entry.data_hash.clone();
+            let owned_partition = last_entry.partition.clone();
             let transferring_out = None;
             let prev_hmac = last_entry.entry_hmac.clone();
 
@@ -1250,8 +1253,7 @@ impl Handler<CompleteTransferRequest> for Hsm {
                 realm: request.realm,
                 group: request.source,
                 index,
-                owned_prefix: &owned_prefix,
-                data_hash: &data_hash,
+                partition: &owned_partition,
                 transferring_out: &transferring_out,
                 prev_hmac: &prev_hmac,
             }
@@ -1259,8 +1261,7 @@ impl Handler<CompleteTransferRequest> for Hsm {
 
             let entry = LogEntry {
                 index,
-                owned_prefix,
-                data_hash,
+                partition: owned_partition,
                 transferring_out,
                 prev_hmac,
                 entry_hmac,
@@ -1292,9 +1293,9 @@ impl Handler<AppRequest> for Hsm {
                 if realm.groups.contains_key(&request.group) {
                     if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
                         if (leader.log.last().unwrap().entry)
-                            .owned_prefix
+                            .partition
                             .as_ref()
-                            .filter(|owned| owned.contains(&request.rid))
+                            .filter(|partition| partition.prefix.contains(&request.rid))
                             .is_some()
                         {
                             handle_app_request(request, &self.persistent, leader)
@@ -1335,8 +1336,13 @@ fn handle_app_request(
 
         let mut iter = leader.log.iter().skip(offset);
         if let Some(request_entry) = iter.next() {
-            if request_entry.entry.data_hash != request.data.hash() {
-                return Response::InvalidData;
+            match &request_entry.entry.partition {
+                None => return Response::NotLeader,
+                Some(p) => {
+                    if p.hash != request.data.hash() {
+                        return Response::InvalidData;
+                    }
+                }
             }
         } else {
             return Response::StaleIndex;
@@ -1386,8 +1392,13 @@ fn handle_app_request(
     };
 
     let index = last_entry.entry.index.next();
-    let owned_prefix = last_entry.entry.owned_prefix.clone();
-    let data_hash = data.hash();
+    let partition = match &last_entry.entry.partition {
+        None => todo!("TODO: this doesn't seem reachable."),
+        Some(p) => Some(Partition {
+            hash: data.hash(),
+            prefix: p.prefix.clone(),
+        }),
+    };
     let transferring_out = last_entry.entry.transferring_out.clone();
     let prev_hmac = last_entry.entry.entry_hmac.clone();
 
@@ -1395,8 +1406,7 @@ fn handle_app_request(
         realm: request.realm,
         group: request.group,
         index,
-        owned_prefix: &owned_prefix,
-        data_hash: &data_hash,
+        partition: &partition,
         transferring_out: &transferring_out,
         prev_hmac: &prev_hmac,
     }
@@ -1404,8 +1414,7 @@ fn handle_app_request(
 
     let new_entry = LogEntry {
         index,
-        owned_prefix,
-        data_hash,
+        partition,
         transferring_out,
         prev_hmac,
         entry_hmac,

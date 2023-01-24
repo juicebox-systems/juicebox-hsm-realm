@@ -69,11 +69,16 @@ impl LogIndex {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Partition {
+    pub prefix: OwnedPrefix,
+    pub hash: DataHash,
+}
+
 #[derive(Clone, Debug)]
 pub struct LogEntry {
     pub index: LogIndex,
-    pub owned_prefix: Option<OwnedPrefix>,
-    pub data_hash: DataHash,
+    pub partition: Option<Partition>,
     pub transferring_out: Option<TransferringOut>,
     pub prev_hmac: EntryHmac,
     pub entry_hmac: EntryHmac,
@@ -85,8 +90,7 @@ pub struct LogEntry {
 #[derive(Clone, Debug)]
 pub struct TransferringOut {
     pub destination: GroupId,
-    pub prefix: OwnedPrefix,
-    pub data_hash: DataHash,
+    pub partition: Partition,
     /// This is the first log index when this struct was placed in the source
     /// group's log. It's used by the source group to determine whether
     /// transferring out has committed.
@@ -153,6 +157,9 @@ impl fmt::Debug for DataHash {
 
 #[derive(Clone, Debug)]
 pub struct RecordMap(pub(super) BTreeMap<RecordId, Record>);
+
+// TODO, this'll go away soon
+pub static EMPTY_RECORDS: RecordMap = RecordMap(BTreeMap::new());
 
 /// Set of HSMs forming a group.
 ///
@@ -262,7 +269,8 @@ pub struct NewGroupInfo {
     pub group: GroupId,
     pub statement: GroupConfigurationStatement,
     pub entry: LogEntry,
-    pub data: RecordMap,
+    pub partition: Option<Partition>,
+    pub data: Option<RecordMap>,
 }
 
 #[derive(Debug, Message)]
@@ -407,7 +415,7 @@ pub struct TransferOutRequest {
 pub enum TransferOutResponse {
     Ok {
         entry: LogEntry,
-        keeping: RecordMap,
+        keeping: Option<RecordMap>,
         transferring: RecordMap,
     },
     InvalidRealm,
@@ -460,8 +468,7 @@ pub struct TransferInRequest {
     pub realm: RealmId,
     pub destination: GroupId,
     pub data: RecordMap,
-    pub data_hash: DataHash,
-    pub prefix: OwnedPrefix,
+    pub partition: Partition,
     pub nonce: TransferNonce,
     pub statement: TransferStatement,
 }

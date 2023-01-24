@@ -435,7 +435,10 @@ impl Handler<NewRealmRequest> for Agent {
                         realm: new_realm_response.realm,
                         group: new_realm_response.group,
                         entry: new_realm_response.entry,
-                        data: DataChange::Set(new_realm_response.data),
+                        data: match new_realm_response.data {
+                            None => DataChange::None,
+                            Some(data) => DataChange::Set(data),
+                        },
                         transferring_out: DataChange::None,
                     })
                     .await
@@ -546,7 +549,10 @@ impl Handler<NewGroupRequest> for Agent {
                         realm,
                         group: new_group_response.group,
                         entry: new_group_response.entry,
-                        data: DataChange::Set(new_group_response.data),
+                        data: match new_group_response.data {
+                            None => DataChange::None,
+                            Some(data) => DataChange::Set(data),
+                        },
                         transferring_out: DataChange::None,
                     })
                     .await
@@ -751,7 +757,7 @@ impl Handler<TransferOutRequest> for Agent {
             .map(move |result, agent, ctx| match result {
                 Err(response) => response,
                 Ok((entry, keeping, transferring)) => {
-                    let data_hash = entry.data_hash.clone();
+                    let partition = entry.transferring_out.as_ref().unwrap().partition.clone();
                     append(
                         ctx,
                         store2,
@@ -760,11 +766,14 @@ impl Handler<TransferOutRequest> for Agent {
                             realm,
                             group: source,
                             entry,
-                            data: DataChange::Set(keeping),
+                            data: match keeping {
+                                None => DataChange::None,
+                                Some(d) => DataChange::Set(d),
+                            },
                             transferring_out: DataChange::Set(transferring),
                         },
                     );
-                    Response::Ok { data_hash }
+                    Response::Ok { partition }
                 }
             })
             .map(|response, agent, _ctx| {
@@ -875,8 +884,11 @@ impl Handler<TransferInRequest> for Agent {
                         transferring_out,
                         ..
                     }) => {
-                        if entry.data_hash != request.data_hash {
-                            todo!()
+                        // we if don't have an existing partition, then that's fine
+                        if let Some(p) = entry.partition {
+                            if p.hash != request.partition.hash {
+                                todo!("{:?}, {:?}", p, request.partition);
+                            }
                         }
                         transferring_out.expect("TODO")
                     }
@@ -888,8 +900,7 @@ impl Handler<TransferInRequest> for Agent {
                         realm: request.realm,
                         destination: request.destination,
                         data,
-                        data_hash: request.data_hash,
-                        prefix: request.prefix,
+                        partition: request.partition.clone(),
                         nonce: request.nonce,
                         statement: request.statement,
                     })

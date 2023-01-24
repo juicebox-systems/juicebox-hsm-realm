@@ -19,8 +19,8 @@ pub struct Store {
 }
 
 struct GroupState {
-    log: Vec<LogEntry>, // never empty
-    data: RecordMap,
+    log: Vec<LogEntry>,      // never empty
+    data: Option<RecordMap>, // group doesn't have any data if it doesn't own a partition
     transferring_out: Option<RecordMap>,
 }
 
@@ -51,7 +51,7 @@ impl Handler<AppendRequest> for Store {
                     state.log.push(request.entry);
                     match request.data {
                         DataChange::Set(data) => {
-                            state.data = data;
+                            state.data = Some(data);
                         }
                         DataChange::Delete => {
                             panic!("not allowed to delete a group's data (because that spreads Option everywhere for not much benefit)");
@@ -75,21 +75,20 @@ impl Handler<AppendRequest> for Store {
 
             Vacant(bucket) => {
                 if request.entry.index == LogIndex(1) {
-                    if let (DataChange::Set(data), DataChange::None) =
-                        (request.data, request.transferring_out)
-                    {
-                        let state = GroupState {
-                            log: vec![request.entry],
-                            data,
-                            transferring_out: None,
-                        };
-                        bucket.insert(state);
-                        AppendResponse::Ok
-                    } else {
-                        panic!(
-                            "must initialize a group with data and without transferring_out state"
-                        );
-                    }
+                    let DataChange::None = request.transferring_out else {
+                        panic!("must initialize a group without transferring_out state");
+                    };
+                    let state = GroupState {
+                        log: vec![request.entry],
+                        data: match request.data {
+                            DataChange::None => None,
+                            DataChange::Set(data) => Some(data),
+                            DataChange::Delete => None,
+                        },
+                        transferring_out: None,
+                    };
+                    bucket.insert(state);
+                    AppendResponse::Ok
                 } else {
                     AppendResponse::PreconditionFailed
                 }
@@ -139,7 +138,10 @@ impl Handler<ReadLatestRequest> for Store {
                 let last = state.log.last().unwrap();
                 ReadLatestResponse::Ok {
                     entry: last.clone(),
-                    data: state.data.clone(),
+                    data: match &state.data {
+                        None => super::hsm::types::EMPTY_RECORDS.clone(),
+                        Some(data) => data.clone(),
+                    },
                     transferring_out: state.transferring_out.clone(),
                 }
             }
