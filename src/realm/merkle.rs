@@ -23,8 +23,10 @@ type KeySlice = BitSlice<u8, Msb0>;
 //  blake hasher
 //
 //  split
-//      "simple split" where the root is split into 2
 //      "complex split" split on arbitary keys
+//  merge
+//      merge a simple split back into one tree
+//
 //  compact_keyslice_str should be a wrapper type?
 //  remove hash from nodes rely on hash being in parent?
 //  docs
@@ -197,6 +199,86 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                             delta.remove.push(int.hash);
                             Ok(Some(new_hash))
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // Splits the current tree in half by removing the root and promoting its children to be
+    // new roots. Note that this will invalidate any read proofs generated before the split.
+    // Inserts after the split will require a post split ReadProof.
+    // It requires a read proof for any key that's owned by this tree, doesn't need to have a value.
+    pub fn split_tree(
+        &mut self,
+        current_prefix: &KeySlice,
+        rp: ReadProof<HO>,
+    ) -> Result<SplitResult<HO>, InsertError> {
+        // The ReadProof deals with an edge case where there have been no writes since
+        // 'self' was constructed.
+        if !rp.verify(&self.hasher) {
+            return Err(InsertError::InvalidProof);
+        }
+        if !self.overlay.roots.contains(&rp.path[0].hash) {
+            return Err(InsertError::StaleProof);
+        }
+        let root_node = if rp.path[0].hash == self.overlay.latest_root {
+            &rp.path[0]
+        } else {
+            match self.overlay.nodes.get(&self.overlay.latest_root) {
+                None => return Err(InsertError::StaleProof),
+                Some(Node::Leaf(_)) => panic!("unexpected leaf at root of tree"),
+                Some(Node::Interior(int)) => int,
+            }
+        };
+        let r = SplitResult {
+            old_root: self.overlay.latest_root,
+            keeping: self.make_branch_root(current_prefix, &root_node.left, Dir::Left),
+            giving: self.make_branch_root(current_prefix, &root_node.right, Dir::Right),
+        };
+        self.overlay.tree_has_split(&r);
+        Ok(r)
+    }
+
+    fn make_branch_root(
+        &self,
+        current_prefix: &KeySlice,
+        b: &Option<Branch<HO>>,
+        d: Dir,
+    ) -> SplitRoot<HO> {
+        let mut new_prefix = current_prefix.to_bitvec();
+        new_prefix.push(d == Dir::Right);
+        match b {
+            None => {
+                // There's no existing child for this branch, so we need to make a new root node.
+                let new_root = InteriorNode::new(&self.hasher, &new_prefix, None, None);
+                SplitRoot {
+                    root_hash: new_root.hash,
+                    prefix: new_prefix,
+                    add: Some(new_root),
+                }
+            }
+            Some(b) => {
+                // If the prefix is only a single bit, then the existing child can become the new root.
+                if b.prefix.len() == 1 {
+                    SplitRoot {
+                        root_hash: b.hash,
+                        prefix: new_prefix,
+                        add: None,
+                    }
+                } else {
+                    // If there's a longer prefix then we need a new root node that points to the existing child and
+                    // consumes the first bit of its prefix.
+                    let new_root = InteriorNode::construct(
+                        &self.hasher,
+                        &new_prefix,
+                        None,
+                        Some(Branch::new(b.prefix[1..].into(), b.hash)),
+                    );
+                    SplitRoot {
+                        root_hash: new_root.hash,
+                        prefix: new_prefix,
+                        add: Some(new_root),
                     }
                 }
             }
@@ -532,6 +614,26 @@ impl<HO: HashOutput> ReadProof<HO> {
     }
 }
 
+// The result of performing a split operation on the tree. The tree is split
+// into 2 halfs. Half that is kept by the current tree, and half that is given
+// way to somewhere else.
+pub struct SplitResult<HO> {
+    // The previous root hash, this should get deleted from storage.
+    old_root: HO,
+    // The new root of the tree that is being kept.
+    keeping: SplitRoot<HO>,
+    // The new root for the tree that is being given away to another group/partition.
+    giving: SplitRoot<HO>,
+}
+pub struct SplitRoot<HO> {
+    // The new root hash of this split off branch.
+    root_hash: HO,
+    // The new full key prefix to this new tree.
+    prefix: KeyVec,
+    // A new node to add to node storage.
+    add: Option<InteriorNode<HO>>,
+}
+
 pub struct Delta<HO> {
     // Nodes are in tail -> root order.
     add: Vec<InteriorNode<HO>>,
@@ -769,6 +871,95 @@ mod tests {
             //     dot::tree_to_dot(root, &store, "many.dot").unwrap();
             // }
         }
+    }
+
+    #[test]
+    fn test_split_empty() {
+        test_split(&[]);
+    }
+    #[test]
+    fn test_split_empty_one_side() {
+        test_split(&[&[1]]);
+    }
+    #[test]
+    fn test_split_empty_one_side_with_one_bit_prefix() {
+        test_split(&[&[0], &[0b00100000], &[0b01000000]]);
+    }
+    #[test]
+    fn test_split_1bit() {
+        // test split where the root has branches with single bit prefixes.
+        test_split(&[&[0], &[0b10000000]]);
+    }
+    #[test]
+    fn test_split_multibit() {
+        // test split where the root has branches with multiple bits in the prefixes.
+        test_split(&[&[0], &[0b00010000]]);
+    }
+    #[test]
+    fn test_split_mixed() {
+        // test split where the root has only one branch with multiple bits in its prefix.
+        test_split(&[&[0], &[0b10000000], &[0b11000000]]);
+    }
+    fn test_split(keys: &[&[u8]]) {
+        let prefix = KeyVec::new();
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 8);
+        let mut vals = Vec::with_capacity(keys.len());
+        for (i, left) in keys.iter().enumerate() {
+            let v = i.to_le_bytes().to_vec();
+            root = tree_insert(&mut tree, &mut store, root, left, &prefix, v.clone());
+            vals.push(v);
+        }
+        let rp = read(&store, &root, &[0], prefix.len()).unwrap();
+        let split = tree.split_tree(&prefix, rp).unwrap();
+        assert_eq!(root, split.old_root);
+        store.apply_split(&split);
+        check_tree_invariants(
+            &tree.hasher,
+            &split.keeping.prefix,
+            split.keeping.root_hash,
+            &store,
+        );
+        check_tree_invariants(
+            &tree.hasher,
+            &split.giving.prefix,
+            split.giving.root_hash,
+            &store,
+        );
+        fn read_all<HO: HashOutput>(
+            store: &MemStore<HO>,
+            left_root: HO,
+            right_root: HO,
+            keys: &[&[u8]],
+            vals: &[Vec<u8>],
+        ) {
+            for (k, v) in zip(keys, vals) {
+                let root = if k[0] & 128 == 0 {
+                    left_root
+                } else {
+                    right_root
+                };
+                let rp = read(store, &root, k, 1).unwrap();
+                assert_eq!(v, &rp.leaf.unwrap().value);
+            }
+        }
+        read_all(
+            &store,
+            split.keeping.root_hash,
+            split.giving.root_hash,
+            keys,
+            &vals,
+        );
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            split.keeping.root_hash,
+            &[0b00000011],
+            &split.keeping.prefix,
+            [42].to_vec(),
+        );
+        read_all(&store, root, split.giving.root_hash, keys, &vals);
+        let rp = read(&store, &root, &[0b00000011], 1).unwrap();
+        assert_eq!([42].to_vec(), rp.leaf.unwrap().value);
     }
 
     #[test]
@@ -1067,6 +1258,16 @@ mod tests {
         }
     }
     impl<HO: HashOutput> MemStore<HO> {
+        fn apply_split(&mut self, s: &SplitResult<HO>) {
+            if let Some(n) = &s.keeping.add {
+                self.insert(n.hash, Node::Interior(n.clone()));
+            }
+            if let Some(n) = &s.giving.add {
+                self.insert(n.hash, Node::Interior(n.clone()));
+            }
+            self.nodes.remove(s.old_root.as_u8());
+        }
+
         // Returns the new root hash.
         fn apply(&mut self, delta: Delta<HO>) -> HO {
             self.insert(delta.leaf.hash, Node::Leaf(delta.leaf));
