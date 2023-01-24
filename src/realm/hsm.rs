@@ -290,8 +290,8 @@ impl RecordMap {
 
     fn hash(&self) -> DataHash {
         let mut hash = Sha256::new();
-        for (uid, record) in &self.0 {
-            for bit in &uid.0 {
+        for (rid, record) in &self.0 {
+            for bit in &rid.0 {
                 if *bit {
                     hash.update(b"1");
                 } else {

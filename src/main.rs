@@ -17,7 +17,10 @@ use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use server::Server;
 use types::{AuthToken, Policy};
 
-use realm::agent::Agent;
+use realm::agent::{
+    types::{TenantId, UserId},
+    Agent,
+};
 use realm::hsm::types::{OwnedPrefix, RecordId, SecretsRequest, SecretsResponse};
 use realm::hsm::{Hsm, RealmKey};
 use realm::load_balancer::types::{ClientRequest, ClientResponse};
@@ -150,11 +153,12 @@ async fn main() {
     .unwrap();
 
     info!("incrementing a bunch");
-    let rids = [
-        RecordId(bitvec::bitvec![0, 0]),
-        RecordId(bitvec::bitvec![0, 1]),
-        RecordId(bitvec::bitvec![1, 0]),
-        RecordId(bitvec::bitvec![1, 1]),
+    let tenant_id = TenantId(bitvec::bitvec![0, 1]);
+    let rids: [RecordId; 4] = [
+        (tenant_id.clone(), UserId(bitvec::bitvec![0, 0])).into(),
+        (tenant_id.clone(), UserId(bitvec::bitvec![0, 1])).into(),
+        (tenant_id.clone(), UserId(bitvec::bitvec![1, 0])).into(),
+        (tenant_id, UserId(bitvec::bitvec![1, 1])).into(),
     ];
     join_all(
         iter::zip(rids.iter().cycle(), load_balancers.iter().cycle())
