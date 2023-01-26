@@ -16,7 +16,7 @@ impl<HO: HashOutput> Node<HO> {
 
 #[derive(Debug)]
 pub enum TreeStoreError {
-    NoSuchRecord,
+    MissingNode,
 }
 
 #[derive(Clone, Debug)]

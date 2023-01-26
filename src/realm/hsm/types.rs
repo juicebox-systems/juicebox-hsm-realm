@@ -70,7 +70,7 @@ impl LogIndex {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Partition {
     pub prefix: OwnedPrefix,
-    pub hash: DataHash,
+    pub root_hash: DataHash,
 }
 
 #[derive(Clone, Debug)]
@@ -268,7 +268,7 @@ pub struct NewGroupInfo {
     pub statement: GroupConfigurationStatement,
     pub entry: LogEntry,
     pub partition: Option<Partition>,
-    pub data: Option<StoreDelta<DataHash>>,
+    pub delta: Option<StoreDelta<DataHash>>,
 }
 
 #[derive(Debug, Message)]

@@ -178,7 +178,7 @@ impl<'a> EntryHmacBuilder<'a> {
                     mac.update(if *bit { b"1" } else { b"0" });
                 }
                 mac.update(b"|");
-                mac.update(&p.hash.0);
+                mac.update(&p.root_hash.0);
             }
             None => mac.update(b"none"),
         }
@@ -197,7 +197,7 @@ impl<'a> EntryHmacBuilder<'a> {
                     mac.update(if *bit { b"1" } else { b"0" });
                 }
                 mac.update(b"|");
-                mac.update(&partition.hash.0);
+                mac.update(&partition.root_hash.0);
                 mac.update(b"|");
                 mac.update(&at.0.to_be_bytes());
             }
@@ -262,7 +262,7 @@ impl<'a> TransferStatementBuilder<'a> {
             mac.update(if *bit { b"1" } else { b"0" });
         }
         mac.update(b"|");
-        mac.update(&self.partition.hash.0);
+        mac.update(&self.partition.root_hash.0);
         mac.update(b"|");
         mac.update(&self.destination.0);
         mac.update(b"|");
@@ -386,7 +386,7 @@ impl Hsm {
                 (
                     Some(Partition {
                         prefix: prefix.clone(),
-                        hash: delta.root,
+                        root_hash: delta.root,
                     }),
                     Some(delta),
                 )
@@ -439,7 +439,7 @@ impl Hsm {
             statement,
             entry,
             partition,
-            data,
+            delta: data,
         }
     }
 }
@@ -742,7 +742,7 @@ impl Handler<BecomeLeaderRequest> for Hsm {
                 Tree::with_existing_root(
                     MerkleHasher(self.persistent.realm_key.clone()),
                     RecordId::size(),
-                    p.hash,
+                    p.root_hash,
                 )
             });
             self.volatile
@@ -954,7 +954,7 @@ impl Handler<TransferOutRequest> for Hsm {
                 keeping_data = None;
                 transferring_partition = owned_partition.clone();
                 transferring_data = StoreDelta {
-                    root: owned_partition.hash,
+                    root: owned_partition.root_hash,
                     add: Vec::new(),
                     remove: Vec::new(),
                 }
@@ -966,31 +966,30 @@ impl Handler<TransferOutRequest> for Hsm {
                 };
                 let keeping;
                 let transferring;
-                (keeping, keeping_data, transferring, transferring_data) = match tree
-                    .split_tree(&owned_partition.prefix.0, request.proof)
-                {
-                    Err(TreeError::StaleProof) => return Response::StaleProof,
-                    Err(TreeError::InvalidProof) => return Response::InvalidProof,
-                    Err(TreeError::InvalidKey) => return Response::InvalidProof,
-                    Ok(split) => {
-                        let (left_delta, right_delta) = split.store_delta();
-                        if split.left.prefix == request.prefix.0 {
-                            (split.right, Some(right_delta), split.left, left_delta)
-                        } else if split.right.prefix == request.prefix.0 {
-                            (split.left, Some(left_delta), split.right, right_delta)
-                        } else {
-                            panic!(
+                (keeping, keeping_data, transferring, transferring_data) =
+                    match tree.split_tree(&owned_partition.prefix.0, request.proof) {
+                        Err(TreeError::StaleProof) => return Response::StaleProof,
+                        Err(TreeError::InvalidProof) => return Response::InvalidProof,
+                        Err(TreeError::InvalidKey) => return Response::InvalidProof,
+                        Ok(split) => {
+                            let (left_delta, right_delta) = split.store_delta();
+                            if split.left.prefix == request.prefix.0 {
+                                (split.right, Some(right_delta), split.left, left_delta)
+                            } else if split.right.prefix == request.prefix.0 {
+                                (split.left, Some(left_delta), split.right, right_delta)
+                            } else {
+                                panic!(
                                 "The tree was split but neither half contains the expected prefix."
                             );
+                            }
                         }
-                    }
-                };
+                    };
                 keeping_partition = Some(Partition {
-                    hash: keeping.root_hash,
+                    root_hash: keeping.root_hash,
                     prefix: OwnedPrefix(keeping.prefix),
                 });
                 transferring_partition = Partition {
-                    hash: transferring.root_hash,
+                    root_hash: transferring.root_hash,
                     prefix: OwnedPrefix(transferring.prefix),
                 };
             } else {
@@ -1021,7 +1020,7 @@ impl Handler<TransferOutRequest> for Hsm {
                 Some(p) => Some(Tree::with_existing_root(
                     MerkleHasher(self.persistent.realm_key.clone()),
                     RecordId::size(),
-                    p.hash,
+                    p.root_hash,
                 )),
             };
 
@@ -1194,7 +1193,7 @@ impl Handler<TransferInRequest> for Hsm {
             // }
 
             let index = last_entry.index.next();
-            let partition_hash = request.transferring.hash;
+            let partition_hash = request.transferring.root_hash;
             let partition = Some(request.transferring);
             let transferring_out = last_entry.transferring_out.clone();
             let prev_hmac = last_entry.entry_hmac.clone();
@@ -1442,7 +1441,7 @@ fn handle_app_request(
     let index = last_entry.entry.index.next();
     let mut partition = last_entry.entry.partition.as_ref().unwrap().clone();
     if let Some((_, sd)) = &delta {
-        partition.hash = sd.root;
+        partition.root_hash = sd.root;
     }
     let partition = Some(partition);
 

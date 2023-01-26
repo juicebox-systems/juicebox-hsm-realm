@@ -17,9 +17,10 @@ use super::hsm::types as hsm_types;
 use super::hsm::Hsm;
 use super::merkle::KeySlice;
 use super::store::types::{
-    AddressEntry, AppendRequest, AppendResponse, BuildKeyProofRequest, BuildKeyProofResponse,
-    DataChange, GetAddressesRequest, GetAddressesResponse, ReadEntryRequest, ReadEntryResponse,
-    ReadLatestRequest, ReadLatestResponse, SetAddressRequest, SetAddressResponse,
+    AddressEntry, AppendRequest, AppendResponse, DataChange, GetAddressesRequest,
+    GetAddressesResponse, GetRecordProofRequest, GetRecordProofResponse, ReadEntryRequest,
+    ReadEntryResponse, ReadLatestRequest, ReadLatestResponse, SetAddressRequest,
+    SetAddressResponse,
 };
 use super::store::Store;
 use hsm_types::{
@@ -436,7 +437,7 @@ impl Handler<NewRealmRequest> for Agent {
                         realm: new_realm_response.realm,
                         group: new_realm_response.group,
                         entry: new_realm_response.entry,
-                        data: match new_realm_response.data {
+                        data: match new_realm_response.delta {
                             None => DataChange::None,
                             Some(delta) => DataChange::Delta(delta),
                         },
@@ -550,7 +551,7 @@ impl Handler<NewGroupRequest> for Agent {
                         realm,
                         group: new_group_response.group,
                         entry: new_group_response.entry,
-                        data: match new_group_response.data {
+                        data: match new_group_response.delta {
                             None => DataChange::None,
                             Some(delta) => DataChange::Delta(delta),
                         },
@@ -740,7 +741,7 @@ impl Handler<TransferOutRequest> for Agent {
                     bs[..partition.prefix.0.len()].copy_from_bitslice(&partition.prefix.0);
 
                     let proof = match store
-                        .send(BuildKeyProofRequest {
+                        .send(GetRecordProofRequest {
                             realm: request.realm,
                             group: request.source,
                             record: rec_id,
@@ -748,10 +749,10 @@ impl Handler<TransferOutRequest> for Agent {
                         .await
                     {
                         Err(_) => return Err(Response::NoStore),
-                        Ok(BuildKeyProofResponse::Ok { proof, .. }) => proof,
-                        Ok(BuildKeyProofResponse::StoreMissingNode) => todo!(),
-                        Ok(BuildKeyProofResponse::UnknownGroup) => todo!(),
-                        Ok(BuildKeyProofResponse::NotOwner) => return Err(Response::NotOwner),
+                        Ok(GetRecordProofResponse::Ok { proof, .. }) => proof,
+                        Ok(GetRecordProofResponse::StoreMissingNode) => todo!(),
+                        Ok(GetRecordProofResponse::UnknownGroup) => todo!(),
+                        Ok(GetRecordProofResponse::NotOwner) => return Err(Response::NotOwner),
                     };
 
                     return match hsm
@@ -1095,17 +1096,17 @@ async fn start_app_request(
 
     loop {
         let (proof, index) = match store
-            .send(BuildKeyProofRequest {
+            .send(GetRecordProofRequest {
                 realm: request.realm,
                 group: request.group,
                 record: request.rid.clone(),
             })
             .await
         {
-            Ok(BuildKeyProofResponse::Ok { proof, index }) => (proof, index),
-            Ok(BuildKeyProofResponse::StoreMissingNode) => todo!(),
-            Ok(BuildKeyProofResponse::UnknownGroup) => todo!(),
-            Ok(BuildKeyProofResponse::NotOwner) => todo!(),
+            Ok(GetRecordProofResponse::Ok { proof, index }) => (proof, index),
+            Ok(GetRecordProofResponse::StoreMissingNode) => todo!(),
+            Ok(GetRecordProofResponse::UnknownGroup) => todo!(),
+            Ok(GetRecordProofResponse::NotOwner) => todo!(),
             Err(_) => return Err(Response::NoStore),
         };
 

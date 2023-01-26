@@ -62,14 +62,14 @@ pub enum ReadLatestResponse {
 }
 
 #[derive(Debug, Message)]
-#[rtype(result = "BuildKeyProofResponse")]
-pub struct BuildKeyProofRequest {
+#[rtype(result = "GetRecordProofResponse")]
+pub struct GetRecordProofRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub record: RecordId,
 }
 #[derive(Debug, MessageResponse)]
-pub enum BuildKeyProofResponse {
+pub enum GetRecordProofResponse {
     Ok {
         proof: ReadProof<DataHash>,
         index: LogIndex,

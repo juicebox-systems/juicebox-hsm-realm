@@ -1357,7 +1357,7 @@ mod tests {
     impl<HO: HashOutput> TreeStoreReader<HO> for MemStore<HO> {
         fn fetch(&self, k: &HO) -> Result<Node<HO>, TreeStoreError> {
             match self.nodes.get(k.as_u8()) {
-                None => Err(TreeStoreError::NoSuchRecord),
+                None => Err(TreeStoreError::MissingNode),
                 Some(n) => Ok(n.clone()),
             }
         }

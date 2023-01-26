@@ -38,7 +38,7 @@ impl TreeStoreReader<DataHash> for MemStore {
         match self.nodes.get(k) {
             None => {
                 warn!(hash=?k, "failed to find node");
-                Err(TreeStoreError::NoSuchRecord)
+                Err(TreeStoreError::MissingNode)
             }
             Some(n) => Ok(n.clone()),
         }

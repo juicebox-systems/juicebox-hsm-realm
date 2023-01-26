@@ -6,7 +6,7 @@ use tracing::trace;
 mod kv;
 pub mod types;
 
-use self::types::{BuildKeyProofRequest, BuildKeyProofResponse};
+use self::types::{GetRecordProofRequest, GetRecordProofResponse};
 
 use super::agent::Agent;
 use super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId};
@@ -156,34 +156,34 @@ impl Handler<ReadLatestRequest> for Store {
     }
 }
 
-impl Handler<BuildKeyProofRequest> for Store {
-    type Result = BuildKeyProofResponse;
+impl Handler<GetRecordProofRequest> for Store {
+    type Result = GetRecordProofResponse;
 
-    fn handle(&mut self, request: BuildKeyProofRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, request: GetRecordProofRequest, _ctx: &mut Context<Self>) -> Self::Result {
         trace!(?request);
         let response = match self.groups.get(&(request.realm, request.group)) {
-            None => BuildKeyProofResponse::UnknownGroup,
+            None => GetRecordProofResponse::UnknownGroup,
 
             Some(state) => {
                 let last = state.log.last().unwrap();
                 match &last.partition {
-                    None => BuildKeyProofResponse::NotOwner,
+                    None => GetRecordProofResponse::NotOwner,
                     Some(partition) => {
                         if !partition.prefix.contains(&request.record) {
-                            BuildKeyProofResponse::NotOwner
+                            GetRecordProofResponse::NotOwner
                         } else {
                             match super::merkle::agent::read(
                                 &self.kv,
-                                &partition.hash,
+                                &partition.root_hash,
                                 &request.record.0,
                                 partition.prefix.0.len(),
                             ) {
-                                Ok(proof) => BuildKeyProofResponse::Ok {
+                                Ok(proof) => GetRecordProofResponse::Ok {
                                     proof,
                                     index: last.index,
                                 },
-                                Err(TreeStoreError::NoSuchRecord) => {
-                                    BuildKeyProofResponse::StoreMissingNode
+                                Err(TreeStoreError::MissingNode) => {
+                                    GetRecordProofResponse::StoreMissingNode
                                 }
                             }
                         }
