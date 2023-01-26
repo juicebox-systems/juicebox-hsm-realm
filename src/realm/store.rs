@@ -81,22 +81,22 @@ impl Handler<AppendRequest> for Store {
 
             Vacant(bucket) => {
                 if request.entry.index == LogIndex(1) {
-                    let DataChange::None = request.transferring_out else {
+                    if !matches!(request.transferring_out, DataChange::None) {
                         panic!("must initialize a group without transferring_out state");
                     };
-                    let state = GroupState {
-                        log: vec![request.entry],
-                        transferring_out: None,
-                    };
-                    bucket.insert(state);
                     match request.data {
                         DataChange::Delta(delta) => {
-                            // assert!(request.entry.partition.is_some());
+                            assert!(request.entry.partition.is_some());
                             self.kv.apply_store_delta(delta);
                         }
                         DataChange::Delete => panic!("not allowed to delete a group's data (because that spreads Option everywhere for not much benefit)"),
                         DataChange::None => {}
                     }
+                    let state = GroupState {
+                        log: vec![request.entry],
+                        transferring_out: None,
+                    };
+                    bucket.insert(state);
                     AppendResponse::Ok
                 } else {
                     AppendResponse::PreconditionFailed
