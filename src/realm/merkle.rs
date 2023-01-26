@@ -11,6 +11,8 @@ use std::{
 use self::agent::{Node, StoreDelta};
 use self::overlay::TreeOverlay;
 
+use super::hsm::types::RecordId;
+
 pub mod agent;
 pub mod dot;
 mod overlay;
@@ -34,7 +36,6 @@ pub type KeySlice = BitSlice<u8, Msb0>;
 
 pub struct Tree<H: NodeHasher<HO>, HO> {
     hasher: H,
-    key_size: usize,
     overlay: TreeOverlay<HO>,
 }
 impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
@@ -52,13 +53,10 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     }
 
     // Create a new Tree instance for a previously constructed tree given the root hash
-    // of the tree's content. key_size should be the total size of a key in bits including
-    // any prefix from being a partition.
-    pub fn with_existing_root(hasher: H, key_size: usize, root: HO) -> Self {
-        assert!(key_size % 8 == 0);
+    // of the tree's content.
+    pub fn with_existing_root(hasher: H, root: HO) -> Self {
         Tree {
             hasher,
-            key_size,
             overlay: TreeOverlay::new(root, 15),
         }
     }
@@ -80,9 +78,6 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         rp: ReadProof<HO>,
         v: Vec<u8>,
     ) -> Result<Option<Delta<HO>>, TreeError> {
-        if rp.key.len() * 8 != self.key_size {
-            return Err(TreeError::InvalidKey);
-        }
         if !rp.verify(&self.hasher) {
             return Err(TreeError::InvalidProof);
         }
@@ -98,7 +93,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             &proof_nodes,
             &mut delta,
             self.overlay.latest_root,
-            KeySlice::from_slice(&key),
+            KeySlice::from_slice(&key.0),
             prefix_size,
         ) {
             Err(e) => Err(e),
@@ -402,12 +397,12 @@ pub struct LeafNode<HO> {
     hash: HO,
 }
 impl<HO> LeafNode<HO> {
-    fn new<H: NodeHasher<HO>>(hasher: &H, k: &[u8], v: Vec<u8>) -> LeafNode<HO> {
+    fn new<H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: Vec<u8>) -> LeafNode<HO> {
         let h = Self::calc_hash(hasher, k, &v);
         LeafNode { value: v, hash: h }
     }
-    fn calc_hash<H: NodeHasher<HO>>(hasher: &H, k: &[u8], v: &[u8]) -> HO {
-        hasher.calc_hash(&[k, v])
+    fn calc_hash<H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: &[u8]) -> HO {
+        hasher.calc_hash(&[&k.0, v])
     }
 }
 
@@ -465,8 +460,7 @@ impl Display for Dir {
 
 #[derive(Debug, Clone)]
 pub struct ReadProof<HO> {
-    // Key is the full key.
-    pub key: Vec<u8>,
+    pub key: RecordId,
     // The number of bits from the start of the key that are the partition prefix for the tree
     // partition.
     prefix_size: usize,
@@ -476,9 +470,9 @@ pub struct ReadProof<HO> {
     path: Vec<InteriorNode<HO>>,
 }
 impl<HO: HashOutput> ReadProof<HO> {
-    fn new(key: &[u8], prefix_size: usize, root: InteriorNode<HO>) -> Self {
+    fn new(key: RecordId, prefix_size: usize, root: InteriorNode<HO>) -> Self {
         let mut p = ReadProof {
-            key: key.to_vec(),
+            key,
             prefix_size,
             leaf: None,
             path: Vec::new(),
@@ -499,7 +493,7 @@ impl<HO: HashOutput> ReadProof<HO> {
     // path check and hash verification.
     pub fn verify<H: NodeHasher<HO>>(&self, h: &H) -> bool {
         // Do some basic sanity checks of the Proof struct first.
-        if self.key.is_empty() || self.path.is_empty() || self.prefix_size >= self.key.len() * 8 {
+        if self.path.is_empty() || self.prefix_size >= RecordId::num_bits() {
             return false;
         }
         // Verify the leaf hash matches
@@ -514,7 +508,7 @@ impl<HO: HashOutput> ReadProof<HO> {
         // tampers with that leading part of the key.
         self.verify_path(
             h,
-            KeySlice::from_slice(&self.key),
+            KeySlice::from_slice(&self.key.0),
             self.prefix_size,
             &self.path[0],
             &self.path[1..],
@@ -631,7 +625,7 @@ impl<HO: HashOutput> ReadProof<HO> {
     }
 
     // Consumes the proof returning a hashmap containing all the nodes in the proof along with the key.
-    fn make_node_map(self) -> (HashMap<HO, Node<HO>>, Vec<u8>) {
+    fn make_node_map(self) -> (HashMap<HO, Node<HO>>, RecordId) {
         let mut proof_nodes = HashMap::with_capacity(self.path.len() + 1);
         if let Some(l) = self.leaf {
             proof_nodes.insert(l.hash, Node::Leaf(l));
@@ -721,8 +715,6 @@ pub enum TreeError {
     InvalidProof,
     // The ReadProof is too old, calculate a newer one and try again.
     StaleProof,
-    // Invalid key. The supplied key is not the correct size.
-    InvalidKey,
 }
 
 pub trait HashOutput: Hash + Copy + Eq + Debug {
@@ -751,12 +743,15 @@ mod tests {
         *,
     };
     use rand::{rngs::StdRng, RngCore, SeedableRng};
-    use std::{collections::HashMap, hash::Hasher};
+    use std::{
+        collections::{BTreeMap, HashMap},
+        hash::Hasher,
+    };
 
     #[test]
     fn get_nothing() {
-        let (tree, root, store) = new_empty_tree(&KeyVec::new(), 24);
-        let p = read(&store, &root, &[1, 2, 3], 0).unwrap();
+        let (tree, root, store) = new_empty_tree(&KeyVec::new());
+        let p = read(&store, &root, rec_id(&[1, 2, 3]), 0).unwrap();
         assert_eq!(1, p.path.len());
         assert_eq!(root, p.path[0].hash);
         assert!(p.leaf.is_none());
@@ -765,8 +760,8 @@ mod tests {
 
     #[test]
     fn first_insert() {
-        let (mut tree, mut root, mut store) = new_empty_tree(&KeyVec::new(), 24);
-        let rp = read(&store, &root, &[1, 2, 3], 0).unwrap();
+        let (mut tree, mut root, mut store) = new_empty_tree(&KeyVec::new());
+        let rp = read(&store, &root, rec_id(&[1, 2, 3]), 0).unwrap();
         let d = tree.insert(rp, [42].to_vec()).unwrap().unwrap();
         assert_eq!(1, d.add.len());
         assert_eq!([42].to_vec(), d.leaf.value);
@@ -774,7 +769,7 @@ mod tests {
         root = store.apply(d);
         check_tree_invariants(&tree.hasher, &BitVec::new(), root, &store);
 
-        let p = read(&store, &root, &[1, 2, 3], 0).unwrap();
+        let p = read(&store, &root, rec_id(&[1, 2, 3]), 0).unwrap();
         assert_eq!([42].to_vec(), p.leaf.as_ref().unwrap().value);
         assert_eq!(1, p.path.len());
         assert_eq!(root, p.path[0].hash);
@@ -784,12 +779,12 @@ mod tests {
     #[test]
     fn insert_some() {
         let prefix = KeyVec::new();
-        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 24);
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix);
         root = tree_insert(
             &mut tree,
             &mut store,
             root,
-            &[2, 6, 8],
+            &rec_id(&[2, 6, 8]),
             &prefix,
             [42].to_vec(),
         );
@@ -797,7 +792,7 @@ mod tests {
             &mut tree,
             &mut store,
             root,
-            &[4, 4, 6],
+            &rec_id(&[4, 4, 6]),
             &prefix,
             [43].to_vec(),
         );
@@ -805,12 +800,12 @@ mod tests {
             &mut tree,
             &mut store,
             root,
-            &[0, 2, 3],
+            &rec_id(&[0, 2, 3]),
             &prefix,
             [44].to_vec(),
         );
 
-        let p = read(&store, &root, &[2, 6, 8], prefix.len()).unwrap();
+        let p = read(&store, &root, rec_id(&[2, 6, 8]), prefix.len()).unwrap();
         assert_eq!([42].to_vec(), p.leaf.unwrap().value);
         assert_eq!(3, p.path.len());
         assert_eq!(root, p.path[0].hash);
@@ -822,12 +817,12 @@ mod tests {
         let mut prefix = KeyVec::new();
         prefix.push(false);
         prefix.push(false);
-        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 24);
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix);
         root = tree_insert(
             &mut tree,
             &mut store,
             root,
-            &[2, 6, 8],
+            &rec_id(&[2, 6, 8]),
             &prefix,
             [42].to_vec(),
         );
@@ -835,7 +830,7 @@ mod tests {
             &mut tree,
             &mut store,
             root,
-            &[4, 4, 6],
+            &rec_id(&[4, 4, 6]),
             &prefix,
             [43].to_vec(),
         );
@@ -844,12 +839,12 @@ mod tests {
             &mut tree,
             &mut store,
             root,
-            &[4, 4, 6],
+            &rec_id(&[4, 4, 6]),
             &prefix,
             [44].to_vec(),
         );
 
-        let rp = read(&store, &root, &[4, 4, 6], prefix.len()).unwrap();
+        let rp = read(&store, &root, rec_id(&[4, 4, 6]), prefix.len()).unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
         check_tree_invariants(&tree.hasher, &prefix, root, &store);
 
@@ -858,11 +853,11 @@ mod tests {
             &mut tree,
             &mut store,
             root,
-            &[4, 4, 6],
+            &rec_id(&[4, 4, 6]),
             &prefix,
             [44].to_vec(),
         );
-        let rp = read(&store, &root, &[4, 4, 6], prefix.len()).unwrap();
+        let rp = read(&store, &root, rec_id(&[4, 4, 6]), prefix.len()).unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
     }
 
@@ -882,25 +877,24 @@ mod tests {
     }
 
     fn test_insert_lots_with_prefix(prefix: &KeyVec) {
-        let (mut tree, mut root, mut store) = new_empty_tree(prefix, 32);
+        let (mut tree, mut root, mut store) = new_empty_tree(prefix);
         let seed = [0u8; 32];
         let mut rng: StdRng = SeedableRng::from_seed(seed);
         let mut random_key = [0u8; 4];
-        let mut expected = HashMap::new();
+        let mut expected = BTreeMap::new();
         for i in 0..150 {
             rng.fill_bytes(&mut random_key);
             // We need to ensure our generated keys have the correct prefix.
             let mut k = KeyVec::from_slice(&random_key);
             k[..prefix.len()].copy_from_bitslice(&prefix);
-            let key = k.into_vec();
-            expected.insert(key.clone(), i);
-
+            let key = rec_id(k.as_raw_slice());
             // write our new key/value
             root = tree_insert(&mut tree, &mut store, root, &key, prefix, [i].to_vec());
+            expected.insert(key, i);
 
             // verify we can read all the key/values we've stored.
             for (k, v) in expected.iter() {
-                let p = read(&store, &root, &k, prefix.len()).unwrap();
+                let p = read(&store, &root, k.clone(), prefix.len()).unwrap();
                 assert_eq!([*v].to_vec(), p.leaf.unwrap().value);
             }
             // if i == 16 {
@@ -938,15 +932,17 @@ mod tests {
     }
     fn test_split(keys: &[&[u8]]) {
         let prefix = KeyVec::new();
-        let key_size = 8;
-        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, key_size);
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix);
         let mut values = Vec::with_capacity(keys.len());
-        for (i, left) in keys.iter().enumerate() {
+        let mut record_ids = Vec::with_capacity(keys.len());
+        for (i, bytes) in keys.iter().enumerate() {
             let v = i.to_le_bytes().to_vec();
-            root = tree_insert(&mut tree, &mut store, root, left, &prefix, v.clone());
+            let rid = rec_id(bytes);
+            record_ids.push(rid.clone());
+            root = tree_insert(&mut tree, &mut store, root, &rid, &prefix, v.clone());
             values.push(v);
         }
-        let rp = read(&store, &root, &[0], prefix.len()).unwrap();
+        let rp = read(&store, &root, RecordId([0u8; 32]), prefix.len()).unwrap();
         let split = tree.split_tree(&prefix, rp).unwrap();
         assert_eq!(root, split.old_root);
         store.apply_store_delta(split.delta);
@@ -966,16 +962,16 @@ mod tests {
             store: &MemStore<HO>,
             left_root: HO,
             right_root: HO,
-            keys: &[&[u8]],
+            keys: &[RecordId],
             values: &[Vec<u8>],
         ) {
             for (k, v) in zip(keys, values) {
-                let root = if k[0] & 128 == 0 {
+                let root = if k.0[0] & 128 == 0 {
                     left_root
                 } else {
                     right_root
                 };
-                let rp = read(store, &root, k, 1).unwrap();
+                let rp = read(store, &root, k.clone(), 1).unwrap();
                 assert_eq!(v, &rp.leaf.unwrap().value);
             }
         }
@@ -983,57 +979,59 @@ mod tests {
             &store,
             split.left.root_hash,
             split.right.root_hash,
-            keys,
+            &record_ids,
             &values,
         );
-        let mut tree = Tree::with_existing_root(tree.hasher, key_size, split.left.root_hash);
+        let mut tree = Tree::with_existing_root(tree.hasher, split.left.root_hash);
         root = tree_insert(
             &mut tree,
             &mut store,
             split.left.root_hash,
-            &[0b00000011],
+            &rec_id(&[0b00000011]),
             &split.left.prefix,
             [42].to_vec(),
         );
-        read_all(&store, root, split.right.root_hash, keys, &values);
-        let rp = read(&store, &root, &[0b00000011], 1).unwrap();
+        read_all(&store, root, split.right.root_hash, &record_ids, &values);
+        let rp = read(&store, &root, rec_id(&[0b00000011]), 1).unwrap();
         assert_eq!([42].to_vec(), rp.leaf.unwrap().value);
     }
 
     #[test]
     fn test_read_proof_verify() {
         let prefix = KeyVec::new();
-        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 8);
-        root = tree_insert(&mut tree, &mut store, root, &[1], &prefix, [1].to_vec());
-        root = tree_insert(&mut tree, &mut store, root, &[5], &prefix, [2].to_vec());
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix);
+        let rid1 = rec_id(&[1]);
+        let rid5 = rec_id(&[5]);
+        root = tree_insert(&mut tree, &mut store, root, &rid1, &prefix, [1].to_vec());
+        root = tree_insert(&mut tree, &mut store, root, &rid5, &prefix, [2].to_vec());
 
-        let mut p = read(&store, &root, &[5], prefix.len()).unwrap();
+        let mut p = read(&store, &root, rid5.clone(), prefix.len()).unwrap();
         assert!(p.verify(&tree.hasher));
 
         // claim there's no leaf
         p.leaf = None;
         assert!(!p.verify(&tree.hasher));
 
-        let mut p = read(&store, &root, &[5], prefix.len()).unwrap();
+        let mut p = read(&store, &root, rid5.clone(), prefix.len()).unwrap();
         // truncate the tail of the path to claim there's no leaf
         p.leaf = None;
         p.path.pop();
         assert!(!p.verify(&tree.hasher));
 
-        let mut p = read(&store, &root, &[5], prefix.len()).unwrap();
+        let mut p = read(&store, &root, rid5.clone(), prefix.len()).unwrap();
         // futz with the path
-        p.key[0] = 2;
+        p.key.0[0] = 2;
         assert!(!p.verify(&tree.hasher));
 
         // futz with the value (checks the hash)
-        let mut p = read(&store, &root, &[5], prefix.len()).unwrap();
+        let mut p = read(&store, &root, rid5.clone(), prefix.len()).unwrap();
         if let Some(ref mut l) = p.leaf {
             l.value[0] += 1;
         }
         assert!(!p.verify(&tree.hasher));
 
         // futz with a node (checks the hash)
-        let mut p = read(&store, &root, &[5], prefix.len()).unwrap();
+        let mut p = read(&store, &root, rid5.clone(), prefix.len()).unwrap();
         if let Some(ref mut b) = &mut p.path[0].left {
             b.prefix.pop();
         }
@@ -1043,11 +1041,14 @@ mod tests {
     #[test]
     fn test_insert_pipeline() {
         let prefix = KeyVec::new();
-        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 8);
-        root = tree_insert(&mut tree, &mut store, root, &[1], &prefix, [1].to_vec());
-        let rp_1 = read(&store, &root, &[1], prefix.len()).unwrap();
-        let rp_2 = read(&store, &root, &[2], prefix.len()).unwrap();
-        let rp_3 = read(&store, &root, &[3], prefix.len()).unwrap();
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix);
+        let rid1 = rec_id(&[1]);
+        let rid2 = rec_id(&[2]);
+        let rid3 = rec_id(&[3]);
+        root = tree_insert(&mut tree, &mut store, root, &rid1, &prefix, [1].to_vec());
+        let rp_1 = read(&store, &root, rid1.clone(), prefix.len()).unwrap();
+        let rp_2 = read(&store, &root, rid2.clone(), prefix.len()).unwrap();
+        let rp_3 = read(&store, &root, rid3.clone(), prefix.len()).unwrap();
         let d1 = tree.insert(rp_1, [11].to_vec()).unwrap().unwrap();
         let d2 = tree.insert(rp_2, [12].to_vec()).unwrap().unwrap();
         let d3 = tree.insert(rp_3, [13].to_vec()).unwrap().unwrap();
@@ -1058,34 +1059,33 @@ mod tests {
         root = store.apply(d3);
         check_tree_invariants(&tree.hasher, &prefix, root, &store);
 
-        let rp_1 = read(&store, &root, &[1], prefix.len()).unwrap();
+        let rp_1 = read(&store, &root, rid1, prefix.len()).unwrap();
         assert_eq!([11].to_vec(), rp_1.leaf.unwrap().value);
-        let rp_2 = read(&store, &root, &[2], prefix.len()).unwrap();
+        let rp_2 = read(&store, &root, rid2, prefix.len()).unwrap();
         assert_eq!([12].to_vec(), rp_2.leaf.unwrap().value);
-        let rp_3 = read(&store, &root, &[3], prefix.len()).unwrap();
+        let rp_3 = read(&store, &root, rid3, prefix.len()).unwrap();
         assert_eq!([13].to_vec(), rp_3.leaf.unwrap().value);
     }
 
     #[test]
     fn test_stale_proof() {
-        let mut prefix = KeyVec::new();
-        prefix.push(true);
-        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 8);
+        let prefix = bitvec![u8, Msb0; 1];
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix);
         root = tree_insert(
             &mut tree,
             &mut store,
             root,
-            &[0b10000000],
+            &rec_id(&[0b10000000]),
             &prefix,
             [1].to_vec(),
         );
-        let rp_1 = read(&store, &root, &[0b10000000], prefix.len()).unwrap();
+        let rp_1 = read(&store, &root, rec_id(&[0b10000000]), prefix.len()).unwrap();
         for i in 0..20 {
             root = tree_insert(
                 &mut tree,
                 &mut store,
                 root,
-                &[0b11000000],
+                &rec_id(&[0b11000000]),
                 &prefix,
                 [i].to_vec(),
             );
@@ -1162,8 +1162,8 @@ mod tests {
     fn test_leaf_hash() {
         let h = TestHasher {};
         let v = vec![1, 2, 3, 4, 5, 6, 8, 9];
-        let k1 = vec![1, 2];
-        let k2 = vec![1, 4];
+        let k1 = rec_id(&[1, 2]);
+        let k2 = rec_id(&[1, 4]);
         let ha = LeafNode::calc_hash(&h, &k1, &v);
         let hb = LeafNode::calc_hash(&h, &k2, &v);
         assert_ne!(ha, hb);
@@ -1191,16 +1191,21 @@ mod tests {
         assert_eq!(8, c.len());
     }
 
+    fn rec_id(bytes: &[u8]) -> RecordId {
+        let mut r = RecordId([0u8; 32]);
+        r.0[..bytes.len()].copy_from_slice(bytes);
+        r
+    }
+
     fn new_empty_tree(
         prefix: &KeyVec,
-        key_size: usize,
     ) -> (Tree<TestHasher, TestHash>, TestHash, MemStore<TestHash>) {
         let h = TestHasher {};
         let (root_hash, delta) = Tree::new_tree(&h, prefix);
         let mut store = MemStore::new();
         store.apply_store_delta(delta);
         check_tree_invariants(&h, prefix, root_hash, &store);
-        let t = Tree::with_existing_root(h, key_size, root_hash);
+        let t = Tree::with_existing_root(h, root_hash);
         (t, root_hash, store)
     }
 
@@ -1209,16 +1214,16 @@ mod tests {
         tree: &mut Tree<TestHasher, TestHash>,
         store: &mut MemStore<TestHash>,
         root: TestHash,
-        key: &[u8],
+        key: &RecordId,
         prefix: &KeyVec,
         val: Vec<u8>,
     ) -> TestHash {
         // spot stupid test bugs
         assert!(
-            KeySlice::from_slice(key).starts_with(prefix),
+            KeySlice::from_slice(&key.0).starts_with(prefix),
             "test bug, key should start with the correct prefix",
         );
-        let rp = read(store, &root, key, prefix.len()).unwrap();
+        let rp = read(store, &root, key.clone(), prefix.len()).unwrap();
         let new_root = match tree.insert(rp, val).unwrap() {
             None => root,
             Some(d) => store.apply(d),
@@ -1250,7 +1255,8 @@ mod tests {
     ) -> HO {
         match store.fetch(&node).unwrap() {
             Node::Leaf(l) => {
-                let exp_hash = LeafNode::calc_hash(hasher, &path.to_bitvec().into_vec(), &l.value);
+                let exp_hash =
+                    LeafNode::calc_hash(hasher, &rec_id(&path.clone().into_vec()), &l.value);
                 assert_eq!(exp_hash, l.hash);
                 exp_hash
             }

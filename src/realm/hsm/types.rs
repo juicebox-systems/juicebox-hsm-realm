@@ -44,7 +44,7 @@ impl fmt::Debug for HsmId {
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub struct RecordId(pub [u8; 32]);
 impl RecordId {
-    pub fn size() -> usize {
+    pub fn num_bits() -> usize {
         256 // TODO: There's probably some generics gymnastics that could be done here.
     }
 }

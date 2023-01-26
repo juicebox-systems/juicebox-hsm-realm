@@ -21,8 +21,8 @@ use types::{
     GroupId, GroupStatus, HsmId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
     JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupInfo, NewGroupRequest,
     NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedPrefix, ReadCapturedRequest,
-    ReadCapturedResponse, RealmId, RealmStatus, RecordId, SecretsResponse, StatusRequest,
-    StatusResponse, TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
+    ReadCapturedResponse, RealmId, RealmStatus, SecretsResponse, StatusRequest, StatusResponse,
+    TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
     TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatement,
     TransferStatementRequest, TransferStatementResponse, TransferringOut,
 };
@@ -420,7 +420,6 @@ impl Hsm {
                 tree: partition.as_ref().map(|p| {
                     Tree::with_existing_root(
                         MerkleHasher(self.persistent.realm_key.clone()),
-                        RecordId::size(),
                         p.root_hash,
                     )
                 }),
@@ -734,7 +733,6 @@ impl Handler<BecomeLeaderRequest> for Hsm {
             let tree = request.last_entry.partition.as_ref().map(|p| {
                 Tree::with_existing_root(
                     MerkleHasher(self.persistent.realm_key.clone()),
-                    RecordId::size(),
                     p.root_hash,
                 )
             });
@@ -950,7 +948,6 @@ impl Handler<TransferOutRequest> for Hsm {
                     match tree.split_tree(&owned_partition.prefix.0, request.proof) {
                         Err(TreeError::StaleProof) => return Response::StaleProof,
                         Err(TreeError::InvalidProof) => return Response::InvalidProof,
-                        Err(TreeError::InvalidKey) => return Response::InvalidProof,
                         Ok(split) => {
                             if split.left.prefix == request.prefix.0 {
                                 (split.right, split.left, split.delta)
@@ -998,7 +995,6 @@ impl Handler<TransferOutRequest> for Hsm {
                 None => None,
                 Some(p) => Some(Tree::with_existing_root(
                     MerkleHasher(self.persistent.realm_key.clone()),
-                    RecordId::size(),
                     p.root_hash,
                 )),
             };
@@ -1190,7 +1186,6 @@ impl Handler<TransferInRequest> for Hsm {
 
             leader.tree = Some(Tree::with_existing_root(
                 MerkleHasher(self.persistent.realm_key.clone()),
-                RecordId::size(),
                 partition_hash,
             ));
             Response::Ok { entry }
