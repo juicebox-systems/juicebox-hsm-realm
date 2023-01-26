@@ -197,7 +197,7 @@ pub struct TransferInRequest {
     pub realm: RealmId,
     pub source: GroupId,
     pub destination: GroupId,
-    pub transfering: Partition,
+    pub transferring: Partition,
     pub nonce: TransferNonce,
     pub statement: TransferStatement,
 }

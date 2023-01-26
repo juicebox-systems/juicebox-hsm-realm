@@ -966,22 +966,25 @@ impl Handler<TransferOutRequest> for Hsm {
                 };
                 let keeping;
                 let transferring;
-                (keeping, keeping_data, transferring, transferring_data) =
-                    match tree.split_tree(&owned_partition.prefix.0, request.proof) {
-                        Err(TreeError::StaleProof) => return Response::StaleProof,
-                        Err(TreeError::InvalidProof) => return Response::InvalidProof,
-                        Err(TreeError::InvalidKey) => return Response::InvalidProof,
-                        Ok(split) => {
-                            let (ldelta, rdelta) = split.store_delta();
-                            if split.left.prefix == request.prefix.0 {
-                                (split.right, Some(rdelta), split.left, ldelta)
-                            } else if split.right.prefix == request.prefix.0 {
-                                (split.left, Some(ldelta), split.right, rdelta)
-                            } else {
-                                panic!("WTF dude");
-                            }
+                (keeping, keeping_data, transferring, transferring_data) = match tree
+                    .split_tree(&owned_partition.prefix.0, request.proof)
+                {
+                    Err(TreeError::StaleProof) => return Response::StaleProof,
+                    Err(TreeError::InvalidProof) => return Response::InvalidProof,
+                    Err(TreeError::InvalidKey) => return Response::InvalidProof,
+                    Ok(split) => {
+                        let (left_delta, right_delta) = split.store_delta();
+                        if split.left.prefix == request.prefix.0 {
+                            (split.right, Some(right_delta), split.left, left_delta)
+                        } else if split.right.prefix == request.prefix.0 {
+                            (split.left, Some(left_delta), split.right, right_delta)
+                        } else {
+                            panic!(
+                                "The tree was split but neither half contains the expected prefix."
+                            );
                         }
-                    };
+                    }
+                };
                 keeping_partition = Some(Partition {
                     hash: keeping.root_hash,
                     prefix: OwnedPrefix(keeping.prefix),
@@ -1012,7 +1015,7 @@ impl Handler<TransferOutRequest> for Hsm {
             }
             .build(&self.persistent.realm_key);
 
-            // TODO: this seems to match the previous behavour, but shouldn't this wait til the Complete message?
+            // TODO: this seems to match the previous behavior, but shouldn't this wait til the Complete message?
             leader.tree = match &keeping_partition {
                 None => None,
                 Some(p) => Some(Tree::with_existing_root(
@@ -1174,7 +1177,7 @@ impl Handler<TransferInRequest> for Hsm {
             if (TransferStatementBuilder {
                 realm: request.realm,
                 destination: request.destination,
-                partition: &request.transfering,
+                partition: &request.transferring,
                 nonce: request.nonce,
             })
             .verify(&self.persistent.realm_key, &request.statement)
@@ -1183,7 +1186,7 @@ impl Handler<TransferInRequest> for Hsm {
                 return Response::InvalidStatement;
             }
 
-            // TODO: there's no equivilent to this in the new model
+            // TODO: there's no equivalent to this in the new model
             // but do we need to somehow verify the delta is correct/not tampered with?
             //
             // if request.data.hash() != request.partition.hash {
@@ -1191,8 +1194,8 @@ impl Handler<TransferInRequest> for Hsm {
             // }
 
             let index = last_entry.index.next();
-            let partition_hash = request.transfering.hash;
-            let partition = Some(request.transfering);
+            let partition_hash = request.transferring.hash;
+            let partition = Some(request.transferring);
             let transferring_out = last_entry.transferring_out.clone();
             let prev_hmac = last_entry.entry_hmac.clone();
 

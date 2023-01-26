@@ -923,8 +923,8 @@ impl Handler<TransferInRequest> for Agent {
                     }) => {
                         match &entry.transferring_out {
                             Some(t) => {
-                                if t.partition != request.transfering {
-                                    todo!("{:?} {:?}", t.partition, request.transfering);
+                                if t.partition != request.transferring {
+                                    todo!("{:?} {:?}", t.partition, request.transferring);
                                 }
                             }
                             None => todo!(),
@@ -939,7 +939,7 @@ impl Handler<TransferInRequest> for Agent {
                         realm: request.realm,
                         destination: request.destination,
                         delta: delta.clone(),
-                        transfering: request.transfering.clone(),
+                        transferring: request.transferring.clone(),
                         nonce: request.nonce,
                         statement: request.statement,
                     })

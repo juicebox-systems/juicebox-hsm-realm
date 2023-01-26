@@ -467,7 +467,7 @@ pub enum TransferStatementResponse {
 pub struct TransferInRequest {
     pub realm: RealmId,
     pub destination: GroupId,
-    pub transfering: Partition,
+    pub transferring: Partition,
     pub delta: StoreDelta<DataHash>,
     pub nonce: TransferNonce,
     pub statement: TransferStatement,

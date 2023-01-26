@@ -23,7 +23,7 @@ pub type KeySlice = BitSlice<u8, Msb0>;
 //  blake hasher
 //
 //  split
-//      "complex split" split on arbitary keys
+//      "complex split" split on arbitrary keys
 //  merge
 //      merge a simple split back into one tree
 //
@@ -463,7 +463,7 @@ pub struct ReadProof<HO> {
     prefix_size: usize,
     leaf: Option<LeafNode<HO>>,
     // The path in root -> leaf order of the nodes traversed to get to the leaf. Or if the leaf
-    // doesn't exist the furtherest existing node in the path of the key.
+    // doesn't exist the furthest existing node in the path of the key.
     path: Vec<InteriorNode<HO>>,
 }
 impl<HO: HashOutput> ReadProof<HO> {
@@ -635,7 +635,7 @@ impl<HO: HashOutput> ReadProof<HO> {
 }
 
 // The result of performing a split operation on the tree. The tree is split
-// into 2 halfs. Half that is kept by the current tree, and half that is given
+// into 2 halves. Half that is kept by the current tree, and half that is given
 // way to somewhere else.
 pub struct SplitResult<HO> {
     // The previous root hash, this should get deleted from storage.
@@ -907,12 +907,12 @@ mod tests {
         let (mut tree, mut root, mut store) = new_empty_tree(prefix, 32);
         let seed = [0u8; 32];
         let mut rng: StdRng = SeedableRng::from_seed(seed);
-        let mut rkey = [0u8; 4];
+        let mut random_key = [0u8; 4];
         let mut expected = HashMap::new();
         for i in 0..150 {
-            rng.fill_bytes(&mut rkey);
+            rng.fill_bytes(&mut random_key);
             // We need to ensure our generated keys have the correct prefix.
-            let mut k = KeyVec::from_slice(&rkey);
+            let mut k = KeyVec::from_slice(&random_key);
             k[..prefix.len()].copy_from_bitslice(&prefix);
             let key = k.into_vec();
             expected.insert(key.clone(), i);
@@ -949,7 +949,7 @@ mod tests {
         test_split(&[&[0], &[0b10000000]]);
     }
     #[test]
-    fn test_split_multibit() {
+    fn test_split_multiple_bits() {
         // test split where the root has branches with multiple bits in the prefixes.
         test_split(&[&[0], &[0b00010000]]);
     }
@@ -962,11 +962,11 @@ mod tests {
         let prefix = KeyVec::new();
         let key_size = 8;
         let (mut tree, mut root, mut store) = new_empty_tree(&prefix, key_size);
-        let mut vals = Vec::with_capacity(keys.len());
+        let mut values = Vec::with_capacity(keys.len());
         for (i, left) in keys.iter().enumerate() {
             let v = i.to_le_bytes().to_vec();
             root = tree_insert(&mut tree, &mut store, root, left, &prefix, v.clone());
-            vals.push(v);
+            values.push(v);
         }
         let rp = read(&store, &root, &[0], prefix.len()).unwrap();
         let split = tree.split_tree(&prefix, rp).unwrap();
@@ -989,9 +989,9 @@ mod tests {
             left_root: HO,
             right_root: HO,
             keys: &[&[u8]],
-            vals: &[Vec<u8>],
+            values: &[Vec<u8>],
         ) {
-            for (k, v) in zip(keys, vals) {
+            for (k, v) in zip(keys, values) {
                 let root = if k[0] & 128 == 0 {
                     left_root
                 } else {
@@ -1006,7 +1006,7 @@ mod tests {
             split.left.root_hash,
             split.right.root_hash,
             keys,
-            &vals,
+            &values,
         );
         let mut tree = Tree::with_existing_root(tree.hasher, key_size, split.left.root_hash);
         root = tree_insert(
@@ -1017,7 +1017,7 @@ mod tests {
             &split.left.prefix,
             [42].to_vec(),
         );
-        read_all(&store, root, split.right.root_hash, keys, &vals);
+        read_all(&store, root, split.right.root_hash, keys, &values);
         let rp = read(&store, &root, &[0b00000011], 1).unwrap();
         assert_eq!([42].to_vec(), rp.leaf.unwrap().value);
     }

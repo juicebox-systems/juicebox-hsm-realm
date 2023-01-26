@@ -359,7 +359,7 @@ pub async fn transfer(
             realm,
             source,
             destination,
-            transfering: transferring_partition,
+            transferring: transferring_partition,
             nonce,
             statement,
         })
