@@ -1,3 +1,5 @@
+use super::super::hsm::types::RecordId;
+
 use super::{Dir, HashOutput, InteriorNode, KeySlice, LeafNode, ReadProof};
 
 #[derive(Debug, Clone)]
@@ -40,15 +42,15 @@ pub trait TreeStoreReader<HO> {
 pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
     store: &R,
     root_hash: &HO,
-    k: &[u8],
+    k: RecordId,
     prefix_size: usize,
 ) -> Result<ReadProof<HO>, TreeStoreError> {
     let root = match store.fetch(root_hash)? {
         Node::Interior(int) => int,
         Node::Leaf(_) => panic!("found unexpected leaf node"),
     };
-    let mut res = ReadProof::new(k, prefix_size, root);
-    let mut key = KeySlice::from_slice(k);
+    let mut res = ReadProof::new(k.clone(), prefix_size, root);
+    let mut key = KeySlice::from_slice(&k.0);
     key = &key[prefix_size..];
     loop {
         let n = res.path.last().unwrap();

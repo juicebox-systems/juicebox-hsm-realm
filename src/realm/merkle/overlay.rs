@@ -66,7 +66,7 @@ impl<HO: HashOutput> TreeOverlay<HO> {
         }
         let prefix_size = rp.prefix_size;
         let (proof_nodes, key) = rp.make_node_map();
-        let mut key = KeySlice::from_slice(&key);
+        let mut key = KeySlice::from_slice(&key.0);
         key = &key[prefix_size..];
 
         let fetch = |node_hash: &HO| {

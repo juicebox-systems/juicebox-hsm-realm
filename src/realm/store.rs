@@ -150,7 +150,7 @@ impl Handler<GetRecordProofRequest> for Store {
                             match super::merkle::agent::read(
                                 &self.kv,
                                 &partition.root_hash,
-                                &request.record.0,
+                                request.record,
                                 partition.prefix.0.len(),
                             ) {
                                 Ok(proof) => GetRecordProofResponse::Ok {
