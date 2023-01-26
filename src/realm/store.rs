@@ -13,9 +13,9 @@ use super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId};
 use super::merkle::agent::TreeStoreError;
 use kv::MemStore;
 use types::{
-    AddressEntry, AppendRequest, AppendResponse, DataChange, GetAddressesRequest,
-    GetAddressesResponse, ReadEntryRequest, ReadEntryResponse, ReadLatestRequest,
-    ReadLatestResponse, SetAddressRequest, SetAddressResponse,
+    AddressEntry, AppendRequest, AppendResponse, GetAddressesRequest, GetAddressesResponse,
+    ReadEntryRequest, ReadEntryResponse, ReadLatestRequest, ReadLatestResponse, SetAddressRequest,
+    SetAddressResponse,
 };
 
 pub struct Store {
@@ -54,11 +54,8 @@ impl Handler<AppendRequest> for Store {
                 let last = state.log.last().unwrap();
                 if request.entry.index == last.index.next() {
                     state.log.push(request.entry);
-                    match request.data {
-                        DataChange::Delta(delta) => {
-                            self.kv.apply_store_delta(delta);
-                        }
-                        DataChange::None => {}
+                    if let Some(delta) = request.delta {
+                        self.kv.apply_store_delta(delta);
                     }
                     AppendResponse::Ok
                 } else {
@@ -68,12 +65,9 @@ impl Handler<AppendRequest> for Store {
 
             Vacant(bucket) => {
                 if request.entry.index == LogIndex(1) {
-                    match request.data {
-                        DataChange::Delta(delta) => {
-                            assert!(request.entry.partition.is_some());
-                            self.kv.apply_store_delta(delta);
-                        }
-                        DataChange::None => {}
+                    if let Some(delta) = request.delta {
+                        assert!(request.entry.partition.is_some());
+                        self.kv.apply_store_delta(delta);
                     }
                     let state = GroupState {
                         log: vec![request.entry],

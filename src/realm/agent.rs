@@ -17,10 +17,9 @@ use super::hsm::types as hsm_types;
 use super::hsm::Hsm;
 use super::merkle::KeySlice;
 use super::store::types::{
-    AddressEntry, AppendRequest, AppendResponse, DataChange, GetAddressesRequest,
-    GetAddressesResponse, GetRecordProofRequest, GetRecordProofResponse, ReadEntryRequest,
-    ReadEntryResponse, ReadLatestRequest, ReadLatestResponse, SetAddressRequest,
-    SetAddressResponse,
+    AddressEntry, AppendRequest, AppendResponse, GetAddressesRequest, GetAddressesResponse,
+    GetRecordProofRequest, GetRecordProofResponse, ReadEntryRequest, ReadEntryResponse,
+    ReadLatestRequest, ReadLatestResponse, SetAddressRequest, SetAddressResponse,
 };
 use super::store::Store;
 use hsm_types::{
@@ -437,10 +436,7 @@ impl Handler<NewRealmRequest> for Agent {
                         realm: new_realm_response.realm,
                         group: new_realm_response.group,
                         entry: new_realm_response.entry,
-                        data: match new_realm_response.delta {
-                            None => DataChange::None,
-                            Some(delta) => DataChange::Delta(delta),
-                        },
+                        delta: new_realm_response.delta,
                     })
                     .await
                 {
@@ -550,10 +546,7 @@ impl Handler<NewGroupRequest> for Agent {
                         realm,
                         group: new_group_response.group,
                         entry: new_group_response.entry,
-                        data: match new_group_response.delta {
-                            None => DataChange::None,
-                            Some(delta) => DataChange::Delta(delta),
-                        },
+                        delta: new_group_response.delta,
                     })
                     .await
                 {
@@ -796,10 +789,7 @@ impl Handler<TransferOutRequest> for Agent {
                             realm,
                             group: source,
                             entry,
-                            data: match delta {
-                                None => DataChange::None,
-                                Some(d) => DataChange::Delta(d),
-                            },
+                            delta,
                         },
                     );
                     Response::Ok {
@@ -933,7 +923,7 @@ impl Handler<TransferInRequest> for Agent {
                             realm: request.realm,
                             group: request.destination,
                             entry,
-                            data: DataChange::None,
+                            delta: None,
                         },
                     );
                     Response::Ok
@@ -985,7 +975,7 @@ impl Handler<CompleteTransferRequest> for Agent {
                             realm: request.realm,
                             group: request.source,
                             entry,
-                            data: DataChange::None,
+                            delta: None,
                         },
                     );
                     Response::Ok
@@ -1102,10 +1092,7 @@ async fn start_app_request(
                     realm: request.realm,
                     group: request.group,
                     entry,
-                    data: match delta {
-                        None => DataChange::None,
-                        Some(d) => DataChange::Delta(d),
-                    },
+                    delta,
                 });
             }
         };
