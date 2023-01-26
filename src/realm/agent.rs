@@ -15,15 +15,17 @@ pub mod types;
 
 use super::hsm::types as hsm_types;
 use super::hsm::Hsm;
+use super::merkle::KeySlice;
 use super::store::types::{
     AddressEntry, AppendRequest, AppendResponse, DataChange, GetAddressesRequest,
-    GetAddressesResponse, ReadEntryRequest, ReadEntryResponse, ReadLatestRequest,
-    ReadLatestResponse, SetAddressRequest, SetAddressResponse,
+    GetAddressesResponse, GetRecordProofRequest, GetRecordProofResponse, ReadEntryRequest,
+    ReadEntryResponse, ReadLatestRequest, ReadLatestResponse, SetAddressRequest,
+    SetAddressResponse,
 };
 use super::store::Store;
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
-    EntryHmac, GroupId, HsmId, LogIndex, RealmId, SecretsResponse,
+    EntryHmac, GroupId, HsmId, LogIndex, RealmId, RecordId, SecretsResponse,
 };
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
@@ -435,8 +437,10 @@ impl Handler<NewRealmRequest> for Agent {
                         realm: new_realm_response.realm,
                         group: new_realm_response.group,
                         entry: new_realm_response.entry,
-                        data: DataChange::Set(new_realm_response.data),
-                        transferring_out: DataChange::None,
+                        data: match new_realm_response.delta {
+                            None => DataChange::None,
+                            Some(delta) => DataChange::Delta(delta),
+                        },
                     })
                     .await
                 {
@@ -546,8 +550,10 @@ impl Handler<NewGroupRequest> for Agent {
                         realm,
                         group: new_group_response.group,
                         entry: new_group_response.entry,
-                        data: DataChange::Set(new_group_response.data),
-                        transferring_out: DataChange::None,
+                        data: match new_group_response.delta {
+                            None => DataChange::None,
+                            Some(delta) => DataChange::Delta(delta),
+                        },
                     })
                     .await
                 {
@@ -710,48 +716,78 @@ impl Handler<TransferOutRequest> for Agent {
 
         Box::pin(
             async move {
-                let (entry, data) = match store
-                    .send(ReadLatestRequest {
-                        realm: request.realm,
-                        group: request.source,
-                    })
-                    .await
-                {
-                    Err(_) => return Err(Response::NoStore),
-                    Ok(ReadLatestResponse::Ok { entry, data, .. }) => (entry, data),
-                    Ok(ReadLatestResponse::None) => todo!(),
-                };
+                loop {
+                    let entry = match store
+                        .send(ReadLatestRequest {
+                            realm: request.realm,
+                            group: request.source,
+                        })
+                        .await
+                    {
+                        Err(_) => return Err(Response::NoStore),
+                        Ok(ReadLatestResponse::Ok { entry, .. }) => entry,
+                        Ok(ReadLatestResponse::None) => todo!(),
+                    };
+                    let Some(partition) = entry.partition else {
+                        return Err(Response::NotOwner);
+                    };
 
-                match hsm
-                    .send(hsm_types::TransferOutRequest {
-                        realm: request.realm,
-                        source: request.source,
-                        destination: request.destination,
-                        prefix: request.prefix,
-                        index: entry.index,
-                        data,
-                    })
-                    .await
-                {
-                    Err(_) => Err(Response::NoHsm),
-                    Ok(HsmResponse::InvalidRealm) => Err(Response::InvalidRealm),
-                    Ok(HsmResponse::InvalidGroup) => Err(Response::InvalidGroup),
-                    Ok(HsmResponse::NotLeader) => Err(Response::NotLeader),
-                    Ok(HsmResponse::NotOwner) => Err(Response::NotOwner),
-                    Ok(HsmResponse::StaleIndex) => todo!(),
-                    Ok(HsmResponse::InvalidData) => panic!(),
-                    Ok(HsmResponse::Ok {
-                        entry,
-                        keeping,
-                        transferring,
-                    }) => Ok((entry, keeping, transferring)),
+                    // Make a recordId that is owned by the partition. We need a read proof
+                    // to split the merkle tree.
+                    let mut rec_id = RecordId([0u8; 32]);
+                    let bs = KeySlice::from_slice_mut(&mut rec_id.0);
+                    bs[..partition.prefix.0.len()].copy_from_bitslice(&partition.prefix.0);
+
+                    let proof = match store
+                        .send(GetRecordProofRequest {
+                            realm: request.realm,
+                            group: request.source,
+                            record: rec_id,
+                        })
+                        .await
+                    {
+                        Err(_) => return Err(Response::NoStore),
+                        Ok(GetRecordProofResponse::Ok { proof, .. }) => proof,
+                        Ok(GetRecordProofResponse::StoreMissingNode) => todo!(),
+                        Ok(GetRecordProofResponse::UnknownGroup) => todo!(),
+                        Ok(GetRecordProofResponse::NotOwner) => return Err(Response::NotOwner),
+                    };
+
+                    return match hsm
+                        .send(hsm_types::TransferOutRequest {
+                            realm: request.realm,
+                            source: request.source,
+                            destination: request.destination,
+                            prefix: request.prefix.clone(),
+                            index: entry.index,
+                            proof,
+                        })
+                        .await
+                    {
+                        Err(_) => Err(Response::NoHsm),
+                        Ok(HsmResponse::InvalidRealm) => Err(Response::InvalidRealm),
+                        Ok(HsmResponse::InvalidGroup) => Err(Response::InvalidGroup),
+                        Ok(HsmResponse::NotLeader) => Err(Response::NotLeader),
+                        Ok(HsmResponse::NotOwner) => Err(Response::NotOwner),
+                        Ok(HsmResponse::StaleIndex) => todo!(),
+                        Ok(HsmResponse::InvalidProof) => Err(Response::InvalidProof),
+                        Ok(HsmResponse::StaleProof) => {
+                            trace!("hsm said stale proof, will retry");
+                            sleep(Duration::from_millis(1)).await;
+                            continue;
+                        }
+                        Ok(HsmResponse::Ok { entry, delta }) => Ok((entry, delta)),
+                    };
                 }
             }
             .into_actor(self)
             .map(move |result, agent, ctx| match result {
                 Err(response) => response,
-                Ok((entry, keeping, transferring)) => {
-                    let data_hash = entry.data_hash.clone();
+                Ok((entry, delta)) => {
+                    let transferring_partition = match &entry.transferring_out {
+                        Some(t) => t.partition.clone(),
+                        None => panic!("Log entry missing TransferringOut section"),
+                    };
                     append(
                         ctx,
                         store2,
@@ -760,11 +796,15 @@ impl Handler<TransferOutRequest> for Agent {
                             realm,
                             group: source,
                             entry,
-                            data: DataChange::Set(keeping),
-                            transferring_out: DataChange::Set(transferring),
+                            data: match delta {
+                                None => DataChange::None,
+                                Some(d) => DataChange::Delta(d),
+                            },
                         },
                     );
-                    Response::Ok { data_hash }
+                    Response::Ok {
+                        transferring: transferring_partition,
+                    }
                 }
             })
             .map(|response, agent, _ctx| {
@@ -858,38 +898,14 @@ impl Handler<TransferInRequest> for Agent {
         trace!(agent = name, ?request);
         let hsm = self.hsm.clone();
         let store = self.store.clone();
-        let store2 = self.store.clone();
 
         Box::pin(
             async move {
-                let data = match store
-                    .send(ReadLatestRequest {
-                        realm: request.realm,
-                        group: request.source,
-                    })
-                    .await
-                {
-                    Err(_) => todo!(),
-                    Ok(ReadLatestResponse::Ok {
-                        entry,
-                        transferring_out,
-                        ..
-                    }) => {
-                        if entry.data_hash != request.data_hash {
-                            todo!()
-                        }
-                        transferring_out.expect("TODO")
-                    }
-                    Ok(ReadLatestResponse::None) => todo!(),
-                };
-
                 match hsm
                     .send(hsm_types::TransferInRequest {
                         realm: request.realm,
                         destination: request.destination,
-                        data,
-                        data_hash: request.data_hash,
-                        prefix: request.prefix,
+                        transferring: request.transferring.clone(),
                         nonce: request.nonce,
                         statement: request.statement,
                     })
@@ -902,24 +918,22 @@ impl Handler<TransferInRequest> for Agent {
                     Ok(HsmResponse::UnacceptablePrefix) => Err(Response::UnacceptablePrefix),
                     Ok(HsmResponse::InvalidNonce) => Err(Response::InvalidNonce),
                     Ok(HsmResponse::InvalidStatement) => Err(Response::InvalidStatement),
-                    Ok(HsmResponse::InvalidData) => panic!(),
-                    Ok(HsmResponse::Ok { entry, data }) => Ok((entry, data)),
+                    Ok(HsmResponse::Ok { entry }) => Ok(entry),
                 }
             }
             .into_actor(self)
             .map(move |result, agent, ctx| match result {
                 Err(response) => response,
-                Ok((entry, data)) => {
+                Ok(entry) => {
                     append(
                         ctx,
-                        store2,
+                        store,
                         agent,
                         AppendRequest {
                             realm: request.realm,
                             group: request.destination,
                             entry,
-                            data: DataChange::Set(data),
-                            transferring_out: DataChange::None,
+                            data: DataChange::None,
                         },
                     );
                     Response::Ok
@@ -972,7 +986,6 @@ impl Handler<CompleteTransferRequest> for Agent {
                             group: request.source,
                             entry,
                             data: DataChange::None,
-                            transferring_out: DataChange::Delete,
                         },
                     );
                     Response::Ok
@@ -1045,16 +1058,19 @@ async fn start_app_request(
     type Response = AppResponse;
 
     loop {
-        let (entry, data) = match store
-            .send(ReadLatestRequest {
+        let (proof, index) = match store
+            .send(GetRecordProofRequest {
                 realm: request.realm,
                 group: request.group,
+                record: request.rid.clone(),
             })
             .await
         {
+            Ok(GetRecordProofResponse::Ok { proof, index }) => (proof, index),
+            Ok(GetRecordProofResponse::StoreMissingNode) => todo!(),
+            Ok(GetRecordProofResponse::UnknownGroup) => todo!(),
+            Ok(GetRecordProofResponse::NotOwner) => todo!(),
             Err(_) => return Err(Response::NoStore),
-            Ok(ReadLatestResponse::Ok { entry, data, .. }) => (entry, data),
-            Ok(ReadLatestResponse::None) => todo!(),
         };
 
         match hsm
@@ -1063,35 +1079,33 @@ async fn start_app_request(
                 group: request.group,
                 rid: request.rid.clone(),
                 request: request.request.clone(),
-                index: entry.index,
-                data,
+                index,
+                proof,
             })
             .await
         {
             Err(_) => return Err(Response::NoHsm),
             Ok(HsmResponse::InvalidRealm) => return Err(Response::InvalidRealm),
             Ok(HsmResponse::InvalidGroup) => return Err(Response::InvalidGroup),
-            Ok(HsmResponse::StaleIndex) => continue,
-            Ok(HsmResponse::Busy) => {
-                sleep(Duration::from_millis(1)).await;
-                continue;
-            }
+            Ok(HsmResponse::StaleProof) => continue,
             Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => return Err(Response::NotLeader),
             Ok(HsmResponse::InvalidData) => panic!(),
 
-            Ok(HsmResponse::Ok { entry, data }) => {
+            Ok(HsmResponse::Ok { entry, delta }) => {
                 trace!(
                     agent = name,
                     ?entry,
-                    ?data,
+                    ?delta,
                     "got new log entry and data updates from HSM"
                 );
                 return Ok(AppendRequest {
                     realm: request.realm,
                     group: request.group,
                     entry,
-                    data: DataChange::Set(data),
-                    transferring_out: DataChange::None,
+                    data: match delta {
+                        None => DataChange::None,
+                        Some(d) => DataChange::Delta(d),
+                    },
                 });
             }
         };

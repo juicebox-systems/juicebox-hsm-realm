@@ -1,11 +1,9 @@
 use actix::prelude::*;
-use bitvec::prelude::BitVec;
 use hmac::Hmac;
 use sha2::Sha256;
-use std::collections::BTreeMap;
 use std::fmt;
 
-use super::app::Record;
+use super::super::merkle::{agent::StoreDelta, HashOutput, KeySlice, KeyVec, ReadProof};
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq)]
 pub struct RealmId(pub [u8; 16]);
@@ -44,17 +42,17 @@ impl fmt::Debug for HsmId {
 }
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
-pub struct RecordId(pub BitVec);
-
+pub struct RecordId(pub [u8; 32]);
+impl RecordId {
+    pub fn size() -> usize {
+        256 // TODO: There's probably some generics gymnastics that could be done here.
+    }
+}
 impl fmt::Debug for RecordId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "0b")?;
-        for bit in &self.0 {
-            if *bit {
-                write!(f, "1")?;
-            } else {
-                write!(f, "0")?;
-            }
+        write!(f, "0x")?;
+        for byte in &self.0 {
+            write!(f, "{byte:02x}")?;
         }
         Ok(())
     }
@@ -69,11 +67,16 @@ impl LogIndex {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Partition {
+    pub prefix: OwnedPrefix,
+    pub root_hash: DataHash,
+}
+
 #[derive(Clone, Debug)]
 pub struct LogEntry {
     pub index: LogIndex,
-    pub owned_prefix: Option<OwnedPrefix>,
-    pub data_hash: DataHash,
+    pub partition: Option<Partition>,
     pub transferring_out: Option<TransferringOut>,
     pub prev_hmac: EntryHmac,
     pub entry_hmac: EntryHmac,
@@ -85,8 +88,7 @@ pub struct LogEntry {
 #[derive(Clone, Debug)]
 pub struct TransferringOut {
     pub destination: GroupId,
-    pub prefix: OwnedPrefix,
-    pub data_hash: DataHash,
+    pub partition: Partition,
     /// This is the first log index when this struct was placed in the source
     /// group's log. It's used by the source group to determine whether
     /// transferring out has committed.
@@ -113,15 +115,15 @@ impl fmt::Debug for EntryHmac {
 }
 
 #[derive(Clone, Eq, PartialEq)]
-pub struct OwnedPrefix(pub BitVec);
+pub struct OwnedPrefix(pub KeyVec);
 
 impl OwnedPrefix {
     pub fn full() -> Self {
-        Self(BitVec::new())
+        Self(KeyVec::new())
     }
 
     pub fn contains(&self, rid: &RecordId) -> bool {
-        rid.0.starts_with(&self.0)
+        KeySlice::from_slice(&rid.0).starts_with(&self.0)
     }
 }
 
@@ -139,7 +141,7 @@ impl fmt::Debug for OwnedPrefix {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct DataHash(pub digest::Output<Sha256>);
 
 impl fmt::Debug for DataHash {
@@ -150,9 +152,11 @@ impl fmt::Debug for DataHash {
         Ok(())
     }
 }
-
-#[derive(Clone, Debug)]
-pub struct RecordMap(pub(super) BTreeMap<RecordId, Record>);
+impl HashOutput for DataHash {
+    fn as_u8(&self) -> &[u8] {
+        &self.0
+    }
+}
 
 /// Set of HSMs forming a group.
 ///
@@ -250,6 +254,7 @@ pub struct NewRealmRequest {
 }
 
 #[derive(Debug, MessageResponse)]
+#[allow(clippy::large_enum_variant)]
 pub enum NewRealmResponse {
     Ok(NewGroupInfo),
     HaveRealm,
@@ -262,7 +267,7 @@ pub struct NewGroupInfo {
     pub group: GroupId,
     pub statement: GroupConfigurationStatement,
     pub entry: LogEntry,
-    pub data: RecordMap,
+    pub delta: Option<StoreDelta<DataHash>>,
 }
 
 #[derive(Debug, Message)]
@@ -285,6 +290,7 @@ pub struct NewGroupRequest {
 }
 
 #[derive(Debug, MessageResponse)]
+#[allow(clippy::large_enum_variant)]
 pub enum NewGroupResponse {
     Ok(NewGroupInfo),
     InvalidRealm,
@@ -399,7 +405,7 @@ pub struct TransferOutRequest {
     pub destination: GroupId,
     pub prefix: OwnedPrefix,
     pub index: LogIndex,
-    pub data: RecordMap,
+    pub proof: ReadProof<DataHash>,
 }
 
 #[derive(Debug, MessageResponse)]
@@ -407,8 +413,7 @@ pub struct TransferOutRequest {
 pub enum TransferOutResponse {
     Ok {
         entry: LogEntry,
-        keeping: RecordMap,
-        transferring: RecordMap,
+        delta: Option<StoreDelta<DataHash>>,
     },
     InvalidRealm,
     InvalidGroup,
@@ -417,7 +422,8 @@ pub enum TransferOutResponse {
     /// bit beyond the currently owned prefix.
     NotOwner,
     StaleIndex,
-    InvalidData,
+    StaleProof,
+    InvalidProof,
 }
 
 #[derive(Debug, Message)]
@@ -459,9 +465,7 @@ pub enum TransferStatementResponse {
 pub struct TransferInRequest {
     pub realm: RealmId,
     pub destination: GroupId,
-    pub data: RecordMap,
-    pub data_hash: DataHash,
-    pub prefix: OwnedPrefix,
+    pub transferring: Partition,
     pub nonce: TransferNonce,
     pub statement: TransferStatement,
 }
@@ -469,14 +473,13 @@ pub struct TransferInRequest {
 #[derive(Debug, MessageResponse)]
 #[allow(clippy::large_enum_variant)]
 pub enum TransferInResponse {
-    Ok { entry: LogEntry, data: RecordMap },
+    Ok { entry: LogEntry },
     InvalidRealm,
     InvalidGroup,
     NotLeader,
     UnacceptablePrefix,
     InvalidNonce,
     InvalidStatement,
-    InvalidData,
 }
 
 #[derive(Debug, Message)]
@@ -506,8 +509,7 @@ pub struct AppRequest {
     pub rid: RecordId,
     pub request: SecretsRequest,
     pub index: LogIndex,
-    // TODO: With a Merkle tree, this would be a record and a proof.
-    pub data: RecordMap,
+    pub proof: ReadProof<DataHash>,
 }
 
 #[derive(Debug, MessageResponse)]
@@ -515,13 +517,11 @@ pub struct AppRequest {
 pub enum AppResponse {
     Ok {
         entry: LogEntry,
-        // TODO: With a Merkle tree, this would be a record and a proof.
-        data: RecordMap,
+        delta: Option<StoreDelta<DataHash>>,
     },
     InvalidRealm,
     InvalidGroup,
-    StaleIndex,
-    Busy,
+    StaleProof,
     NotOwner,
     NotLeader,
     InvalidData,

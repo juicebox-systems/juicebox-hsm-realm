@@ -126,7 +126,7 @@ async fn main() {
         realm_id,
         groups[1],
         groups[2],
-        OwnedPrefix(bitvec![1]),
+        OwnedPrefix(bitvec![u8, Msb0; 1]),
         &store,
     )
     .await
@@ -136,7 +136,7 @@ async fn main() {
         realm_id,
         groups[1],
         groups[0],
-        OwnedPrefix(bitvec![0, 0]),
+        OwnedPrefix(bitvec![u8, Msb0; 0,0]),
         &store,
     )
     .await
@@ -146,7 +146,7 @@ async fn main() {
         realm_id,
         groups[2],
         groups[3],
-        OwnedPrefix(bitvec![1, 1]),
+        OwnedPrefix(bitvec![u8, Msb0; 1, 1]),
         &store,
     )
     .await

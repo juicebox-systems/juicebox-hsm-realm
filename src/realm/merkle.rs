@@ -1,29 +1,29 @@
 #![allow(dead_code)]
 
-use bitvec::{order::Msb0, prelude::BitOrder, slice::BitSlice, store::BitStore, vec::BitVec};
+use bitvec::prelude::*;
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
     hash::Hash,
-    iter::zip,
+    iter::{once, zip},
 };
 
-use self::agent::Node;
+use self::agent::{Node, StoreDelta};
 use self::overlay::TreeOverlay;
 
 pub mod agent;
 pub mod dot;
 mod overlay;
 
-type KeyVec = BitVec<u8, Msb0>;
-type KeySlice = BitSlice<u8, Msb0>;
+pub type KeyVec = BitVec<u8, Msb0>;
+pub type KeySlice = BitSlice<u8, Msb0>;
 
 // TODO
 //  probably a bunch of stuff that should be pub but isn't
 //  blake hasher
 //
 //  split
-//      "complex split" split on arbitary keys
+//      "complex split" split on arbitrary keys
 //  merge
 //      merge a simple split back into one tree
 //
@@ -38,18 +38,17 @@ pub struct Tree<H: NodeHasher<HO>, HO> {
     overlay: TreeOverlay<HO>,
 }
 impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
-    // Creates a new empty tree. Returns the Tree along with its initial root node. If this tree is
-    // a partition of a larger tree, then pass the prefix of this partition. key_size should be the
-    // total size of a key in bits including any prefix from being a partition.
-    pub fn new_tree(hasher: H, tree_prefix: &KeyVec, key_size: usize) -> (Self, InteriorNode<HO>) {
-        assert!(key_size % 8 == 0);
-        let root = InteriorNode::new(&hasher, tree_prefix, None, None);
-        let t = Tree {
-            hasher,
-            key_size,
-            overlay: TreeOverlay::new(root.hash, 15),
-        };
-        (t, root)
+    // Creates a new empty tree. Returns the root hash along with the storage delta required to create the tree.
+    // If this tree is a partition of a larger tree, then pass the prefix of this partition.
+    pub fn new_tree(hasher: &H, tree_prefix: &KeyVec) -> (HO, StoreDelta<HO>) {
+        let root = InteriorNode::new(hasher, tree_prefix, None, None);
+        (
+            root.hash,
+            StoreDelta {
+                add: vec![Node::Interior(root)],
+                remove: Vec::new(),
+            },
+        )
     }
 
     // Create a new Tree instance for a previously constructed tree given the root hash
@@ -64,6 +63,14 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         }
     }
 
+    // Return the most recent value for the RecordId in the read proof.
+    pub fn latest_value(&self, rp: ReadProof<HO>) -> Result<Option<Vec<u8>>, TreeError> {
+        if !rp.verify(&self.hasher) {
+            return Err(TreeError::InvalidProof);
+        }
+        self.overlay.latest_value(rp)
+    }
+
     // Insert a new value for the leaf described by the read proof. Returns a set
     // of changes that need making to the tree storage. In the event the insert results
     // in no changes (i.e. the insert is inserting the same value as its current value)
@@ -72,15 +79,15 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         &mut self,
         rp: ReadProof<HO>,
         v: Vec<u8>,
-    ) -> Result<Option<Delta<HO>>, InsertError> {
+    ) -> Result<Option<Delta<HO>>, TreeError> {
         if rp.key.len() * 8 != self.key_size {
-            return Err(InsertError::InvalidKey);
+            return Err(TreeError::InvalidKey);
         }
         if !rp.verify(&self.hasher) {
-            return Err(InsertError::InvalidProof);
+            return Err(TreeError::InvalidProof);
         }
         if !self.overlay.roots.contains(&rp.path[0].hash) {
-            return Err(InsertError::StaleProof);
+            return Err(TreeError::StaleProof);
         }
         let prefix_size = rp.prefix_size;
         // Convert the proof into a map of hash -> node.
@@ -112,7 +119,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         // key_pos represents the point where the key is split between the prefix leading to this node,
         // and the tail of key left to traverse.
         key_pos: usize,
-    ) -> Result<Option<HO>, InsertError> {
+    ) -> Result<Option<HO>, TreeError> {
         //
         match self
             .overlay
@@ -120,7 +127,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             .get(&node)
             .or_else(|| proof_nodes.get(&node))
         {
-            None => Err(InsertError::StaleProof),
+            None => Err(TreeError::StaleProof),
             Some(Node::Leaf(l)) => {
                 if l.hash != delta.leaf.hash {
                     delta.remove.push(l.hash);
@@ -207,36 +214,41 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
     // Splits the current tree in half by removing the root and promoting its children to be
     // new roots. Note that this will invalidate any read proofs generated before the split.
-    // Inserts after the split will require a post split ReadProof.
     // It requires a read proof for any key that's owned by this tree, doesn't need to have a value.
+    // This consumes self. You'll need to construct new Tree instance(s) from the returned
+    // splits.
     pub fn split_tree(
         &mut self,
         current_prefix: &KeySlice,
         rp: ReadProof<HO>,
-    ) -> Result<SplitResult<HO>, InsertError> {
+    ) -> Result<SplitResult<HO>, TreeError> {
         // The ReadProof deals with an edge case where there have been no writes since
         // 'self' was constructed.
         if !rp.verify(&self.hasher) {
-            return Err(InsertError::InvalidProof);
+            return Err(TreeError::InvalidProof);
         }
         if !self.overlay.roots.contains(&rp.path[0].hash) {
-            return Err(InsertError::StaleProof);
+            return Err(TreeError::StaleProof);
         }
         let root_node = if rp.path[0].hash == self.overlay.latest_root {
             &rp.path[0]
         } else {
             match self.overlay.nodes.get(&self.overlay.latest_root) {
-                None => return Err(InsertError::StaleProof),
+                None => return Err(TreeError::StaleProof),
                 Some(Node::Leaf(_)) => panic!("unexpected leaf at root of tree"),
                 Some(Node::Interior(int)) => int,
             }
         };
+        let mut delta = StoreDelta::new();
+        delta.remove.push(self.overlay.latest_root);
+        let left = self.make_branch_root(current_prefix, &root_node.left, Dir::Left, &mut delta);
+        let right = self.make_branch_root(current_prefix, &root_node.right, Dir::Right, &mut delta);
         let r = SplitResult {
             old_root: self.overlay.latest_root,
-            keeping: self.make_branch_root(current_prefix, &root_node.left, Dir::Left),
-            giving: self.make_branch_root(current_prefix, &root_node.right, Dir::Right),
+            left,
+            right,
+            delta,
         };
-        self.overlay.tree_has_split(&r);
         Ok(r)
     }
 
@@ -245,6 +257,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         current_prefix: &KeySlice,
         b: &Option<Branch<HO>>,
         d: Dir,
+        delta: &mut StoreDelta<HO>,
     ) -> SplitRoot<HO> {
         let mut new_prefix = current_prefix.to_bitvec();
         new_prefix.push(d == Dir::Right);
@@ -252,10 +265,11 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             None => {
                 // There's no existing child for this branch, so we need to make a new root node.
                 let new_root = InteriorNode::new(&self.hasher, &new_prefix, None, None);
+                let root_hash = new_root.hash;
+                delta.add.push(Node::Interior(new_root));
                 SplitRoot {
-                    root_hash: new_root.hash,
+                    root_hash,
                     prefix: new_prefix,
-                    add: Some(new_root),
                 }
             }
             Some(b) => {
@@ -264,7 +278,6 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     SplitRoot {
                         root_hash: b.hash,
                         prefix: new_prefix,
-                        add: None,
                     }
                 } else {
                     // If there's a longer prefix then we need a new root node that points to the existing child and
@@ -275,10 +288,11 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         None,
                         Some(Branch::new(b.prefix[1..].into(), b.hash)),
                     );
+                    let root_hash = new_root.hash;
+                    delta.add.push(Node::Interior(new_root));
                     SplitRoot {
-                        root_hash: new_root.hash,
+                        root_hash,
                         prefix: new_prefix,
-                        add: Some(new_root),
                     }
                 }
             }
@@ -382,7 +396,7 @@ impl<HO: HashOutput> InteriorNode<HO> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct LeafNode<HO> {
     value: Vec<u8>,
     hash: HO,
@@ -418,7 +432,12 @@ impl<HO> Branch<HO> {
 }
 impl<HO: Debug> Debug for Branch<HO> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} -> {:?}", self.prefix, self.hash)
+        write!(
+            f,
+            "{} -> {:?}",
+            dot::compact_keyslice_str(&self.prefix, " "),
+            self.hash
+        )
     }
 }
 
@@ -443,15 +462,17 @@ impl Display for Dir {
         }
     }
 }
+
+#[derive(Debug, Clone)]
 pub struct ReadProof<HO> {
     // Key is the full key.
-    key: Vec<u8>,
+    pub key: Vec<u8>,
     // The number of bits from the start of the key that are the partition prefix for the tree
     // partition.
     prefix_size: usize,
     leaf: Option<LeafNode<HO>>,
     // The path in root -> leaf order of the nodes traversed to get to the leaf. Or if the leaf
-    // doesn't exist the furtherest existing node in the path of the key.
+    // doesn't exist the furthest existing node in the path of the key.
     path: Vec<InteriorNode<HO>>,
 }
 impl<HO: HashOutput> ReadProof<HO> {
@@ -466,9 +487,17 @@ impl<HO: HashOutput> ReadProof<HO> {
         p
     }
 
+    pub fn root_hash(&self) -> HO {
+        self.path[0].hash
+    }
+
+    pub fn leaf_value(&self) -> Option<&Vec<u8>> {
+        self.leaf.as_ref().map(|l| &l.value)
+    }
+
     // Verify returns tree if the Proof is valid. This includes the
     // path check and hash verification.
-    fn verify<H: NodeHasher<HO>>(&self, h: &H) -> bool {
+    pub fn verify<H: NodeHasher<HO>>(&self, h: &H) -> bool {
         // Do some basic sanity checks of the Proof struct first.
         if self.key.is_empty() || self.path.is_empty() || self.prefix_size >= self.key.len() * 8 {
             return false;
@@ -615,30 +644,29 @@ impl<HO: HashOutput> ReadProof<HO> {
 }
 
 // The result of performing a split operation on the tree. The tree is split
-// into 2 halfs. Half that is kept by the current tree, and half that is given
-// way to somewhere else.
+// into 2 halves.
 pub struct SplitResult<HO> {
-    // The previous root hash, this should get deleted from storage.
-    old_root: HO,
+    // The previous root hash.
+    pub old_root: HO,
     // The new root of the tree that is being kept.
-    keeping: SplitRoot<HO>,
+    pub left: SplitRoot<HO>,
     // The new root for the tree that is being given away to another group/partition.
-    giving: SplitRoot<HO>,
+    pub right: SplitRoot<HO>,
+    // The delta that needs applying to the store to perform the split.
+    pub delta: StoreDelta<HO>,
 }
 pub struct SplitRoot<HO> {
     // The new root hash of this split off branch.
-    root_hash: HO,
+    pub root_hash: HO,
     // The new full key prefix to this new tree.
-    prefix: KeyVec,
-    // A new node to add to node storage.
-    add: Option<InteriorNode<HO>>,
+    pub prefix: KeyVec,
 }
 
 pub struct Delta<HO> {
     // Nodes are in tail -> root order.
-    add: Vec<InteriorNode<HO>>,
-    leaf: LeafNode<HO>,
-    remove: Vec<HO>,
+    pub add: Vec<InteriorNode<HO>>,
+    pub leaf: LeafNode<HO>,
+    pub remove: Vec<HO>,
 }
 impl<HO: Debug> Debug for Delta<HO> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -655,12 +683,12 @@ impl<HO: Debug> Debug for Delta<HO> {
             )?;
         }
         for n in &self.remove {
-            writeln!(f, "remove {:?}", n)?;
+            writeln!(f, "remove {n:?}")?;
         }
         Ok(())
     }
 }
-impl<HO> Delta<HO> {
+impl<HO: HashOutput> Delta<HO> {
     fn new(new_leaf: LeafNode<HO>) -> Self {
         Delta {
             leaf: new_leaf,
@@ -668,17 +696,28 @@ impl<HO> Delta<HO> {
             remove: Vec::new(),
         }
     }
-    fn root(&self) -> &HO {
+    pub fn root(&self) -> &HO {
         &self
             .add
             .last()
             .expect("add should contain at least a new root")
             .hash
     }
+    pub fn store_delta(self) -> StoreDelta<HO> {
+        StoreDelta {
+            add: self
+                .add
+                .into_iter()
+                .map(|n| Node::Interior(n))
+                .chain(once(Node::Leaf(self.leaf)))
+                .collect(),
+            remove: self.remove,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum InsertError {
+pub enum TreeError {
     InvalidProof,
     // The ReadProof is too old, calculate a newer one and try again.
     StaleProof,
@@ -694,9 +733,9 @@ pub trait NodeHasher<HO> {
     fn calc_hash(&self, parts: &[&[u8]]) -> HO;
 }
 
-fn common_prefix<'a, 'b, U: BitStore, O: BitOrder>(
+fn common_prefix<'a, U: BitStore, O: BitOrder>(
     a: &'a BitSlice<U, O>,
-    b: &'b BitSlice<U, O>,
+    b: &BitSlice<U, O>,
 ) -> &'a BitSlice<U, O> {
     assert_eq!(a.len(), b.len());
     match zip(a.iter(), b.iter()).position(|(x, y)| x != y) {
@@ -833,15 +872,12 @@ mod tests {
     }
     #[test]
     fn test_insert_lots_prefix_1bit() {
-        let mut p1 = KeyVec::new();
-        p1.push(false);
+        let p1 = bitvec![u8, Msb0; 0];
         test_insert_lots_with_prefix(&p1);
     }
     #[test]
     fn test_insert_lots_prefix_2bit() {
-        let mut p2 = KeyVec::new();
-        p2.push(true);
-        p2.push(false);
+        let p2 = bitvec![u8, Msb0; 1, 0];
         test_insert_lots_with_prefix(&p2);
     }
 
@@ -849,12 +885,12 @@ mod tests {
         let (mut tree, mut root, mut store) = new_empty_tree(prefix, 32);
         let seed = [0u8; 32];
         let mut rng: StdRng = SeedableRng::from_seed(seed);
-        let mut rkey = [0u8; 4];
+        let mut random_key = [0u8; 4];
         let mut expected = HashMap::new();
         for i in 0..150 {
-            rng.fill_bytes(&mut rkey);
+            rng.fill_bytes(&mut random_key);
             // We need to ensure our generated keys have the correct prefix.
-            let mut k = KeyVec::from_slice(&rkey);
+            let mut k = KeyVec::from_slice(&random_key);
             k[..prefix.len()].copy_from_bitslice(&prefix);
             let key = k.into_vec();
             expected.insert(key.clone(), i);
@@ -891,7 +927,7 @@ mod tests {
         test_split(&[&[0], &[0b10000000]]);
     }
     #[test]
-    fn test_split_multibit() {
+    fn test_split_multiple_bits() {
         // test split where the root has branches with multiple bits in the prefixes.
         test_split(&[&[0], &[0b00010000]]);
     }
@@ -902,27 +938,28 @@ mod tests {
     }
     fn test_split(keys: &[&[u8]]) {
         let prefix = KeyVec::new();
-        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, 8);
-        let mut vals = Vec::with_capacity(keys.len());
+        let key_size = 8;
+        let (mut tree, mut root, mut store) = new_empty_tree(&prefix, key_size);
+        let mut values = Vec::with_capacity(keys.len());
         for (i, left) in keys.iter().enumerate() {
             let v = i.to_le_bytes().to_vec();
             root = tree_insert(&mut tree, &mut store, root, left, &prefix, v.clone());
-            vals.push(v);
+            values.push(v);
         }
         let rp = read(&store, &root, &[0], prefix.len()).unwrap();
         let split = tree.split_tree(&prefix, rp).unwrap();
         assert_eq!(root, split.old_root);
-        store.apply_split(&split);
+        store.apply_store_delta(split.delta);
         check_tree_invariants(
             &tree.hasher,
-            &split.keeping.prefix,
-            split.keeping.root_hash,
+            &split.left.prefix,
+            split.left.root_hash,
             &store,
         );
         check_tree_invariants(
             &tree.hasher,
-            &split.giving.prefix,
-            split.giving.root_hash,
+            &split.right.prefix,
+            split.right.root_hash,
             &store,
         );
         fn read_all<HO: HashOutput>(
@@ -930,9 +967,9 @@ mod tests {
             left_root: HO,
             right_root: HO,
             keys: &[&[u8]],
-            vals: &[Vec<u8>],
+            values: &[Vec<u8>],
         ) {
-            for (k, v) in zip(keys, vals) {
+            for (k, v) in zip(keys, values) {
                 let root = if k[0] & 128 == 0 {
                     left_root
                 } else {
@@ -944,20 +981,21 @@ mod tests {
         }
         read_all(
             &store,
-            split.keeping.root_hash,
-            split.giving.root_hash,
+            split.left.root_hash,
+            split.right.root_hash,
             keys,
-            &vals,
+            &values,
         );
+        let mut tree = Tree::with_existing_root(tree.hasher, key_size, split.left.root_hash);
         root = tree_insert(
             &mut tree,
             &mut store,
-            split.keeping.root_hash,
+            split.left.root_hash,
             &[0b00000011],
-            &split.keeping.prefix,
+            &split.left.prefix,
             [42].to_vec(),
         );
-        read_all(&store, root, split.giving.root_hash, keys, &vals);
+        read_all(&store, root, split.right.root_hash, keys, &values);
         let rp = read(&store, &root, &[0b00000011], 1).unwrap();
         assert_eq!([42].to_vec(), rp.leaf.unwrap().value);
     }
@@ -1055,16 +1093,16 @@ mod tests {
         let d = tree
             .insert(rp_1, [11].to_vec())
             .expect_err("should of failed");
-        assert_eq!(InsertError::StaleProof, d);
+        assert_eq!(TreeError::StaleProof, d);
     }
 
     #[test]
     fn test_empty_root_prefix_hash() {
         let h = TestHasher {};
         let root = InteriorNode::new(&h, &BitVec::new(), None, None);
-        let p0 = KeyVec::repeat(false, 1);
+        let p0 = bitvec![u8, Msb0; 0];
         let root_p0 = InteriorNode::new(&h, &p0, None, None);
-        let p1 = KeyVec::repeat(true, 1);
+        let p1 = bitvec![u8, Msb0; 1];
         let root_p1 = InteriorNode::new(&h, &p1, None, None);
         assert_ne!(root.hash, root_p0.hash);
         assert_ne!(root.hash, root_p1.hash);
@@ -1157,11 +1195,12 @@ mod tests {
         prefix: &KeyVec,
         key_size: usize,
     ) -> (Tree<TestHasher, TestHash>, TestHash, MemStore<TestHash>) {
-        let (t, root_node) = Tree::new_tree(TestHasher {}, prefix, key_size);
+        let h = TestHasher {};
+        let (root_hash, delta) = Tree::new_tree(&h, prefix);
         let mut store = MemStore::new();
-        let root_hash = root_node.hash;
-        store.insert(root_hash, Node::Interior(root_node));
-        check_tree_invariants(&t.hasher, prefix, root_hash, &store);
+        store.apply_store_delta(delta);
+        check_tree_invariants(&h, prefix, root_hash, &store);
+        let t = Tree::with_existing_root(h, key_size, root_hash);
         (t, root_hash, store)
     }
 
@@ -1209,7 +1248,7 @@ mod tests {
         path: &KeyVec,
         store: &impl TreeStoreReader<HO>,
     ) -> HO {
-        match store.fetch(node.as_u8()).unwrap() {
+        match store.fetch(&node).unwrap() {
             Node::Leaf(l) => {
                 let exp_hash = LeafNode::calc_hash(hasher, &path.to_bitvec().into_vec(), &l.value);
                 assert_eq!(exp_hash, l.hash);
@@ -1258,14 +1297,13 @@ mod tests {
         }
     }
     impl<HO: HashOutput> MemStore<HO> {
-        fn apply_split(&mut self, s: &SplitResult<HO>) {
-            if let Some(n) = &s.keeping.add {
-                self.insert(n.hash, Node::Interior(n.clone()));
+        fn apply_store_delta(&mut self, d: StoreDelta<HO>) {
+            for n in d.add {
+                self.insert(n.hash(), n);
             }
-            if let Some(n) = &s.giving.add {
-                self.insert(n.hash, Node::Interior(n.clone()));
+            for r in d.remove {
+                self.nodes.remove(r.as_u8());
             }
-            self.nodes.remove(s.old_root.as_u8());
         }
 
         // Returns the new root hash.
@@ -1284,10 +1322,10 @@ mod tests {
             self.nodes.insert(k.as_u8().to_vec(), n);
         }
     }
-    impl<HO: Clone> TreeStoreReader<HO> for MemStore<HO> {
-        fn fetch(&self, k: &[u8]) -> Result<Node<HO>, TreeStoreError> {
-            match self.nodes.get(k) {
-                None => Err(TreeStoreError::NoSuchRecord),
+    impl<HO: HashOutput> TreeStoreReader<HO> for MemStore<HO> {
+        fn fetch(&self, k: &HO) -> Result<Node<HO>, TreeStoreError> {
+            match self.nodes.get(k.as_u8()) {
+                None => Err(TreeStoreError::MissingNode),
                 Some(n) => Ok(n.clone()),
             }
         }

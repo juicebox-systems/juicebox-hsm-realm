@@ -1,0 +1,23 @@
+{
+    "cSpell.words": [
+        "actix",
+        "arrowsize",
+        "bitslice",
+        "bitvec",
+        "Deque",
+        "fillcolor",
+        "Hasher",
+        "hmac",
+        "keyslice",
+        "keyspace",
+        "LOGLEVEL",
+        "Merkle",
+        "merkletree",
+        "nojustify",
+        "oneshot",
+        "rngs",
+        "rtype",
+        "Seedable",
+        "teyla"
+    ]
+}

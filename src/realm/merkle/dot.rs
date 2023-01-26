@@ -23,7 +23,7 @@ fn add_node_to_dot<HO: HashOutput>(
     reader: &impl TreeStoreReader<HO>,
     w: &mut impl Write,
 ) -> std::io::Result<()> {
-    match reader.fetch(h.as_u8()).unwrap() {
+    match reader.fetch(&h).unwrap() {
         Node::Interior(int) => {
             if let Some(ref b) = int.left {
                 write_branch(&int.hash, b, Dir::Left, reader, w)?;
@@ -61,7 +61,7 @@ fn write_branch<HO: HashOutput>(
     )?;
     add_node_to_dot(b.hash, reader, w)
 }
-fn compact_keyslice_str(k: &KeySlice, delim: &str) -> String {
+pub fn compact_keyslice_str(k: &KeySlice, delim: &str) -> String {
     let mut s = String::with_capacity(k.len());
     for (i, b) in k.iter().enumerate() {
         if i > 0 && i % 8 == 0 {

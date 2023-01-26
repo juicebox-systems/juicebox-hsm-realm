@@ -1,7 +1,10 @@
 use actix::prelude::*;
 
+use crate::realm::hsm::types::RecordId;
+
 use super::super::agent::Agent;
-use super::super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordMap};
+use super::super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId};
+use super::super::merkle::{agent::StoreDelta, ReadProof};
 
 #[derive(Debug, Message)]
 #[rtype(result = "AppendResponse")]
@@ -10,13 +13,11 @@ pub struct AppendRequest {
     pub group: GroupId,
     pub entry: LogEntry,
     pub data: DataChange,
-    pub transferring_out: DataChange,
 }
 
 #[derive(Debug)]
 pub enum DataChange {
-    Set(RecordMap),
-    Delete,
+    Delta(StoreDelta<DataHash>),
     None,
 }
 
@@ -51,12 +52,26 @@ pub struct ReadLatestRequest {
 #[derive(Debug, MessageResponse)]
 #[allow(clippy::large_enum_variant)]
 pub enum ReadLatestResponse {
-    Ok {
-        entry: LogEntry,
-        data: RecordMap,
-        transferring_out: Option<RecordMap>,
-    },
+    Ok { entry: LogEntry },
     None,
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "GetRecordProofResponse")]
+pub struct GetRecordProofRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+    pub record: RecordId,
+}
+#[derive(Debug, MessageResponse)]
+pub enum GetRecordProofResponse {
+    Ok {
+        proof: ReadProof<DataHash>,
+        index: LogIndex,
+    },
+    UnknownGroup,
+    NotOwner,
+    StoreMissingNode,
 }
 
 #[derive(Debug, Message)]

@@ -1,18 +1,40 @@
 use super::{Dir, HashOutput, InteriorNode, KeySlice, LeafNode, ReadProof};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Node<HO> {
     Interior(InteriorNode<HO>),
     Leaf(LeafNode<HO>),
 }
+impl<HO: HashOutput> Node<HO> {
+    pub fn hash(&self) -> HO {
+        match self {
+            Node::Interior(int) => int.hash,
+            Node::Leaf(leaf) => leaf.hash,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum TreeStoreError {
-    NoSuchRecord,
+    MissingNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct StoreDelta<HO> {
+    pub add: Vec<Node<HO>>,
+    pub remove: Vec<HO>,
+}
+impl<HO> StoreDelta<HO> {
+    pub fn new() -> Self {
+        StoreDelta {
+            add: Vec::new(),
+            remove: Vec::new(),
+        }
+    }
 }
 
 pub trait TreeStoreReader<HO> {
-    fn fetch(&self, k: &[u8]) -> Result<Node<HO>, TreeStoreError>;
+    fn fetch(&self, k: &HO) -> Result<Node<HO>, TreeStoreError>;
 }
 
 pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
@@ -21,7 +43,7 @@ pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
     k: &[u8],
     prefix_size: usize,
 ) -> Result<ReadProof<HO>, TreeStoreError> {
-    let root = match store.fetch(root_hash.as_u8())? {
+    let root = match store.fetch(root_hash)? {
         Node::Interior(int) => int,
         Node::Leaf(_) => panic!("found unexpected leaf node"),
     };
@@ -38,7 +60,7 @@ pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
                     return Ok(res);
                 }
                 key = &key[b.prefix.len()..];
-                match store.fetch(b.hash.as_u8())? {
+                match store.fetch(&b.hash)? {
                     Node::Interior(int) => {
                         res.path.push(int);
                         continue;

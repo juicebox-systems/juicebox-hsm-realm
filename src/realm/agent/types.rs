@@ -1,13 +1,13 @@
 use std::fmt;
 
 use actix::prelude::*;
-use bitvec::{prelude::Msb0, slice::BitSlice, vec::BitVec};
+use bitvec::vec::BitVec;
 use sha2::{Digest, Sha256};
 
 use super::super::hsm::types as hsm_types;
 use hsm_types::{
-    CapturedStatement, Configuration, DataHash, EntryHmac, GroupConfigurationStatement, GroupId,
-    HsmId, LogIndex, OwnedPrefix, RealmId, RecordId, SecretsRequest, SecretsResponse,
+    CapturedStatement, Configuration, EntryHmac, GroupConfigurationStatement, GroupId, HsmId,
+    LogIndex, OwnedPrefix, Partition, RealmId, RecordId, SecretsRequest, SecretsResponse,
     TransferNonce, TransferStatement,
 };
 
@@ -135,6 +135,9 @@ pub struct TransferOutRequest {
     pub realm: RealmId,
     pub source: GroupId,
     pub destination: GroupId,
+    // The prefix to transfer out of source. It may be exactly its current
+    // partition prefix to transfer everything, or an extension of its current
+    // prefix to perform a split.
     pub prefix: OwnedPrefix,
 }
 
@@ -143,13 +146,14 @@ pub struct TransferOutRequest {
 // until the entry has committed, so not waiting here is OK.
 #[derive(Debug, MessageResponse)]
 pub enum TransferOutResponse {
-    Ok { data_hash: DataHash },
+    Ok { transferring: Partition },
     NoStore,
     NoHsm,
     InvalidRealm,
     InvalidGroup,
     NotLeader,
     NotOwner,
+    InvalidProof,
 }
 
 #[derive(Debug, Message)]
@@ -193,8 +197,7 @@ pub struct TransferInRequest {
     pub realm: RealmId,
     pub source: GroupId,
     pub destination: GroupId,
-    pub data_hash: DataHash,
-    pub prefix: OwnedPrefix,
+    pub transferring: Partition,
     pub nonce: TransferNonce,
     pub statement: TransferStatement,
 }
@@ -300,11 +303,6 @@ impl From<(TenantId, UserId)> for RecordId {
                 h.update([0]);
             }
         }
-        // TODO: This is dumb, we need to align on a u8 based BitVec across the board i think.
-        let res: [u8; 32] = h.finalize().into();
-        let mut r = BitVec::with_capacity(256);
-        let bs = BitSlice::<u8, Msb0>::from_slice(&res);
-        r.extend(bs);
-        RecordId(r)
+        RecordId(h.finalize().into())
     }
 }
