@@ -9,8 +9,8 @@ pub mod types;
 use self::types::{GetRecordProofRequest, GetRecordProofResponse};
 
 use super::agent::Agent;
-use super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId};
-use super::merkle::agent::{StoreDelta, TreeStoreError};
+use super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId};
+use super::merkle::agent::TreeStoreError;
 use kv::MemStore;
 use types::{
     AddressEntry, AppendRequest, AppendResponse, DataChange, GetAddressesRequest,
@@ -26,7 +26,6 @@ pub struct Store {
 
 struct GroupState {
     log: Vec<LogEntry>, // never empty
-    transferring_out: Option<StoreDelta<DataHash>>,
 }
 
 impl Store {
@@ -59,18 +58,6 @@ impl Handler<AppendRequest> for Store {
                         DataChange::Delta(delta) => {
                             self.kv.apply_store_delta(delta);
                         }
-                        DataChange::Delete => {
-                            panic!("not allowed to delete a group's data (because that spreads Option everywhere for not much benefit)");
-                        }
-                        DataChange::None => {}
-                    }
-                    match request.transferring_out {
-                        DataChange::Delta(data) => {
-                            state.transferring_out = Some(data);
-                        }
-                        DataChange::Delete => {
-                            state.transferring_out = None;
-                        }
                         DataChange::None => {}
                     }
                     AppendResponse::Ok
@@ -81,20 +68,15 @@ impl Handler<AppendRequest> for Store {
 
             Vacant(bucket) => {
                 if request.entry.index == LogIndex(1) {
-                    if !matches!(request.transferring_out, DataChange::None) {
-                        panic!("must initialize a group without transferring_out state");
-                    };
                     match request.data {
                         DataChange::Delta(delta) => {
                             assert!(request.entry.partition.is_some());
                             self.kv.apply_store_delta(delta);
                         }
-                        DataChange::Delete => panic!("not allowed to delete a group's data (because that spreads Option everywhere for not much benefit)"),
                         DataChange::None => {}
                     }
                     let state = GroupState {
                         log: vec![request.entry],
-                        transferring_out: None,
                     };
                     bucket.insert(state);
                     AppendResponse::Ok
@@ -147,7 +129,6 @@ impl Handler<ReadLatestRequest> for Store {
                 let last = state.log.last().unwrap();
                 ReadLatestResponse::Ok {
                     entry: last.clone(),
-                    transferring_out: state.transferring_out.clone(),
                 }
             }
         };

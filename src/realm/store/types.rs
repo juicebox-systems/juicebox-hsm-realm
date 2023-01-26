@@ -13,13 +13,11 @@ pub struct AppendRequest {
     pub group: GroupId,
     pub entry: LogEntry,
     pub data: DataChange,
-    pub transferring_out: DataChange,
 }
 
 #[derive(Debug)]
 pub enum DataChange {
     Delta(StoreDelta<DataHash>),
-    Delete,
     None,
 }
 
@@ -54,10 +52,7 @@ pub struct ReadLatestRequest {
 #[derive(Debug, MessageResponse)]
 #[allow(clippy::large_enum_variant)]
 pub enum ReadLatestResponse {
-    Ok {
-        entry: LogEntry,
-        transferring_out: Option<StoreDelta<DataHash>>,
-    },
+    Ok { entry: LogEntry },
     None,
 }
 

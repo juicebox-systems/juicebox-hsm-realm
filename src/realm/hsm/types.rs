@@ -413,8 +413,7 @@ pub struct TransferOutRequest {
 pub enum TransferOutResponse {
     Ok {
         entry: LogEntry,
-        keeping: Option<StoreDelta<DataHash>>,
-        transferring: StoreDelta<DataHash>,
+        delta: Option<StoreDelta<DataHash>>,
     },
     InvalidRealm,
     InvalidGroup,
@@ -467,7 +466,6 @@ pub struct TransferInRequest {
     pub realm: RealmId,
     pub destination: GroupId,
     pub transferring: Partition,
-    pub delta: StoreDelta<DataHash>,
     pub nonce: TransferNonce,
     pub statement: TransferStatement,
 }
@@ -516,7 +514,6 @@ pub struct AppRequest {
 
 #[derive(Debug, MessageResponse)]
 #[allow(clippy::large_enum_variant)]
-#[allow(dead_code)]
 pub enum AppResponse {
     Ok {
         entry: LogEntry,
@@ -524,9 +521,7 @@ pub enum AppResponse {
     },
     InvalidRealm,
     InvalidGroup,
-    StaleIndex,
     StaleProof,
-    Busy,
     NotOwner,
     NotLeader,
     InvalidData,

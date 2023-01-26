@@ -12,7 +12,7 @@ pub mod types;
 
 use crate::realm::merkle::TreeError;
 
-use super::merkle::{agent::StoreDelta, NodeHasher, Tree};
+use super::merkle::{NodeHasher, Tree};
 use app::RecordChange;
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
@@ -329,11 +329,6 @@ struct LeaderVolatileGroupState {
 
 struct LeaderLogEntry {
     entry: LogEntry,
-    /// This is used to determine if a client request may be processed (only if
-    /// there are no uncommitted changes to that record). If set, this is a
-    /// change to the record that resulted in the log entry.
-    #[allow(dead_code)]
-    delta: Option<(RecordId, StoreDelta<DataHash>)>,
     /// A possible response to the client. This must not be externalized until
     /// after the entry has been committed.
     response: Option<SecretsResponse>,
@@ -382,11 +377,11 @@ impl Hsm {
             None => (None, None),
             Some(prefix) => {
                 let h = MerkleHasher(self.persistent.realm_key.clone());
-                let delta = Tree::new_tree(&h, &prefix.0);
+                let (root_hash, delta) = Tree::new_tree(&h, &prefix.0);
                 (
                     Some(Partition {
                         prefix: prefix.clone(),
-                        root_hash: delta.root,
+                        root_hash,
                     }),
                     Some(delta),
                 )
@@ -407,7 +402,7 @@ impl Hsm {
 
         let entry = LogEntry {
             index,
-            partition,
+            partition: partition.clone(),
             transferring_out,
             prev_hmac,
             entry_hmac,
@@ -418,16 +413,15 @@ impl Hsm {
             LeaderVolatileGroupState {
                 log: vec![LeaderLogEntry {
                     entry: entry.clone(),
-                    delta: None,
                     response: None,
                 }],
                 committed: None,
                 incoming: None,
-                tree: data.as_ref().map(|sd| {
+                tree: partition.as_ref().map(|p| {
                     Tree::with_existing_root(
                         MerkleHasher(self.persistent.realm_key.clone()),
                         RecordId::size(),
-                        sd.root,
+                        p.root_hash,
                     )
                 }),
             },
@@ -750,7 +744,6 @@ impl Handler<BecomeLeaderRequest> for Hsm {
                 .or_insert_with(|| LeaderVolatileGroupState {
                     log: vec![LeaderLogEntry {
                         entry: request.last_entry,
-                        delta: None,
                         response: None,
                     }],
                     committed: None,
@@ -936,46 +929,33 @@ impl Handler<TransferOutRequest> for Hsm {
             if request.index != last_entry.index {
                 return Response::StaleIndex;
             }
-            // TODO: do we still need this?
-            // if request.data.hash() != owned_partition.hash {
-            //     return Response::InvalidData;
-            // }
 
             // This support two options: moving out the entire owned
             // prefix, or moving out the owned prefix plus one more bit.
             let keeping_partition: Option<Partition>;
-            let keeping_data: Option<StoreDelta<DataHash>>;
             let transferring_partition: Partition;
-            let transferring_data: StoreDelta<DataHash>;
+            let delta;
 
             if request.prefix == owned_partition.prefix {
                 keeping_partition = None;
-                keeping_data = None;
                 transferring_partition = owned_partition.clone();
-                transferring_data = StoreDelta {
-                    root: owned_partition.root_hash,
-                    add: Vec::new(),
-                    remove: Vec::new(),
-                }
+                delta = None;
             } else if request.prefix.0.len() == owned_partition.prefix.0.len() + 1
                 && request.prefix.0.starts_with(&owned_partition.prefix.0)
             {
                 let Some(tree) = &mut leader.tree else {
                     return Response::NotLeader;
                 };
-                let keeping;
-                let transferring;
-                (keeping, keeping_data, transferring, transferring_data) =
+                let (keeping, transferring, split_delta) =
                     match tree.split_tree(&owned_partition.prefix.0, request.proof) {
                         Err(TreeError::StaleProof) => return Response::StaleProof,
                         Err(TreeError::InvalidProof) => return Response::InvalidProof,
                         Err(TreeError::InvalidKey) => return Response::InvalidProof,
                         Ok(split) => {
-                            let (left_delta, right_delta) = split.store_delta();
                             if split.left.prefix == request.prefix.0 {
-                                (split.right, Some(right_delta), split.left, left_delta)
+                                (split.right, split.left, split.delta)
                             } else if split.right.prefix == request.prefix.0 {
-                                (split.left, Some(left_delta), split.right, right_delta)
+                                (split.left, split.right, split.delta)
                             } else {
                                 panic!(
                                 "The tree was split but neither half contains the expected prefix."
@@ -991,6 +971,7 @@ impl Handler<TransferOutRequest> for Hsm {
                     root_hash: transferring.root_hash,
                     prefix: OwnedPrefix(transferring.prefix),
                 };
+                delta = Some(split_delta);
             } else {
                 return Response::NotOwner;
             }
@@ -1013,7 +994,6 @@ impl Handler<TransferOutRequest> for Hsm {
             }
             .build(&self.persistent.realm_key);
 
-            // TODO: this seems to match the previous behavior, but shouldn't this wait til the Complete message?
             leader.tree = match &keeping_partition {
                 None => None,
                 Some(p) => Some(Tree::with_existing_root(
@@ -1033,15 +1013,10 @@ impl Handler<TransferOutRequest> for Hsm {
 
             leader.log.push(LeaderLogEntry {
                 entry: entry.clone(),
-                delta: None,
                 response: None,
             });
 
-            TransferOutResponse::Ok {
-                entry,
-                keeping: keeping_data,
-                transferring: transferring_data,
-            }
+            TransferOutResponse::Ok { entry, delta }
         })();
 
         trace!(hsm = self.name, ?response);
@@ -1184,13 +1159,6 @@ impl Handler<TransferInRequest> for Hsm {
                 return Response::InvalidStatement;
             }
 
-            // TODO: there's no equivalent to this in the new model
-            // but do we need to somehow verify the delta is correct/not tampered with?
-            //
-            // if request.data.hash() != request.partition.hash {
-            //     return Response::InvalidData;
-            // }
-
             let index = last_entry.index.next();
             let partition_hash = request.transferring.root_hash;
             let partition = Some(request.transferring);
@@ -1217,7 +1185,6 @@ impl Handler<TransferInRequest> for Hsm {
 
             leader.log.push(LeaderLogEntry {
                 entry: entry.clone(),
-                delta: None,
                 response: None,
             });
 
@@ -1297,7 +1264,6 @@ impl Handler<CompleteTransferRequest> for Hsm {
 
             leader.log.push(LeaderLogEntry {
                 entry: entry.clone(),
-                delta: None,
                 response: None,
             });
 
@@ -1353,75 +1319,27 @@ fn handle_app_request(
 ) -> AppResponse {
     type Response = AppResponse;
 
-    let Some(tree) = &mut leader.tree else {
-        return Response::NotLeader;
-    };
-    let latest_value = {
-        let start_index = leader.log.first().expect("log never empty").entry.index;
-        let Some(offset) =
-            (request.index.0)
-            .checked_sub(start_index.0)
-            .and_then(|offset| usize::try_from(offset).ok()) else {
-            return Response::StaleIndex;
-        };
+    let tree = leader
+        .tree
+        .as_mut()
+        .expect("caller verified we're the leader");
 
-        let mut iter = leader.log.iter().skip(offset);
-        if let Some(request_entry) = iter.next() {
-            // TODO: this was checked by the caller already.
-            match &request_entry.entry.partition {
-                None => return Response::NotLeader,
-                Some(_p) => {
-                    //TODO: not needed?
-                    // if p.hash != request.data.hash() {
-                    //     return Response::InvalidData;
-                    // }
-                }
-            }
-        } else {
-            return Response::StaleIndex;
-        };
-
-        // TODO: Isn't this handled by the tree overlay. Is the overlay getting
-        // applied too early? (currently at the end of tree::insert)
-        //
-        // let mut data = request.data;
-        // for entry in iter.clone() {
-        //     match &entry.delta {
-        //         Some((rid, change)) => {
-        //             // TODO: Rethink whether we even need this check. Is there
-        //             // a problem with allowing pipelining within a single
-        //             // record?
-        //             if *rid == request.rid {
-        //                 return Response::Busy;
-        //             }
-        //             match change {
-        //                 RecordChange::Update(record) => {
-        //                     data.0.insert(rid.clone(), record.clone());
-        //                 }
-        //                 RecordChange::Delete => {
-        //                     data.0.remove(rid);
-        //                 }
-        //             }
-        //         }
-        //         None => {}
-        //     }
-        // }
-        match tree.latest_value(request.proof.clone()) {
-            Ok(v) => v,
-            Err(TreeError::StaleProof) => {
-                info!(
-                    r = ?request.proof.key,
-                    root = ?request.proof.root_hash(),
-                    "stale proof trying to get current value"
-                );
-                return Response::StaleProof;
-            }
-            Err(err) => {
-                warn!(err=?err, "failed to get latest tree value");
-                return Response::InvalidData;
-            }
+    let latest_value = match tree.latest_value(request.proof.clone()) {
+        Ok(v) => v,
+        Err(TreeError::StaleProof) => {
+            info!(
+                r = ?request.proof.key,
+                root = ?request.proof.root_hash(),
+                "stale proof trying to get current value"
+            );
+            return Response::StaleProof;
+        }
+        Err(err) => {
+            warn!(err=?err, "failed to get latest tree value");
+            return Response::InvalidData;
         }
     };
+
     let last_entry = leader.log.last().unwrap();
 
     let (client_response, change) = app::process(request.request, latest_value);
@@ -1429,7 +1347,7 @@ fn handle_app_request(
         Some(change) => match change {
             RecordChange::Update(record) => match tree.insert(request.proof, record) {
                 Ok(None) => None,
-                Ok(Some(d)) => Some((request.rid, d.store_delta())),
+                Ok(Some(d)) => Some((*d.root(), d.store_delta())),
                 Err(_) => return Response::InvalidData,
             },
             RecordChange::Delete => todo!(),
@@ -1439,8 +1357,8 @@ fn handle_app_request(
 
     let index = last_entry.entry.index.next();
     let mut partition = last_entry.entry.partition.as_ref().unwrap().clone();
-    if let Some((_, sd)) = &delta {
-        partition.root_hash = sd.root;
+    if let Some((root_hash, _)) = &delta {
+        partition.root_hash = *root_hash;
     }
     let partition = Some(partition);
 
@@ -1467,11 +1385,10 @@ fn handle_app_request(
 
     leader.log.push(LeaderLogEntry {
         entry: new_entry.clone(),
-        delta: delta.clone(),
         response: Some(client_response),
     });
     Response::Ok {
         entry: new_entry,
-        delta: delta.map(|(_rid, sd)| sd),
+        delta: delta.map(|(_, sd)| sd),
     }
 }

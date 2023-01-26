@@ -16,7 +16,7 @@ impl MemStore {
             nodes: HashMap::new(),
         }
     }
-    pub fn apply_store_delta(&mut self, d: StoreDelta<DataHash>) -> DataHash {
+    pub fn apply_store_delta(&mut self, d: StoreDelta<DataHash>) {
         trace!(store =?self, delta =?d);
         for n in d.add {
             self.nodes.insert(n.hash(), n);
@@ -24,7 +24,6 @@ impl MemStore {
         for r in d.remove {
             self.nodes.remove(&r);
         }
-        d.root
     }
 }
 impl std::fmt::Debug for MemStore {

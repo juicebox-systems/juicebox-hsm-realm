@@ -20,10 +20,17 @@ pub enum TreeStoreError {
 }
 
 #[derive(Clone, Debug)]
-pub struct StoreDelta<HO: HashOutput> {
-    pub root: HO,
+pub struct StoreDelta<HO> {
     pub add: Vec<Node<HO>>,
     pub remove: Vec<HO>,
+}
+impl<HO> StoreDelta<HO> {
+    pub fn new() -> Self {
+        StoreDelta {
+            add: Vec::new(),
+            remove: Vec::new(),
+        }
+    }
 }
 
 pub trait TreeStoreReader<HO> {
