@@ -180,7 +180,7 @@ impl<'a> EntryHmacBuilder<'a> {
                 mac.update(b"|");
                 mac.update(&p.root_hash.0);
             }
-            None => mac.update(b"none"),
+            None => mac.update(b"none|none"),
         }
 
         mac.update(b"|");
