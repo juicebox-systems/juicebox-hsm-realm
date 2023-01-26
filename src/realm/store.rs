@@ -3,10 +3,15 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
 use tracing::trace;
 
+mod kv;
 pub mod types;
 
+use self::types::{BuildKeyProofRequest, BuildKeyProofResponse};
+
 use super::agent::Agent;
-use super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordMap};
+use super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId};
+use super::merkle::agent::{StoreDelta, TreeStoreError};
+use kv::MemStore;
 use types::{
     AddressEntry, AppendRequest, AppendResponse, DataChange, GetAddressesRequest,
     GetAddressesResponse, ReadEntryRequest, ReadEntryResponse, ReadLatestRequest,
@@ -16,12 +21,12 @@ use types::{
 pub struct Store {
     groups: HashMap<(RealmId, GroupId), GroupState>,
     addresses: HashMap<HsmId, Addr<Agent>>,
+    kv: MemStore,
 }
 
 struct GroupState {
-    log: Vec<LogEntry>,      // never empty
-    data: Option<RecordMap>, // group doesn't have any data if it doesn't own a partition
-    transferring_out: Option<RecordMap>,
+    log: Vec<LogEntry>, // never empty
+    transferring_out: Option<StoreDelta<DataHash>>,
 }
 
 impl Store {
@@ -29,6 +34,7 @@ impl Store {
         Self {
             groups: HashMap::new(),
             addresses: HashMap::new(),
+            kv: MemStore::new(),
         }
     }
 }
@@ -50,8 +56,8 @@ impl Handler<AppendRequest> for Store {
                 if request.entry.index == last.index.next() {
                     state.log.push(request.entry);
                     match request.data {
-                        DataChange::Set(data) => {
-                            state.data = Some(data);
+                        DataChange::Delta(delta) => {
+                            self.kv.apply_store_delta(delta);
                         }
                         DataChange::Delete => {
                             panic!("not allowed to delete a group's data (because that spreads Option everywhere for not much benefit)");
@@ -59,7 +65,7 @@ impl Handler<AppendRequest> for Store {
                         DataChange::None => {}
                     }
                     match request.transferring_out {
-                        DataChange::Set(data) => {
+                        DataChange::Delta(data) => {
                             state.transferring_out = Some(data);
                         }
                         DataChange::Delete => {
@@ -80,14 +86,17 @@ impl Handler<AppendRequest> for Store {
                     };
                     let state = GroupState {
                         log: vec![request.entry],
-                        data: match request.data {
-                            DataChange::None => None,
-                            DataChange::Set(data) => Some(data),
-                            DataChange::Delete => None,
-                        },
                         transferring_out: None,
                     };
                     bucket.insert(state);
+                    match request.data {
+                        DataChange::Delta(delta) => {
+                            // assert!(request.entry.partition.is_some());
+                            self.kv.apply_store_delta(delta);
+                        }
+                        DataChange::Delete => panic!("not allowed to delete a group's data (because that spreads Option everywhere for not much benefit)"),
+                        DataChange::None => {}
+                    }
                     AppendResponse::Ok
                 } else {
                     AppendResponse::PreconditionFailed
@@ -138,11 +147,47 @@ impl Handler<ReadLatestRequest> for Store {
                 let last = state.log.last().unwrap();
                 ReadLatestResponse::Ok {
                     entry: last.clone(),
-                    data: match &state.data {
-                        None => super::hsm::types::EMPTY_RECORDS.clone(),
-                        Some(data) => data.clone(),
-                    },
                     transferring_out: state.transferring_out.clone(),
+                }
+            }
+        };
+        trace!(?response);
+        response
+    }
+}
+
+impl Handler<BuildKeyProofRequest> for Store {
+    type Result = BuildKeyProofResponse;
+
+    fn handle(&mut self, request: BuildKeyProofRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        trace!(?request);
+        let response = match self.groups.get(&(request.realm, request.group)) {
+            None => BuildKeyProofResponse::UnknownGroup,
+
+            Some(state) => {
+                let last = state.log.last().unwrap();
+                match &last.partition {
+                    None => BuildKeyProofResponse::NotOwner,
+                    Some(partition) => {
+                        if !partition.prefix.contains(&request.record) {
+                            BuildKeyProofResponse::NotOwner
+                        } else {
+                            match super::merkle::agent::read(
+                                &self.kv,
+                                &partition.hash,
+                                &request.record.0,
+                                partition.prefix.0.len(),
+                            ) {
+                                Ok(proof) => BuildKeyProofResponse::Ok {
+                                    proof,
+                                    index: last.index,
+                                },
+                                Err(TreeStoreError::NoSuchRecord) => {
+                                    BuildKeyProofResponse::StoreMissingNode
+                                }
+                            }
+                        }
+                    }
                 }
             }
         };

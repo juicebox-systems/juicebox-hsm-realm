@@ -317,7 +317,7 @@ pub async fn transfer(
     // accept a prefix is one that owns no prefix or one that owns the
     // complementary prefix (the one with its least significant bit flipped).
 
-    let partition = match source_leader
+    let transferring_partition = match source_leader
         .send(TransferOutRequest {
             realm,
             source,
@@ -327,7 +327,7 @@ pub async fn transfer(
         .await
     {
         Err(e) => todo!("{e:?}"),
-        Ok(TransferOutResponse::Ok { partition }) => partition,
+        Ok(TransferOutResponse::Ok { transferring }) => transferring,
         Ok(r) => todo!("{r:?}"),
     };
 
@@ -359,7 +359,7 @@ pub async fn transfer(
             realm,
             source,
             destination,
-            partition,
+            transfering: transferring_partition,
             nonce,
             statement,
         })

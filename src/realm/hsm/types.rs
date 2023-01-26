@@ -1,11 +1,9 @@
 use actix::prelude::*;
-use bitvec::prelude::BitVec;
 use hmac::Hmac;
 use sha2::Sha256;
-use std::collections::BTreeMap;
 use std::fmt;
 
-use super::app::Record;
+use super::super::merkle::{agent::StoreDelta, HashOutput, KeySlice, KeyVec, ReadProof};
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq)]
 pub struct RealmId(pub [u8; 16]);
@@ -44,17 +42,17 @@ impl fmt::Debug for HsmId {
 }
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
-pub struct RecordId(pub BitVec);
-
+pub struct RecordId(pub [u8; 32]);
+impl RecordId {
+    pub fn size() -> usize {
+        256 // TODO: There's probably some generics gymnastics that could be done here.
+    }
+}
 impl fmt::Debug for RecordId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "0b")?;
-        for bit in &self.0 {
-            if *bit {
-                write!(f, "1")?;
-            } else {
-                write!(f, "0")?;
-            }
+        write!(f, "0x")?;
+        for x in &self.0 {
+            write!(f, "{:02x}", x)?;
         }
         Ok(())
     }
@@ -117,15 +115,15 @@ impl fmt::Debug for EntryHmac {
 }
 
 #[derive(Clone, Eq, PartialEq)]
-pub struct OwnedPrefix(pub BitVec);
+pub struct OwnedPrefix(pub KeyVec);
 
 impl OwnedPrefix {
     pub fn full() -> Self {
-        Self(BitVec::new())
+        Self(KeyVec::new())
     }
 
     pub fn contains(&self, rid: &RecordId) -> bool {
-        rid.0.starts_with(&self.0)
+        KeySlice::from_slice(&rid.0).starts_with(&self.0)
     }
 }
 
@@ -143,7 +141,7 @@ impl fmt::Debug for OwnedPrefix {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct DataHash(pub digest::Output<Sha256>);
 
 impl fmt::Debug for DataHash {
@@ -154,12 +152,11 @@ impl fmt::Debug for DataHash {
         Ok(())
     }
 }
-
-#[derive(Clone, Debug)]
-pub struct RecordMap(pub(super) BTreeMap<RecordId, Record>);
-
-// TODO, this'll go away soon
-pub static EMPTY_RECORDS: RecordMap = RecordMap(BTreeMap::new());
+impl HashOutput for DataHash {
+    fn as_u8(&self) -> &[u8] {
+        &self.0
+    }
+}
 
 /// Set of HSMs forming a group.
 ///
@@ -257,6 +254,7 @@ pub struct NewRealmRequest {
 }
 
 #[derive(Debug, MessageResponse)]
+#[allow(clippy::large_enum_variant)]
 pub enum NewRealmResponse {
     Ok(NewGroupInfo),
     HaveRealm,
@@ -270,7 +268,7 @@ pub struct NewGroupInfo {
     pub statement: GroupConfigurationStatement,
     pub entry: LogEntry,
     pub partition: Option<Partition>,
-    pub data: Option<RecordMap>,
+    pub data: Option<StoreDelta<DataHash>>,
 }
 
 #[derive(Debug, Message)]
@@ -293,6 +291,7 @@ pub struct NewGroupRequest {
 }
 
 #[derive(Debug, MessageResponse)]
+#[allow(clippy::large_enum_variant)]
 pub enum NewGroupResponse {
     Ok(NewGroupInfo),
     InvalidRealm,
@@ -407,7 +406,7 @@ pub struct TransferOutRequest {
     pub destination: GroupId,
     pub prefix: OwnedPrefix,
     pub index: LogIndex,
-    pub data: RecordMap,
+    pub proof: ReadProof<DataHash>,
 }
 
 #[derive(Debug, MessageResponse)]
@@ -415,8 +414,8 @@ pub struct TransferOutRequest {
 pub enum TransferOutResponse {
     Ok {
         entry: LogEntry,
-        keeping: Option<RecordMap>,
-        transferring: RecordMap,
+        keeping: Option<StoreDelta<DataHash>>,
+        transferring: StoreDelta<DataHash>,
     },
     InvalidRealm,
     InvalidGroup,
@@ -425,7 +424,8 @@ pub enum TransferOutResponse {
     /// bit beyond the currently owned prefix.
     NotOwner,
     StaleIndex,
-    InvalidData,
+    StaleProof,
+    InvalidProof,
 }
 
 #[derive(Debug, Message)]
@@ -467,8 +467,8 @@ pub enum TransferStatementResponse {
 pub struct TransferInRequest {
     pub realm: RealmId,
     pub destination: GroupId,
-    pub data: RecordMap,
-    pub partition: Partition,
+    pub transfering: Partition,
+    pub delta: StoreDelta<DataHash>,
     pub nonce: TransferNonce,
     pub statement: TransferStatement,
 }
@@ -476,14 +476,13 @@ pub struct TransferInRequest {
 #[derive(Debug, MessageResponse)]
 #[allow(clippy::large_enum_variant)]
 pub enum TransferInResponse {
-    Ok { entry: LogEntry, data: RecordMap },
+    Ok { entry: LogEntry },
     InvalidRealm,
     InvalidGroup,
     NotLeader,
     UnacceptablePrefix,
     InvalidNonce,
     InvalidStatement,
-    InvalidData,
 }
 
 #[derive(Debug, Message)]
@@ -513,21 +512,21 @@ pub struct AppRequest {
     pub rid: RecordId,
     pub request: SecretsRequest,
     pub index: LogIndex,
-    // TODO: With a Merkle tree, this would be a record and a proof.
-    pub data: RecordMap,
+    pub proof: ReadProof<DataHash>,
 }
 
 #[derive(Debug, MessageResponse)]
 #[allow(clippy::large_enum_variant)]
+#[allow(dead_code)]
 pub enum AppResponse {
     Ok {
         entry: LogEntry,
-        // TODO: With a Merkle tree, this would be a record and a proof.
-        data: RecordMap,
+        delta: Option<StoreDelta<DataHash>>,
     },
     InvalidRealm,
     InvalidGroup,
     StaleIndex,
+    StaleProof,
     Busy,
     NotOwner,
     NotLeader,

@@ -1,7 +1,7 @@
 use std::fmt;
 
 use actix::prelude::*;
-use bitvec::{prelude::Msb0, slice::BitSlice, vec::BitVec};
+use bitvec::vec::BitVec;
 use sha2::{Digest, Sha256};
 
 use super::super::hsm::types as hsm_types;
@@ -146,14 +146,14 @@ pub struct TransferOutRequest {
 // until the entry has committed, so not waiting here is OK.
 #[derive(Debug, MessageResponse)]
 pub enum TransferOutResponse {
-    // The partition being transfered out
-    Ok { partition: Partition },
+    Ok { transferring: Partition },
     NoStore,
     NoHsm,
     InvalidRealm,
     InvalidGroup,
     NotLeader,
     NotOwner,
+    InvalidProof,
 }
 
 #[derive(Debug, Message)]
@@ -197,7 +197,7 @@ pub struct TransferInRequest {
     pub realm: RealmId,
     pub source: GroupId,
     pub destination: GroupId,
-    pub partition: Partition,
+    pub transfering: Partition,
     pub nonce: TransferNonce,
     pub statement: TransferStatement,
 }
@@ -303,11 +303,6 @@ impl From<(TenantId, UserId)> for RecordId {
                 h.update([0]);
             }
         }
-        // TODO: This is dumb, we need to align on a u8 based BitVec across the board i think.
-        let res: [u8; 32] = h.finalize().into();
-        let mut r = BitVec::with_capacity(256);
-        let bs = BitSlice::<u8, Msb0>::from_slice(&res);
-        r.extend(bs);
-        RecordId(r)
+        RecordId(h.finalize().into())
     }
 }

@@ -19,7 +19,7 @@ pub enum TreeStoreError {
     NoSuchRecord,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StoreDelta<HO: HashOutput> {
     pub root: HO,
     pub add: Vec<Node<HO>>,
@@ -27,7 +27,7 @@ pub struct StoreDelta<HO: HashOutput> {
 }
 
 pub trait TreeStoreReader<HO> {
-    fn fetch(&self, k: &[u8]) -> Result<Node<HO>, TreeStoreError>;
+    fn fetch(&self, k: &HO) -> Result<Node<HO>, TreeStoreError>;
 }
 
 pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
@@ -36,7 +36,7 @@ pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
     k: &[u8],
     prefix_size: usize,
 ) -> Result<ReadProof<HO>, TreeStoreError> {
-    let root = match store.fetch(root_hash.as_u8())? {
+    let root = match store.fetch(root_hash)? {
         Node::Interior(int) => int,
         Node::Leaf(_) => panic!("found unexpected leaf node"),
     };
@@ -53,7 +53,7 @@ pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
                     return Ok(res);
                 }
                 key = &key[b.prefix.len()..];
-                match store.fetch(b.hash.as_u8())? {
+                match store.fetch(&b.hash)? {
                     Node::Interior(int) => {
                         res.path.push(int);
                         continue;

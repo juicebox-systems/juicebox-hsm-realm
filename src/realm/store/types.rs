@@ -1,7 +1,10 @@
 use actix::prelude::*;
 
+use crate::realm::hsm::types::RecordId;
+
 use super::super::agent::Agent;
-use super::super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordMap};
+use super::super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId};
+use super::super::merkle::{agent::StoreDelta, ReadProof};
 
 #[derive(Debug, Message)]
 #[rtype(result = "AppendResponse")]
@@ -15,7 +18,7 @@ pub struct AppendRequest {
 
 #[derive(Debug)]
 pub enum DataChange {
-    Set(RecordMap),
+    Delta(StoreDelta<DataHash>),
     Delete,
     None,
 }
@@ -53,10 +56,27 @@ pub struct ReadLatestRequest {
 pub enum ReadLatestResponse {
     Ok {
         entry: LogEntry,
-        data: RecordMap,
-        transferring_out: Option<RecordMap>,
+        transferring_out: Option<StoreDelta<DataHash>>,
     },
     None,
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "BuildKeyProofResponse")]
+pub struct BuildKeyProofRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+    pub record: RecordId,
+}
+#[derive(Debug, MessageResponse)]
+pub enum BuildKeyProofResponse {
+    Ok {
+        proof: ReadProof<DataHash>,
+        index: LogIndex,
+    },
+    UnknownGroup,
+    NotOwner,
+    StoreMissingNode,
 }
 
 #[derive(Debug, Message)]
