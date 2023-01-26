@@ -267,7 +267,6 @@ pub struct NewGroupInfo {
     pub group: GroupId,
     pub statement: GroupConfigurationStatement,
     pub entry: LogEntry,
-    pub partition: Option<Partition>,
     pub delta: Option<StoreDelta<DataHash>>,
 }
 

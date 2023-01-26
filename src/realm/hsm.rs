@@ -407,7 +407,7 @@ impl Hsm {
 
         let entry = LogEntry {
             index,
-            partition: partition.clone(),
+            partition,
             transferring_out,
             prev_hmac,
             entry_hmac,
@@ -438,7 +438,6 @@ impl Hsm {
             group,
             statement,
             entry,
-            partition,
             delta: data,
         }
     }
