@@ -281,8 +281,7 @@ impl Handler<Recover1Request> for Server {
 
             Some((generation, GenerationRecord::Registering)) => {
                 println!(
-                    "{server_name}: can't recover {user:?} at generation {:?}: partially registered",
-                    generation
+                    "{server_name}: can't recover {user:?} at generation {generation:?}: partially registered"
                 );
                 return Recover1Response::PartiallyRegistered {
                     generation,
@@ -293,8 +292,7 @@ impl Handler<Recover1Request> for Server {
             Some((generation, GenerationRecord::Registered(record))) => {
                 if record.guess_count >= record.policy.num_guesses {
                     println!(
-                        "{server_name}: can't recover {user:?} at generation {}: out of guesses",
-                        generation
+                        "{server_name}: can't recover {user:?} at generation {generation}: out of guesses"
                     );
                     return Recover1Response::NoGuesses {
                         generation,
@@ -307,10 +305,7 @@ impl Handler<Recover1Request> for Server {
         };
 
         let blinded_oprf_pin = self.evaluate_oprf(&user, generation, &request.blinded_pin);
-        println!(
-            "{server_name}: recover1 {user:?} at generation {} completed",
-            generation
-        );
+        println!("{server_name}: recover1 {user:?} at generation {generation} completed");
         Recover1Response::Ok {
             generation,
             blinded_oprf_pin,

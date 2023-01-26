@@ -700,7 +700,7 @@ impl<HO: Debug> Debug for Delta<HO> {
             )?;
         }
         for n in &self.remove {
-            writeln!(f, "remove {:?}", n)?;
+            writeln!(f, "remove {n:?}")?;
         }
         Ok(())
     }
@@ -752,9 +752,9 @@ pub trait NodeHasher<HO> {
     fn calc_hash(&self, parts: &[&[u8]]) -> HO;
 }
 
-fn common_prefix<'a, 'b, U: BitStore, O: BitOrder>(
+fn common_prefix<'a, U: BitStore, O: BitOrder>(
     a: &'a BitSlice<U, O>,
-    b: &'b BitSlice<U, O>,
+    b: &BitSlice<U, O>,
 ) -> &'a BitSlice<U, O> {
     assert_eq!(a.len(), b.len());
     match zip(a.iter(), b.iter()).position(|(x, y)| x != y) {
