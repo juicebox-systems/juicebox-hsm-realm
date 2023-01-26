@@ -12,13 +12,7 @@ pub struct AppendRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub entry: LogEntry,
-    pub data: DataChange,
-}
-
-#[derive(Debug)]
-pub enum DataChange {
-    Delta(StoreDelta<DataHash>),
-    None,
+    pub delta: Option<StoreDelta<DataHash>>,
 }
 
 #[derive(Debug, MessageResponse)]
