@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use bitvec::{order::Msb0, prelude::BitOrder, slice::BitSlice, store::BitStore, vec::BitVec};
+use bitvec::prelude::*;
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
@@ -891,15 +891,12 @@ mod tests {
     }
     #[test]
     fn test_insert_lots_prefix_1bit() {
-        let mut p1 = KeyVec::new();
-        p1.push(false);
+        let p1 = bitvec![u8, Msb0; 0];
         test_insert_lots_with_prefix(&p1);
     }
     #[test]
     fn test_insert_lots_prefix_2bit() {
-        let mut p2 = KeyVec::new();
-        p2.push(true);
-        p2.push(false);
+        let p2 = bitvec![u8, Msb0; 1, 0];
         test_insert_lots_with_prefix(&p2);
     }
 
@@ -1122,9 +1119,9 @@ mod tests {
     fn test_empty_root_prefix_hash() {
         let h = TestHasher {};
         let root = InteriorNode::new(&h, &BitVec::new(), None, None);
-        let p0 = KeyVec::repeat(false, 1);
+        let p0 = bitvec![u8, Msb0; 0];
         let root_p0 = InteriorNode::new(&h, &p0, None, None);
-        let p1 = KeyVec::repeat(true, 1);
+        let p1 = bitvec![u8, Msb0; 1];
         let root_p1 = InteriorNode::new(&h, &p1, None, None);
         assert_ne!(root.hash, root_p0.hash);
         assert_ne!(root.hash, root_p1.hash);

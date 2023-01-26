@@ -17,18 +17,15 @@ use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use server::Server;
 use types::{AuthToken, Policy};
 
+use realm::agent::{
+    types::{TenantId, UserId},
+    Agent,
+};
 use realm::hsm::types::{OwnedPrefix, RecordId, SecretsRequest, SecretsResponse};
 use realm::hsm::{Hsm, RealmKey};
 use realm::load_balancer::types::{ClientRequest, ClientResponse};
 use realm::load_balancer::LoadBalancer;
 use realm::store::Store;
-use realm::{
-    agent::{
-        types::{TenantId, UserId},
-        Agent,
-    },
-    merkle::KeyVec,
-};
 
 /// Creates HSMs and their agents.
 ///
@@ -129,7 +126,7 @@ async fn main() {
         realm_id,
         groups[1],
         groups[2],
-        OwnedPrefix(key_vec(&[1])),
+        OwnedPrefix(bitvec![u8, Msb0; 1]),
         &store,
     )
     .await
@@ -139,7 +136,7 @@ async fn main() {
         realm_id,
         groups[1],
         groups[0],
-        OwnedPrefix(key_vec(&[0, 0])),
+        OwnedPrefix(bitvec![u8, Msb0; 0,0]),
         &store,
     )
     .await
@@ -149,7 +146,7 @@ async fn main() {
         realm_id,
         groups[2],
         groups[3],
-        OwnedPrefix(key_vec(&[1, 1])),
+        OwnedPrefix(bitvec![u8, Msb0; 1, 1]),
         &store,
     )
     .await
@@ -319,16 +316,4 @@ async fn main() {
 
     println!("main: exiting");
     System::current().stop();
-}
-
-fn key_vec(bits: &[u8]) -> KeyVec {
-    let mut v = KeyVec::with_capacity(bits.len());
-    for b in bits {
-        match b {
-            0 => v.push(false),
-            1 => v.push(true),
-            _ => panic!("invalid bit value"),
-        }
-    }
-    v
 }
