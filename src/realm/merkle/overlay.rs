@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::{agent::Node, Delta, Dir, HashOutput, KeySlice, ReadProof, TreeError};
 
-// TreeOverlay keeps track of recent changes and can be used to get an upto date
+// TreeOverlay keeps track of recent changes and can be used to get an up to date
 // view of the tree for a recent ReadProof.
 pub struct TreeOverlay<HO> {
     pub latest_root: HO,
@@ -12,7 +12,7 @@ pub struct TreeOverlay<HO> {
 }
 impl<HO: HashOutput> TreeOverlay<HO> {
     // Create a new TreeOverlay given the Tree's latest root hash. For
-    // most effient memory usage max_deltas should be a power of 2 -1. e.g. 15.
+    // most efficient memory usage max_deltas should be a power of 2 -1. e.g. 15.
     pub fn new(latest_root: HO, max_deltas: u16) -> Self {
         let mut o = TreeOverlay {
             nodes: HashMap::new(),
