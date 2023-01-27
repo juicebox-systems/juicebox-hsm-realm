@@ -111,6 +111,36 @@ async fn main() {
     .unwrap();
     info!(?realm_id, new_groups = ?groups, "created groups");
 
+    info!("incrementing a small bunch");
+    let tenant_id = TenantId(bitvec::bitvec![0, 1]);
+    let rids: [RecordId; 4] = [
+        (tenant_id.clone(), UserId(bitvec::bitvec![0, 0])).into(),
+        (tenant_id.clone(), UserId(bitvec::bitvec![0, 1])).into(),
+        (tenant_id.clone(), UserId(bitvec::bitvec![1, 0])).into(),
+        (tenant_id, UserId(bitvec::bitvec![1, 1])).into(),
+    ];
+    join_all(
+        iter::zip(rids.iter().cycle(), load_balancers.iter().cycle())
+            .take(10 * rids.len())
+            .map(|(rid, load_balancer)| async move {
+                let result = load_balancer
+                    .send(ClientRequest {
+                        realm: realm_id,
+                        rid: rid.clone(),
+                        request: SecretsRequest::Increment,
+                    })
+                    .await
+                    .unwrap();
+                match result {
+                    ClientResponse::Ok(SecretsResponse::Increment(new_value)) => {
+                        trace!(?rid, new_value, "incremented")
+                    }
+                    ClientResponse::Unavailable => todo!(),
+                }
+            }),
+    )
+    .await;
+
     groups.insert(0, group_id1);
     info!(
         source = ?groups[0],
@@ -153,13 +183,6 @@ async fn main() {
     .unwrap();
 
     info!("incrementing a bunch");
-    let tenant_id = TenantId(bitvec::bitvec![0, 1]);
-    let rids: [RecordId; 4] = [
-        (tenant_id.clone(), UserId(bitvec::bitvec![0, 0])).into(),
-        (tenant_id.clone(), UserId(bitvec::bitvec![0, 1])).into(),
-        (tenant_id.clone(), UserId(bitvec::bitvec![1, 0])).into(),
-        (tenant_id, UserId(bitvec::bitvec![1, 1])).into(),
-    ];
     join_all(
         iter::zip(rids.iter().cycle(), load_balancers.iter().cycle())
             .take(99 * rids.len())
