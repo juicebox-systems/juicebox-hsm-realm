@@ -1,4 +1,5 @@
 use actix::prelude::*;
+use digest::Digest;
 use hmac::{Hmac, Mac};
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -283,14 +284,14 @@ impl<'a> TransferStatementBuilder<'a> {
     }
 }
 
-struct MerkleHasher(RealmKey);
+struct MerkleHasher();
 impl NodeHasher<DataHash> for MerkleHasher {
     fn calc_hash(&self, parts: &[&[u8]]) -> DataHash {
-        let mut h = Hmac::<Sha256>::new(&self.0 .0);
+        let mut h = Sha256::new();
         for p in parts {
             h.update(p);
         }
-        DataHash(h.finalize().into_bytes())
+        DataHash(h.finalize())
     }
 }
 
@@ -376,7 +377,7 @@ impl Hsm {
         let (partition, data) = match &owned_prefix {
             None => (None, None),
             Some(prefix) => {
-                let h = MerkleHasher(self.persistent.realm_key.clone());
+                let h = MerkleHasher();
                 let (root_hash, delta) = Tree::new_tree(&h, &prefix.0);
                 (
                     Some(Partition {
@@ -417,12 +418,9 @@ impl Hsm {
                 }],
                 committed: None,
                 incoming: None,
-                tree: partition.as_ref().map(|p| {
-                    Tree::with_existing_root(
-                        MerkleHasher(self.persistent.realm_key.clone()),
-                        p.root_hash,
-                    )
-                }),
+                tree: partition
+                    .as_ref()
+                    .map(|p| Tree::with_existing_root(MerkleHasher(), p.root_hash)),
             },
         );
 
@@ -730,12 +728,11 @@ impl Handler<BecomeLeaderRequest> for Hsm {
                 }
             }
 
-            let tree = request.last_entry.partition.as_ref().map(|p| {
-                Tree::with_existing_root(
-                    MerkleHasher(self.persistent.realm_key.clone()),
-                    p.root_hash,
-                )
-            });
+            let tree = request
+                .last_entry
+                .partition
+                .as_ref()
+                .map(|p| Tree::with_existing_root(MerkleHasher(), p.root_hash));
             self.volatile
                 .leader
                 .entry(request.group)
@@ -991,13 +988,9 @@ impl Handler<TransferOutRequest> for Hsm {
             }
             .build(&self.persistent.realm_key);
 
-            leader.tree = match &keeping_partition {
-                None => None,
-                Some(p) => Some(Tree::with_existing_root(
-                    MerkleHasher(self.persistent.realm_key.clone()),
-                    p.root_hash,
-                )),
-            };
+            leader.tree = keeping_partition
+                .as_ref()
+                .map(|p| Tree::with_existing_root(MerkleHasher(), p.root_hash));
 
             let entry = LogEntry {
                 index,
@@ -1184,10 +1177,7 @@ impl Handler<TransferInRequest> for Hsm {
                 response: None,
             });
 
-            leader.tree = Some(Tree::with_existing_root(
-                MerkleHasher(self.persistent.realm_key.clone()),
-                partition_hash,
-            ));
+            leader.tree = Some(Tree::with_existing_root(MerkleHasher(), partition_hash));
             Response::Ok { entry }
         })();
 
