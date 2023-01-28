@@ -15,9 +15,13 @@
         "merkletree",
         "nojustify",
         "oneshot",
+        "Oprf",
+        "oprfs",
         "rngs",
         "rtype",
         "Seedable",
-        "teyla"
+        "teyla",
+        "unblind",
+        "voprf"
     ]
 }

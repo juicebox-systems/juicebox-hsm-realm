@@ -1335,7 +1335,6 @@ fn handle_app_request(
                 Ok(Some(d)) => Some((*d.root(), d.store_delta())),
                 Err(_) => return Response::InvalidData,
             },
-            RecordChange::Delete => todo!(),
         },
         None => None,
     };

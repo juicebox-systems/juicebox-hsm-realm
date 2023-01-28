@@ -92,6 +92,7 @@ pub struct Server {
 }
 
 impl Server {
+    #[allow(dead_code)]
     pub fn new(name: String) -> Self {
         Self {
             name,

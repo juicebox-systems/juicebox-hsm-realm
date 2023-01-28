@@ -1,4 +1,6 @@
 use actix::prelude::*;
+use bitvec::prelude::Msb0;
+use bitvec::vec::BitVec;
 use futures::future::join_all;
 use std::collections::HashMap;
 use std::iter::zip;
@@ -6,7 +8,9 @@ use tracing::{trace, warn};
 
 pub mod types;
 
-use super::agent::types::{AppRequest, AppResponse, StatusRequest, StatusResponse};
+use super::agent::types::{
+    AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
+};
 use super::agent::Agent;
 use super::hsm::types as hsm_types;
 use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse};
@@ -113,8 +117,16 @@ async fn handle_client_request(
         return Response::Unavailable;
     };
 
+    // TODO: this is a dumb hack and obviously not what we want.
+    let token = request.request.auth_token();
+    let mut tenant = BitVec::new();
+    tenant.extend(&BitVec::<u8, Msb0>::from_slice(token.signature.as_bytes()));
+    let mut user = BitVec::new();
+    user.extend(&BitVec::<u8, Msb0>::from_slice(token.user.as_bytes()));
+    let record_id = (TenantId(tenant), UserId(user)).into();
+
     for partition in partitions {
-        if !partition.owned_prefix.contains(&request.rid) {
+        if !partition.owned_prefix.contains(&record_id) {
             continue;
         }
 
@@ -123,7 +135,7 @@ async fn handle_client_request(
             .send(AppRequest {
                 realm: request.realm,
                 group: partition.group,
-                rid: request.rid.clone(),
+                rid: record_id.clone(),
                 request: request.request.clone(),
             })
             .await;

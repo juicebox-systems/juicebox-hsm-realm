@@ -242,6 +242,7 @@ pub struct AppRequest {
 }
 
 #[derive(Debug, MessageResponse)]
+#[allow(clippy::large_enum_variant)]
 pub enum AppResponse {
     Ok(SecretsResponse),
     NoHsm,

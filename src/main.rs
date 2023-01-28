@@ -4,7 +4,7 @@ use futures::future::{join_all, try_join_all};
 use std::iter;
 use std::ops::RangeFrom;
 use std::str::FromStr;
-use tracing::{info, trace, Level};
+use tracing::{info, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::FmtSubscriber;
 
@@ -14,18 +14,12 @@ mod server;
 mod types;
 
 use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
-use server::Server;
-use types::{AuthToken, Policy};
-
-use realm::agent::{
-    types::{TenantId, UserId},
-    Agent,
-};
-use realm::hsm::types::{OwnedPrefix, RecordId, SecretsRequest, SecretsResponse};
+use realm::agent::Agent;
+use realm::hsm::types::OwnedPrefix;
 use realm::hsm::{Hsm, RealmKey};
-use realm::load_balancer::types::{ClientRequest, ClientResponse};
 use realm::load_balancer::LoadBalancer;
 use realm::store::Store;
+use types::{AuthToken, Policy};
 
 /// Creates HSMs and their agents.
 ///
@@ -111,35 +105,21 @@ async fn main() {
     .unwrap();
     info!(?realm_id, new_groups = ?groups, "created groups");
 
-    info!("incrementing a small bunch");
-    let tenant_id = TenantId(bitvec::bitvec![0, 1]);
-    let rids: [RecordId; 4] = [
-        (tenant_id.clone(), UserId(bitvec::bitvec![0, 0])).into(),
-        (tenant_id.clone(), UserId(bitvec::bitvec![0, 1])).into(),
-        (tenant_id.clone(), UserId(bitvec::bitvec![1, 0])).into(),
-        (tenant_id, UserId(bitvec::bitvec![1, 1])).into(),
-    ];
-    join_all(
-        iter::zip(rids.iter().cycle(), load_balancers.iter().cycle())
-            .take(10 * rids.len())
-            .map(|(rid, load_balancer)| async move {
-                let result = load_balancer
-                    .send(ClientRequest {
-                        realm: realm_id,
-                        rid: rid.clone(),
-                        request: SecretsRequest::Increment,
-                    })
-                    .await
-                    .unwrap();
-                match result {
-                    ClientResponse::Ok(SecretsResponse::Increment(new_value)) => {
-                        trace!(?rid, new_value, "incremented")
-                    }
-                    ClientResponse::Unavailable => todo!(),
-                }
-            }),
-    )
-    .await;
+    // creating additional groups & realms
+    let new_groups: Vec<Vec<Addr<Agent>>> = (0..3)
+        .map(|_| {
+            iter::repeat_with(|| hsm_generator.create_hsm(store.clone()))
+                .take(num_hsms)
+                .collect()
+        })
+        .collect();
+
+    let mut realm_ids: Vec<_> = join_all(new_groups.iter().map(|g| realm::cluster::new_realm(g)))
+        .await
+        .iter()
+        .map(|r| r.as_ref().unwrap().0)
+        .collect();
+    realm_ids.push(realm_id);
 
     groups.insert(0, group_id1);
     info!(
@@ -182,76 +162,29 @@ async fn main() {
     .await
     .unwrap();
 
-    info!("incrementing a bunch");
-    join_all(
-        iter::zip(rids.iter().cycle(), load_balancers.iter().cycle())
-            .take(99 * rids.len())
-            .map(|(rid, load_balancer)| async move {
-                let result = load_balancer
-                    .send(ClientRequest {
-                        realm: realm_id,
-                        rid: rid.clone(),
-                        request: SecretsRequest::Increment,
-                    })
-                    .await
-                    .unwrap();
-                match result {
-                    ClientResponse::Ok(SecretsResponse::Increment(new_value)) => {
-                        trace!(?rid, new_value, "incremented")
-                    }
-                    ClientResponse::Unavailable => todo!(),
-                }
-            }),
-    )
-    .await;
-
-    info!("reading counts after many parallel requests");
-    join_all(rids.iter().map(|rid| {
-        let load_balancer = load_balancers[0].clone();
-        async move {
-            let result = load_balancer
-                .send(ClientRequest {
-                    realm: realm_id,
-                    rid: rid.clone(),
-                    request: SecretsRequest::Increment,
-                })
-                .await
-                .unwrap();
-            match result {
-                ClientResponse::Ok(SecretsResponse::Increment(new_value)) => {
-                    info!(?rid, new_value, "incremented")
-                }
-                ClientResponse::Unavailable => todo!(),
-            }
-        }
-    }))
-    .await;
-
-    println!("main: Starting 4 servers");
-    let server1_addr = Server::new(String::from("server1")).start();
-    let server2_addr = Server::new(String::from("server2")).start();
-    let server3_addr = Server::new(String::from("server3")).start();
-    let server4_addr = Server::new(String::from("dead-server4")).start();
-    println!();
-
+    let mut lb = load_balancers.iter().cycle();
     let client = Client::new(
         Configuration {
             realms: vec![
                 Realm {
-                    address: server1_addr,
+                    address: lb.next().unwrap().clone(),
                     public_key: b"qwer".to_vec(),
+                    id: realm_ids[0],
                 },
                 Realm {
-                    address: server2_addr,
+                    address: lb.next().unwrap().clone(),
                     public_key: b"asdf".to_vec(),
+                    id: realm_ids[1],
                 },
                 Realm {
-                    address: server3_addr,
+                    address: lb.next().unwrap().clone(),
                     public_key: b"zxcv".to_vec(),
+                    id: realm_ids[2],
                 },
                 Realm {
-                    address: server4_addr,
+                    address: lb.next().unwrap().clone(),
                     public_key: b"uiop".to_vec(),
+                    id: realm_ids[3],
                 },
             ],
             register_threshold: 3,
@@ -317,14 +250,24 @@ async fn main() {
     println!("main: Starting register");
     client
         .register(
-            &Pin(b"1234".to_vec()),
-            &UserSecret(b"teyla21".to_vec()),
+            &Pin(b"4321".to_vec()),
+            &UserSecret(b"presso42".to_vec()),
             Policy { num_guesses: 2 },
         )
         .await
         .expect("register failed");
     println!("main: register succeeded");
     println!();
+
+    println!("main: Starting recover with correct PIN (guess 1)");
+    let secret = client
+        .recover(&Pin(b"4321".to_vec()))
+        .await
+        .expect("recover failed");
+    println!(
+        "main: Recovered secret {:?}",
+        String::from_utf8_lossy(&secret.0)
+    );
 
     println!("main: Deleting secret");
     match client.delete_all().await {

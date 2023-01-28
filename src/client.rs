@@ -14,13 +14,17 @@ use std::fmt::{self, Debug};
 use std::iter::zip;
 use std::ops::Deref;
 
+use super::realm::hsm::types::{RealmId, SecretsRequest, SecretsResponse};
+use super::realm::load_balancer::{
+    types::{ClientRequest, ClientResponse},
+    LoadBalancer,
+};
 use super::types::{
     AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedPgkShare, OprfBlindedResult,
     OprfCipherSuite, Policy, Recover1Request, Recover1Response, Recover2Request, Recover2Response,
     Register1Request, Register1Response, Register2Request, Register2Response, UnlockPassword,
     UserSecretShare,
 };
-use super::Server;
 
 type OprfClient = voprf::OprfClient<OprfCipherSuite>;
 type OprfResult = digest::Output<<OprfCipherSuite as voprf::CipherSuite>::Hash>;
@@ -33,10 +37,12 @@ fn oprf_output_size() -> usize {
 #[derive(Debug, Clone)]
 pub struct Realm {
     /// The network address to connect to the service.
-    pub address: Addr<Server>,
+    pub address: Addr<LoadBalancer>,
     /// A long-lived public key for which the service has the matching private
     /// key.
     pub public_key: Vec<u8>,
+    /// Temp hack
+    pub id: RealmId,
 }
 
 #[derive(Debug)]
@@ -488,37 +494,47 @@ impl Client {
     ) -> Result<OprfResult, RegisterGenError> {
         let blinded_pin = OprfClient::blind(&pin.0, &mut OsRng).expect("voprf blinding error");
 
-        let register1_request = realm.address.send(Register1Request {
-            auth_token: self.auth_token.clone(),
-            generation,
-            blinded_pin: blinded_pin.message,
+        let register1_request = realm.address.send(ClientRequest {
+            realm: realm.id,
+            request: SecretsRequest::Register1(Register1Request {
+                auth_token: self.auth_token.clone(),
+                generation,
+                blinded_pin: blinded_pin.message,
+            }),
         });
 
         match register1_request.await {
             Err(err) => Err(RegisterGenError::Error(RegisterError::NetworkError(err))),
 
             Ok(response) => match response {
-                Register1Response::Ok { blinded_oprf_pin } => {
-                    let oprf_pin = blinded_pin
-                        .state
-                        .finalize(&pin.0, &blinded_oprf_pin)
-                        .map_err(|e| {
-                            println!("failed to unblind oprf result: {e:?}");
-                            RegisterGenError::Error(RegisterError::ProtocolError)
-                        })?;
-                    if oprf_pin.len() != oprf_output_size() {
-                        return Err(RegisterGenError::Error(RegisterError::ProtocolError));
+                ClientResponse::Unavailable => {
+                    Err(RegisterGenError::Error(RegisterError::ProtocolError))
+                }
+
+                ClientResponse::Ok(SecretsResponse::Register1(rr)) => match rr {
+                    Register1Response::Ok { blinded_oprf_pin } => {
+                        let oprf_pin = blinded_pin
+                            .state
+                            .finalize(&pin.0, &blinded_oprf_pin)
+                            .map_err(|e| {
+                                println!("failed to unblind oprf result: {e:?}");
+                                RegisterGenError::Error(RegisterError::ProtocolError)
+                            })?;
+                        if oprf_pin.len() != oprf_output_size() {
+                            return Err(RegisterGenError::Error(RegisterError::ProtocolError));
+                        }
+                        Ok(oprf_pin)
                     }
-                    Ok(oprf_pin)
-                }
 
-                Register1Response::InvalidAuth => {
-                    Err(RegisterGenError::Error(RegisterError::InvalidAuth))
-                }
+                    Register1Response::InvalidAuth => {
+                        Err(RegisterGenError::Error(RegisterError::InvalidAuth))
+                    }
 
-                Register1Response::BadGeneration { first_available } => {
-                    Err(RegisterGenError::Retry(first_available))
-                }
+                    Register1Response::BadGeneration { first_available } => {
+                        Err(RegisterGenError::Retry(first_available))
+                    }
+                },
+                _ => todo!(),
             },
         }
     }
@@ -539,27 +555,34 @@ impl Client {
     ) -> Result<RegisterGenSuccess, RegisterError> {
         let masked_pgk_share = pgk_share.mask(&oprf_pin);
 
-        let register2_request = realm.address.send(Register2Request {
-            auth_token: self.auth_token.clone(),
-            generation,
-            masked_pgk_share,
-            password,
-            secret_share,
-            policy,
+        let register2_request = realm.address.send(ClientRequest {
+            realm: realm.id,
+            request: SecretsRequest::Register2(Register2Request {
+                auth_token: self.auth_token.clone(),
+                generation,
+                masked_pgk_share,
+                password,
+                secret_share,
+                policy,
+            }),
         });
 
         match register2_request.await {
             Err(err) => Err(RegisterError::NetworkError(err)),
             Ok(response) => match response {
-                Register2Response::Ok {
-                    found_earlier_generations,
-                } => Ok(RegisterGenSuccess {
-                    found_earlier_generations,
-                }),
-                Register2Response::InvalidAuth => Err(RegisterError::InvalidAuth),
-                Register2Response::NotRegistering | Register2Response::AlreadyRegistered => {
-                    Err(RegisterError::ProtocolError)
-                }
+                ClientResponse::Unavailable => Err(RegisterError::ProtocolError),
+                ClientResponse::Ok(SecretsResponse::Register2(rr)) => match rr {
+                    Register2Response::Ok {
+                        found_earlier_generations,
+                    } => Ok(RegisterGenSuccess {
+                        found_earlier_generations,
+                    }),
+                    Register2Response::InvalidAuth => Err(RegisterError::InvalidAuth),
+                    Register2Response::NotRegistering | Register2Response::AlreadyRegistered => {
+                        Err(RegisterError::ProtocolError)
+                    }
+                },
+                _ => todo!(),
             },
         }
     }
@@ -798,10 +821,13 @@ impl Client {
     ) -> Result<Recover1Success, RecoverGenError> {
         let blinded_pin = OprfClient::blind(&pin.0, &mut OsRng).expect("voprf blinding error");
 
-        let recover1_request = realm.address.send(Recover1Request {
-            auth_token: self.auth_token.clone(),
-            generation,
-            blinded_pin: blinded_pin.message,
+        let recover1_request = realm.address.send(ClientRequest {
+            realm: realm.id,
+            request: SecretsRequest::Recover1(Recover1Request {
+                auth_token: self.auth_token.clone(),
+                generation,
+                blinded_pin: blinded_pin.message,
+            }),
         });
 
         // This is a verbose way to copy some fields out to this outer scope.
@@ -825,66 +851,69 @@ impl Client {
                     retry: None,
                 })
             }
-
             Ok(response) => match response {
-                Recover1Response::Ok {
-                    generation,
-                    blinded_oprf_pin,
-                    masked_pgk_share,
-                    previous_generation,
-                } => OkResponse {
-                    generation,
-                    blinded_oprf_pin,
-                    masked_pgk_share,
-                    previous_generation,
+                ClientResponse::Unavailable => todo!(),
+                ClientResponse::Ok(SecretsResponse::Recover1(rr)) => match rr {
+                    Recover1Response::Ok {
+                        generation,
+                        blinded_oprf_pin,
+                        masked_pgk_share,
+                        previous_generation,
+                    } => OkResponse {
+                        generation,
+                        blinded_oprf_pin,
+                        masked_pgk_share,
+                        previous_generation,
+                    },
+
+                    Recover1Response::InvalidAuth => {
+                        return Err(RecoverGenError {
+                            error: RecoverError::InvalidAuth,
+                            retry: None,
+                        })
+                    }
+
+                    Recover1Response::NotRegistered {
+                        generation,
+                        previous_generation,
+                    } => {
+                        return Err(RecoverGenError {
+                            error: RecoverError::Unsuccessful(vec![(
+                                generation.unwrap_or(GenerationNumber(0)),
+                                UnsuccessfulRecoverReason::NotRegistered,
+                            )]),
+                            retry: previous_generation,
+                        });
+                    }
+
+                    Recover1Response::PartiallyRegistered {
+                        generation,
+                        previous_generation,
+                        ..
+                    } => {
+                        return Err(RecoverGenError {
+                            error: RecoverError::Unsuccessful(vec![(
+                                generation,
+                                UnsuccessfulRecoverReason::NotRegistered,
+                            )]),
+                            retry: previous_generation,
+                        });
+                    }
+
+                    Recover1Response::NoGuesses {
+                        generation,
+                        previous_generation,
+                    } => {
+                        return Err(RecoverGenError {
+                            error: RecoverError::Unsuccessful(vec![(
+                                generation,
+                                UnsuccessfulRecoverReason::NoGuesses,
+                            )]),
+                            retry: previous_generation,
+                        });
+                    }
                 },
-
-                Recover1Response::InvalidAuth => {
-                    return Err(RecoverGenError {
-                        error: RecoverError::InvalidAuth,
-                        retry: None,
-                    })
-                }
-
-                Recover1Response::NotRegistered {
-                    generation,
-                    previous_generation,
-                } => {
-                    return Err(RecoverGenError {
-                        error: RecoverError::Unsuccessful(vec![(
-                            generation.unwrap_or(GenerationNumber(0)),
-                            UnsuccessfulRecoverReason::NotRegistered,
-                        )]),
-                        retry: previous_generation,
-                    });
-                }
-
-                Recover1Response::PartiallyRegistered {
-                    generation,
-                    previous_generation,
-                    ..
-                } => {
-                    return Err(RecoverGenError {
-                        error: RecoverError::Unsuccessful(vec![(
-                            generation,
-                            UnsuccessfulRecoverReason::NotRegistered,
-                        )]),
-                        retry: previous_generation,
-                    });
-                }
-
-                Recover1Response::NoGuesses {
-                    generation,
-                    previous_generation,
-                } => {
-                    return Err(RecoverGenError {
-                        error: RecoverError::Unsuccessful(vec![(
-                            generation,
-                            UnsuccessfulRecoverReason::NoGuesses,
-                        )]),
-                        retry: previous_generation,
-                    });
-                }
+                _ => todo!(),
             },
         };
 
@@ -927,25 +956,32 @@ impl Client {
         generation: GenerationNumber,
         password: UnlockPassword,
     ) -> Result<UserSecretShare, RecoverError> {
-        let recover2_request = realm.address.send(Recover2Request {
-            auth_token: self.auth_token.clone(),
-            generation,
-            password,
+        let recover2_request = realm.address.send(ClientRequest {
+            realm: realm.id,
+            request: SecretsRequest::Recover2(Recover2Request {
+                auth_token: self.auth_token.clone(),
+                generation,
+                password,
+            }),
         });
 
         match recover2_request.await {
             Err(err) => Err(RecoverError::NetworkError(err)),
-            Ok(response) => match response {
-                Recover2Response::Ok(secret_share) => Ok(secret_share),
-                Recover2Response::InvalidAuth => Err(RecoverError::InvalidAuth),
-                Recover2Response::NotRegistered => Err(RecoverError::Unsuccessful(vec![(
-                    generation,
-                    UnsuccessfulRecoverReason::NotRegistered,
-                )])),
-                Recover2Response::BadUnlockPassword => Err(RecoverError::Unsuccessful(vec![(
-                    generation,
-                    UnsuccessfulRecoverReason::FailedUnlock,
-                )])),
+            Ok(ClientResponse::Unavailable) => todo!(),
+            Ok(ClientResponse::Ok(cr)) => match cr {
+                SecretsResponse::Recover2(rr) => match rr {
+                    Recover2Response::Ok(secret_share) => Ok(secret_share),
+                    Recover2Response::InvalidAuth => Err(RecoverError::InvalidAuth),
+                    Recover2Response::NotRegistered => Err(RecoverError::Unsuccessful(vec![(
+                        generation,
+                        UnsuccessfulRecoverReason::NotRegistered,
+                    )])),
+                    Recover2Response::BadUnlockPassword => Err(RecoverError::Unsuccessful(vec![(
+                        generation,
+                        UnsuccessfulRecoverReason::FailedUnlock,
+                    )])),
+                },
+                _ => todo!(),
             },
         }
     }
@@ -970,7 +1006,7 @@ impl Client {
             .map(|realm| self.delete_on_realm(realm, up_to));
 
         // Use `join_all` instead of `try_join_all` so that a failed delete
-        // request does not short-ciruit other requests (which may still
+        // request does not short-circuit other requests (which may still
         // succeed).
         join_all(requests).await.into_iter().collect()
     }
@@ -983,18 +1019,23 @@ impl Client {
     ) -> Result<(), DeleteError> {
         let delete_result = realm
             .address
-            .send(DeleteRequest {
-                auth_token: self.auth_token.clone(),
-                up_to,
+            .send(ClientRequest {
+                realm: realm.id,
+                request: SecretsRequest::Delete(DeleteRequest {
+                    auth_token: self.auth_token.clone(),
+                    up_to,
+                }),
             })
             .await;
 
         match delete_result {
             Err(err) => Err(DeleteError::NetworkError(err)),
-            Ok(response) => match response {
+            Ok(ClientResponse::Unavailable) => todo!(),
+            Ok(ClientResponse::Ok(SecretsResponse::Delete(dr))) => match dr {
                 DeleteResponse::Ok => Ok(()),
                 DeleteResponse::InvalidAuth => Err(DeleteError::InvalidAuth),
             },
+            _ => todo!(),
         }
     }
 }

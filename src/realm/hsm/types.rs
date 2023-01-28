@@ -3,6 +3,10 @@ use hmac::Hmac;
 use sha2::Sha256;
 use std::fmt;
 
+use super::super::super::types::{
+    AuthToken, DeleteRequest, DeleteResponse, Recover1Request, Recover1Response, Recover2Request,
+    Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,
+};
 use super::super::merkle::{agent::StoreDelta, HashOutput, KeySlice, KeyVec, ReadProof};
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq)]
@@ -529,10 +533,30 @@ pub enum AppResponse {
 
 #[derive(Clone, Debug)]
 pub enum SecretsRequest {
-    Increment,
+    Register1(Register1Request),
+    Register2(Register2Request),
+    Recover1(Recover1Request),
+    Recover2(Recover2Request),
+    Delete(DeleteRequest),
+}
+impl SecretsRequest {
+    pub fn auth_token(&self) -> &AuthToken {
+        match self {
+            SecretsRequest::Register1(r) => &r.auth_token,
+            SecretsRequest::Register2(r) => &r.auth_token,
+            SecretsRequest::Recover1(r) => &r.auth_token,
+            SecretsRequest::Recover2(r) => &r.auth_token,
+            SecretsRequest::Delete(r) => &r.auth_token,
+        }
+    }
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum SecretsResponse {
-    Increment(u64),
+    Register1(Register1Response),
+    Register2(Register2Response),
+    Recover1(Recover1Response),
+    Recover2(Recover2Response),
+    Delete(DeleteResponse),
 }
