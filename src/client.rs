@@ -582,7 +582,7 @@ impl Client {
                         Err(RegisterError::ProtocolError)
                     }
                 },
-                _ => todo!(),
+                ClientResponse::Ok(_) => todo!(),
             },
         }
     }
@@ -913,7 +913,7 @@ impl Client {
                         });
                     }
                 },
-                _ => todo!(),
+                ClientResponse::Ok(_) => todo!(),
             },
         };
 
@@ -968,21 +968,19 @@ impl Client {
         match recover2_request.await {
             Err(err) => Err(RecoverError::NetworkError(err)),
             Ok(ClientResponse::Unavailable) => todo!(),
-            Ok(ClientResponse::Ok(cr)) => match cr {
-                SecretsResponse::Recover2(rr) => match rr {
-                    Recover2Response::Ok(secret_share) => Ok(secret_share),
-                    Recover2Response::InvalidAuth => Err(RecoverError::InvalidAuth),
-                    Recover2Response::NotRegistered => Err(RecoverError::Unsuccessful(vec![(
-                        generation,
-                        UnsuccessfulRecoverReason::NotRegistered,
-                    )])),
-                    Recover2Response::BadUnlockPassword => Err(RecoverError::Unsuccessful(vec![(
-                        generation,
-                        UnsuccessfulRecoverReason::FailedUnlock,
-                    )])),
-                },
-                _ => todo!(),
+            Ok(ClientResponse::Ok(SecretsResponse::Recover2(rr))) => match rr {
+                Recover2Response::Ok(secret_share) => Ok(secret_share),
+                Recover2Response::InvalidAuth => Err(RecoverError::InvalidAuth),
+                Recover2Response::NotRegistered => Err(RecoverError::Unsuccessful(vec![(
+                    generation,
+                    UnsuccessfulRecoverReason::NotRegistered,
+                )])),
+                Recover2Response::BadUnlockPassword => Err(RecoverError::Unsuccessful(vec![(
+                    generation,
+                    UnsuccessfulRecoverReason::FailedUnlock,
+                )])),
             },
+            Ok(ClientResponse::Ok(_)) => todo!(),
         }
     }
 
