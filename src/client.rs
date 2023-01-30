@@ -534,7 +534,7 @@ impl Client {
                         Err(RegisterGenError::Retry(first_available))
                     }
                 },
-                _ => todo!(),
+                ClientResponse::Ok(_) => todo!(),
             },
         }
     }
