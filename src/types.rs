@@ -1,6 +1,7 @@
 //! Data types shared between the client and server.
 
 use actix::prelude::*;
+use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 
 use std::fmt::{self, Debug, Display};
@@ -26,7 +27,7 @@ impl Debug for AuthToken {
 ///
 /// The client needs a threshold number of such shares to recover the user's
 /// secret.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct UserSecretShare(pub Vec<u8>);
 
 impl From<Vec<u8>> for UserSecretShare {
@@ -42,7 +43,7 @@ impl Debug for UserSecretShare {
 }
 
 /// Defines restrictions on how a secret may be accessed.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Policy {
     /// The number of guesses allowed before the secret can no longer be
     /// accessed.
@@ -62,7 +63,7 @@ pub struct Policy {
 ///
 /// The client needs the correct PIN and a threshold number of such shares and
 /// OPRF results to recover the password-generating key.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MaskedPgkShare(pub Vec<u8>);
 
 impl Debug for MaskedPgkShare {
@@ -74,7 +75,7 @@ impl Debug for MaskedPgkShare {
 /// A pseudo-random value that the client assigns to a realm when registering a
 /// share of the user's secret and must provide to the realm during recovery to
 /// get back the share.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct UnlockPassword(pub Vec<u8>);
 
 impl Debug for UnlockPassword {
@@ -98,7 +99,7 @@ impl ConstantTimeEq for UnlockPassword {
 ///
 /// Generation numbers are an implementation detail. They are exposed publicly
 /// for the purpose of error messages only.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct GenerationNumber(pub u64);
 
 impl Display for GenerationNumber {
@@ -108,7 +109,7 @@ impl Display for GenerationNumber {
 }
 
 /// Request message for the first phase of registration.
-#[derive(Debug, Message)]
+#[derive(Clone, Debug, Message)]
 #[rtype(result = "Register1Response")]
 pub struct Register1Request {
     pub auth_token: AuthToken,
@@ -125,7 +126,7 @@ pub enum Register1Response {
 }
 
 /// Request message for the second phase of registration.
-#[derive(Debug, Message)]
+#[derive(Clone, Debug, Message)]
 #[rtype(result = "Register2Response")]
 pub struct Register2Request {
     pub auth_token: AuthToken,
@@ -146,7 +147,7 @@ pub enum Register2Response {
 }
 
 /// Request message for the first phase of recovery.
-#[derive(Debug, Message)]
+#[derive(Clone, Debug, Message)]
 #[rtype(result = "Recover1Response")]
 pub struct Recover1Request {
     pub auth_token: AuthToken,
@@ -184,7 +185,7 @@ pub enum Recover1Response {
 }
 
 /// Request message for the second phase of recovery.
-#[derive(Debug, Message)]
+#[derive(Clone, Debug, Message)]
 #[rtype(result = "Recover2Response")]
 pub struct Recover2Request {
     pub auth_token: AuthToken,
@@ -202,7 +203,7 @@ pub enum Recover2Response {
 }
 
 /// Request message to delete registered secrets.
-#[derive(Debug, Message)]
+#[derive(Clone, Debug, Message)]
 #[rtype(result = "DeleteResponse")]
 pub struct DeleteRequest {
     pub auth_token: AuthToken,

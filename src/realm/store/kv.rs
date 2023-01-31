@@ -4,35 +4,47 @@ use std::collections::HashMap;
 
 use tracing::{trace, warn};
 
-use super::super::super::realm::hsm::types::DataHash;
+use super::super::hsm::types::{DataHash, RealmId};
 use super::super::merkle::agent::{Node, StoreDelta, TreeStoreError, TreeStoreReader};
 
 pub struct MemStore {
-    nodes: HashMap<DataHash, Node<DataHash>>,
+    realms: HashMap<RealmId, HashMap<DataHash, Node<DataHash>>>,
 }
 impl MemStore {
     pub fn new() -> MemStore {
         MemStore {
-            nodes: HashMap::new(),
+            realms: HashMap::new(),
         }
     }
-    pub fn apply_store_delta(&mut self, d: StoreDelta<DataHash>) {
-        trace!(store =?self, delta =?d);
+    pub fn apply_store_delta(&mut self, realm: &RealmId, d: StoreDelta<DataHash>) {
+        trace!(store =?self, ?realm, delta =?d);
+        let nodes = self.realms.entry(*realm).or_insert_with(HashMap::new);
+
         for n in d.add {
-            self.nodes.insert(n.hash(), n);
+            nodes.insert(n.hash(), n);
         }
         for r in d.remove {
-            self.nodes.remove(&r);
+            nodes.remove(&r);
+        }
+    }
+
+    pub fn reader(&self, realm: &RealmId) -> impl TreeStoreReader<DataHash> + '_ {
+        match self.realms.get(realm) {
+            Some(nodes) => RealmTreeStoreReader { nodes },
+            None => todo!(),
         }
     }
 }
 impl std::fmt::Debug for MemStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MemStore {} nodes", self.nodes.len())
+        write!(f, "MemStore {} realms", self.realms.len())
     }
 }
 
-impl TreeStoreReader<DataHash> for MemStore {
+struct RealmTreeStoreReader<'a> {
+    nodes: &'a HashMap<DataHash, Node<DataHash>>,
+}
+impl<'a> TreeStoreReader<DataHash> for RealmTreeStoreReader<'a> {
     fn fetch(&self, k: &DataHash) -> Result<Node<DataHash>, TreeStoreError> {
         match self.nodes.get(k) {
             None => {

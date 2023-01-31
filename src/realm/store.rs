@@ -55,7 +55,7 @@ impl Handler<AppendRequest> for Store {
                 if request.entry.index == last.index.next() {
                     state.log.push(request.entry);
                     if let Some(delta) = request.delta {
-                        self.kv.apply_store_delta(delta);
+                        self.kv.apply_store_delta(&request.realm, delta);
                     }
                     AppendResponse::Ok
                 } else {
@@ -67,7 +67,7 @@ impl Handler<AppendRequest> for Store {
                 if request.entry.index == LogIndex(1) {
                     if let Some(delta) = request.delta {
                         assert!(request.entry.partition.is_some());
-                        self.kv.apply_store_delta(delta);
+                        self.kv.apply_store_delta(&request.realm, delta);
                     }
                     let state = GroupState {
                         log: vec![request.entry],
@@ -148,7 +148,7 @@ impl Handler<GetRecordProofRequest> for Store {
                             GetRecordProofResponse::NotOwner
                         } else {
                             match super::merkle::agent::read(
-                                &self.kv,
+                                &self.kv.reader(&request.realm),
                                 &partition.root_hash,
                                 request.record,
                                 partition.prefix.0.len(),

@@ -14,7 +14,7 @@ pub mod types;
 use crate::realm::merkle::TreeError;
 
 use super::merkle::{NodeHasher, Tree};
-use app::RecordChange;
+use app::{RecordChange, RootOprfKey};
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
     CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse, CompleteTransferRequest,
@@ -305,6 +305,7 @@ struct PersistentState {
     id: HsmId,
     realm_key: RealmKey,
     realm: Option<PersistentRealmState>,
+    root_oprf_key: RootOprfKey,
 }
 
 struct PersistentRealmState {
@@ -337,12 +338,14 @@ struct LeaderLogEntry {
 
 impl Hsm {
     pub fn new(name: String, realm_key: RealmKey) -> Self {
+        let root_oprf_key = RootOprfKey::from(&realm_key);
         Self {
             name,
             persistent: PersistentState {
                 id: HsmId::random(),
                 realm_key,
                 realm: None,
+                root_oprf_key,
             },
             volatile: VolatileState {
                 leader: HashMap::new(),
@@ -1266,6 +1269,7 @@ impl Handler<AppRequest> for Hsm {
     fn handle(&mut self, request: AppRequest, _ctx: &mut Context<Self>) -> Self::Result {
         type Response = AppResponse;
         trace!(hsm = self.name, ?request);
+        let hsm_name = &self.name;
 
         let response = match &self.persistent.realm {
             Some(realm) if realm.id == request.realm => {
@@ -1277,7 +1281,11 @@ impl Handler<AppRequest> for Hsm {
                             .filter(|partition| partition.prefix.contains(&request.rid))
                             .is_some()
                         {
-                            handle_app_request(request, &self.persistent, leader)
+                            let app_ctx = app::AppContext {
+                                root_oprf_key: &self.persistent.root_oprf_key,
+                                hsm_name,
+                            };
+                            handle_app_request(&app_ctx, request, &self.persistent, leader)
                         } else {
                             Response::NotOwner
                         }
@@ -1298,6 +1306,7 @@ impl Handler<AppRequest> for Hsm {
 }
 
 fn handle_app_request(
+    app_ctx: &app::AppContext,
     request: AppRequest,
     persistent: &PersistentState,
     leader: &mut LeaderVolatileGroupState,
@@ -1327,7 +1336,7 @@ fn handle_app_request(
 
     let last_entry = leader.log.last().unwrap();
 
-    let (client_response, change) = app::process(request.request, latest_value);
+    let (client_response, change) = app::process(app_ctx, request.request, latest_value);
     let delta = match change {
         Some(change) => match change {
             RecordChange::Update(record) => match tree.insert(request.proof, record) {
@@ -1335,7 +1344,6 @@ fn handle_app_request(
                 Ok(Some(d)) => Some((*d.root(), d.store_delta())),
                 Err(_) => return Response::InvalidData,
             },
-            RecordChange::Delete => todo!(),
         },
         None => None,
     };
