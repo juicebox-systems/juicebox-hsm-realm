@@ -338,13 +338,14 @@ struct LeaderLogEntry {
 
 impl Hsm {
     pub fn new(name: String, realm_key: RealmKey) -> Self {
+        let root_oprf_key = RootOprfKey::from(&realm_key);
         Self {
             name,
             persistent: PersistentState {
                 id: HsmId::random(),
                 realm_key,
                 realm: None,
-                root_oprf_key: RootOprfKey::new(b"very secret".to_vec()),
+                root_oprf_key,
             },
             volatile: VolatileState {
                 leader: HashMap::new(),

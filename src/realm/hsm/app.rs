@@ -1,4 +1,6 @@
 use super::types::{SecretsRequest, SecretsResponse};
+use super::RealmKey;
+use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
 
 use hmac::{Hmac, Mac};
@@ -59,12 +61,23 @@ struct RegisteredUserRecord {
 }
 
 /// A private root key used to derive keys for each user-generation's OPRF.
-pub struct RootOprfKey(Vec<u8>);
+pub struct RootOprfKey([u8; 32]);
 
 impl RootOprfKey {
-    pub fn new(bytes: Vec<u8>) -> Self {
-        Self(bytes)
+    pub fn from(realm_key: &RealmKey) -> Self {
+        // generated from /dev/random
+        let salt = [
+            0x26u8, 0x97, 0x33, 0x24, 0x75, 0xe3, 0x41, 0xb7, 0xee, 0x5c, 0x1c, 0x3e, 0x4d, 0x20,
+            0xd0, 0xad, 0x9e, 0xf2, 0x6a, 0x2e, 0x55, 0x3b, 0x7b, 0x19, 0x1c, 0x94, 0x0d, 0xb2,
+            0x2f, 0xd7, 0x3c, 0x10,
+        ];
+        let info = "oprf".as_bytes();
+        let hk = Hkdf::<Sha256>::new(Some(&salt), &realm_key.0);
+        let mut out = [0u8; 32];
+        hk.expand(info, &mut out).unwrap();
+        Self(out)
     }
+
     /// Compute the derived key used for the OPRF for a particular user and
     /// generation.
     fn user_generation_key(
