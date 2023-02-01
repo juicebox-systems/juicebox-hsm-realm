@@ -11,7 +11,7 @@ pub type OprfBlindedInput = voprf::BlindedElement<OprfCipherSuite>;
 pub type OprfBlindedResult = voprf::EvaluationElement<OprfCipherSuite>;
 
 /// Represents the authority to act as a particular user.
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct AuthToken {
     pub user: String,
     pub signature: String,
@@ -109,7 +109,7 @@ impl Display for GenerationNumber {
 }
 
 /// Request message for the first phase of registration.
-#[derive(Clone, Debug, Message)]
+#[derive(Clone, Debug, Deserialize, Message, Serialize)]
 #[rtype(result = "Register1Response")]
 pub struct Register1Request {
     pub auth_token: AuthToken,
@@ -118,7 +118,7 @@ pub struct Register1Request {
 }
 
 /// Response message for the first phase of registration.
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, MessageResponse, Serialize)]
 pub enum Register1Response {
     Ok { blinded_oprf_pin: OprfBlindedResult },
     InvalidAuth,
@@ -126,7 +126,7 @@ pub enum Register1Response {
 }
 
 /// Request message for the second phase of registration.
-#[derive(Clone, Debug, Message)]
+#[derive(Clone, Debug, Deserialize, Message, Serialize)]
 #[rtype(result = "Register2Response")]
 pub struct Register2Request {
     pub auth_token: AuthToken,
@@ -138,7 +138,7 @@ pub struct Register2Request {
 }
 
 /// Response message for the second phase of registration.
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, MessageResponse, Serialize)]
 pub enum Register2Response {
     Ok { found_earlier_generations: bool },
     InvalidAuth,
@@ -147,7 +147,7 @@ pub enum Register2Response {
 }
 
 /// Request message for the first phase of recovery.
-#[derive(Clone, Debug, Message)]
+#[derive(Clone, Debug, Deserialize, Message, Serialize)]
 #[rtype(result = "Recover1Response")]
 pub struct Recover1Request {
     pub auth_token: AuthToken,
@@ -158,7 +158,7 @@ pub struct Recover1Request {
 }
 
 /// Response message for the first phase of recovery.
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, MessageResponse, Serialize)]
 pub enum Recover1Response {
     Ok {
         generation: GenerationNumber,
@@ -185,7 +185,7 @@ pub enum Recover1Response {
 }
 
 /// Request message for the second phase of recovery.
-#[derive(Clone, Debug, Message)]
+#[derive(Clone, Debug, Deserialize, Message, Serialize)]
 #[rtype(result = "Recover2Response")]
 pub struct Recover2Request {
     pub auth_token: AuthToken,
@@ -194,7 +194,7 @@ pub struct Recover2Request {
 }
 
 /// Response message for the second phase of recovery.
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, MessageResponse, Serialize)]
 pub enum Recover2Response {
     Ok(UserSecretShare),
     InvalidAuth,
@@ -203,7 +203,7 @@ pub enum Recover2Response {
 }
 
 /// Request message to delete registered secrets.
-#[derive(Clone, Debug, Message)]
+#[derive(Clone, Debug, Deserialize, Message, Serialize)]
 #[rtype(result = "DeleteResponse")]
 pub struct DeleteRequest {
     pub auth_token: AuthToken,
@@ -213,7 +213,7 @@ pub struct DeleteRequest {
 }
 
 /// Response message to delete registered secrets.
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, MessageResponse, Serialize)]
 pub enum DeleteResponse {
     Ok,
     InvalidAuth,

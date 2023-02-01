@@ -886,7 +886,7 @@ mod tests {
             rng.fill_bytes(&mut random_key);
             // We need to ensure our generated keys have the correct prefix.
             let mut k = KeyVec::from_slice(&random_key);
-            k[..prefix.len()].copy_from_bitslice(&prefix);
+            k[..prefix.len()].copy_from_bitslice(prefix);
             let key = rec_id(k.as_raw_slice());
             // write our new key/value
             root = tree_insert(&mut tree, &mut store, root, &key, prefix, [i].to_vec());
@@ -1122,7 +1122,7 @@ mod tests {
         ));
         // Two identical interior nodes, but different prefixes should hash differently.
         let n1 = InteriorNode::new(&h, &KeyVec::from_element(0), b1.clone(), b2.clone());
-        let n2 = InteriorNode::new(&h, &KeyVec::from_element(1), b1.clone(), b2.clone());
+        let n2 = InteriorNode::new(&h, &KeyVec::from_element(1), b1, b2);
         assert_ne!(n1.hash, n2.hash);
     }
 
@@ -1285,7 +1285,7 @@ mod tests {
                         assert_eq!(exp_child_hash, b.hash);
                     }
                 }
-                let exp_hash = InteriorNode::calc_hash(hasher, &path, &int.left, &int.right);
+                let exp_hash = InteriorNode::calc_hash(hasher, path, &int.left, &int.right);
                 assert_eq!(exp_hash, int.hash);
                 exp_hash
             }
@@ -1341,7 +1341,7 @@ mod tests {
         fn calc_hash(&self, parts: &[&[u8]]) -> TestHash {
             let mut h = std::collections::hash_map::DefaultHasher::new();
             for p in parts {
-                h.write(*p);
+                h.write(p);
             }
             TestHash(h.finish().to_le_bytes())
         }

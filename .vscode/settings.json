@@ -24,5 +24,6 @@
         "teyla",
         "unblind",
         "voprf"
-    ]
+    ],
+    "editor.formatOnSave": true
 }

@@ -1,9 +1,19 @@
 use actix::prelude::*;
 use bitvec::prelude::Msb0;
 use bitvec::vec::BitVec;
+use bytes::Bytes;
 use futures::future::join_all;
+use futures::Future;
+use http_body_util::{BodyExt, Full};
+use hyper::server::conn::http1;
+use hyper::service::Service;
+use hyper::{body::Incoming as IncomingBody, Request, Response};
 use std::collections::HashMap;
 use std::iter::zip;
+use std::net::SocketAddr;
+use std::pin::Pin;
+use std::sync::Arc;
+use tokio::net::TcpListener;
 use tracing::{trace, warn};
 
 pub mod types;
@@ -18,14 +28,33 @@ use super::store::Store;
 use hsm_types::{GroupId, OwnedPrefix, RealmId};
 use types::{ClientRequest, ClientResponse};
 
-pub struct LoadBalancer {
+#[derive(Clone)]
+pub struct LoadBalancer(Arc<State>);
+
+struct State {
     name: String,
     store: Addr<Store>,
 }
 
 impl LoadBalancer {
     pub fn new(name: String, store: Addr<Store>) -> Self {
-        Self { name, store }
+        Self(Arc::new(State { name, store }))
+    }
+
+    pub async fn listen(
+        self,
+        address: SocketAddr,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let listener = TcpListener::bind(address).await?;
+        loop {
+            let (stream, _) = listener.accept().await?;
+            let lb = self.clone();
+            tokio::task::spawn(async move {
+                if let Err(err) = http1::Builder::new().serve_connection(stream, lb).await {
+                    warn!("Error serving connection: {:?}", err);
+                }
+            });
+        }
     }
 }
 
@@ -85,23 +114,27 @@ async fn refresh(name: &str, store: Addr<Store>) -> HashMap<RealmId, Vec<Partiti
     }
 }
 
-impl Actor for LoadBalancer {
-    type Context = Context<Self>;
-}
+impl Service<Request<IncomingBody>> for LoadBalancer {
+    type Response = Response<Full<Bytes>>;
+    type Error = hyper::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-impl Handler<ClientRequest> for LoadBalancer {
-    type Result = ResponseFuture<ClientResponse>;
-
-    fn handle(&mut self, request: ClientRequest, _ctx: &mut Context<Self>) -> Self::Result {
-        let name = self.name.clone();
+    fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
+        let name = self.0.name.clone();
         trace!(load_balancer = name, ?request);
-        let store = self.store.clone();
+        let store = self.0.store.clone();
 
         Box::pin(async move {
             let realms = refresh(&name, store).await;
+            let request =
+                rmp_serde::from_slice(request.collect().await?.to_bytes().as_ref()).expect("TODO");
             let response = handle_client_request(request, &name, &realms).await;
             trace!(load_balancer = name, ?response);
-            response
+            Ok(Response::builder()
+                .body(Full::new(Bytes::from(
+                    rmp_serde::to_vec(&response).expect("TODO"),
+                )))
+                .expect("TODO"))
         })
     }
 }
