@@ -14,7 +14,6 @@ use tracing_subscriber::FmtSubscriber;
 
 mod client;
 mod realm;
-mod server;
 mod types;
 
 use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
