@@ -1,11 +1,15 @@
 use actix::prelude::*;
 use bitvec::prelude::*;
 use futures::future::{join_all, try_join_all};
+use reqwest::Url;
 use std::iter;
+use std::net::SocketAddr;
 use std::ops::RangeFrom;
 use std::str::FromStr;
 use tracing::{info, Level};
+use tracing_subscriber::filter::FilterFn;
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::FmtSubscriber;
 
 mod client;
@@ -57,6 +61,15 @@ async fn main() {
             Err(e) => panic!("failed to parse LOGLEVEL: {e}"),
         })
         .unwrap_or(Level::DEBUG);
+    // Quiet down `hyper`.
+    let filter = FilterFn::new(|metadata| {
+        if let Some(module) = metadata.module_path() {
+            if module.starts_with("hyper::") {
+                return false;
+            }
+        }
+        true
+    });
     let subscriber = FmtSubscriber::builder()
         .with_file(true)
         .with_line_number(true)
@@ -64,7 +77,7 @@ async fn main() {
         .with_span_events(FmtSpan::ACTIVE)
         .with_target(false)
         .finish();
-    tracing::subscriber::set_global_default(subscriber).unwrap();
+    tracing::subscriber::set_global_default(subscriber.with(filter)).unwrap();
     info!(
         max_level = %log_level,
         "set up tracing. you can set verbosity with env var LOGLEVEL."
@@ -75,8 +88,14 @@ async fn main() {
 
     let num_load_balancers = 2;
     info!(count = num_load_balancers, "creating load balancers");
-    let load_balancers: Vec<Addr<LoadBalancer>> = (1..=num_load_balancers)
-        .map(|i| LoadBalancer::new(format!("lb{i}"), store.clone()).start())
+    let load_balancers: Vec<Url> = (1..=num_load_balancers)
+        .map(|i| {
+            let address = SocketAddr::from(([127, 0, 0, 1], 3000 + i));
+            let url = Url::parse(&format!("http://{address}")).unwrap();
+            let lb = LoadBalancer::new(format!("lb{i}"), store.clone());
+            tokio::task::spawn(lb.listen(address));
+            url
+        })
         .collect();
 
     let mut hsm_generator = HsmGenerator::new();

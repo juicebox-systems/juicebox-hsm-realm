@@ -1,5 +1,6 @@
 use actix::prelude::*;
 use hmac::Hmac;
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::fmt;
 
@@ -9,7 +10,7 @@ use super::super::super::types::{
 };
 use super::super::merkle::{agent::StoreDelta, HashOutput, KeySlice, KeyVec, ReadProof};
 
-#[derive(Copy, Clone, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct RealmId(pub [u8; 16]);
 
 impl fmt::Debug for RealmId {
@@ -531,7 +532,7 @@ pub enum AppResponse {
     InvalidData,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum SecretsRequest {
     Register1(Register1Request),
     Register2(Register2Request),
@@ -539,6 +540,7 @@ pub enum SecretsRequest {
     Recover2(Recover2Request),
     Delete(DeleteRequest),
 }
+
 impl SecretsRequest {
     pub fn auth_token(&self) -> &AuthToken {
         match self {
@@ -551,7 +553,7 @@ impl SecretsRequest {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum SecretsResponse {
     Register1(Register1Response),
