@@ -203,7 +203,8 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             |_l| {},
         )?;
 
-        // Find the split node. The deepest interior node where lb < key & rb >= key
+        // Find the split node. The deepest interior node where left branch key
+        // < key & right branch key >= key
         let key = KeySlice::from_slice(&vp.key.0);
         enum SplitLocation {
             PathIndex(usize),
@@ -743,9 +744,9 @@ impl Display for Dir {
 pub struct SplitResult<HO> {
     // The previous root hash.
     pub old_root: HO,
-    // The new root of the tree that is being kept.
+    // The new tree that was from the left side of the split point.
     pub left: SplitRoot<HO>,
-    // The new root for the tree that is being given away to another group/partition.
+    // The new tree that was from the right side of the split point.
     pub right: SplitRoot<HO>,
     // The delta that needs applying to the store to perform the split.
     pub delta: StoreDelta<HO>,
