@@ -198,7 +198,6 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 key_dirs.push(Dir::from(key_tail[0]));
                 key_offsets.push(key_head.len());
                 path.push(n.clone());
-                true
             },
             |_l| {},
         )?;
@@ -413,9 +412,8 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         info!("merging trees {:?} and {:?}", mine.range, other.range);
         let mut my_latest_path = Vec::new();
         mine.walk_latest_path(
-            |_, _, int| -> bool {
+            |_, _, int| {
                 my_latest_path.push(int);
-                true
             },
             |_| {},
         )

@@ -242,23 +242,26 @@ impl<'a, HO: HashOutput> VerifiedProof<'a, HO> {
     // Return the latest value for the record id in the Proof.
     pub fn latest_value(&self) -> Result<Option<Vec<u8>>, ProofError> {
         let mut v = None;
-        self.walk_latest_path(
-            |_head, _tail, _int| true,
-            |leaf| v = Some(leaf.value.clone()),
-        )?;
+        self.walk_latest_path(|_head, _tail, _int| {}, |leaf| v = Some(leaf.value.clone()))?;
         Ok(v)
     }
 
     // Will walk down the most current path for the key in the Proof. The
     // callback is called at each node visited on the path, starting at root.
-    // The interior node callback can return false to stop the walk early.
     pub fn walk_latest_path<FI, FL>(
         &'a self,
         mut int_cb: FI,
         mut leaf_cb: FL,
     ) -> Result<(), ProofError>
     where
-        FI: FnMut(&KeySlice, &KeySlice, &'a InteriorNode<HO>) -> bool,
+        // |key_head, key_tail, node|
+        // key_head is the part of the key traversed to reach this node. This starts
+        // empty and will get longer at each subsequent call. It's the entire key prefix
+        // up to that point, not the prefix of the last branch.
+        // key_tail is the remainder of the key that has not been traversed yet. This
+        // starts as the full key and gets shorter at each subsequent call.
+        // concat(key_head,key_tail) is always the entire key.
+        FI: FnMut(&KeySlice, &KeySlice, &'a InteriorNode<HO>),
         FL: FnMut(&'a LeafNode<HO>),
     {
         let full_key = KeySlice::from_slice(&self.key.0);
@@ -273,9 +276,7 @@ impl<'a, HO: HashOutput> VerifiedProof<'a, HO> {
                 }
                 BorrowedNode::Interior(int) => {
                     let key_tail = &full_key[key_pos..];
-                    if !int_cb(&full_key[..key_pos], key_tail, int) {
-                        return Ok(());
-                    }
+                    int_cb(&full_key[..key_pos], key_tail, int);
                     let d = Dir::from(key_tail[0]);
                     match int.branch(d) {
                         None => return Ok(()),
