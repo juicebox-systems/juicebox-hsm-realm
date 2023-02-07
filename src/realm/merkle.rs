@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use bitvec::prelude::*;
 use std::{
     cmp::min,
@@ -18,7 +16,6 @@ use self::{overlay::TreeOverlay, proof::VerifiedProof};
 use super::hsm::types::{OwnedRange, RecordId};
 
 pub mod agent;
-pub mod dot;
 mod overlay;
 pub mod proof;
 pub use proof::ReadProof;
@@ -392,6 +389,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     // proof. The tree to the right should provide a left leaning proof. Note:
     // the root hash in other_proof must be verified by the caller to be the
     // latest hash for that tree, it can't be validated here.
+    #[allow(dead_code)]
     pub fn merge(
         &self,
         my_proof: ReadProof<HO>,
@@ -550,6 +548,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     }
 }
 
+#[allow(dead_code)]
 pub struct MergeResult<HO> {
     range: OwnedRange,
     root_hash: HO,
@@ -703,7 +702,7 @@ impl<HO: Debug> Debug for Branch<HO> {
         write!(
             f,
             "{} -> {:?}",
-            dot::compact_keyslice_str(&self.prefix, " "),
+            compact_keyslice_str(&self.prefix, " "),
             self.hash
         )
     }
@@ -846,6 +845,20 @@ fn common_prefix<'a, U: BitStore, O: BitOrder>(
         Some(p) => &a[..p],
     }
 }
+
+pub fn compact_keyslice_str(k: &KeySlice, delim: &str) -> String {
+    let mut s = String::with_capacity(k.len());
+    for (i, b) in k.iter().enumerate() {
+        if i > 0 && i % 8 == 0 {
+            s.push_str(delim);
+        }
+        s.push(if *b { '1' } else { '0' });
+    }
+    s
+}
+
+#[cfg(test)]
+mod dot;
 
 #[cfg(test)]
 mod tests {

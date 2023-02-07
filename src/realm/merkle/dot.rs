@@ -3,7 +3,7 @@ use std::{
     io::{BufWriter, Write},
 };
 
-use super::{agent::Node, agent::TreeStoreReader, Branch, Dir, HashOutput, KeySlice};
+use super::{agent::Node, agent::TreeStoreReader, Branch, Dir, HashOutput};
 
 // Creates a dot file for a visualization of the tree starting
 // at the supplied root hash.
@@ -61,17 +61,7 @@ fn write_branch<HO: HashOutput>(
         b.hash,
         dir,
         lb,
-        compact_keyslice_str(&b.prefix, "\\n")
+        super::compact_keyslice_str(&b.prefix, "\\n")
     )?;
     add_node_to_dot(b.hash, reader, w)
-}
-pub fn compact_keyslice_str(k: &KeySlice, delim: &str) -> String {
-    let mut s = String::with_capacity(k.len());
-    for (i, b) in k.iter().enumerate() {
-        if i > 0 && i % 8 == 0 {
-            s.push_str(delim);
-        }
-        s.push(if *b { '1' } else { '0' });
-    }
-    s
 }
