@@ -16,14 +16,18 @@ pub fn tree_to_dot<HO: HashOutput>(
     let mut w = BufWriter::new(f);
     writeln!(w, "digraph merkletree {{")?;
     add_node_to_dot(root, reader, &mut w)?;
-    writeln!(w, "}}")
+    writeln!(w, "}}")?;
+    w.flush()
 }
 fn add_node_to_dot<HO: HashOutput>(
     h: HO,
     reader: &impl TreeStoreReader<HO>,
     w: &mut impl Write,
 ) -> std::io::Result<()> {
-    match reader.fetch(&h).unwrap() {
+    match reader
+        .fetch(&h)
+        .unwrap_or_else(|_| panic!("node with hash {h:?} should exist"))
+    {
         Node::Interior(int) => {
             if let Some(ref b) = int.left {
                 write_branch(&int.hash, b, Dir::Left, reader, w)?;

@@ -18,6 +18,8 @@
         "oneshot",
         "Oprf",
         "oprfs",
+        "presso",
+        "reqwest",
         "rngs",
         "rtype",
         "Seedable",

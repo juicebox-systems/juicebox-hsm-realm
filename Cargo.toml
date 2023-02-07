@@ -29,6 +29,11 @@ tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
 voprf = "0.4.0"
 
+[patch.crates-io]
+# waiting on this issue/pr to be resolved
+# https://github.com/ferrilab/bitvec/issues/215
+bitvec = { git = 'https://github.com/superfell/bitvec', branch='vec_order' }
+
 [dev-dependencies]
 criterion = "0.4.0"
 hex-literal = "0.3.4"

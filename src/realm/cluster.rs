@@ -17,7 +17,7 @@ use super::hsm::types as hsm_types;
 use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse};
 use super::store::Store;
 use hsm_types::{
-    Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedPrefix, RealmId,
+    Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange, RealmId,
 };
 
 #[derive(Debug)]
@@ -286,7 +286,7 @@ pub async fn transfer(
     realm: RealmId,
     source: GroupId,
     destination: GroupId,
-    prefix: OwnedPrefix,
+    range: OwnedRange,
     store: &Addr<Store>,
 ) -> Result<(), TransferError> {
     type Error = TransferError;
@@ -295,7 +295,7 @@ pub async fn transfer(
         ?realm,
         ?source,
         ?destination,
-        ?prefix,
+        ?range,
         "transferring ownership"
     );
 
@@ -322,7 +322,7 @@ pub async fn transfer(
             realm,
             source,
             destination,
-            prefix: prefix.clone(),
+            range: range.clone(),
         })
         .await
     {
@@ -380,7 +380,7 @@ pub async fn transfer(
             realm,
             source,
             destination,
-            prefix,
+            range,
         })
         .await
     {

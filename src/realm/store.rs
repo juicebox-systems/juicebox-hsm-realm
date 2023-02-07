@@ -144,14 +144,14 @@ impl Handler<GetRecordProofRequest> for Store {
                 match &last.partition {
                     None => GetRecordProofResponse::NotOwner,
                     Some(partition) => {
-                        if !partition.prefix.contains(&request.record) {
+                        if !partition.range.contains(&request.record) {
                             GetRecordProofResponse::NotOwner
                         } else {
                             match super::merkle::agent::read(
                                 &self.kv.reader(&request.realm),
+                                &partition.range,
                                 &partition.root_hash,
-                                request.record,
-                                partition.prefix.0.len(),
+                                &request.record,
                             ) {
                                 Ok(proof) => GetRecordProofResponse::Ok {
                                     proof,

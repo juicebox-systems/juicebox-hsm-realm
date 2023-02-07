@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use super::super::hsm::types as hsm_types;
 use hsm_types::{
     CapturedStatement, Configuration, EntryHmac, GroupConfigurationStatement, GroupId, HsmId,
-    LogIndex, OwnedPrefix, Partition, RealmId, RecordId, SecretsRequest, SecretsResponse,
+    LogIndex, OwnedRange, Partition, RealmId, RecordId, SecretsRequest, SecretsResponse,
     TransferNonce, TransferStatement,
 };
 
@@ -135,10 +135,11 @@ pub struct TransferOutRequest {
     pub realm: RealmId,
     pub source: GroupId,
     pub destination: GroupId,
-    // The prefix to transfer out of source. It may be exactly its current
-    // partition prefix to transfer everything, or an extension of its current
-    // prefix to perform a split.
-    pub prefix: OwnedPrefix,
+    // The range to transfer out of source. It may be exactly its current
+    // partition to transfer everything, or a subset of the range that is
+    // connected to one side. (i.e. you can't transfer out something from
+    // the middle of the existing range)
+    pub range: OwnedRange,
 }
 
 // Note: this returns before the log entry is committed, so the entry could
@@ -220,7 +221,7 @@ pub struct CompleteTransferRequest {
     pub realm: RealmId,
     pub source: GroupId,
     pub destination: GroupId,
-    pub prefix: OwnedPrefix,
+    pub range: OwnedRange,
 }
 
 #[derive(Debug, MessageResponse)]
@@ -250,6 +251,7 @@ pub enum AppResponse {
     InvalidRealm,
     InvalidGroup,
     NotLeader,
+    InvalidProof,
 }
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
