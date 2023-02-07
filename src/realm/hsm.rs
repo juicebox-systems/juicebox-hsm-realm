@@ -927,8 +927,9 @@ impl Handler<TransferOutRequest> for Hsm {
                 return Response::StaleIndex;
             }
 
-            // This support two options: moving out the entire owned
-            // prefix, or moving out the owned prefix plus one more bit.
+            // This support two options: moving out the entire owned range or
+            // splitting the range in 2 at some key and moving out one of the
+            // halves.
             let keeping_partition: Option<Partition>;
             let transferring_partition: Partition;
             let delta;
@@ -937,7 +938,15 @@ impl Handler<TransferOutRequest> for Hsm {
                 keeping_partition = None;
                 transferring_partition = owned_partition.clone();
                 delta = None;
-            } else if owned_partition.range.contains_range(&request.range) {
+            } else {
+                match owned_partition.range.split_at(&request.range) {
+                    None => return Response::NotOwner,
+                    Some(key) => {
+                        if key != request.proof.key {
+                            return Response::NotOwner;
+                        }
+                    }
+                }
                 let Some(tree) = &mut leader.tree else {
                     return Response::NotLeader;
                 };
@@ -965,8 +974,6 @@ impl Handler<TransferOutRequest> for Hsm {
                     range: transferring.range,
                 };
                 delta = Some(split_delta);
-            } else {
-                return Response::NotOwner;
             }
 
             let index = last_entry.index.next();

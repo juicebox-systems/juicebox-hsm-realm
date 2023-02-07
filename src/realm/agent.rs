@@ -730,8 +730,8 @@ impl Handler<TransferOutRequest> for Agent {
                         request.range.start.clone()
                     } else {
                         match partition.range.split_at(&request.range) {
-                            Ok(id) => id,
-                            Err(_) => return Err(Response::NotOwner),
+                            Some(id) => id,
+                            None => return Err(Response::NotOwner),
                         }
                     };
 

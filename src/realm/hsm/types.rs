@@ -169,9 +169,6 @@ impl OwnedRange {
     pub fn contains(&self, rid: &RecordId) -> bool {
         rid >= &self.start && rid <= &self.end
     }
-    pub fn contains_range(&self, rng: &OwnedRange) -> bool {
-        self.contains(&rng.start) && self.contains(&rng.end)
-    }
     pub fn join(&self, other: &OwnedRange) -> Option<Self> {
         match self.end.next() {
             Some(r) if r == other.start => Some(OwnedRange {
@@ -187,14 +184,13 @@ impl OwnedRange {
             },
         }
     }
-    pub fn split_at(&self, other: &OwnedRange) -> Result<RecordId, ()> {
-        assert!(self.contains_range(other));
-        if self.start == other.start {
-            Ok(other.end.next().unwrap())
-        } else if self.end == other.end {
-            Ok(other.start.clone())
+    pub fn split_at(&self, other: &OwnedRange) -> Option<RecordId> {
+        if self.start == other.start && other.end < self.end {
+            Some(other.end.next().unwrap())
+        } else if self.end == other.end && other.start > self.start {
+            Some(other.start.clone())
         } else {
-            Err(())
+            None
         }
     }
 }
