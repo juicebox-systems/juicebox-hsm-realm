@@ -1,9 +1,7 @@
 use actix::prelude::*;
+use reqwest::Url;
 
-use crate::realm::hsm::types::RecordId;
-
-use super::super::agent::Agent;
-use super::super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId};
+use super::super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordId};
 use super::super::merkle::{agent::StoreDelta, ReadProof};
 
 #[derive(Debug, Message)]
@@ -72,7 +70,7 @@ pub enum GetRecordProofResponse {
 #[rtype(result = "SetAddressResponse")]
 pub struct SetAddressRequest {
     pub hsm: HsmId,
-    pub address: Addr<Agent>,
+    pub address: Url,
 }
 
 #[derive(Debug, MessageResponse)]
@@ -90,5 +88,5 @@ pub struct GetAddressesResponse(pub Vec<AddressEntry>);
 #[derive(Debug)]
 pub struct AddressEntry {
     pub hsm: HsmId,
-    pub address: Addr<Agent>,
+    pub address: Url,
 }
