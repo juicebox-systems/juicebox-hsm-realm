@@ -389,39 +389,49 @@ impl Service<Request<IncomingBody>> for Agent {
 
     fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
         let agent = self.clone();
-
         Box::pin(async move {
             let Some(path) = request.uri().path().strip_prefix('/') else {
-                return Ok(Response::builder().status(http::StatusCode::NOT_FOUND).body(Full::from(Bytes::new())).expect("TODO"));
+                return Ok(Response::builder()
+                    .status(http::StatusCode::NOT_FOUND)
+                    .body(Full::from(Bytes::new()))
+                    .unwrap());
             };
             match path {
-                AppRequest::PATH => agent.handle(request, Self::handle_app).await,
+                AppRequest::PATH => agent.handle_rpc(request, Self::handle_app).await,
                 BecomeLeaderRequest::PATH => {
-                    agent.handle(request, Self::handle_become_leader).await
+                    agent.handle_rpc(request, Self::handle_become_leader).await
                 }
                 CompleteTransferRequest::PATH => {
-                    agent.handle(request, Self::handle_complete_transfer).await
+                    agent
+                        .handle_rpc(request, Self::handle_complete_transfer)
+                        .await
                 }
-                JoinGroupRequest::PATH => agent.handle(request, Self::handle_join_group).await,
-                JoinRealmRequest::PATH => agent.handle(request, Self::handle_join_realm).await,
-                NewGroupRequest::PATH => agent.handle(request, Self::handle_new_group).await,
-                NewRealmRequest::PATH => agent.handle(request, Self::handle_new_realm).await,
+                JoinGroupRequest::PATH => agent.handle_rpc(request, Self::handle_join_group).await,
+                JoinRealmRequest::PATH => agent.handle_rpc(request, Self::handle_join_realm).await,
+                NewGroupRequest::PATH => agent.handle_rpc(request, Self::handle_new_group).await,
+                NewRealmRequest::PATH => agent.handle_rpc(request, Self::handle_new_realm).await,
                 ReadCapturedRequest::PATH => {
-                    agent.handle(request, Self::handle_read_captured).await
+                    agent.handle_rpc(request, Self::handle_read_captured).await
                 }
-                StatusRequest::PATH => agent.handle(request, Self::handle_status).await,
-                TransferInRequest::PATH => agent.handle(request, Self::handle_transfer_in).await,
+                StatusRequest::PATH => agent.handle_rpc(request, Self::handle_status).await,
+                TransferInRequest::PATH => {
+                    agent.handle_rpc(request, Self::handle_transfer_in).await
+                }
                 TransferNonceRequest::PATH => {
-                    agent.handle(request, Self::handle_transfer_nonce).await
+                    agent.handle_rpc(request, Self::handle_transfer_nonce).await
                 }
-                TransferOutRequest::PATH => agent.handle(request, Self::handle_transfer_out).await,
+                TransferOutRequest::PATH => {
+                    agent.handle_rpc(request, Self::handle_transfer_out).await
+                }
                 TransferStatementRequest::PATH => {
-                    agent.handle(request, Self::handle_transfer_statement).await
+                    agent
+                        .handle_rpc(request, Self::handle_transfer_statement)
+                        .await
                 }
                 _ => Ok(Response::builder()
                     .status(http::StatusCode::NOT_FOUND)
                     .body(Full::from(Bytes::new()))
-                    .expect("TODO")),
+                    .unwrap()),
             }
         })
     }
@@ -434,30 +444,52 @@ enum HandlerError {
 }
 
 impl Agent {
-    async fn handle<H, R: Rpc, O>(
-        self,
-        request: Request<IncomingBody>,
+    async fn handle_rpc<'a, H, R: Rpc, O>(
+        &'a self,
+        incoming_request: Request<IncomingBody>,
         handler: H,
     ) -> Result<Response<Full<Bytes>>, hyper::Error>
     where
-        H: Fn(Self, R) -> O,
+        H: Fn(&'a Self, R) -> O,
         O: Future<Output = Result<R::Response, HandlerError>>,
     {
-        let name = self.0.name.clone();
-        let request =
-            rmp_serde::from_slice(request.collect().await.expect("TODO").to_bytes().as_ref())
-                .expect("TODO");
-        trace!(agent = name, ?request);
-        let response = handler(self, request).await.expect("TODO");
-        trace!(agent = name, ?response);
-        Ok(Response::builder()
-            .body(Full::new(Bytes::from(
-                rmp_serde::to_vec(&response).expect("TODO"),
-            )))
-            .expect("TODO"))
+        let request_bytes = incoming_request.collect().await?.to_bytes();
+        let request: R = match rmp_serde::from_slice(request_bytes.as_ref()) {
+            Ok(request) => request,
+            Err(e) => {
+                warn!(error = ?e, "agent deserialization error");
+                return Ok(Response::builder()
+                    .status(http::StatusCode::BAD_REQUEST)
+                    .body(Full::from(Bytes::new()))
+                    .unwrap());
+            }
+        };
+
+        trace!(agent = self.0.name, ?request);
+        let response = handler(self, request).await;
+        trace!(agent = self.0.name, ?response);
+
+        match response {
+            Err(e) => match e { /* no possible errors */ },
+            Ok(response) => {
+                let response_bytes = match rmp_serde::to_vec(&response) {
+                    Ok(response_bytes) => response_bytes,
+                    Err(e) => {
+                        warn!(error = ?e, ?response, "agent serialization error");
+                        return Ok(Response::builder()
+                            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                            .body(Full::from(Bytes::new()))
+                            .unwrap());
+                    }
+                };
+                Ok(Response::builder()
+                    .body(Full::new(Bytes::from(response_bytes)))
+                    .unwrap())
+            }
+        }
     }
 
-    async fn handle_status(self, _request: StatusRequest) -> Result<StatusResponse, HandlerError> {
+    async fn handle_status(&self, _request: StatusRequest) -> Result<StatusResponse, HandlerError> {
         let hsm_status = self.0.hsm.send(hsm_types::StatusRequest {}).await;
         Ok(StatusResponse {
             hsm: hsm_status.ok(),
@@ -465,7 +497,7 @@ impl Agent {
     }
 
     async fn handle_new_realm(
-        self,
+        &self,
         request: NewRealmRequest,
     ) -> Result<NewRealmResponse, HandlerError> {
         type Response = NewRealmResponse;
@@ -538,7 +570,7 @@ impl Agent {
     }
 
     async fn handle_join_realm(
-        self,
+        &self,
         request: JoinRealmRequest,
     ) -> Result<JoinRealmResponse, HandlerError> {
         type Response = JoinRealmResponse;
@@ -559,7 +591,7 @@ impl Agent {
     }
 
     async fn handle_new_group(
-        self,
+        &self,
         request: NewGroupRequest,
     ) -> Result<NewGroupResponse, HandlerError> {
         type Response = NewGroupResponse;
@@ -616,7 +648,7 @@ impl Agent {
     }
 
     async fn handle_join_group(
-        self,
+        &self,
         request: JoinGroupRequest,
     ) -> Result<JoinGroupResponse, HandlerError> {
         type Response = JoinGroupResponse;
@@ -646,7 +678,7 @@ impl Agent {
     }
 
     async fn handle_become_leader(
-        self,
+        &self,
         request: BecomeLeaderRequest,
     ) -> Result<BecomeLeaderResponse, HandlerError> {
         type Response = BecomeLeaderResponse;
@@ -685,7 +717,7 @@ impl Agent {
     }
 
     async fn handle_read_captured(
-        self,
+        &self,
         request: ReadCapturedRequest,
     ) -> Result<ReadCapturedResponse, HandlerError> {
         type Response = ReadCapturedResponse;
@@ -718,7 +750,7 @@ impl Agent {
     }
 
     async fn handle_transfer_out(
-        self,
+        &self,
         request: TransferOutRequest,
     ) -> Result<TransferOutResponse, HandlerError> {
         type Response = TransferOutResponse;
@@ -814,7 +846,7 @@ impl Agent {
     }
 
     async fn handle_transfer_nonce(
-        self,
+        &self,
         request: TransferNonceRequest,
     ) -> Result<TransferNonceResponse, HandlerError> {
         type Response = TransferNonceResponse;
@@ -838,7 +870,7 @@ impl Agent {
     }
 
     async fn handle_transfer_statement(
-        self,
+        &self,
         request: TransferStatementRequest,
     ) -> Result<TransferStatementResponse, HandlerError> {
         type Response = TransferStatementResponse;
@@ -870,7 +902,7 @@ impl Agent {
     }
 
     async fn handle_transfer_in(
-        self,
+        &self,
         request: TransferInRequest,
     ) -> Result<TransferInResponse, HandlerError> {
         type Response = TransferInResponse;
@@ -912,7 +944,7 @@ impl Agent {
     }
 
     async fn handle_complete_transfer(
-        self,
+        &self,
         request: CompleteTransferRequest,
     ) -> Result<CompleteTransferResponse, HandlerError> {
         type Response = CompleteTransferResponse;
@@ -949,7 +981,7 @@ impl Agent {
         }
     }
 
-    async fn handle_app(self, request: AppRequest) -> Result<AppResponse, HandlerError> {
+    async fn handle_app(&self, request: AppRequest) -> Result<AppResponse, HandlerError> {
         type Response = AppResponse;
         let realm = request.realm;
         let group = request.group;
