@@ -187,20 +187,17 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
         let vp = proof.verify(&self.hasher, &self.overlay)?;
 
-        let mut key_offsets = Vec::with_capacity(vp.path_len());
-        let mut key_dirs = Vec::with_capacity(vp.path_len());
         let mut path = Vec::with_capacity(vp.path_len());
         vp.walk_latest_path(
             |key_head, key_tail, n| {
-                key_dirs.push(Dir::from(key_tail[0]));
-                key_offsets.push(key_head.len());
-                path.push(n.clone());
+                path.push((n.clone(), key_head.to_bitvec(), Dir::from(key_tail[0])));
             },
             |_l| {},
         )?;
 
-        // Find the split node. The deepest interior node where left branch key
-        // < key & right branch key >= key
+        // Find the split node. We start at the bottom of the path. If the key is greater than the
+        // left branch and smaller or equal to the right branch then this is the split node. If its
+        // not, we have to walk back up the path to find the split node.
         let key = KeySlice::from_slice(&vp.key.0);
         enum SplitLocation {
             PathIndex(usize),
@@ -210,23 +207,24 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             let last = path
                 .last()
                 .expect("path should always contain at least one node");
-            let prefix = &key[..key_offsets[key_offsets.len() - 1]];
-            let left = match &last.left {
-                None => KeyVec::from_slice(&RecordId::min_id().0),
-                Some(b) => concat(prefix, &b.prefix),
+            let prefix = &last.1;
+            let gt_left = match &last.0.left {
+                None => true,
+                Some(b) => key > concat(prefix, &b.prefix),
             };
-            let right = match &last.right {
-                None => KeyVec::from_slice(&RecordId::max_id().0),
-                Some(b) => concat(prefix, &b.prefix),
+            let lte_right = match &last.0.right {
+                None => true,
+                Some(b) => key <= concat(prefix, &b.prefix),
             };
 
-            if key > left && key <= right {
+            if gt_left && lte_right {
                 // this is the one.
                 SplitLocation::PathIndex(path.len() - 1)
             } else {
-                let dir = if key <= left { Dir::Left } else { Dir::Right };
+                let dir = if !gt_left { Dir::Left } else { Dir::Right };
                 // Need to walk back up to find a node where the branch takes the opposite side.
-                match key_dirs.iter().rposition(|d| d == &dir.opposite()) {
+                // This makes a lot more sense if you look at a picture of a tree.
+                match path.iter().rposition(|(_, _, d)| d == &dir.opposite()) {
                     Some(idx) => SplitLocation::PathIndex(idx),
                     None => SplitLocation::SideOfRoot(dir),
                 }
@@ -247,13 +245,14 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 // The split point is either before everything in the tree, or after everything in the tree.
                 // This splits into the current tree (with new hash for partition change) plus a new empty root.
                 info!("starting split to {side} of root node");
+                let root = &path[0].0;
                 let (left_node, right_node) = match side {
                     Dir::Left => (
                         InteriorNode::new(&self.hasher, &left_range, true, None, None),
-                        path[0].root_with_new_partition(&self.hasher, &right_range),
+                        root.root_with_new_partition(&self.hasher, &right_range),
                     ),
                     Dir::Right => (
-                        path[0].root_with_new_partition(&self.hasher, &left_range),
+                        root.root_with_new_partition(&self.hasher, &left_range),
                         InteriorNode::new(&self.hasher, &right_range, true, None, None),
                     ),
                 };
@@ -267,9 +266,9 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 };
                 delta.add.push(Node::Interior(left_node));
                 delta.add.push(Node::Interior(right_node));
-                delta.remove.insert(path[0].hash);
+                delta.remove.insert(root.hash);
                 Ok(SplitResult {
-                    old_root: path[0].hash,
+                    old_root: root.hash,
                     left,
                     right,
                     delta: delta.build(),
@@ -278,7 +277,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             SplitLocation::PathIndex(0) => {
                 // Simple case, split is in the middle of the root node.
                 info!("starting split at root node");
-                let root = &path[0];
+                let root = &path[0].0;
                 let left_node =
                     InteriorNode::new(&self.hasher, &left_range, true, root.left.clone(), None);
                 let right_node =
@@ -302,7 +301,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 })
             }
             SplitLocation::PathIndex(split_idx) => {
-                let split = &path[split_idx];
+                let split = &path[split_idx].0;
                 info!(
                     "starting split. split is at path[{split_idx}] with hash {:?}",
                     split.hash
@@ -312,8 +311,8 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 delta.remove.insert(split.hash);
 
                 for path_idx in (0..split_idx).rev() {
-                    let parent = &path[path_idx];
-                    let parent_d = key_dirs[path_idx];
+                    let parent = &path[path_idx].0;
+                    let parent_d = path[path_idx].2;
                     let parent_b = parent.branch(parent_d).as_ref().unwrap();
                     (left, right) = {
                         // If we came down the right branch, then the left gets a new node
