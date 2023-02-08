@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 
 use super::super::hsm::types::{OwnedRange, RecordId};
 use super::agent::Node;
@@ -39,23 +40,23 @@ impl<HO: HashOutput> ReadProof<HO> {
     // Verify the ReadProof. This includes the hash verification and the key
     // path check. It returns a VerifiedProof that can be used for subsequent
     // operations that need the proof.
-    pub fn verify<'a, H: NodeHasher<HO>>(
+    pub fn verify<H: NodeHasher<HO>>(
         self,
         hasher: &H,
-        overlay: &'a TreeOverlay<HO>,
-    ) -> Result<VerifiedProof<'a, HO>, ProofError> {
+        overlay: &TreeOverlay<HO>,
+    ) -> Result<VerifiedProof<HO>, ProofError> {
         // Ensure the root hash is one the overlay knows about.
         if !overlay.roots.contains(self.root_hash()) {
             return Err(ProofError::Stale);
         }
-        self.verify_foreign_proof(hasher, overlay)
+        self.verify_foreign_proof(hasher)
+            .map(|vp| vp.update_to_latest(overlay))
     }
 
-    pub fn verify_foreign_proof<'a, H: NodeHasher<HO>>(
+    pub fn verify_foreign_proof<H: NodeHasher<HO>>(
         self,
         hasher: &H,
-        overlay: &'a TreeOverlay<HO>,
-    ) -> Result<VerifiedProof<'a, HO>, ProofError> {
+    ) -> Result<VerifiedProof<HO>, ProofError> {
         // Do some basic sanity checks of the Proof struct first.
         if self.path.is_empty() || !self.range.contains(&self.key) {
             return Err(ProofError::Invalid);
@@ -76,7 +77,7 @@ impl<HO: HashOutput> ReadProof<HO> {
         )
         .map(|_| ())?;
 
-        Ok(VerifiedProof::new(self, overlay))
+        Ok(VerifiedProof(self))
     }
 
     // Walks down the path and
@@ -185,116 +186,79 @@ impl<HO: HashOutput> ReadProof<HO> {
     }
 }
 
-pub struct VerifiedProof<'a, HO> {
-    pub key: RecordId,
-    // The key range of the tree that the proof was read from.
-    pub range: OwnedRange,
-    pub leaf: Option<LeafNode<HO>>,
-    path: Vec<InteriorNode<HO>>,
-    nodes: HashMap<HO, usize>,
-    overlay: &'a TreeOverlay<HO>,
+pub struct VerifiedProof<HO>(ReadProof<HO>);
+impl<HO> Deref for VerifiedProof<HO> {
+    type Target = ReadProof<HO>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
-impl<'a, HO: HashOutput> VerifiedProof<'a, HO> {
-    fn new(proof: ReadProof<HO>, overlay: &'a TreeOverlay<HO>) -> Self {
-        let path_len = proof.path.len();
-        let mut r = Self {
-            key: proof.key,
-            range: proof.range,
-            leaf: proof.leaf,
-            path: proof.path,
-            nodes: HashMap::with_capacity(path_len),
-            overlay,
-        };
-        for (i, n) in r.path.iter().enumerate() {
-            // TODO: this works, requires that path is never subsequently mutated.
-            // trying to make nodes be HashMap<HO,&InteriorNode<HO>> and store
-            // the reference to the vec entries directly ends up in lifetime hell.
-            r.nodes.insert(n.hash, i);
+impl<HO: HashOutput> VerifiedProof<HO> {
+    fn update_to_latest(mut self, overlay: &TreeOverlay<HO>) -> VerifiedProof<HO> {
+        assert!(
+            overlay.roots.contains(self.root_hash()),
+            "verify should of already checked this"
+        );
+        if self.root_hash() == &overlay.latest_root {
+            return self;
         }
-        r
-    }
-    pub fn path_len(&self) -> usize {
-        self.path.len()
-    }
-    pub fn path(&self) -> Vec<&InteriorNode<HO>> {
-        self.path.iter().collect()
-    }
-    pub fn get(&self, node_hash: &HO) -> Result<BorrowedNode<'_, HO>, ProofError> {
-        // Look in overlay first.
-        self.overlay
-            .nodes
-            .get(node_hash)
-            .map(|n| match n {
-                Node::Interior(int) => BorrowedNode::Interior(int),
-                Node::Leaf(l) => BorrowedNode::Leaf(l),
-            })
-            // Or look in the nodes from the proof
-            .or_else(|| match self.nodes.get(node_hash) {
-                Some(path_idx) => Some(BorrowedNode::Interior(&self.path[*path_idx])),
-                None => match &self.leaf {
-                    Some(l) if &l.hash == node_hash => Some(BorrowedNode::Leaf(l)),
-                    None | Some(_) => None,
-                },
-            })
-            .ok_or(ProofError::Stale)
-    }
+        let mut proof_nodes = HashMap::with_capacity(self.path.len() + 1);
+        let mut old_path = Vec::new();
+        std::mem::swap(&mut old_path, &mut self.0.path);
+        let old_path_len = old_path.len();
 
-    // Return the latest value for the record id in the Proof.
-    pub fn latest_value(&self) -> Result<Option<Vec<u8>>, ProofError> {
-        let mut v = None;
-        self.walk_latest_path(|_head, _tail, _int| {}, |leaf| v = Some(leaf.value.clone()))?;
-        Ok(v)
-    }
+        for n in old_path {
+            proof_nodes.insert(n.hash, Node::Interior(n));
+        }
+        if let Some(l) = self.0.leaf {
+            proof_nodes.insert(l.hash, Node::Leaf(l));
+        }
+        let fetch = |hash| match overlay.nodes.get(&hash) {
+            Some(Node::Interior(int)) => Node::Interior(int.clone()),
+            Some(Node::Leaf(leaf)) => Node::Leaf(leaf.clone()),
+            None => match proof_nodes.get(&hash) {
+                Some(n) => n.clone(),
+                None => panic!("should of found hash {hash:?} in the overlay or proof"),
+            },
+        };
 
-    // Will walk down the most current path for the key in the Proof. The
-    // callback is called at each node visited on the path, starting at root.
-    pub fn walk_latest_path<FI, FL>(
-        &'a self,
-        mut int_cb: FI,
-        mut leaf_cb: FL,
-    ) -> Result<(), ProofError>
-    where
-        // |key_head, key_tail, node|
-        // key_head is the part of the key traversed to reach this node. This starts
-        // empty and will get longer at each subsequent call. It's the entire key prefix
-        // up to that point, not the prefix of the last branch.
-        // key_tail is the remainder of the key that has not been traversed yet. This
-        // starts as the full key and gets shorter at each subsequent call.
-        // concat(key_head,key_tail) is always the entire key.
-        FI: FnMut(&KeySlice, &KeySlice, &'a InteriorNode<HO>),
-        FL: FnMut(&'a LeafNode<HO>),
-    {
-        let full_key = KeySlice::from_slice(&self.key.0);
-        let mut current_hash = self.overlay.latest_root;
-        let mut key_pos = 0;
+        let mut new_proof = ReadProof {
+            key: self.0.key.clone(),
+            range: self.0.range.clone(),
+            leaf: None,
+            path: Vec::with_capacity(old_path_len),
+        };
+        let mut key = KeySlice::from_slice(&self.0.key.0);
+        let mut current_hash = overlay.latest_root;
         loop {
-            match self.get(&current_hash)? {
-                BorrowedNode::Leaf(leaf) => {
-                    assert!(key_pos == full_key.len());
-                    leaf_cb(leaf);
-                    return Ok(());
-                }
-                BorrowedNode::Interior(int) => {
-                    let key_tail = &full_key[key_pos..];
-                    int_cb(&full_key[..key_pos], key_tail, int);
-                    let d = Dir::from(key_tail[0]);
-                    match int.branch(d) {
-                        None => return Ok(()),
+            match fetch(current_hash) {
+                Node::Interior(int) => {
+                    let d = Dir::from(key[0]);
+                    let done = match int.branch(d) {
+                        None => true,
                         Some(b) => {
-                            if !key_tail.starts_with(&b.prefix) {
-                                return Ok(());
+                            if !key.starts_with(&b.prefix) {
+                                true
+                            } else {
+                                key = &key[b.prefix.len()..];
+                                current_hash = b.hash;
+                                false
                             }
-                            key_pos += b.prefix.len();
-                            current_hash = b.hash;
                         }
-                    }
+                    };
+                    new_proof.path.push(int);
+                    if done {
+                        break;
+                    };
+                }
+                Node::Leaf(leaf) => {
+                    assert!(key.is_empty());
+                    new_proof.leaf = Some(leaf);
+                    break;
                 }
             }
         }
+        VerifiedProof(new_proof)
     }
-}
-
-pub enum BorrowedNode<'a, HO> {
-    Interior(&'a InteriorNode<HO>),
-    Leaf(&'a LeafNode<HO>),
 }
