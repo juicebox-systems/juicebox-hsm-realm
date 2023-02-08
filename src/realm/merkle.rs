@@ -1,10 +1,9 @@
 use bitvec::prelude::*;
 use std::{
     cmp::min,
-    collections::HashSet,
     fmt::{Debug, Display},
     hash::Hash,
-    iter::{once, zip},
+    iter::zip,
 };
 use tracing::{info, trace};
 
@@ -41,13 +40,10 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     // hash along with the storage delta required to create the tree.
     pub fn new_tree(hasher: &H, key_range: &OwnedRange) -> (HO, StoreDelta<HO>) {
         let root = InteriorNode::new(hasher, key_range, true, None, None);
-        (
-            root.hash,
-            StoreDelta {
-                add: vec![Node::Interior(root)],
-                remove: HashSet::new(),
-            },
-        )
+        let hash = root.hash;
+        let mut delta = DeltaBuilder::new();
+        delta.add(Node::Interior(root));
+        (hash, delta.build())
     }
 
     // Create a new Tree instance for a previously constructed tree given the root hash
@@ -264,9 +260,9 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     root_hash: right_node.hash,
                     range: right_range,
                 };
-                delta.add.push(Node::Interior(left_node));
-                delta.add.push(Node::Interior(right_node));
-                delta.remove.insert(root.hash);
+                delta.add(Node::Interior(left_node));
+                delta.add(Node::Interior(right_node));
+                delta.remove(&root.hash);
                 Ok(SplitResult {
                     old_root: root.hash,
                     left,
@@ -290,9 +286,9 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     root_hash: right_node.hash,
                     range: right_range,
                 };
-                delta.add.push(Node::Interior(left_node));
-                delta.add.push(Node::Interior(right_node));
-                delta.remove.insert(root.hash);
+                delta.add(Node::Interior(left_node));
+                delta.add(Node::Interior(right_node));
+                delta.remove(&root.hash);
                 Ok(SplitResult {
                     old_root: root.hash,
                     left,
@@ -308,7 +304,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 );
                 let mut left = split.left.clone().unwrap();
                 let mut right = split.right.clone().unwrap();
-                delta.remove.insert(split.hash);
+                delta.remove(&split.hash);
 
                 for path_idx in (0..split_idx).rev() {
                     let parent = &path[path_idx].0;
@@ -332,7 +328,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                             ),
                         );
                         let new_node_res = Branch::new(KeyVec::new(), new_node.hash);
-                        delta.add.push(Node::Interior(new_node));
+                        delta.add(Node::Interior(new_node));
                         let ext_prefix_res = Branch::new(
                             concat(&parent_b.prefix, &extends_prefix.prefix),
                             extends_prefix.hash,
@@ -342,13 +338,13 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                             Dir::Right => (new_node_res, ext_prefix_res),
                         }
                     };
-                    delta.remove.insert(parent.hash);
+                    delta.remove(&parent.hash);
                 }
                 let left_root = if !left.prefix.is_empty() {
                     let n =
                         InteriorNode::construct(&self.hasher, &left_range, true, None, Some(left));
                     let h = n.hash;
-                    delta.add.push(Node::Interior(n));
+                    delta.add(Node::Interior(n));
                     h
                 } else {
                     left.hash
@@ -362,7 +358,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         Some(right),
                     );
                     let h = n.hash;
-                    delta.add.push(Node::Interior(n));
+                    delta.add(Node::Interior(n));
                     h
                 } else {
                     right.hash
@@ -445,7 +441,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     if let Some(b) = n.branch(dir.opposite()) {
                         let bp = concat(&prefix, &b.prefix);
                         branches.push(Branch::new(bp, b.hash));
-                        delta.remove.insert(n.hash);
+                        delta.remove(&n.hash);
                     }
                 }
                 if is_last {
@@ -515,7 +511,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         Some(right),
                     );
                     let hash = n.hash;
-                    delta.add.push(Node::Interior(n));
+                    delta.add(Node::Interior(n));
                     Branch::new(branches[0].prefix[bit_pos_start..bit_pos].into(), hash)
                 }
             }
@@ -525,7 +521,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         let root_hash = if branches.is_empty() {
             let root = InteriorNode::new(&self.hasher, &new_range, true, None, None);
             let hash = root.hash;
-            delta.add.push(Node::Interior(root));
+            delta.add(Node::Interior(root));
             hash
         } else {
             let res = reduce_to_tree(&self.hasher, &new_range, 0, 0, &branches, &mut delta);
@@ -534,7 +530,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             } else {
                 let n = InteriorNode::construct(&self.hasher, &new_range, true, Some(res), None);
                 let hash = n.hash;
-                delta.add.push(Node::Interior(n));
+                delta.add(Node::Interior(n));
                 hash
             }
         };
@@ -801,15 +797,12 @@ impl<HO: HashOutput> Delta<HO> {
             .hash
     }
     pub fn store_delta(self) -> StoreDelta<HO> {
-        StoreDelta {
-            add: self
-                .add
-                .into_iter()
-                .map(|n| Node::Interior(n))
-                .chain(once(Node::Leaf(self.leaf)))
-                .collect(),
-            remove: self.remove.into_iter().collect(),
+        let mut b = DeltaBuilder::new();
+        for n in self.add {
+            b.add(Node::Interior(n));
         }
+        b.add(Node::Leaf(self.leaf));
+        b.build()
     }
 }
 
@@ -1538,10 +1531,11 @@ mod tests {
     }
     impl<HO: HashOutput> MemStore<HO> {
         fn apply_store_delta(&mut self, d: StoreDelta<HO>) {
-            for n in d.add {
+            let (add, rem) = d.items();
+            for n in add {
                 self.insert(n.hash(), n);
             }
-            for r in d.remove {
+            for r in rem {
                 self.nodes.remove(r.as_u8());
             }
         }

@@ -19,11 +19,11 @@ impl MemStore {
     pub fn apply_store_delta(&mut self, realm: &RealmId, d: StoreDelta<DataHash>) {
         trace!(store =?self, ?realm, delta =?d);
         let nodes = self.realms.entry(*realm).or_insert_with(HashMap::new);
-
-        for n in d.add {
+        let (add, rem) = d.items();
+        for n in add {
             nodes.insert(n.hash(), n);
         }
-        for r in d.remove {
+        for r in rem {
             nodes.remove(&r);
         }
     }

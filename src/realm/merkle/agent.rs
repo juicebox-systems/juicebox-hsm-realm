@@ -24,28 +24,39 @@ pub enum TreeStoreError {
 
 #[derive(Clone, Debug)]
 pub struct StoreDelta<HO> {
-    pub add: Vec<Node<HO>>,
-    pub remove: HashSet<HO>,
+    add: Vec<Node<HO>>,
+    remove: HashSet<HO>,
+}
+impl<HO> StoreDelta<HO> {
+    pub fn items(self) -> (Vec<Node<HO>>, HashSet<HO>) {
+        (self.add, self.remove)
+    }
 }
 
 pub struct DeltaBuilder<HO> {
-    pub add: Vec<Node<HO>>,
-    pub remove: HashSet<HO>,
+    to_add: Vec<Node<HO>>,
+    to_remove: HashSet<HO>,
 }
 impl<HO: HashOutput> DeltaBuilder<HO> {
     pub fn new() -> Self {
         DeltaBuilder {
-            add: Vec::new(),
-            remove: HashSet::new(),
+            to_add: Vec::new(),
+            to_remove: HashSet::new(),
         }
     }
+    pub fn add(&mut self, n: Node<HO>) {
+        self.to_add.push(n);
+    }
+    pub fn remove(&mut self, hash: &HO) {
+        self.to_remove.remove(hash);
+    }
     pub fn build(mut self) -> StoreDelta<HO> {
-        for n in &self.add {
-            self.remove.remove(&n.hash());
+        for n in &self.to_add {
+            self.to_remove.remove(&n.hash());
         }
         StoreDelta {
-            add: self.add,
-            remove: self.remove,
+            add: self.to_add,
+            remove: self.to_remove,
         }
     }
 }
