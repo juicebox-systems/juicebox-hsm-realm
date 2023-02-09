@@ -17,7 +17,7 @@ mod types;
 
 use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use realm::agent::Agent;
-use realm::hsm::types::{OwnedRange, RecordId};
+use realm::hsm::types::{OwnedRange, RealmId, RecordId};
 use realm::hsm::{Hsm, RealmKey};
 use realm::load_balancer::LoadBalancer;
 use realm::store::Store;
@@ -31,21 +31,30 @@ mod hsm_gen {
 
     pub struct HsmGenerator {
         secret: RealmKey,
-        counter: RangeFrom<usize>,
+        port: RangeFrom<u16>,
     }
 
     impl HsmGenerator {
-        pub fn new() -> Self {
+        pub fn new(start_port: u16) -> Self {
             Self {
                 secret: RealmKey::random(),
-                counter: 1..,
+                port: start_port..,
             }
         }
 
-        pub fn create_hsm(&mut self, store: Addr<Store>) -> Addr<Agent> {
-            let i = self.counter.next().unwrap();
-            let hsm = Hsm::new(format!("hsm{i:02}"), self.secret.clone()).start();
-            Agent::new(format!("agent{i:02}"), hsm, store).start()
+        pub async fn create_hsms(&mut self, count: usize, store: &Addr<Store>) -> Vec<Url> {
+            let listens = iter::repeat_with(|| {
+                let port = self.port.next().unwrap();
+                let hsm = Hsm::new(format!("hsm{port}"), self.secret.clone()).start();
+                let agent = Agent::new(format!("agent{port}"), hsm, store.clone());
+                let address = SocketAddr::from(([127, 0, 0, 1], port));
+                async move {
+                    let result = agent.listen(address).await;
+                    result.map(|(url, _)| url)
+                }
+            })
+            .take(count);
+            try_join_all(listens).await.expect("TODO")
         }
     }
 }
@@ -86,33 +95,28 @@ async fn main() {
 
     let num_load_balancers = 2;
     info!(count = num_load_balancers, "creating load balancers");
-    let load_balancers: Vec<Url> = (1..=num_load_balancers)
-        .map(|i| {
-            let address = SocketAddr::from(([127, 0, 0, 1], 3000 + i));
-            let url = Url::parse(&format!("http://{address}")).unwrap();
-            let lb = LoadBalancer::new(format!("lb{i}"), store.clone());
-            tokio::task::spawn(lb.listen(address));
+    let load_balancers: Vec<Url> = join_all((1..=num_load_balancers).map(|i| {
+        let address = SocketAddr::from(([127, 0, 0, 1], 3000 + i));
+        let lb = LoadBalancer::new(format!("lb{i}"), store.clone());
+        async move {
+            let (url, _) = lb.listen(address).await.expect("TODO");
             url
-        })
-        .collect();
+        }
+    }))
+    .await;
 
-    let mut hsm_generator = HsmGenerator::new();
+    let mut hsm_generator = HsmGenerator::new(4000);
 
     let num_hsms = 5;
     info!(count = num_hsms, "creating initial HSMs and agents");
-    let group1: Vec<Addr<Agent>> = iter::repeat_with(|| hsm_generator.create_hsm(store.clone()))
-        .take(num_hsms)
-        .collect();
+    let group1: Vec<Url> = hsm_generator.create_hsms(num_hsms, &store).await;
     let (realm_id, group_id1) = realm::cluster::new_realm(&group1).await.unwrap();
     info!(?realm_id, group_id = ?group_id1, "initialized cluster");
 
     info!("creating additional groups");
-    let group2: Vec<Addr<Agent>> = iter::repeat_with(|| hsm_generator.create_hsm(store.clone()))
-        .take(5)
-        .collect();
-    let group3: Vec<Addr<Agent>> = iter::repeat_with(|| hsm_generator.create_hsm(store.clone()))
-        .take(4)
-        .collect();
+    let group2: Vec<Url> = hsm_generator.create_hsms(5, &store).await;
+    let group3: Vec<Url> = hsm_generator.create_hsms(4, &store).await;
+
     let mut groups = try_join_all([
         realm::cluster::new_group(realm_id, &group2),
         realm::cluster::new_group(realm_id, &group3),
@@ -121,22 +125,6 @@ async fn main() {
     .await
     .unwrap();
     info!(?realm_id, new_groups = ?groups, "created groups");
-
-    // creating additional groups & realms
-    let new_groups: Vec<Vec<Addr<Agent>>> = (0..3)
-        .map(|_| {
-            iter::repeat_with(|| hsm_generator.create_hsm(store.clone()))
-                .take(num_hsms)
-                .collect()
-        })
-        .collect();
-
-    let mut realm_ids: Vec<_> = join_all(new_groups.iter().map(|g| realm::cluster::new_realm(g)))
-        .await
-        .iter()
-        .map(|r| r.as_ref().unwrap().0)
-        .collect();
-    realm_ids.push(realm_id);
 
     groups.insert(0, group_id1);
     info!(
@@ -187,6 +175,18 @@ async fn main() {
     )
     .await
     .unwrap();
+
+    info!("creating additional realms");
+    let mut realm_ids: Vec<RealmId> = join_all([5000, 6000, 7000].map(|start_port| {
+        let mut hsm_generator = HsmGenerator::new(start_port);
+        let store = store.clone();
+        async move {
+            let agents = hsm_generator.create_hsms(num_hsms, &store).await;
+            realm::cluster::new_realm(&agents).await.unwrap().0
+        }
+    }))
+    .await;
+    realm_ids.push(realm_id);
 
     let mut lb = load_balancers.iter().cycle();
     let client = Client::new(

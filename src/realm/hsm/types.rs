@@ -22,7 +22,7 @@ impl fmt::Debug for RealmId {
     }
 }
 
-#[derive(Copy, Clone, Eq, Hash, PartialEq)]
+#[derive(Copy, Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct GroupId(pub [u8; 16]);
 
 impl fmt::Debug for GroupId {
@@ -34,7 +34,7 @@ impl fmt::Debug for GroupId {
     }
 }
 
-#[derive(Copy, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct HsmId(pub [u8; 16]);
 
 impl fmt::Debug for HsmId {
@@ -46,7 +46,7 @@ impl fmt::Debug for HsmId {
     }
 }
 
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct RecordId(pub [u8; 32]);
 impl RecordId {
     pub fn num_bits() -> usize {
@@ -93,7 +93,7 @@ impl fmt::Debug for RecordId {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct LogIndex(pub u64);
 
 impl LogIndex {
@@ -102,7 +102,7 @@ impl LogIndex {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Partition {
     pub range: OwnedRange,
     pub root_hash: DataHash,
@@ -131,7 +131,7 @@ pub struct TransferringOut {
 }
 
 /// See [super::EntryHmacBuilder].
-#[derive(Clone, Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Deserialize, Hash, PartialEq, Serialize)]
 pub struct EntryHmac(pub digest::Output<Hmac<Sha256>>);
 
 impl EntryHmac {
@@ -149,7 +149,7 @@ impl fmt::Debug for EntryHmac {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OwnedRange {
     pub start: RecordId, // inclusive
     pub end: RecordId,   // inclusive
@@ -195,7 +195,7 @@ impl OwnedRange {
     }
 }
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct DataHash(pub digest::Output<Sha256>);
 
 impl fmt::Debug for DataHash {
@@ -216,11 +216,11 @@ impl HashOutput for DataHash {
 ///
 /// The vector must be sorted by HSM ID, must not contain duplicates, and must
 /// contain at least 1 HSM.
-#[derive(Clone, Debug)]
+#[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct Configuration(pub Vec<HsmId>);
 
 /// See [super::GroupConfigurationStatementBuilder].
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct GroupConfigurationStatement(pub digest::Output<Hmac<Sha256>>);
 
 impl fmt::Debug for GroupConfigurationStatement {
@@ -233,7 +233,7 @@ impl fmt::Debug for GroupConfigurationStatement {
 }
 
 /// See [super::CapturedStatementBuilder].
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct CapturedStatement(pub digest::Output<Hmac<Sha256>>);
 
 impl fmt::Debug for CapturedStatement {
@@ -245,7 +245,7 @@ impl fmt::Debug for CapturedStatement {
     }
 }
 
-#[derive(Copy, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct TransferNonce(pub [u8; 16]);
 
 impl fmt::Debug for TransferNonce {
@@ -258,7 +258,7 @@ impl fmt::Debug for TransferNonce {
 }
 
 /// See [super::TransferStatementBuilder].
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct TransferStatement(pub digest::Output<Hmac<Sha256>>);
 
 impl fmt::Debug for TransferStatement {
@@ -274,19 +274,19 @@ impl fmt::Debug for TransferStatement {
 #[rtype(result = "StatusResponse")]
 pub struct StatusRequest {}
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, MessageResponse, Serialize)]
 pub struct StatusResponse {
     pub id: HsmId,
     pub realm: Option<RealmStatus>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RealmStatus {
     pub id: RealmId,
     pub groups: Vec<GroupStatus>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GroupStatus {
     pub id: GroupId,
     pub configuration: Configuration,
@@ -294,7 +294,7 @@ pub struct GroupStatus {
     pub leader: Option<LeaderStatus>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct LeaderStatus {
     pub committed: Option<LogIndex>,
     // Note: this might not be committed yet.

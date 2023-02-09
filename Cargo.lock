@@ -112,6 +112,7 @@ source = "git+https://github.com/superfell/bitvec?branch=vec_order#f3d5b43000f6e
 dependencies = [
  "funty",
  "radium",
+ "serde",
  "tap",
  "wyz",
 ]
@@ -831,6 +832,7 @@ dependencies = [
  "hex-literal",
  "hkdf",
  "hmac",
+ "http",
  "http-body-util",
  "hyper 1.0.0-rc.2",
  "rand",

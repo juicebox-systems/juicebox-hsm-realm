@@ -8,12 +8,13 @@ edition = "2021"
 [dependencies]
 actix = "0.13.0"
 actix-rt = "2.7.0"
-bitvec = "1.0.1"
+bitvec = { version = "1.0.1", features = ["serde"] }
 bytes = "1.4.0"
 digest = "0.10.6"
 futures = "0.3.25"
 hkdf = "0.12.3"
 hmac = "0.12.1"
+http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
 rand = "0.8.5"

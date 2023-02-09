@@ -1,8 +1,8 @@
-use std::fmt;
-
-use actix::prelude::*;
 use bitvec::vec::BitVec;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::fmt;
 
 use super::super::hsm::types as hsm_types;
 use hsm_types::{
@@ -11,22 +11,35 @@ use hsm_types::{
     TransferNonce, TransferStatement,
 };
 
-#[derive(Debug, Message)]
-#[rtype(result = "StatusResponse")]
+pub trait Rpc: fmt::Debug + DeserializeOwned + Serialize {
+    const PATH: &'static str;
+    type Response: fmt::Debug + DeserializeOwned + Serialize;
+}
+
+impl Rpc for StatusRequest {
+    const PATH: &'static str = "status";
+    type Response = StatusResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StatusRequest {}
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StatusResponse {
     pub hsm: Option<hsm_types::StatusResponse>,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "NewRealmResponse")]
+impl Rpc for NewRealmRequest {
+    const PATH: &'static str = "realm/new";
+    type Response = NewRealmResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct NewRealmRequest {
     pub configuration: Configuration,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum NewRealmResponse {
     Ok {
         realm: RealmId,
@@ -40,27 +53,35 @@ pub enum NewRealmResponse {
     StorePreconditionFailed,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "JoinRealmResponse")]
+impl Rpc for JoinRealmRequest {
+    const PATH: &'static str = "realm/join";
+    type Response = JoinRealmResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct JoinRealmRequest {
     pub realm: RealmId,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum JoinRealmResponse {
     Ok { hsm: HsmId },
     HaveOtherRealm,
     NoHsm,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "NewGroupResponse")]
+impl Rpc for NewGroupRequest {
+    const PATH: &'static str = "group/new";
+    type Response = NewGroupResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct NewGroupRequest {
     pub realm: RealmId,
     pub configuration: Configuration,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum NewGroupResponse {
     Ok {
         group: GroupId,
@@ -73,8 +94,12 @@ pub enum NewGroupResponse {
     StorePreconditionFailed,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "JoinGroupResponse")]
+impl Rpc for JoinGroupRequest {
+    const PATH: &'static str = "group/join";
+    type Response = JoinGroupResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct JoinGroupRequest {
     pub realm: RealmId,
     pub group: GroupId,
@@ -82,7 +107,7 @@ pub struct JoinGroupRequest {
     pub statement: GroupConfigurationStatement,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum JoinGroupResponse {
     Ok,
     InvalidRealm,
@@ -91,14 +116,18 @@ pub enum JoinGroupResponse {
     NoHsm,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "BecomeLeaderResponse")]
+impl Rpc for BecomeLeaderRequest {
+    const PATH: &'static str = "become_leader";
+    type Response = BecomeLeaderResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BecomeLeaderRequest {
     pub realm: RealmId,
     pub group: GroupId,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum BecomeLeaderResponse {
     Ok,
     NoHsm,
@@ -108,14 +137,18 @@ pub enum BecomeLeaderResponse {
     NotCaptured { have: Option<LogIndex> },
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "ReadCapturedResponse")]
+impl Rpc for ReadCapturedRequest {
+    const PATH: &'static str = "captured";
+    type Response = ReadCapturedResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReadCapturedRequest {
     pub realm: RealmId,
     pub group: GroupId,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum ReadCapturedResponse {
     Ok {
         hsm_id: HsmId,
@@ -129,8 +162,12 @@ pub enum ReadCapturedResponse {
     NoHsm,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "TransferOutResponse")]
+impl Rpc for TransferOutRequest {
+    const PATH: &'static str = "transfer/out";
+    type Response = TransferOutResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TransferOutRequest {
     pub realm: RealmId,
     pub source: GroupId,
@@ -145,7 +182,7 @@ pub struct TransferOutRequest {
 // Note: this returns before the log entry is committed, so the entry could
 // still get rolled back. The caller won't be able to get a TransferStatement
 // until the entry has committed, so not waiting here is OK.
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum TransferOutResponse {
     Ok { transferring: Partition },
     NoStore,
@@ -157,14 +194,18 @@ pub enum TransferOutResponse {
     InvalidProof,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "TransferNonceResponse")]
+impl Rpc for TransferNonceRequest {
+    const PATH: &'static str = "transfer/nonce";
+    type Response = TransferNonceResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TransferNonceRequest {
     pub realm: RealmId,
     pub destination: GroupId,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum TransferNonceResponse {
     Ok(TransferNonce),
     NoHsm,
@@ -173,8 +214,12 @@ pub enum TransferNonceResponse {
     NotLeader,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "TransferStatementResponse")]
+impl Rpc for TransferStatementRequest {
+    const PATH: &'static str = "transfer/statement";
+    type Response = TransferStatementResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TransferStatementRequest {
     pub realm: RealmId,
     pub source: GroupId,
@@ -182,7 +227,7 @@ pub struct TransferStatementRequest {
     pub nonce: TransferNonce,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum TransferStatementResponse {
     Ok(TransferStatement),
     NoHsm,
@@ -192,8 +237,12 @@ pub enum TransferStatementResponse {
     NotTransferring,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "TransferInResponse")]
+impl Rpc for TransferInRequest {
+    const PATH: &'static str = "transfer/in";
+    type Response = TransferInResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TransferInRequest {
     pub realm: RealmId,
     pub source: GroupId,
@@ -203,7 +252,7 @@ pub struct TransferInRequest {
     pub statement: TransferStatement,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum TransferInResponse {
     Ok,
     NoHsm,
@@ -215,8 +264,12 @@ pub enum TransferInResponse {
     InvalidStatement,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "CompleteTransferResponse")]
+impl Rpc for CompleteTransferRequest {
+    const PATH: &'static str = "transfer/complete";
+    type Response = CompleteTransferResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CompleteTransferRequest {
     pub realm: RealmId,
     pub source: GroupId,
@@ -224,7 +277,7 @@ pub struct CompleteTransferRequest {
     pub range: OwnedRange,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum CompleteTransferResponse {
     Ok,
     NoHsm,
@@ -233,8 +286,12 @@ pub enum CompleteTransferResponse {
     NotLeader,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "AppResponse")]
+impl Rpc for AppRequest {
+    const PATH: &'static str = "app";
+    type Response = AppResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AppRequest {
     pub realm: RealmId,
     pub group: GroupId,
@@ -242,7 +299,7 @@ pub struct AppRequest {
     pub request: SecretsRequest,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum AppResponse {
     Ok(SecretsResponse),

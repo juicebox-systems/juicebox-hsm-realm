@@ -1,4 +1,5 @@
 use actix::prelude::*;
+use reqwest::Url;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
 use tracing::trace;
@@ -8,7 +9,6 @@ pub mod types;
 
 use self::types::{GetRecordProofRequest, GetRecordProofResponse};
 
-use super::agent::Agent;
 use super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId};
 use super::merkle::agent::TreeStoreError;
 use kv::MemStore;
@@ -20,7 +20,7 @@ use types::{
 
 pub struct Store {
     groups: HashMap<(RealmId, GroupId), GroupState>,
-    addresses: HashMap<HsmId, Addr<Agent>>,
+    addresses: HashMap<HsmId, Url>,
     kv: MemStore,
 }
 

@@ -8,20 +8,22 @@ use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use reqwest::Url;
 use std::collections::HashMap;
 use std::iter::zip;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
 use tracing::{trace, warn};
 
 pub mod types;
 
+use super::agent::client::AgentClient;
 use super::agent::types::{
     AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
 };
-use super::agent::Agent;
 use super::hsm::types as hsm_types;
 use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse};
 use super::store::Store;
@@ -34,27 +36,44 @@ pub struct LoadBalancer(Arc<State>);
 struct State {
     name: String,
     store: Addr<Store>,
+    agent_client: AgentClient,
 }
 
 impl LoadBalancer {
     pub fn new(name: String, store: Addr<Store>) -> Self {
-        Self(Arc::new(State { name, store }))
+        Self(Arc::new(State {
+            name,
+            store,
+            agent_client: AgentClient::new(),
+        }))
     }
 
     pub async fn listen(
         self,
         address: SocketAddr,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
         let listener = TcpListener::bind(address).await?;
-        loop {
-            let (stream, _) = listener.accept().await?;
-            let lb = self.clone();
-            tokio::task::spawn(async move {
-                if let Err(err) = http1::Builder::new().serve_connection(stream, lb).await {
-                    warn!("Error serving connection: {:?}", err);
+        let url = Url::parse(&format!("http://{address}")).unwrap();
+        Ok((
+            url,
+            tokio::spawn(async move {
+                loop {
+                    match listener.accept().await {
+                        Err(e) => warn!("error accepting connection: {e:?}"),
+                        Ok((stream, _)) => {
+                            let lb = self.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) =
+                                    http1::Builder::new().serve_connection(stream, lb).await
+                                {
+                                    warn!("error serving connection: {e:?}");
+                                }
+                            });
+                        }
+                    }
                 }
-            });
-        }
+            }),
+        ))
     }
 }
 
@@ -62,10 +81,14 @@ impl LoadBalancer {
 struct Partition {
     group: GroupId,
     owned_range: OwnedRange,
-    leader: Addr<Agent>,
+    leader: Url,
 }
 
-async fn refresh(name: &str, store: Addr<Store>) -> HashMap<RealmId, Vec<Partition>> {
+async fn refresh(
+    name: &str,
+    store: Addr<Store>,
+    agent_client: &AgentClient,
+) -> HashMap<RealmId, Vec<Partition>> {
     trace!(load_balancer = name, "refreshing cluster information");
     match store.send(GetAddressesRequest {}).await {
         Err(_) => todo!(),
@@ -73,7 +96,7 @@ async fn refresh(name: &str, store: Addr<Store>) -> HashMap<RealmId, Vec<Partiti
             let responses = join_all(
                 addresses
                     .iter()
-                    .map(|entry| entry.address.send(StatusRequest {})),
+                    .map(|entry| agent_client.send(&entry.address, StatusRequest {})),
             )
             .await;
 
@@ -123,12 +146,13 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
         let name = self.0.name.clone();
         trace!(load_balancer = name, ?request);
         let store = self.0.store.clone();
+        let agent_client = self.0.agent_client.clone();
 
         Box::pin(async move {
-            let realms = refresh(&name, store).await;
+            let realms = refresh(&name, store, &agent_client).await;
             let request =
                 rmp_serde::from_slice(request.collect().await?.to_bytes().as_ref()).expect("TODO");
-            let response = handle_client_request(request, &name, &realms).await;
+            let response = handle_client_request(request, &name, &realms, &agent_client).await;
             trace!(load_balancer = name, ?response);
             Ok(Response::builder()
                 .body(Full::new(Bytes::from(
@@ -143,6 +167,7 @@ async fn handle_client_request(
     request: ClientRequest,
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
+    agent_client: &AgentClient,
 ) -> ClientResponse {
     type Response = ClientResponse;
 
@@ -163,24 +188,25 @@ async fn handle_client_request(
             continue;
         }
 
-        let result = partition
-            .leader
-            .send(AppRequest {
-                realm: request.realm,
-                group: partition.group,
-                rid: record_id.clone(),
-                request: request.request.clone(),
-            })
-            .await;
-
-        match result {
+        match agent_client
+            .send(
+                &partition.leader,
+                AppRequest {
+                    realm: request.realm,
+                    group: partition.group,
+                    rid: record_id.clone(),
+                    request: request.request.clone(),
+                },
+            )
+            .await
+        {
             Err(_) => {
                 warn!(
                     load_balancer = name,
                     agent = ?partition.leader,
                     realm = ?request.realm,
                     group = ?partition.group,
-                    "connection error",
+                    "http error",
                 );
             }
 
