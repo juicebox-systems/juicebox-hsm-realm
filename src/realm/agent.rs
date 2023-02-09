@@ -25,16 +25,18 @@ pub mod types;
 
 use super::hsm::types as hsm_types;
 use super::hsm::Hsm;
+use super::merkle::Dir;
 use super::store::types::{
     AddressEntry, AppendRequest, AppendResponse, GetAddressesRequest, GetAddressesResponse,
-    GetRecordProofRequest, GetRecordProofResponse, ReadEntryRequest, ReadEntryResponse,
-    ReadLatestRequest, ReadLatestResponse, SetAddressRequest, SetAddressResponse,
+    GetRecordProofRequest, GetRecordProofResponse, GetTreeEdgeProofRequest,
+    GetTreeEdgeProofResponse, ReadEntryRequest, ReadEntryResponse, ReadLatestRequest,
+    ReadLatestResponse, SetAddressRequest, SetAddressResponse,
 };
 use super::store::Store;
 use client::{AgentClient, AgentClientError};
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
-    EntryHmac, GroupId, HsmId, LogIndex, RealmId, SecretsResponse,
+    EntryHmac, GroupId, HsmId, LogIndex, RealmId, SecretsResponse, TransferInProofs,
 };
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
@@ -914,35 +916,104 @@ impl Agent {
         let hsm = &self.0.hsm;
         let store = &self.0.store;
 
-        match hsm
-            .send(hsm_types::TransferInRequest {
-                realm: request.realm,
-                destination: request.destination,
-                transferring: request.transferring.clone(),
-                nonce: request.nonce,
-                statement: request.statement,
-            })
-            .await
-        {
-            Err(_) => Ok(Response::NoHsm),
-            Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
-            Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
-            Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
-            Ok(HsmResponse::UnacceptablePrefix) => Ok(Response::UnacceptablePrefix),
-            Ok(HsmResponse::InvalidNonce) => Ok(Response::InvalidNonce),
-            Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
-            Ok(HsmResponse::Ok { entry }) => {
-                self.append(
-                    store.clone(),
-                    AppendRequest {
+        // This loop handles retries if the read from the store is stale. It's
+        // expected to run just once.
+        loop {
+            let entry = match store
+                .send(ReadLatestRequest {
+                    realm: request.realm,
+                    group: request.destination,
+                })
+                .await
+            {
+                Err(_) => return Ok(Response::NoStore),
+                Ok(ReadLatestResponse::Ok { entry, .. }) => entry,
+                Ok(ReadLatestResponse::None) => todo!(),
+            };
+            let proofs = match entry.partition {
+                None => None,
+                Some(partition) => {
+                    let proof_dir = match partition.range.join(&request.transferring.range) {
+                        None => return Ok(Response::UnacceptableRange),
+                        Some(jr) => {
+                            if jr.start == request.transferring.range.start {
+                                Dir::Right
+                            } else {
+                                Dir::Left
+                            }
+                        }
+                    };
+                    let transferring_in_proof_req = store.send(GetTreeEdgeProofRequest {
+                        realm: request.realm,
+                        group: request.source,
+                        partition: request.transferring.clone(),
+                        dir: proof_dir,
+                    });
+                    let owned_range_proof_req = store.send(GetTreeEdgeProofRequest {
                         realm: request.realm,
                         group: request.destination,
-                        entry,
-                        delta: None,
-                    },
-                );
-                Ok(Response::Ok)
-            }
+                        partition: partition.clone(),
+                        dir: proof_dir.opposite(),
+                    });
+                    let transferring_in_proof = match transferring_in_proof_req.await {
+                        Err(_) => return Ok(Response::NoStore),
+                        Ok(GetTreeEdgeProofResponse::StoreMissingNode) => todo!(),
+                        Ok(GetTreeEdgeProofResponse::UnknownGroup) => {
+                            return Ok(Response::InvalidGroup)
+                        }
+                        Ok(GetTreeEdgeProofResponse::Ok { proof }) => proof,
+                    };
+                    let owned_range_proof = match owned_range_proof_req.await {
+                        Err(_) => return Ok(Response::NoStore),
+                        Ok(GetTreeEdgeProofResponse::StoreMissingNode) => todo!(),
+                        Ok(GetTreeEdgeProofResponse::UnknownGroup) => {
+                            return Ok(Response::InvalidGroup)
+                        }
+                        Ok(GetTreeEdgeProofResponse::Ok { proof }) => proof,
+                    };
+                    Some(TransferInProofs {
+                        owned: owned_range_proof,
+                        transferring: transferring_in_proof,
+                    })
+                }
+            };
+            return match hsm
+                .send(hsm_types::TransferInRequest {
+                    realm: request.realm,
+                    destination: request.destination,
+                    transferring: request.transferring.clone(),
+                    proofs,
+                    nonce: request.nonce,
+                    statement: request.statement.clone(),
+                })
+                .await
+            {
+                Err(_) => Ok(Response::NoHsm),
+                Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
+                Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
+                Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
+                Ok(HsmResponse::UnacceptableRange) => Ok(Response::UnacceptableRange),
+                Ok(HsmResponse::InvalidNonce) => Ok(Response::InvalidNonce),
+                Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
+                Ok(HsmResponse::InvalidProof) => todo!(),
+                Ok(HsmResponse::MissingProofs) => todo!(),
+                Ok(HsmResponse::StaleProof) => {
+                    trace!(?hsm, "hsm said stale proof, will retry");
+                    continue;
+                }
+                Ok(HsmResponse::Ok { entry, delta }) => {
+                    self.append(
+                        store.clone(),
+                        AppendRequest {
+                            realm: request.realm,
+                            group: request.destination,
+                            entry,
+                            delta,
+                        },
+                    );
+                    Ok(Response::Ok)
+                }
+            };
         }
     }
 

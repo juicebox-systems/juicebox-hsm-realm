@@ -259,9 +259,11 @@ pub enum TransferInResponse {
     InvalidRealm,
     InvalidGroup,
     NotLeader,
-    UnacceptablePrefix,
+    UnacceptableRange,
     InvalidNonce,
     InvalidStatement,
+    NoStore,
+    NotOwner,
 }
 
 impl Rpc for CompleteTransferRequest {

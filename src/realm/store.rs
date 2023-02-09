@@ -7,7 +7,10 @@ use tracing::trace;
 mod kv;
 pub mod types;
 
-use self::types::{GetRecordProofRequest, GetRecordProofResponse};
+use self::types::{
+    GetRecordProofRequest, GetRecordProofResponse, GetTreeEdgeProofRequest,
+    GetTreeEdgeProofResponse,
+};
 
 use super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId};
 use super::merkle::agent::TreeStoreError;
@@ -163,6 +166,35 @@ impl Handler<GetRecordProofRequest> for Store {
                             }
                         }
                     }
+                }
+            }
+        };
+        trace!(?response);
+        response
+    }
+}
+
+impl Handler<GetTreeEdgeProofRequest> for Store {
+    type Result = GetTreeEdgeProofResponse;
+
+    fn handle(
+        &mut self,
+        request: GetTreeEdgeProofRequest,
+        _ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        trace!(?request);
+        let response = match self.groups.get(&(request.realm, request.group)) {
+            None => GetTreeEdgeProofResponse::UnknownGroup,
+
+            Some(_) => {
+                match super::merkle::agent::read_tree_side(
+                    &self.kv.reader(&request.realm),
+                    &request.partition.range,
+                    &request.partition.root_hash,
+                    request.dir,
+                ) {
+                    Ok(proof) => GetTreeEdgeProofResponse::Ok { proof },
+                    Err(TreeStoreError::MissingNode) => GetTreeEdgeProofResponse::StoreMissingNode,
                 }
             }
         };

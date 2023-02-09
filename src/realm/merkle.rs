@@ -504,9 +504,9 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
 #[allow(dead_code)]
 pub struct MergeResult<HO> {
-    range: OwnedRange,
-    root_hash: HO,
-    delta: StoreDelta<HO>,
+    pub range: OwnedRange,
+    pub root_hash: HO,
+    pub delta: StoreDelta<HO>,
 }
 
 #[derive(Debug, Clone)]
@@ -674,7 +674,7 @@ impl Dir {
             false => Dir::Left,
         }
     }
-    fn opposite(&self) -> Self {
+    pub fn opposite(&self) -> Self {
         match self {
             Dir::Left => Dir::Right,
             Dir::Right => Dir::Left,

@@ -514,12 +514,19 @@ pub enum TransferStatementResponse {
     Busy,
 }
 
+#[derive(Debug)]
+pub struct TransferInProofs {
+    pub owned: ReadProof<DataHash>,
+    pub transferring: ReadProof<DataHash>,
+}
+
 #[derive(Debug, Message)]
 #[rtype(result = "TransferInResponse")]
 pub struct TransferInRequest {
     pub realm: RealmId,
     pub destination: GroupId,
     pub transferring: Partition,
+    pub proofs: Option<TransferInProofs>,
     pub nonce: TransferNonce,
     pub statement: TransferStatement,
 }
@@ -527,13 +534,19 @@ pub struct TransferInRequest {
 #[derive(Debug, MessageResponse)]
 #[allow(clippy::large_enum_variant)]
 pub enum TransferInResponse {
-    Ok { entry: LogEntry },
+    Ok {
+        entry: LogEntry,
+        delta: Option<StoreDelta<DataHash>>,
+    },
     InvalidRealm,
     InvalidGroup,
     NotLeader,
-    UnacceptablePrefix,
+    UnacceptableRange,
     InvalidNonce,
     InvalidStatement,
+    StaleProof,
+    InvalidProof,
+    MissingProofs,
 }
 
 #[derive(Debug, Message)]

@@ -176,6 +176,20 @@ async fn main() {
     .await
     .unwrap();
 
+    // moving part of a partition to another group.
+    realm::cluster::transfer(
+        realm_id,
+        groups[2],
+        groups[3],
+        OwnedRange {
+            start: RecordId([0x30; 32]),
+            end: RecordId([0x40; 32]).prev().unwrap(),
+        },
+        &store,
+    )
+    .await
+    .unwrap();
+
     info!("creating additional realms");
     let mut realm_ids: Vec<RealmId> = join_all([5000, 6000, 7000].map(|start_port| {
         let mut hsm_generator = HsmGenerator::new(start_port);
