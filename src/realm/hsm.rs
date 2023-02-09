@@ -947,7 +947,7 @@ impl Handler<TransferOutRequest> for Hsm {
                         }
                     }
                 }
-                let Some(tree) = &mut leader.tree else {
+                let Some(tree) = leader.tree.take() else {
                     return Response::NotLeader;
                 };
                 let (keeping, transferring, split_delta) = match tree.range_split(request.proof) {

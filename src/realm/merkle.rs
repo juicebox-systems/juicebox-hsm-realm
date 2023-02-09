@@ -168,7 +168,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
     // Splits the current tree into two at the key in the proof. This key
     // becomes the first key in the new right side.
-    pub fn range_split(&mut self, proof: ReadProof<HO>) -> Result<SplitResult<HO>, ProofError> {
+    pub fn range_split(self, proof: ReadProof<HO>) -> Result<SplitResult<HO>, ProofError> {
         assert!(proof.key > RecordId::min_id());
 
         let proof = proof.verify(&self.hasher, &self.overlay)?;
@@ -372,7 +372,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     // latest hash for that tree, it can't be validated here.
     #[allow(dead_code)]
     pub fn merge(
-        &self,
+        self,
         my_proof: ReadProof<HO>,
         other_proof: ReadProof<HO>,
     ) -> Result<MergeResult<HO>, MergeError> {
@@ -1098,8 +1098,8 @@ mod tests {
         let proof = read(&store, &range, &root, split).unwrap();
         let s = tree.range_split(proof).unwrap();
         store.apply_store_delta(s.delta);
-        check_tree_invariants(&tree.hasher, &s.left.range, s.left.root_hash, &store);
-        check_tree_invariants(&tree.hasher, &s.right.range, s.right.root_hash, &store);
+        check_tree_invariants(&TestHasher {}, &s.left.range, s.left.root_hash, &store);
+        check_tree_invariants(&TestHasher {}, &s.right.range, s.right.root_hash, &store);
 
         let (mut tree_l, mut root_l, mut store_l) = new_empty_tree(&s.left.range);
         let (mut tree_r, mut root_r, mut store_r) = new_empty_tree(&s.right.range);
@@ -1126,8 +1126,8 @@ mod tests {
                 );
             }
         }
-        check_tree_invariants(&tree.hasher, &s.left.range, root_l, &store_l);
-        check_tree_invariants(&tree.hasher, &s.right.range, root_r, &store_r);
+        check_tree_invariants(&TestHasher {}, &s.left.range, root_l, &store_l);
+        check_tree_invariants(&TestHasher {}, &s.right.range, root_r, &store_r);
 
         if root_l != s.left.root_hash {
             dot::tree_to_dot(root_l, &store_l, "expected_left.dot").unwrap();
@@ -1158,7 +1158,7 @@ mod tests {
                 "tree after split then merge should be the same as before the initial split"
             );
         }
-        check_tree_invariants(&tree_l.hasher, &merged.range, merged.root_hash, &store_l);
+        check_tree_invariants(&tree_r.hasher, &merged.range, merged.root_hash, &store_l);
     }
 
     #[test]
