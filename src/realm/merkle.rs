@@ -10,14 +10,13 @@ use tracing::{info, trace};
 use self::{
     agent::{DeltaBuilder, Node, StoreDelta},
     overlay::TreeOverlay,
-    proof::ProofError,
+    proof::{PathStep, ProofError, ReadProof, VerifiedProof},
 };
 use super::hsm::types::{OwnedRange, RecordId};
 
 pub mod agent;
 mod overlay;
 pub mod proof;
-pub use proof::ReadProof;
 
 pub type KeyVec = BitVec<u8, Msb0>;
 pub type KeySlice = BitSlice<u8, Msb0>;
@@ -38,6 +37,14 @@ pub struct Tree<H: NodeHasher<HO>, HO> {
 impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     // Creates a new empty tree for the indicated partition. Returns the root
     // hash along with the storage delta required to create the tree.
+    //
+    // A typical read/write cycle to the tree looks like:
+    //      Get a read proof from the store
+    //      Call latest_proof to access the latest value of the key
+    //      Use the value, possibly generating a new value to update the tree with
+    //      Use the latest_proof result to call insert to put the updated value in the tree.
+    //      Apply the store delta returned from insert to storage. Keep track of what
+    //      the new root hash is.
     pub fn new_tree(hasher: &H, key_range: &OwnedRange) -> (HO, StoreDelta<HO>) {
         let root = InteriorNode::new(hasher, key_range, true, None, None);
         let hash = root.hash;
@@ -55,13 +62,11 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         }
     }
 
-    // Return the most recent value for the RecordId in the read proof.
-    pub fn latest_value(&self, rp: ReadProof<HO>) -> Result<Option<Vec<u8>>, ProofError> {
-        let vp = rp.verify(&self.hasher, &self.overlay)?;
-        match &vp.leaf {
-            None => Ok(None),
-            Some(leaf) => Ok(Some(leaf.value.clone())),
-        }
+    // Return a verified proof that was updated to the latest tree from the overlay.
+    // This allows access to the current value, as well as being able to call insert later
+    // to update the value in the tree.
+    pub fn latest_proof(&self, rp: ReadProof<HO>) -> Result<VerifiedProof<HO>, ProofError> {
+        rp.verify(&self.hasher, &self.overlay)
     }
 
     // Insert a new value for the leaf described by the read proof. Returns a set
@@ -70,12 +75,13 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     // None is returned.
     pub fn insert(
         &mut self,
-        rp: ReadProof<HO>,
+        mut proof: VerifiedProof<HO>,
         v: Vec<u8>,
     ) -> Result<Option<Delta<HO>>, ProofError> {
         //
-        let proof = rp.verify(&self.hasher, &self.overlay)?;
-
+        if proof.root_hash() != &self.overlay.latest_root {
+            return Err(ProofError::Stale);
+        }
         if let Some(leaf) = &proof.leaf {
             if leaf.value == v {
                 return Ok(None);
@@ -83,100 +89,78 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         }
         let mut delta = Delta::new(LeafNode::new(&self.hasher, &proof.key, v));
         let key = KeySlice::from_slice(&proof.key.0);
-        let mut key_pos = 0;
-        let mut path = Vec::with_capacity(proof.path.len());
-        for n in &proof.path {
-            let d = Dir::from(key[key_pos]);
-            path.push((n, key[..key_pos].to_bitvec(), d));
-            match n.branch(d) {
-                None => {
-                    break;
-                }
-                Some(b) => {
-                    if key[key_pos..].starts_with(&b.prefix) {
-                        key_pos += b.prefix.len();
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-        let (last_n, prefix, d) = path.last().unwrap();
-        let mut child_hash = match last_n.branch(*d) {
+
+        let last = proof
+            .path
+            .pop()
+            .expect("There should always be at least the root node in the path");
+        let mut child_hash = match last.node.branch(last.next_dir) {
             None => {
                 // update node to have empty branch point to the new leaf.
-                let b = Branch::new(key[prefix.len()..].into(), delta.leaf.hash);
-                let updated_n = last_n.with_new_child(&self.hasher, &proof.range, true, *d, b);
+                let b = Branch::new(key[last.prefix.len()..].into(), delta.leaf.hash);
+                let updated_n =
+                    last.node
+                        .with_new_child(&self.hasher, &proof.range, true, last.next_dir, b);
                 let hash = updated_n.hash;
                 delta.add.push(updated_n);
-                delta.remove.push(last_n.hash);
+                delta.remove.push(last.node.hash);
                 hash
             }
             Some(b) => {
-                if key[prefix.len()..] == b.prefix {
+                if key[last.prefix.len()..] == b.prefix {
                     // this points to the existing leaf, just need to update it.
-                    let updated_n = last_n.with_new_child_hash(
+                    let updated_n = last.node.with_new_child_hash(
                         &self.hasher,
                         &proof.range,
-                        prefix.is_empty(),
-                        *d,
+                        last.prefix.is_empty(),
+                        last.next_dir,
                         delta.leaf.hash,
                     );
                     let new_hash = updated_n.hash;
                     delta.add.push(updated_n);
-                    delta.remove.push(last_n.hash);
+                    delta.remove.push(last.node.hash);
                     new_hash
                 } else {
                     // This points somewhere else. Add a child node that contains(b.dest, new_leaf) and update n to point to it
-                    let comm = common_prefix(&key[prefix.len()..], &b.prefix);
+                    let comm = common_prefix(&key[last.prefix.len()..], &b.prefix);
                     assert!(!comm.is_empty());
-                    println!(
-                        "comm {}\nkey_tail {}\nb.prefix {}",
-                        comm,
-                        &key[prefix.len()..],
-                        b.prefix
-                    );
-                    println!("number of items in path {}", path.len());
-                    println!("prefix len {}", prefix.len());
-                    println!("new prefix len {}", b.prefix[comm.len()..].len());
-                    println!("leaf prefix len {}", key[prefix.len() + comm.len()..].len());
                     let new_child = InteriorNode::construct(
                         &self.hasher,
                         &proof.range,
                         false,
                         Some(Branch::new(
-                            key[prefix.len() + comm.len()..].into(),
+                            key[last.prefix.len() + comm.len()..].into(),
                             delta.leaf.hash,
                         )),
                         Some(Branch::new(b.prefix[comm.len()..].into(), b.hash)),
                     );
-                    let updated_n = last_n.with_new_child(
+                    let updated_n = last.node.with_new_child(
                         &self.hasher,
                         &proof.range,
-                        prefix.is_empty(),
-                        *d,
+                        last.prefix.is_empty(),
+                        last.next_dir,
                         Branch::new(comm.into(), new_child.hash),
                     );
                     let new_hash = updated_n.hash;
                     delta.add.push(new_child);
                     delta.add.push(updated_n);
-                    delta.remove.push(last_n.hash);
+                    delta.remove.push(last.node.hash);
                     new_hash
                 }
             }
         };
         // now roll the hash back up the path.
-        for (n, prefix, d) in path.iter().rev().skip(1) {
-            let updated_n = n.with_new_child_hash(
+        for parent in proof.path.iter().rev() {
+            let updated_n = parent.node.with_new_child_hash(
                 &self.hasher,
                 &proof.range,
-                prefix.is_empty(),
-                *d,
+                parent.prefix.is_empty(),
+                parent.next_dir,
                 child_hash,
             );
             child_hash = updated_n.hash;
             delta.add.push(updated_n);
-            delta.remove.push(n.hash);
+            delta.remove.push(parent.node.hash);
         }
         self.overlay.add_delta(&delta);
         Ok(Some(delta))
@@ -189,26 +173,6 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
         let proof = proof.verify(&self.hasher, &self.overlay)?;
 
-        let mut path = Vec::with_capacity(proof.path.len());
-        let key = KeySlice::from_slice(&proof.key.0);
-        let mut key_pos = 0;
-        for n in &proof.path {
-            let d = Dir::from(key[key_pos]);
-            path.push((n, key[..key_pos].to_bitvec(), d));
-            match n.branch(d) {
-                None => {
-                    break;
-                }
-                Some(b) => {
-                    if key[key_pos..].starts_with(&b.prefix) {
-                        key_pos += b.prefix.len();
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-
         // Find the split node. We start at the bottom of the path. If the key is greater than the
         // left branch and smaller or equal to the right branch then this is the split node. If its
         // not, we have to walk back up the path to find the split node.
@@ -218,27 +182,31 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             SideOfRoot(Dir),
         }
         let split_loc = {
-            let last = path
+            let last = proof
+                .path
                 .last()
                 .expect("path should always contain at least one node");
-            let prefix = &last.1;
-            let gt_left = match &last.0.left {
+            let gt_left = match &last.node.left {
                 None => true,
-                Some(b) => key > concat(prefix, &b.prefix),
+                Some(b) => key > concat(&last.prefix, &b.prefix),
             };
-            let lte_right = match &last.0.right {
+            let lte_right = match &last.node.right {
                 None => true,
-                Some(b) => key <= concat(prefix, &b.prefix),
+                Some(b) => key <= concat(&last.prefix, &b.prefix),
             };
 
             if gt_left && lte_right {
                 // this is the one.
-                SplitLocation::PathIndex(path.len() - 1)
+                SplitLocation::PathIndex(proof.path.len() - 1)
             } else {
                 let dir = if !gt_left { Dir::Left } else { Dir::Right };
                 // Need to walk back up to find a node where the branch takes the opposite side.
                 // This makes a lot more sense if you look at a picture of a tree.
-                match path.iter().rposition(|(_, _, d)| d == &dir.opposite()) {
+                match proof
+                    .path
+                    .iter()
+                    .rposition(|step| step.next_dir == dir.opposite())
+                {
                     Some(idx) => SplitLocation::PathIndex(idx),
                     None => SplitLocation::SideOfRoot(dir),
                 }
@@ -259,7 +227,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 // The split point is either before everything in the tree, or after everything in the tree.
                 // This splits into the current tree (with new hash for partition change) plus a new empty root.
                 info!("starting split to {side} of root node");
-                let root = &path[0].0;
+                let root = &proof.path[0].node;
                 let (left_node, right_node) = match side {
                     Dir::Left => (
                         InteriorNode::new(&self.hasher, &left_range, true, None, None),
@@ -291,7 +259,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             SplitLocation::PathIndex(0) => {
                 // Simple case, split is in the middle of the root node.
                 info!("starting split at root node");
-                let root = &path[0].0;
+                let root = &proof.path[0].node;
                 let left_node =
                     InteriorNode::new(&self.hasher, &left_range, true, root.left.clone(), None);
                 let right_node =
@@ -315,7 +283,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 })
             }
             SplitLocation::PathIndex(split_idx) => {
-                let split = &path[split_idx].0;
+                let split = &proof.path[split_idx].node;
                 info!(
                     "starting split. split is at path[{split_idx}] with hash {:?}",
                     split.hash
@@ -325,8 +293,8 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 delta.remove(&split.hash);
 
                 for path_idx in (0..split_idx).rev() {
-                    let parent = &path[path_idx].0;
-                    let parent_d = path[path_idx].2;
+                    let parent = &proof.path[path_idx].node;
+                    let parent_d = proof.path[path_idx].next_dir;
                     let parent_b = parent.branch(parent_d).as_ref().unwrap();
                     (left, right) = {
                         // If we came down the right branch, then the left gets a new node
@@ -432,54 +400,35 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         // that are not the branches on the path. I.e. all the other things pointed to by the path.
         // the nodes from the path get added to the delete set of the delta.
         fn collect<HO: HashOutput>(
-            path: &[InteriorNode<HO>],
-            dir: Dir,
+            path: &[PathStep<HO>],
             branches: &mut Vec<Branch<HO>>,
             delta: &mut DeltaBuilder<HO>,
         ) {
-            let mut prefix = KeyVec::new();
-            for (is_root, is_last, n) in path
+            for (is_last, n) in path
                 .iter()
                 .enumerate()
-                .map(|(i, n)| (i == 0, i == path.len() - 1, n))
+                .map(|(i, n)| (i == path.len() - 1, n))
             {
-                // For the root, if the branch in the direction we're trying to go is empty
-                // then the other branch is part of the path, its not a branch to something
-                // we need to keep.
-                // For the last node in the path, both it's branches are needed.
-                if is_last || !(is_root && n.branch(dir).is_none()) {
-                    if let Some(b) = n.branch(dir.opposite()) {
-                        let bp = concat(&prefix, &b.prefix);
-                        branches.push(Branch::new(bp, b.hash));
-                        delta.remove(&n.hash);
-                    }
+                // We want the branch in the opposite direction of the walk.
+                if let Some(b) = n.node.branch(n.next_dir.opposite()) {
+                    let bp = concat(&n.prefix, &b.prefix);
+                    branches.push(Branch::new(bp, b.hash));
                 }
                 if is_last {
-                    if let Some(b) = n.branch(dir) {
-                        let bp = concat(&prefix, &b.prefix);
+                    // For the last interior node we always want both branches.
+                    if let Some(b) = n.node.branch(n.next_dir) {
+                        let bp = concat(&n.prefix, &b.prefix);
                         branches.push(Branch::new(bp, b.hash));
                     }
-                } else {
-                    match n.branch(dir) {
-                        Some(nb) => {
-                            prefix.extend(&nb.prefix);
-                        }
-                        None => {
-                            if is_root {
-                                if let Some(nb) = n.branch(dir.opposite()) {
-                                    prefix.extend(&nb.prefix);
-                                }
-                            }
-                        }
-                    }
                 }
+                delta.remove(&n.node.hash);
             }
         }
 
         let mut delta = DeltaBuilder::new();
         let mut branches = Vec::with_capacity(left.len() + right.len() + 2);
-        collect(left, Dir::Right, &mut branches, &mut delta);
-        collect(right, Dir::Left, &mut branches, &mut delta);
+        collect(left, &mut branches, &mut delta);
+        collect(right, &mut branches, &mut delta);
         branches.sort_by(|a, b| a.prefix.cmp(&b.prefix));
 
         for b in &branches {
@@ -670,8 +619,8 @@ impl<HO: HashOutput> InteriorNode<HO> {
 
 #[derive(Debug, Clone)]
 pub struct LeafNode<HO> {
-    value: Vec<u8>,
-    hash: HO,
+    pub value: Vec<u8>,
+    pub hash: HO,
 }
 impl<HO> LeafNode<HO> {
     fn new<H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: Vec<u8>) -> LeafNode<HO> {
@@ -907,7 +856,10 @@ mod tests {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         let rp = read(&store, &range, &root, &rec_id(&[1, 2, 3])).unwrap();
-        let d = tree.insert(rp, [42].to_vec()).unwrap().unwrap();
+        let d = tree
+            .insert(tree.latest_proof(rp).unwrap(), [42].to_vec())
+            .unwrap()
+            .unwrap();
         assert_eq!(1, d.add.len());
         assert_eq!([42].to_vec(), d.leaf.value);
         assert_eq!(root, d.remove[0]);
@@ -1287,9 +1239,18 @@ mod tests {
         let rp_1 = read(&store, &range, &root, &rid1).unwrap();
         let rp_2 = read(&store, &range, &root, &rid2).unwrap();
         let rp_3 = read(&store, &range, &root, &rid3).unwrap();
-        let d1 = tree.insert(rp_1, [11].to_vec()).unwrap().unwrap();
-        let d2 = tree.insert(rp_2, [12].to_vec()).unwrap().unwrap();
-        let d3 = tree.insert(rp_3, [13].to_vec()).unwrap().unwrap();
+        let d1 = tree
+            .insert(tree.latest_proof(rp_1).unwrap(), [11].to_vec())
+            .unwrap()
+            .unwrap();
+        let d2 = tree
+            .insert(tree.latest_proof(rp_2).unwrap(), [12].to_vec())
+            .unwrap()
+            .unwrap();
+        let d3 = tree
+            .insert(tree.latest_proof(rp_3).unwrap(), [13].to_vec())
+            .unwrap()
+            .unwrap();
         root = store.apply(d1);
         check_tree_invariants(&tree.hasher, &range, root, &store);
         root = store.apply(d2);
@@ -1330,10 +1291,10 @@ mod tests {
                 false,
             );
         }
-        let d = tree
-            .insert(rp_1, [11].to_vec())
-            .expect_err("should of failed");
-        assert_eq!(ProofError::Stale, d);
+        let err = tree
+            .latest_proof(rp_1)
+            .expect_err("should have been declared stale");
+        assert_eq!(ProofError::Stale, err);
     }
 
     #[test]
@@ -1454,7 +1415,8 @@ mod tests {
         // spot stupid test bugs
         assert!(range.contains(key), "test bug, key not inside key range");
         let rp = read(store, range, &root, key).unwrap();
-        let new_root = match tree.insert(rp, val).unwrap() {
+        let vp = tree.latest_proof(rp).unwrap();
+        let new_root = match tree.insert(vp, val).unwrap() {
             None => root,
             Some(d) => store.apply(d),
         };

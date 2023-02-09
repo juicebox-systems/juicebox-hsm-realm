@@ -1321,7 +1321,7 @@ fn handle_app_request(
         .as_mut()
         .expect("caller verified we're the leader");
 
-    let latest_value = match tree.latest_value(request.proof.clone()) {
+    let tree_latest_proof = match tree.latest_proof(request.proof.clone()) {
         Ok(v) => v,
         Err(ProofError::Stale) => {
             info!(
@@ -1336,13 +1336,13 @@ fn handle_app_request(
             return Response::InvalidProof;
         }
     };
-
+    let latest_value = tree_latest_proof.leaf.as_ref().map(|l| &l.value);
     let last_entry = leader.log.last().unwrap();
 
     let (client_response, change) = app::process(app_ctx, request.request, latest_value);
     let delta = match change {
         Some(change) => match change {
-            RecordChange::Update(record) => match tree.insert(request.proof, record) {
+            RecordChange::Update(record) => match tree.insert(tree_latest_proof, record) {
                 Ok(None) => None,
                 Ok(Some(d)) => Some((*d.root(), d.store_delta())),
                 Err(ProofError::Stale) => return Response::StaleProof,

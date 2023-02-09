@@ -2,7 +2,7 @@ use actix::prelude::*;
 use reqwest::Url;
 
 use super::super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordId};
-use super::super::merkle::{agent::StoreDelta, ReadProof};
+use super::super::merkle::{agent::StoreDelta, proof::ReadProof};
 
 #[derive(Debug, Message)]
 #[rtype(result = "AppendResponse")]

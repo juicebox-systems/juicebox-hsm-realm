@@ -1,10 +1,9 @@
 use std::collections::HashMap;
-use std::ops::Deref;
 
 use super::super::hsm::types::{OwnedRange, RecordId};
 use super::agent::Node;
 use super::overlay::TreeOverlay;
-use super::{Dir, HashOutput, InteriorNode, KeySlice, LeafNode, NodeHasher};
+use super::{Dir, HashOutput, InteriorNode, KeySlice, KeyVec, LeafNode, NodeHasher};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProofError {
@@ -39,7 +38,8 @@ impl<HO: HashOutput> ReadProof<HO> {
 
     // Verify the ReadProof. This includes the hash verification and the key
     // path check. It returns a VerifiedProof that can be used for subsequent
-    // operations that need the proof.
+    // operations that need the proof. The returned proof has been updated to
+    // reflect that latest state of the tree from the overlay.
     pub fn verify<H: NodeHasher<HO>>(
         self,
         hasher: &H,
@@ -49,14 +49,22 @@ impl<HO: HashOutput> ReadProof<HO> {
         if !overlay.roots.contains(self.root_hash()) {
             return Err(ProofError::Stale);
         }
-        self.verify_foreign_proof(hasher)
-            .map(|vp| vp.update_to_latest(overlay))
+        self.verify_proof(hasher)
+            .map(|_| VerifiedProof::new_make_latest(self, overlay))
     }
 
+    // Verify the ReadProof. This includes the hash verification and the key
+    // path check. It returns a VerifiedProof that can be used for subsequent
+    // operations that need the proof.
     pub fn verify_foreign_proof<H: NodeHasher<HO>>(
         self,
         hasher: &H,
     ) -> Result<VerifiedProof<HO>, ProofError> {
+        self.verify_proof(hasher)
+            .map(|_| VerifiedProof::new_already_latest(self))
+    }
+
+    fn verify_proof<H: NodeHasher<HO>>(&self, hasher: &H) -> Result<(), ProofError> {
         // Do some basic sanity checks of the Proof struct first.
         if self.path.is_empty() || !self.range.contains(&self.key) {
             return Err(ProofError::Invalid);
@@ -77,7 +85,7 @@ impl<HO: HashOutput> ReadProof<HO> {
         )
         .map(|_| ())?;
 
-        Ok(VerifiedProof(self))
+        Ok(())
     }
 
     // Walks down the path and
@@ -186,32 +194,74 @@ impl<HO: HashOutput> ReadProof<HO> {
     }
 }
 
-pub struct VerifiedProof<HO>(ReadProof<HO>);
-impl<HO> Deref for VerifiedProof<HO> {
-    type Target = ReadProof<HO>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+#[derive(Debug)]
+pub struct PathStep<HO> {
+    pub node: InteriorNode<HO>,
+    // The full key prefix to this node.
+    pub prefix: KeyVec,
+    // The branch direction to take to reach the next node in the path.
+    pub next_dir: Dir,
 }
+
+#[derive(Debug)]
+#[non_exhaustive] // Don't allow creation from outside this module.
+pub struct VerifiedProof<HO> {
+    pub path: Vec<PathStep<HO>>,
+    pub leaf: Option<LeafNode<HO>>,
+    pub key: RecordId,
+    pub range: OwnedRange,
+}
+
 impl<HO: HashOutput> VerifiedProof<HO> {
-    fn update_to_latest(mut self, overlay: &TreeOverlay<HO>) -> VerifiedProof<HO> {
-        assert!(
-            overlay.roots.contains(self.root_hash()),
-            "verify should of already checked this"
-        );
-        if self.root_hash() == &overlay.latest_root {
-            return self;
+    fn new_already_latest(proof: ReadProof<HO>) -> VerifiedProof<HO> {
+        let mut vp = VerifiedProof {
+            path: Vec::with_capacity(proof.path.len()),
+            leaf: proof.leaf,
+            key: proof.key,
+            range: proof.range,
+        };
+        let key = KeySlice::from_slice(&vp.key.0);
+        let mut key_pos = 0;
+        for n in proof.path {
+            let d = Dir::from(key[key_pos]);
+            vp.path.push(PathStep {
+                node: n,
+                prefix: key[..key_pos].to_bitvec(),
+                next_dir: d,
+            });
+            match vp.path.last().unwrap().node.branch(d) {
+                None => {
+                    break;
+                }
+                Some(b) => {
+                    if key[key_pos..].starts_with(&b.prefix) {
+                        key_pos += b.prefix.len();
+                    } else {
+                        break;
+                    }
+                }
+            }
         }
-        let mut proof_nodes = HashMap::with_capacity(self.path.len() + 1);
+        vp
+    }
+
+    fn new_make_latest(mut proof: ReadProof<HO>, overlay: &TreeOverlay<HO>) -> VerifiedProof<HO> {
+        assert!(
+            overlay.roots.contains(proof.root_hash()),
+            "verify should have already checked this"
+        );
+        if proof.root_hash() == &overlay.latest_root {
+            return Self::new_already_latest(proof);
+        }
+        let mut proof_nodes = HashMap::with_capacity(proof.path.len() + 1);
         let mut old_path = Vec::new();
-        std::mem::swap(&mut old_path, &mut self.0.path);
+        std::mem::swap(&mut old_path, &mut proof.path);
         let old_path_len = old_path.len();
 
         for n in old_path {
             proof_nodes.insert(n.hash, Node::Interior(n));
         }
-        if let Some(l) = self.0.leaf {
+        if let Some(l) = proof.leaf {
             proof_nodes.insert(l.hash, Node::Leaf(l));
         }
         let fetch = |hash| match overlay.nodes.get(&hash) {
@@ -219,46 +269,57 @@ impl<HO: HashOutput> VerifiedProof<HO> {
             Some(Node::Leaf(leaf)) => Node::Leaf(leaf.clone()),
             None => match proof_nodes.get(&hash) {
                 Some(n) => n.clone(),
-                None => panic!("should of found hash {hash:?} in the overlay or proof"),
+                None => panic!("should have found hash {hash:?} in the overlay or proof"),
             },
         };
 
-        let mut new_proof = ReadProof {
-            key: self.0.key.clone(),
-            range: self.0.range.clone(),
-            leaf: None,
+        let mut vp = VerifiedProof {
             path: Vec::with_capacity(old_path_len),
+            leaf: None,
+            key: proof.key,
+            range: proof.range,
         };
-        let mut key = KeySlice::from_slice(&self.0.key.0);
+        let full_key = KeySlice::from_slice(&vp.key.0);
+        let mut key_pos = 0;
         let mut current_hash = overlay.latest_root;
         loop {
             match fetch(current_hash) {
                 Node::Interior(int) => {
-                    let d = Dir::from(key[0]);
+                    let prefix = &full_key[..key_pos];
+                    let key_tail = &full_key[key_pos..];
+                    let d = Dir::from(key_tail[0]);
                     let done = match int.branch(d) {
                         None => true,
                         Some(b) => {
-                            if !key.starts_with(&b.prefix) {
+                            if !key_tail.starts_with(&b.prefix) {
                                 true
                             } else {
-                                key = &key[b.prefix.len()..];
+                                key_pos += b.prefix.len();
                                 current_hash = b.hash;
                                 false
                             }
                         }
                     };
-                    new_proof.path.push(int);
+                    vp.path.push(PathStep {
+                        node: int,
+                        prefix: prefix.to_bitvec(),
+                        next_dir: d,
+                    });
                     if done {
                         break;
                     };
                 }
                 Node::Leaf(leaf) => {
-                    assert!(key.is_empty());
-                    new_proof.leaf = Some(leaf);
+                    assert!(full_key[key_pos..].is_empty());
+                    vp.leaf = Some(leaf);
                     break;
                 }
             }
         }
-        VerifiedProof(new_proof)
+        vp
+    }
+
+    pub fn root_hash(&self) -> &HO {
+        &self.path[0].node.hash
     }
 }
