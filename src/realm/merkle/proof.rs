@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use super::super::hsm::types::{OwnedRange, RecordId};
 use super::agent::Node;
 use super::overlay::TreeOverlay;
@@ -12,7 +14,7 @@ pub enum ProofError {
     Stale,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ReadProof<HO> {
     pub key: RecordId,
     // The key_range for the tree that the proof was read from.

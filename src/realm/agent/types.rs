@@ -1,20 +1,15 @@
 use bitvec::vec::BitVec;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
 
 use super::super::hsm::types as hsm_types;
+use super::super::rpc::Rpc;
 use hsm_types::{
     CapturedStatement, Configuration, EntryHmac, GroupConfigurationStatement, GroupId, HsmId,
     LogIndex, OwnedRange, Partition, RealmId, RecordId, SecretsRequest, SecretsResponse,
     TransferNonce, TransferStatement,
 };
-
-pub trait Rpc: fmt::Debug + DeserializeOwned + Serialize {
-    const PATH: &'static str;
-    type Response: fmt::Debug + DeserializeOwned + Serialize;
-}
 
 impl Rpc for StatusRequest {
     const PATH: &'static str = "status";

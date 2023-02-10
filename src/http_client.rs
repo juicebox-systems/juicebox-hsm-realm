@@ -1,23 +1,22 @@
+use super::realm::rpc::Rpc;
 use reqwest::Url;
 
-use super::types::Rpc;
-
 #[derive(Clone, Debug)]
-pub struct AgentClient {
+pub struct Client {
     // reqwest::Client holds a connection pool. It's reference-counted
     // internally, so this field is relatively cheap to clone.
     http: reqwest::Client,
 }
 
 #[derive(Debug)]
-pub enum AgentClientError {
+pub enum ClientError {
     Network(reqwest::Error),
     HttpStatus(reqwest::StatusCode),
     Serialization(rmp_serde::encode::Error),
     Deserialization(rmp_serde::decode::Error),
 }
 
-impl AgentClient {
+impl Client {
     pub fn new() -> Self {
         Self {
             http: reqwest::Client::builder().build().expect("TODO"),
@@ -28,8 +27,8 @@ impl AgentClient {
         &self,
         base_url: &Url,
         request: R,
-    ) -> Result<R::Response, AgentClientError> {
-        type Error = AgentClientError;
+    ) -> Result<R::Response, ClientError> {
+        type Error = ClientError;
         let url = base_url.join(R::PATH).unwrap();
         match self
             .http

@@ -3,7 +3,7 @@ use bytes::Bytes;
 use future::join_all;
 use futures::channel::oneshot;
 use futures::{future, Future};
-use http_body_util::{BodyExt, Full};
+use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
@@ -20,20 +20,19 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{info, trace, warn};
 
-pub mod client;
 pub mod types;
 
+use super::super::http_client::{Client, ClientError};
 use super::hsm::types as hsm_types;
 use super::hsm::Hsm;
 use super::merkle::Dir;
+use super::rpc::{handle_rpc, HandlerError, Rpc};
 use super::store::types::{
     AddressEntry, AppendRequest, AppendResponse, GetAddressesRequest, GetAddressesResponse,
     GetRecordProofRequest, GetRecordProofResponse, GetTreeEdgeProofRequest,
     GetTreeEdgeProofResponse, ReadEntryRequest, ReadEntryResponse, ReadLatestRequest,
     ReadLatestResponse, SetAddressRequest, SetAddressResponse,
 };
-use super::store::Store;
-use client::{AgentClient, AgentClientError};
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
     EntryHmac, GroupId, HsmId, LogIndex, RealmId, SecretsResponse, TransferInProofs,
@@ -42,9 +41,9 @@ use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
     CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
     JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
-    ReadCapturedRequest, ReadCapturedResponse, Rpc, StatusRequest, StatusResponse,
-    TransferInRequest, TransferInResponse, TransferNonceRequest, TransferNonceResponse,
-    TransferOutRequest, TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
+    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse, TransferInRequest,
+    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
+    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 #[derive(Clone, Debug)]
 pub struct Agent(Arc<AgentInner>);
@@ -53,8 +52,8 @@ pub struct Agent(Arc<AgentInner>);
 struct AgentInner {
     name: String,
     hsm: Addr<Hsm>,
-    store: Addr<Store>,
-    peer_client: AgentClient,
+    store: Url,
+    client: Client,
     state: Mutex<State>,
 }
 
@@ -82,12 +81,12 @@ enum AppendingState {
 use AppendingState::{Appending, NotAppending};
 
 impl Agent {
-    pub fn new(name: String, hsm: Addr<Hsm>, store: Addr<Store>) -> Self {
+    pub fn new(name: String, hsm: Addr<Hsm>, store: Url) -> Self {
         Self(Arc::new(AgentInner {
             name,
             hsm,
             store,
-            peer_client: AgentClient::new(),
+            client: Client::new(),
             state: Mutex::new(State {
                 leader: HashMap::new(),
             }),
@@ -98,17 +97,22 @@ impl Agent {
         let name = self.0.name.clone();
         let hsm = self.0.hsm.clone();
         let store = self.0.store.clone();
+        let client = self.0.client.clone();
+
         trace!(agent = name, realm = ?realm, group = ?group, ?next_index, "start watching log");
 
         tokio::spawn(async move {
             let mut next_index = next_index;
             loop {
-                match store
-                    .send(ReadEntryRequest {
-                        realm,
-                        group,
-                        index: next_index,
-                    })
+                match client
+                    .send(
+                        &store,
+                        ReadEntryRequest {
+                            realm,
+                            group,
+                            index: next_index,
+                        },
+                    )
                     .await
                 {
                     Err(_) => todo!(),
@@ -259,6 +263,7 @@ impl Agent {
         let name = &self.0.name;
         let hsm = &self.0.hsm;
         let store = &self.0.store;
+        let client = &self.0.client;
 
         let mut peers: HashMap<HsmId, Option<Url>> =
             match hsm.send(hsm_types::StatusRequest {}).await {
@@ -286,7 +291,7 @@ impl Agent {
             };
         trace!(agent = name, peer_hsms = ?peers.keys(), "found peer HSMs from configuration");
 
-        match store.send(GetAddressesRequest {}).await {
+        match client.send(store, GetAddressesRequest {}).await {
             Err(_) => todo!(),
             Ok(GetAddressesResponse(addresses)) => {
                 for AddressEntry { hsm, address } in addresses {
@@ -314,9 +319,9 @@ impl Agent {
         group_id: GroupId,
         hsm_id: HsmId,
         address: &Url,
-    ) -> Result<ReadCapturedResponse, AgentClientError> {
+    ) -> Result<ReadCapturedResponse, ClientError> {
         self.0
-            .peer_client
+            .client
             .send(
                 address,
                 ReadCapturedRequest {
@@ -342,16 +347,20 @@ impl Agent {
 
         let hsm = &self.0.hsm;
         let store = &self.0.store;
+        let client = &self.0.client;
 
         let hsm_id = match hsm.send(hsm_types::StatusRequest {}).await {
             Err(_) => todo!(),
             Ok(hsm_types::StatusResponse { id, .. }) => id,
         };
-        match store
-            .send(SetAddressRequest {
-                hsm: hsm_id,
-                address: url.clone(),
-            })
+        match client
+            .send(
+                store,
+                SetAddressRequest {
+                    hsm: hsm_id,
+                    address: url.clone(),
+                },
+            )
             .await
         {
             Err(_) => todo!(),
@@ -397,36 +406,36 @@ impl Service<Request<IncomingBody>> for Agent {
                     .unwrap());
             };
             match path {
-                AppRequest::PATH => agent.handle_rpc(request, Self::handle_app).await,
+                AppRequest::PATH => handle_rpc(&agent, request, Self::handle_app).await,
                 BecomeLeaderRequest::PATH => {
-                    agent.handle_rpc(request, Self::handle_become_leader).await
+                    handle_rpc(&agent, request, Self::handle_become_leader).await
                 }
                 CompleteTransferRequest::PATH => {
-                    agent
-                        .handle_rpc(request, Self::handle_complete_transfer)
-                        .await
+                    handle_rpc(&agent, request, Self::handle_complete_transfer).await
                 }
-                JoinGroupRequest::PATH => agent.handle_rpc(request, Self::handle_join_group).await,
-                JoinRealmRequest::PATH => agent.handle_rpc(request, Self::handle_join_realm).await,
-                NewGroupRequest::PATH => agent.handle_rpc(request, Self::handle_new_group).await,
-                NewRealmRequest::PATH => agent.handle_rpc(request, Self::handle_new_realm).await,
+                JoinGroupRequest::PATH => {
+                    handle_rpc(&agent, request, Self::handle_join_group).await
+                }
+                JoinRealmRequest::PATH => {
+                    handle_rpc(&agent, request, Self::handle_join_realm).await
+                }
+                NewGroupRequest::PATH => handle_rpc(&agent, request, Self::handle_new_group).await,
+                NewRealmRequest::PATH => handle_rpc(&agent, request, Self::handle_new_realm).await,
                 ReadCapturedRequest::PATH => {
-                    agent.handle_rpc(request, Self::handle_read_captured).await
+                    handle_rpc(&agent, request, Self::handle_read_captured).await
                 }
-                StatusRequest::PATH => agent.handle_rpc(request, Self::handle_status).await,
+                StatusRequest::PATH => handle_rpc(&agent, request, Self::handle_status).await,
                 TransferInRequest::PATH => {
-                    agent.handle_rpc(request, Self::handle_transfer_in).await
+                    handle_rpc(&agent, request, Self::handle_transfer_in).await
                 }
                 TransferNonceRequest::PATH => {
-                    agent.handle_rpc(request, Self::handle_transfer_nonce).await
+                    handle_rpc(&agent, request, Self::handle_transfer_nonce).await
                 }
                 TransferOutRequest::PATH => {
-                    agent.handle_rpc(request, Self::handle_transfer_out).await
+                    handle_rpc(&agent, request, Self::handle_transfer_out).await
                 }
                 TransferStatementRequest::PATH => {
-                    agent
-                        .handle_rpc(request, Self::handle_transfer_statement)
-                        .await
+                    handle_rpc(&agent, request, Self::handle_transfer_statement).await
                 }
                 _ => Ok(Response::builder()
                     .status(http::StatusCode::NOT_FOUND)
@@ -437,58 +446,7 @@ impl Service<Request<IncomingBody>> for Agent {
     }
 }
 
-#[derive(Debug)]
-enum HandlerError {
-    // We'd use this if we wanted to return non-200 HTTP statuses or drop the
-    // connection. For now, there's nothing here.
-}
-
 impl Agent {
-    async fn handle_rpc<'a, H, R: Rpc, O>(
-        &'a self,
-        incoming_request: Request<IncomingBody>,
-        handler: H,
-    ) -> Result<Response<Full<Bytes>>, hyper::Error>
-    where
-        H: Fn(&'a Self, R) -> O,
-        O: Future<Output = Result<R::Response, HandlerError>>,
-    {
-        let request_bytes = incoming_request.collect().await?.to_bytes();
-        let request: R = match rmp_serde::from_slice(request_bytes.as_ref()) {
-            Ok(request) => request,
-            Err(e) => {
-                warn!(error = ?e, "agent deserialization error");
-                return Ok(Response::builder()
-                    .status(http::StatusCode::BAD_REQUEST)
-                    .body(Full::from(Bytes::new()))
-                    .unwrap());
-            }
-        };
-
-        trace!(agent = self.0.name, ?request);
-        let response = handler(self, request).await;
-        trace!(agent = self.0.name, ?response);
-
-        match response {
-            Err(e) => match e { /* no possible errors */ },
-            Ok(response) => {
-                let response_bytes = match rmp_serde::to_vec(&response) {
-                    Ok(response_bytes) => response_bytes,
-                    Err(e) => {
-                        warn!(error = ?e, ?response, "agent serialization error");
-                        return Ok(Response::builder()
-                            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-                            .body(Full::from(Bytes::new()))
-                            .unwrap());
-                    }
-                };
-                Ok(Response::builder()
-                    .body(Full::new(Bytes::from(response_bytes)))
-                    .unwrap())
-            }
-        }
-    }
-
     async fn handle_status(&self, _request: StatusRequest) -> Result<StatusResponse, HandlerError> {
         let hsm_status = self.0.hsm.send(hsm_types::StatusRequest {}).await;
         Ok(StatusResponse {
@@ -505,6 +463,7 @@ impl Agent {
         let hsm = &self.0.hsm;
         let store = &self.0.store;
         let name = &self.0.name;
+        let client = &self.0.client;
 
         let new_realm_response = match hsm
             .send(hsm_types::NewRealmRequest {
@@ -530,13 +489,16 @@ impl Agent {
             "appending log entry for new realm"
         );
         assert_eq!(new_realm_response.entry.index, LogIndex(1));
-        let response = match store
-            .send(AppendRequest {
-                realm: new_realm_response.realm,
-                group: new_realm_response.group,
-                entry: new_realm_response.entry,
-                delta: new_realm_response.delta,
-            })
+        let response = match client
+            .send(
+                store,
+                AppendRequest {
+                    realm: new_realm_response.realm,
+                    group: new_realm_response.group,
+                    entry: new_realm_response.entry,
+                    delta: new_realm_response.delta,
+                },
+            )
             .await
         {
             Ok(AppendResponse::Ok) => Response::Ok {
@@ -598,6 +560,7 @@ impl Agent {
         let name = &self.0.name;
         let hsm = &self.0.hsm;
         let store = &self.0.store;
+        let client = &self.0.client;
 
         let realm = request.realm;
 
@@ -626,13 +589,16 @@ impl Agent {
             "appending log entry for new group"
         );
         assert_eq!(new_group_response.entry.index, LogIndex(1));
-        match store
-            .send(AppendRequest {
-                realm,
-                group: new_group_response.group,
-                entry: new_group_response.entry,
-                delta: new_group_response.delta,
-            })
+        match client
+            .send(
+                store,
+                AppendRequest {
+                    realm,
+                    group: new_group_response.group,
+                    entry: new_group_response.entry,
+                    delta: new_group_response.delta,
+                },
+            )
             .await
         {
             Ok(AppendResponse::Ok) => {
@@ -686,12 +652,16 @@ impl Agent {
 
         let hsm = &self.0.hsm;
         let store = &self.0.store;
+        let client = &self.0.client;
 
-        let last_entry = match store
-            .send(ReadLatestRequest {
-                realm: request.realm,
-                group: request.group,
-            })
+        let last_entry = match client
+            .send(
+                store,
+                ReadLatestRequest {
+                    realm: request.realm,
+                    group: request.group,
+                },
+            )
             .await
         {
             Err(_) => return Ok(Response::NoStore),
@@ -760,15 +730,19 @@ impl Agent {
 
         let hsm = &self.0.hsm;
         let store = &self.0.store;
+        let client = &self.0.client;
 
         // This loop handles retries if the read from the store is stale. It's
         // expected to run just once.
         loop {
-            let entry = match store
-                .send(ReadLatestRequest {
-                    realm: request.realm,
-                    group: request.source,
-                })
+            let entry = match client
+                .send(
+                    store,
+                    ReadLatestRequest {
+                        realm: request.realm,
+                        group: request.source,
+                    },
+                )
                 .await
             {
                 Err(_) => return Ok(Response::NoStore),
@@ -790,12 +764,15 @@ impl Agent {
                 }
             };
 
-            let proof = match store
-                .send(GetRecordProofRequest {
-                    realm: request.realm,
-                    group: request.source,
-                    record: rec_id,
-                })
+            let proof = match client
+                .send(
+                    store,
+                    GetRecordProofRequest {
+                        realm: request.realm,
+                        group: request.source,
+                        record: rec_id,
+                    },
+                )
                 .await
             {
                 Err(_) => return Ok(Response::NoStore),
@@ -834,7 +811,7 @@ impl Agent {
                         None => panic!("Log entry missing TransferringOut section"),
                     };
                     self.append(
-                        store.clone(),
+                        store,
                         AppendRequest {
                             realm,
                             group: source,
@@ -915,15 +892,19 @@ impl Agent {
 
         let hsm = &self.0.hsm;
         let store = &self.0.store;
+        let client = &self.0.client;
 
         // This loop handles retries if the read from the store is stale. It's
         // expected to run just once.
         loop {
-            let entry = match store
-                .send(ReadLatestRequest {
-                    realm: request.realm,
-                    group: request.destination,
-                })
+            let entry = match client
+                .send(
+                    store,
+                    ReadLatestRequest {
+                        realm: request.realm,
+                        group: request.destination,
+                    },
+                )
                 .await
             {
                 Err(_) => return Ok(Response::NoStore),
@@ -943,18 +924,24 @@ impl Agent {
                             }
                         }
                     };
-                    let transferring_in_proof_req = store.send(GetTreeEdgeProofRequest {
-                        realm: request.realm,
-                        group: request.source,
-                        partition: request.transferring.clone(),
-                        dir: proof_dir,
-                    });
-                    let owned_range_proof_req = store.send(GetTreeEdgeProofRequest {
-                        realm: request.realm,
-                        group: request.destination,
-                        partition: partition.clone(),
-                        dir: proof_dir.opposite(),
-                    });
+                    let transferring_in_proof_req = client.send(
+                        store,
+                        GetTreeEdgeProofRequest {
+                            realm: request.realm,
+                            group: request.source,
+                            partition: request.transferring.clone(),
+                            dir: proof_dir,
+                        },
+                    );
+                    let owned_range_proof_req = client.send(
+                        store,
+                        GetTreeEdgeProofRequest {
+                            realm: request.realm,
+                            group: request.destination,
+                            partition: partition.clone(),
+                            dir: proof_dir.opposite(),
+                        },
+                    );
                     let transferring_in_proof = match transferring_in_proof_req.await {
                         Err(_) => return Ok(Response::NoStore),
                         Ok(GetTreeEdgeProofResponse::StoreMissingNode) => todo!(),
@@ -1003,7 +990,7 @@ impl Agent {
                 }
                 Ok(HsmResponse::Ok { entry, delta }) => {
                     self.append(
-                        store.clone(),
+                        store,
                         AppendRequest {
                             realm: request.realm,
                             group: request.destination,
@@ -1042,7 +1029,7 @@ impl Agent {
             Ok(HsmResponse::NotTransferring) => Ok(Response::Ok),
             Ok(HsmResponse::Ok(entry)) => {
                 self.append(
-                    store.clone(),
+                    store,
                     AppendRequest {
                         realm: request.realm,
                         group: request.source,
@@ -1063,8 +1050,9 @@ impl Agent {
         let name = &self.0.name;
         let hsm = &self.0.hsm;
         let store = &self.0.store;
+        let client = &self.0.client;
 
-        let result = start_app_request(request, name.clone(), hsm.clone(), store.clone()).await;
+        let result = start_app_request(request, name.clone(), hsm.clone(), client, store).await;
         match result {
             Err(response) => Ok(response),
             Ok(append_request) => {
@@ -1080,7 +1068,7 @@ impl Agent {
                         .insert(append_request.entry.entry_hmac.clone(), sender);
                 }
 
-                self.append(store.clone(), append_request);
+                self.append(store, append_request);
                 match receiver.await {
                     Ok(response) => Ok(Response::Ok(response)),
                     Err(oneshot::Canceled) => Ok(Response::NotLeader),
@@ -1094,18 +1082,22 @@ async fn start_app_request(
     request: AppRequest,
     name: String,
     hsm: Addr<Hsm>,
-    store: Addr<Store>,
+    client: &Client,
+    store: &Url,
 ) -> Result<AppendRequest, AppResponse> {
     type HsmResponse = hsm_types::AppResponse;
     type Response = AppResponse;
 
     loop {
-        let (proof, index) = match store
-            .send(GetRecordProofRequest {
-                realm: request.realm,
-                group: request.group,
-                record: request.rid.clone(),
-            })
+        let (proof, index) = match client
+            .send(
+                store,
+                GetRecordProofRequest {
+                    realm: request.realm,
+                    group: request.group,
+                    record: request.rid.clone(),
+                },
+            )
             .await
         {
             Ok(GetRecordProofResponse::Ok { proof, index }) => (proof, index),
@@ -1153,7 +1145,7 @@ async fn start_app_request(
 
 impl Agent {
     /// Precondition: agent is leader.
-    fn append(&self, store: Addr<Store>, append_request: AppendRequest) {
+    fn append(&self, store: &Url, append_request: AppendRequest) {
         let realm = append_request.realm;
         let group = append_request.group;
 
@@ -1169,7 +1161,14 @@ impl Agent {
 
         if let NotAppending { next } = appending {
             let agent = self.clone();
-            tokio::spawn(async move { agent.keep_appending(store, realm, group, next).await });
+            let client = self.0.client.clone();
+            let store = store.clone();
+
+            tokio::spawn(async move {
+                agent
+                    .keep_appending(&store, client, realm, group, next)
+                    .await
+            });
         }
     }
 
@@ -1177,7 +1176,8 @@ impl Agent {
     /// doing the appending.
     async fn keep_appending(
         &self,
-        store: Addr<Store>,
+        store: &Url,
+        client: Client,
         realm: RealmId,
         group: GroupId,
         next: LogIndex,
@@ -1196,9 +1196,8 @@ impl Agent {
                 };
                 request
             };
-            let store2 = store.clone();
 
-            match store2.send(request).await {
+            match client.send(store, request).await {
                 Err(_) => todo!(),
                 Ok(AppendResponse::PreconditionFailed) => {
                     todo!("stop leading")

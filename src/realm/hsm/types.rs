@@ -108,7 +108,7 @@ pub struct Partition {
     pub root_hash: DataHash,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LogEntry {
     pub index: LogIndex,
     pub partition: Option<Partition>,
@@ -120,7 +120,7 @@ pub struct LogEntry {
     // pub committed_statement: CommittedStatement,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TransferringOut {
     pub destination: GroupId,
     pub partition: Partition,

@@ -23,6 +23,7 @@
         "rngs",
         "rtype",
         "Seedable",
+        "serde",
         "teyla",
         "unblind",
         "voprf"

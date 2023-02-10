@@ -12,6 +12,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::FmtSubscriber;
 
 mod client;
+mod http_client;
 mod realm;
 mod types;
 
@@ -27,6 +28,8 @@ use types::{AuthToken, Policy};
 ///
 /// This module exists to encapsulate the secret shared between the HSMs.
 mod hsm_gen {
+    use reqwest::Url;
+
     use super::*;
 
     pub struct HsmGenerator {
@@ -42,7 +45,7 @@ mod hsm_gen {
             }
         }
 
-        pub async fn create_hsms(&mut self, count: usize, store: &Addr<Store>) -> Vec<Url> {
+        pub async fn create_hsms(&mut self, count: usize, store: &Url) -> Vec<Url> {
             let listens = iter::repeat_with(|| {
                 let port = self.port.next().unwrap();
                 let hsm = Hsm::new(format!("hsm{port}"), self.secret.clone()).start();
@@ -91,7 +94,10 @@ async fn main() {
     );
 
     info!("creating in-memory store");
-    let store = Store::new().start();
+    let (store, _) = Store::new()
+        .listen(SocketAddr::from(([127, 0, 0, 1], 2000)))
+        .await
+        .expect("TODO");
 
     let num_load_balancers = 2;
     info!(count = num_load_balancers, "creating load balancers");

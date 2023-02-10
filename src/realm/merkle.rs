@@ -1,4 +1,5 @@
 use bitvec::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::{
     cmp::min,
     fmt::{Debug, Display},
@@ -72,7 +73,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct InteriorNode<HO> {
     left: Option<Branch<HO>>,
     right: Option<Branch<HO>>,
@@ -180,7 +181,7 @@ impl<HO: HashOutput> InteriorNode<HO> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LeafNode<HO> {
     pub value: Vec<u8>,
     pub hash: HO,
@@ -195,7 +196,7 @@ impl<HO> LeafNode<HO> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 struct Branch<HO> {
     prefix: KeyVec,
     hash: HO,
@@ -225,7 +226,7 @@ impl<HO: Debug> Debug for Branch<HO> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Dir {
     Left,
     Right,
@@ -255,7 +256,7 @@ impl Display for Dir {
 
 // The result of performing a split operation on the tree. The tree is split
 // into 2 halves.
-pub struct SplitResult<HO> {
+pub struct SplitResult<HO: HashOutput> {
     // The previous root hash.
     pub old_root: HO,
     // The new tree that was from the left side of the split point.
@@ -277,7 +278,7 @@ impl<HO: Debug> Debug for SplitRoot<HO> {
     }
 }
 
-pub struct MergeResult<HO> {
+pub struct MergeResult<HO: HashOutput> {
     pub range: OwnedRange,
     pub root_hash: HO,
     pub delta: StoreDelta<HO>,

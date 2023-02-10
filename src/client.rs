@@ -14,6 +14,8 @@ use std::fmt::{self, Debug};
 use std::iter::zip;
 use std::ops::Deref;
 
+use super::http_client;
+use super::http_client::ClientError;
 use super::realm::hsm::types::{RealmId, SecretsRequest, SecretsResponse};
 use super::realm::load_balancer::types::{ClientRequest, ClientResponse};
 use super::types::{
@@ -309,13 +311,14 @@ struct Recover1Success {
 pub struct Client {
     configuration: CheckedConfiguration,
     auth_token: AuthToken,
-    http: reqwest::Client,
+    http: http_client::Client,
 }
 
 enum RequestError {
     HttpError(reqwest::Error),
     HttpStatus(reqwest::StatusCode),
     DeserializationError(rmp_serde::decode::Error),
+    SerializationError(rmp_serde::encode::Error),
     Unavailable,
 }
 
@@ -330,9 +333,7 @@ impl Client {
         Self {
             configuration: CheckedConfiguration::from(configuration),
             auth_token,
-            http: reqwest::Client::builder()
-                .build()
-                .expect("failed to create HTTP client"),
+            http: http_client::Client::new(),
         }
     }
 
@@ -343,27 +344,21 @@ impl Client {
     ) -> Result<SecretsResponse, RequestError> {
         match self
             .http
-            .post(realm.address.join("req").unwrap())
-            .body(
-                rmp_serde::to_vec(&ClientRequest {
+            .send(
+                &realm.address,
+                ClientRequest {
                     realm: realm.id,
                     request,
-                })
-                .expect("failed to serialize request"),
+                },
             )
-            .send()
             .await
         {
-            Err(err) => Err(RequestError::HttpError(err)),
-            Ok(response) if response.status().is_success() => {
-                let raw = response.bytes().await.map_err(RequestError::HttpError)?;
-                match rmp_serde::from_slice(raw.as_ref()) {
-                    Ok(ClientResponse::Ok(response)) => Ok(response),
-                    Ok(ClientResponse::Unavailable) => Err(RequestError::Unavailable),
-                    Err(err) => Err(RequestError::DeserializationError(err)),
-                }
-            }
-            Ok(response) => Err(RequestError::HttpStatus(response.status())),
+            Ok(ClientResponse::Ok(response)) => Ok(response),
+            Ok(ClientResponse::Unavailable) => Err(RequestError::Unavailable),
+            Err(ClientError::Network(e)) => Err(RequestError::HttpError(e)),
+            Err(ClientError::HttpStatus(sc)) => Err(RequestError::HttpStatus(sc)),
+            Err(ClientError::Serialization(e)) => Err(RequestError::SerializationError(e)),
+            Err(ClientError::Deserialization(e)) => Err(RequestError::DeserializationError(e)),
         }
     }
 
@@ -545,7 +540,8 @@ impl Client {
             Err(RequestError::HttpError(err)) => {
                 Err(RegisterGenError::Error(RegisterError::NetworkError(err)))
             }
-            Err(RequestError::DeserializationError(_err)) => {
+            Err(RequestError::DeserializationError(_))
+            | Err(RequestError::SerializationError(_)) => {
                 Err(RegisterGenError::Error(RegisterError::ProtocolError))
             }
             Err(RequestError::HttpStatus(_status)) => todo!(),
@@ -609,7 +605,8 @@ impl Client {
 
         match register2_request.await {
             Err(RequestError::HttpError(err)) => Err(RegisterError::NetworkError(err)),
-            Err(RequestError::DeserializationError(_err)) => Err(RegisterError::ProtocolError),
+            Err(RequestError::DeserializationError(_))
+            | Err(RequestError::SerializationError(_)) => Err(RegisterError::ProtocolError),
             Err(RequestError::HttpStatus(_status)) => todo!(),
             Err(RequestError::Unavailable) => todo!(),
 
@@ -892,7 +889,8 @@ impl Client {
                     retry: None,
                 })
             }
-            Err(RequestError::DeserializationError(_err)) => todo!(),
+            Err(RequestError::DeserializationError(_))
+            | Err(RequestError::SerializationError(_)) => todo!(),
             Err(RequestError::HttpStatus(_status)) => todo!(),
             Err(RequestError::Unavailable) => todo!(),
 
@@ -1010,7 +1008,8 @@ impl Client {
 
         match recover2_request.await {
             Err(RequestError::HttpError(err)) => Err(RecoverError::NetworkError(err)),
-            Err(RequestError::DeserializationError(_err)) => todo!(),
+            Err(RequestError::DeserializationError(_))
+            | Err(RequestError::SerializationError(_)) => todo!(),
             Err(RequestError::HttpStatus(_status)) => todo!(),
             Err(RequestError::Unavailable) => todo!(),
 
@@ -1073,7 +1072,8 @@ impl Client {
 
         match delete_result {
             Err(RequestError::HttpError(err)) => Err(DeleteError::NetworkError(err)),
-            Err(RequestError::DeserializationError(_err)) => todo!(),
+            Err(RequestError::DeserializationError(_))
+            | Err(RequestError::SerializationError(_)) => todo!(),
             Err(RequestError::HttpStatus(_status)) => todo!(),
             Err(RequestError::Unavailable) => todo!(),
 
