@@ -323,3 +323,104 @@ impl<HO: HashOutput> VerifiedProof<HO> {
         &self.path[0].node.hash
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::super::super::hsm::types::OwnedRange;
+    use super::super::{
+        agent::read,
+        tests::{new_empty_tree, rec_id, tree_insert},
+    };
+    use super::ProofError;
+
+    #[test]
+    fn verify() {
+        let range = OwnedRange::full();
+        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        let rid1 = rec_id(&[1]);
+        let rid5 = rec_id(&[5]);
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            &range,
+            root,
+            &rid1,
+            [1].to_vec(),
+            true,
+        );
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            &range,
+            root,
+            &rid5,
+            [2].to_vec(),
+            false,
+        );
+
+        let p = read(&store, &range, &root, &rid5).unwrap();
+        assert!(p.verify(&tree.hasher, &tree.overlay).is_ok());
+
+        // claim there's no leaf
+        let mut p = read(&store, &range, &root, &rid5).unwrap();
+        p.leaf = None;
+        assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
+
+        let mut p = read(&store, &range, &root, &rid5).unwrap();
+        // truncate the tail of the path to claim there's no leaf
+        p.leaf = None;
+        p.path.pop();
+        assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
+
+        let mut p = read(&store, &range, &root, &rid5).unwrap();
+        // futz with the path
+        p.key.0[0] = 2;
+        assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
+
+        // futz with the value (checks the hash)
+        let mut p = read(&store, &range, &root, &rid5).unwrap();
+        if let Some(ref mut l) = p.leaf {
+            l.value[0] += 1;
+        }
+        assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
+
+        // futz with a node (checks the hash)
+        let mut p = read(&store, &range, &root, &rid5).unwrap();
+        if let Some(ref mut b) = &mut p.path[0].left {
+            b.prefix.pop();
+        }
+        assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
+    }
+
+    #[test]
+    fn stale_proof() {
+        let range = OwnedRange::full();
+        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            &range,
+            root,
+            &rec_id(&[0b10000000]),
+            [1].to_vec(),
+            false,
+        );
+        let rp_1 = read(&store, &range, &root, &rec_id(&[0b10000000])).unwrap();
+        for i in 0..20 {
+            root = tree_insert(
+                &mut tree,
+                &mut store,
+                &range,
+                root,
+                &rec_id(&[0b11000000]),
+                [i].to_vec(),
+                false,
+            );
+        }
+        let err = tree
+            .latest_proof(rp_1)
+            .expect_err("should have been declared stale");
+        assert_eq!(ProofError::Stale, err);
+    }
+}
