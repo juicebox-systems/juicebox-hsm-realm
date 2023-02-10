@@ -105,7 +105,6 @@ pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
 
 // Reads down the tree from the root always following one side until a leaf is reached.
 // Needed for merge.
-#[allow(dead_code)]
 pub fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     store: &R,
     range: &OwnedRange,

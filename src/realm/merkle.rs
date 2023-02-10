@@ -370,7 +370,6 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     // proof. The tree to the right should provide a left leaning proof. Note:
     // the root hash in other_proof must be verified by the caller to be the
     // latest hash for that tree, it can't be validated here.
-    #[allow(dead_code)]
     pub fn merge(
         self,
         my_proof: ReadProof<HO>,
@@ -502,7 +501,6 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     }
 }
 
-#[allow(dead_code)]
 pub struct MergeResult<HO> {
     pub range: OwnedRange,
     pub root_hash: HO,
