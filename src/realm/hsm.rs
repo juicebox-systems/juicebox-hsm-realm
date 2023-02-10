@@ -11,7 +11,7 @@ use tracing::{info, trace, warn};
 mod app;
 pub mod types;
 
-use super::merkle::{proof::ProofError, NodeHasher, Tree};
+use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
 use app::{RecordChange, RootOprfKey};
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
@@ -1137,10 +1137,28 @@ impl Handler<TransferInRequest> for Hsm {
             leader.incoming = None;
 
             let last_entry = &leader.log.last().unwrap().entry;
-            if last_entry.partition.is_some() {
-                // merging prefixes is currently unsupported
-                return Response::UnacceptablePrefix;
-            }
+            let needs_merge = match &last_entry.partition {
+                None => false,
+                Some(part) => match part.range.join(&request.transferring.range) {
+                    None => return Response::UnacceptableRange,
+                    Some(_) => {
+                        // We need to verify that the transferring proof matches the
+                        // transferring partition. We don't need to do this for owned
+                        // as the Merkle tree can deal with that from its overlay.
+                        if let Some(proofs) = &request.proofs {
+                            if request.transferring.range != proofs.transferring.range
+                                || &request.transferring.root_hash
+                                    != proofs.transferring.root_hash()
+                            {
+                                return Response::InvalidProof;
+                            }
+                        } else {
+                            return Response::MissingProofs;
+                        }
+                        true
+                    }
+                },
+            };
 
             if (TransferStatementBuilder {
                 realm: request.realm,
@@ -1154,9 +1172,28 @@ impl Handler<TransferInRequest> for Hsm {
                 return Response::InvalidStatement;
             }
 
+            let (partition, delta) = if needs_merge {
+                let tree = leader.tree.take().unwrap();
+                let proofs = request.proofs.unwrap();
+                match tree.merge(proofs.owned, proofs.transferring) {
+                    Err(MergeError::NotAdjacentRanges) => return Response::UnacceptableRange,
+                    Err(MergeError::Proof(ProofError::Stale)) => return Response::StaleProof,
+                    Err(MergeError::Proof(ProofError::Invalid)) => return Response::InvalidProof,
+                    Ok(merge_result) => (
+                        Partition {
+                            range: merge_result.range,
+                            root_hash: merge_result.root_hash,
+                        },
+                        Some(merge_result.delta),
+                    ),
+                }
+            } else {
+                (request.transferring, None)
+            };
+
             let index = last_entry.index.next();
-            let partition_hash = request.transferring.root_hash;
-            let partition = Some(request.transferring);
+            let partition_hash = partition.root_hash;
+            let partition = Some(partition);
             let transferring_out = last_entry.transferring_out.clone();
             let prev_hmac = last_entry.entry_hmac.clone();
 
@@ -1184,7 +1221,7 @@ impl Handler<TransferInRequest> for Hsm {
             });
 
             leader.tree = Some(Tree::with_existing_root(MerkleHasher(), partition_hash));
-            Response::Ok { entry }
+            Response::Ok { entry, delta }
         })();
 
         trace!(hsm = self.name, ?response);

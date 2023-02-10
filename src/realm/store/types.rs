@@ -1,8 +1,10 @@
 use actix::prelude::*;
 use reqwest::Url;
 
-use super::super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordId};
-use super::super::merkle::{agent::StoreDelta, proof::ReadProof};
+use super::super::hsm::types::{
+    DataHash, GroupId, HsmId, LogEntry, LogIndex, Partition, RealmId, RecordId,
+};
+use super::super::merkle::{agent::StoreDelta, proof::ReadProof, Dir};
 
 #[derive(Debug, Message)]
 #[rtype(result = "AppendResponse")]
@@ -64,6 +66,22 @@ pub enum GetRecordProofResponse {
     },
     UnknownGroup,
     NotOwner,
+    StoreMissingNode,
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "GetTreeEdgeProofResponse")]
+pub struct GetTreeEdgeProofRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+    pub partition: Partition,
+    pub dir: Dir,
+}
+
+#[derive(Debug, MessageResponse)]
+pub enum GetTreeEdgeProofResponse {
+    Ok { proof: ReadProof<DataHash> },
+    UnknownGroup,
     StoreMissingNode,
 }
 
