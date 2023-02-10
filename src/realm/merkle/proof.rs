@@ -335,7 +335,7 @@ mod tests {
     use super::ProofError;
 
     #[test]
-    fn test_read_proof_verify() {
+    fn verify() {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         let rid1 = rec_id(&[1]);
@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn test_stale_proof() {
+    fn stale_proof() {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         root = tree_insert(

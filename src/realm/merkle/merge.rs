@@ -144,3 +144,5 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         })
     }
 }
+
+// See split.rs for merge related tests

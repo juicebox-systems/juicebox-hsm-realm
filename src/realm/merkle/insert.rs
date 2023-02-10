@@ -138,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn insert_some() {
+    fn new_records() {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         root = tree_insert(
@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn update_some() {
+    fn update_existing() {
         let range = OwnedRange {
             start: rec_id(&[1]),
             end: rec_id(&[6]),
@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn insert_lots() {
+    fn lots() {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         let seed = [0u8; 32];

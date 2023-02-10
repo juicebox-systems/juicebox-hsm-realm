@@ -220,38 +220,38 @@ mod tests {
     };
 
     #[test]
-    fn test_arb_split_1bit() {
+    fn one_bit() {
         // test split where the root has branches with single bit prefixes.
         let keys = [rec_id(&[0]), rec_id(&[0b11110000])];
         test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
     }
     #[test]
-    fn test_arb_split_multiple_bits() {
+    fn multiple_bits() {
         // test split where the root has branches with multiple bits in the prefixes.
         let keys = [rec_id(&[0]), rec_id(&[0b00010000])];
         test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
     }
     #[test]
-    fn test_arb_root_one_branch() {
+    fn root_one_branch() {
         // test split where the root has only one branch with multiple bits in its prefix.
         let keys = [rec_id(&[0]), rec_id(&[0, 0, 5]), rec_id(&[0, 0, 6])];
         test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
     }
 
     #[test]
-    fn test_arb_split_on_key_with_record() {
+    fn on_key_with_record() {
         let keys: Vec<_> = (0u8..10).map(|k| rec_id(&[k])).collect();
         test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[5]));
     }
 
     #[test]
-    fn test_arb_split_on_no_record_key() {
+    fn on_key_with_no_record() {
         let keys: Vec<_> = (0u8..100).step_by(10).map(|k| rec_id(&[k])).collect();
         test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[10, 0, 0, 5]));
     }
 
     #[test]
-    fn test_arb_split_one_side_ends_up_empty() {
+    fn one_side_ends_up_empty() {
         let keys: Vec<_> = (10u8..100).step_by(10).map(|k| rec_id(&[k])).collect();
         test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[5]));
         test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[101]));
@@ -259,18 +259,18 @@ mod tests {
     }
 
     #[test]
-    fn test_arb_split_one_key_only() {
+    fn one_key_only() {
         test_arb_split_merge(OwnedRange::full(), &[rec_id(&[20])], &rec_id(&[4]));
         test_arb_split_merge(OwnedRange::full(), &[rec_id(&[20])], &rec_id(&[24]));
     }
 
     #[test]
-    fn test_arb_split_empty_tree() {
+    fn empty_tree() {
         test_arb_split_merge(OwnedRange::full(), &[], &rec_id(&[4]));
     }
 
     #[test]
-    fn test_arb_split_dense_root() {
+    fn dense_root() {
         let k = &[
             0u8, 0b11111111, 0b01111111, 0b10111100, 0b10001111, 0b01011100, 0b00111100,
             0b11001100, 0b11100000, 0b11110001,
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn test_arb_split_lob_sided_tree() {
+    fn lob_sided_tree() {
         let k = &[
             0u8, 0b11111111, 0b11111110, 0b11111100, 0b11111000, 0b11110000, 0b11110001,
         ];
@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn test_arb_split_on_all_keys() {
+    fn on_and_between_all_keys() {
         let keys: Vec<_> = (2u8..251).step_by(10).map(|k| rec_id(&[k])).collect();
         test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[1]));
         for k in &keys {
