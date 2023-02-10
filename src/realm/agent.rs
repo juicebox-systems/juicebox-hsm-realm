@@ -25,7 +25,6 @@ pub mod types;
 
 use super::hsm::types as hsm_types;
 use super::hsm::Hsm;
-use super::merkle::KeySlice;
 use super::store::types::{
     AddressEntry, AppendRequest, AppendResponse, GetAddressesRequest, GetAddressesResponse,
     GetRecordProofRequest, GetRecordProofResponse, ReadEntryRequest, ReadEntryResponse,
@@ -35,7 +34,7 @@ use super::store::Store;
 use client::{AgentClient, AgentClientError};
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
-    EntryHmac, GroupId, HsmId, LogIndex, RealmId, RecordId, SecretsResponse,
+    EntryHmac, GroupId, HsmId, LogIndex, RealmId, SecretsResponse,
 };
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
@@ -45,7 +44,6 @@ use types::{
     TransferInRequest, TransferInResponse, TransferNonceRequest, TransferNonceResponse,
     TransferOutRequest, TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
-
 #[derive(Clone, Debug)]
 pub struct Agent(Arc<AgentInner>);
 
@@ -779,11 +777,16 @@ impl Agent {
                 return Ok(Response::NotOwner);
             };
 
-            // Make a recordId that is owned by the partition. We need a read proof
-            // to split the merkle tree.
-            let mut rec_id = RecordId([0u8; 32]);
-            let bs = KeySlice::from_slice_mut(&mut rec_id.0);
-            bs[..partition.prefix.0.len()].copy_from_bitslice(&partition.prefix.0);
+            // If we're moving everything then any proof from the partition is fine.
+            // if we're splitting, then we need the proof for the split point.
+            let rec_id = if partition.range == request.range {
+                request.range.start.clone()
+            } else {
+                match partition.range.split_at(&request.range) {
+                    Some(id) => id,
+                    None => return Ok(Response::NotOwner),
+                }
+            };
 
             let proof = match store
                 .send(GetRecordProofRequest {
@@ -805,7 +808,7 @@ impl Agent {
                     realm: request.realm,
                     source: request.source,
                     destination: request.destination,
-                    prefix: request.prefix.clone(),
+                    range: request.range.clone(),
                     index: entry.index,
                     proof,
                 })
@@ -957,7 +960,7 @@ impl Agent {
                 realm: request.realm,
                 source: request.source,
                 destination: request.destination,
-                prefix: request.prefix,
+                range: request.range,
             })
             .await;
         match result {
@@ -1057,7 +1060,7 @@ async fn start_app_request(
             Ok(HsmResponse::InvalidGroup) => return Err(Response::InvalidGroup),
             Ok(HsmResponse::StaleProof) => continue,
             Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => return Err(Response::NotLeader),
-            Ok(HsmResponse::InvalidData) => panic!(),
+            Ok(HsmResponse::InvalidProof) => return Err(Response::InvalidProof),
 
             Ok(HsmResponse::Ok { entry, delta }) => {
                 trace!(

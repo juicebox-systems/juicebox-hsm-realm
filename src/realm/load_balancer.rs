@@ -27,7 +27,7 @@ use super::agent::types::{
 use super::hsm::types as hsm_types;
 use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse};
 use super::store::Store;
-use hsm_types::{GroupId, OwnedPrefix, RealmId};
+use hsm_types::{GroupId, OwnedRange, RealmId};
 use types::{ClientRequest, ClientResponse};
 
 #[derive(Clone)]
@@ -80,7 +80,7 @@ impl LoadBalancer {
 #[derive(Debug)]
 struct Partition {
     group: GroupId,
-    owned_prefix: OwnedPrefix,
+    owned_range: OwnedRange,
     leader: Url,
 }
 
@@ -113,10 +113,10 @@ async fn refresh(
                         let realm = realms.entry(status.id).or_default();
                         for group in status.groups {
                             if let Some(leader) = group.leader {
-                                if let Some(owned_prefix) = leader.owned_prefix {
+                                if let Some(owned_range) = leader.owned_range {
                                     realm.push(Partition {
                                         group: group.id,
-                                        owned_prefix,
+                                        owned_range,
                                         leader: agent.clone(),
                                     });
                                 }
@@ -184,7 +184,7 @@ async fn handle_client_request(
     let record_id = (TenantId(tenant), UserId(user)).into();
 
     for partition in partitions {
-        if !partition.owned_prefix.contains(&record_id) {
+        if !partition.owned_range.contains(&record_id) {
             continue;
         }
 
@@ -215,7 +215,8 @@ async fn handle_client_request(
                 | r @ AppResponse::InvalidGroup
                 | r @ AppResponse::NoHsm
                 | r @ AppResponse::NoStore
-                | r @ AppResponse::NotLeader,
+                | r @ AppResponse::NotLeader
+                | r @ AppResponse::InvalidProof,
             ) => {
                 warn!(
                     load_balancer = name,

@@ -18,6 +18,8 @@
         "oneshot",
         "Oprf",
         "oprfs",
+        "presso",
+        "reqwest",
         "rngs",
         "rtype",
         "Seedable",
@@ -25,5 +27,6 @@
         "unblind",
         "voprf"
     ],
-    "editor.formatOnSave": true
+    "editor.formatOnSave": true,
+    "files.insertFinalNewline": true,
 }

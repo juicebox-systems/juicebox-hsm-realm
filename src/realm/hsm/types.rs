@@ -8,7 +8,7 @@ use super::super::super::types::{
     AuthToken, DeleteRequest, DeleteResponse, Recover1Request, Recover1Response, Recover2Request,
     Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,
 };
-use super::super::merkle::{agent::StoreDelta, HashOutput, KeySlice, KeyVec, ReadProof};
+use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
 
 #[derive(Copy, Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct RealmId(pub [u8; 16]);
@@ -52,6 +52,36 @@ impl RecordId {
     pub fn num_bits() -> usize {
         256 // TODO: There's probably some generics gymnastics that could be done here.
     }
+    pub fn min_id() -> Self {
+        RecordId([0; 32])
+    }
+    pub fn max_id() -> Self {
+        RecordId([255; 32])
+    }
+    pub fn next(&self) -> Option<RecordId> {
+        let mut r = RecordId(self.0);
+        for i in (0..r.0.len()).rev() {
+            if r.0[i] < 255 {
+                r.0[i] += 1;
+                return Some(r);
+            } else {
+                r.0[i] = 0;
+            }
+        }
+        None
+    }
+    pub fn prev(&self) -> Option<RecordId> {
+        let mut r = RecordId(self.0);
+        for i in (0..r.0.len()).rev() {
+            if r.0[i] > 0 {
+                r.0[i] -= 1;
+                return Some(r);
+            } else {
+                r.0[i] = 255;
+            }
+        }
+        None
+    }
 }
 impl fmt::Debug for RecordId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -74,7 +104,7 @@ impl LogIndex {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Partition {
-    pub prefix: OwnedPrefix,
+    pub range: OwnedRange,
     pub root_hash: DataHash,
 }
 
@@ -120,29 +150,48 @@ impl fmt::Debug for EntryHmac {
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
-pub struct OwnedPrefix(pub KeyVec);
-
-impl OwnedPrefix {
-    pub fn full() -> Self {
-        Self(KeyVec::new())
-    }
-
-    pub fn contains(&self, rid: &RecordId) -> bool {
-        KeySlice::from_slice(&rid.0).starts_with(&self.0)
+pub struct OwnedRange {
+    pub start: RecordId, // inclusive
+    pub end: RecordId,   // inclusive
+}
+impl fmt::Debug for OwnedRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{:?}-{:?}]", &self.start, &self.end)
     }
 }
-
-impl fmt::Debug for OwnedPrefix {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "0b")?;
-        for bit in &self.0 {
-            if *bit {
-                write!(f, "1")?;
-            } else {
-                write!(f, "0")?;
-            }
+impl OwnedRange {
+    pub fn full() -> OwnedRange {
+        OwnedRange {
+            start: RecordId::min_id(),
+            end: RecordId::max_id(),
         }
-        Ok(())
+    }
+    pub fn contains(&self, rid: &RecordId) -> bool {
+        rid >= &self.start && rid <= &self.end
+    }
+    pub fn join(&self, other: &OwnedRange) -> Option<Self> {
+        match self.end.next() {
+            Some(r) if r == other.start => Some(OwnedRange {
+                start: self.start.clone(),
+                end: other.end.clone(),
+            }),
+            None | Some(_) => match other.end.next() {
+                Some(r) if r == self.start => Some(OwnedRange {
+                    start: other.start.clone(),
+                    end: self.end.clone(),
+                }),
+                None | Some(_) => None,
+            },
+        }
+    }
+    pub fn split_at(&self, other: &OwnedRange) -> Option<RecordId> {
+        if self.start == other.start && other.end < self.end {
+            Some(other.end.next().unwrap())
+        } else if self.end == other.end && other.start > self.start {
+            Some(other.start.clone())
+        } else {
+            None
+        }
     }
 }
 
@@ -249,7 +298,7 @@ pub struct GroupStatus {
 pub struct LeaderStatus {
     pub committed: Option<LogIndex>,
     // Note: this might not be committed yet.
-    pub owned_prefix: Option<OwnedPrefix>,
+    pub owned_range: Option<OwnedRange>,
 }
 
 #[derive(Debug, Message)]
@@ -408,7 +457,7 @@ pub struct TransferOutRequest {
     pub realm: RealmId,
     pub source: GroupId,
     pub destination: GroupId,
-    pub prefix: OwnedPrefix,
+    pub range: OwnedRange,
     pub index: LogIndex,
     pub proof: ReadProof<DataHash>,
 }
@@ -493,7 +542,7 @@ pub struct CompleteTransferRequest {
     pub realm: RealmId,
     pub source: GroupId,
     pub destination: GroupId,
-    pub prefix: OwnedPrefix,
+    pub range: OwnedRange,
 }
 
 #[derive(Debug, MessageResponse)]
@@ -527,9 +576,9 @@ pub enum AppResponse {
     InvalidRealm,
     InvalidGroup,
     StaleProof,
+    InvalidProof,
     NotOwner,
     NotLeader,
-    InvalidData,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

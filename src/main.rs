@@ -1,5 +1,4 @@
 use actix::prelude::*;
-use bitvec::prelude::*;
 use futures::future::{join_all, try_join_all};
 use reqwest::Url;
 use std::iter;
@@ -18,7 +17,7 @@ mod types;
 
 use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use realm::agent::Agent;
-use realm::hsm::types::{OwnedPrefix, RealmId};
+use realm::hsm::types::{OwnedRange, RealmId, RecordId};
 use realm::hsm::{Hsm, RealmKey};
 use realm::load_balancer::LoadBalancer;
 use realm::store::Store;
@@ -133,7 +132,7 @@ async fn main() {
         destination = ?groups[1],
         "transferring ownership of entire uid-space"
     );
-    realm::cluster::transfer(realm_id, groups[0], groups[1], OwnedPrefix::full(), &store)
+    realm::cluster::transfer(realm_id, groups[0], groups[1], OwnedRange::full(), &store)
         .await
         .unwrap();
 
@@ -142,7 +141,10 @@ async fn main() {
         realm_id,
         groups[1],
         groups[2],
-        OwnedPrefix(bitvec![u8, Msb0; 1]),
+        OwnedRange {
+            start: RecordId::min_id(),
+            end: RecordId([0x80; 32]),
+        },
         &store,
     )
     .await
@@ -152,7 +154,10 @@ async fn main() {
         realm_id,
         groups[1],
         groups[0],
-        OwnedPrefix(bitvec![u8, Msb0; 0,0]),
+        OwnedRange {
+            start: RecordId([0x80; 32]).next().unwrap(),
+            end: RecordId([0xA0; 32]),
+        },
         &store,
     )
     .await
@@ -162,7 +167,10 @@ async fn main() {
         realm_id,
         groups[2],
         groups[3],
-        OwnedPrefix(bitvec![u8, Msb0; 1, 1]),
+        OwnedRange {
+            start: RecordId([0x40; 32]),
+            end: RecordId([0x80; 32]),
+        },
         &store,
     )
     .await

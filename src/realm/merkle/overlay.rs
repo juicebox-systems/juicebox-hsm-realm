@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{agent::Node, Delta, Dir, HashOutput, KeySlice, ReadProof, TreeError};
+use super::{agent::Node, Delta, HashOutput};
 
 // TreeOverlay keeps track of recent changes and can be used to get an up to date
 // view of the tree for a recent ReadProof.
@@ -57,46 +57,6 @@ impl<HO: HashOutput> TreeOverlay<HO> {
             }
             self.roots.remove(&d.root);
         };
-    }
-
-    // Return the latest value for the record id in the ReadProof. Assumes the proof was already verified.
-    pub fn latest_value(&self, rp: ReadProof<HO>) -> Result<Option<Vec<u8>>, TreeError> {
-        if !self.roots.contains(&rp.root_hash()) {
-            return Err(TreeError::StaleProof);
-        }
-        let prefix_size = rp.prefix_size;
-        let (proof_nodes, key) = rp.make_node_map();
-        let mut key = KeySlice::from_slice(&key.0);
-        key = &key[prefix_size..];
-
-        let fetch = |node_hash: &HO| {
-            self.nodes
-                .get(node_hash)
-                .or_else(|| proof_nodes.get(node_hash))
-                .ok_or(TreeError::StaleProof)
-        };
-        let mut current_hash = self.latest_root;
-        loop {
-            match fetch(&current_hash)? {
-                Node::Leaf(leaf) => {
-                    assert!(key.is_empty());
-                    return Ok(Some(leaf.value.clone()));
-                }
-                Node::Interior(int) => {
-                    let d = Dir::from(key[0]);
-                    match int.branch(d) {
-                        None => return Ok(None),
-                        Some(b) => {
-                            if !key.starts_with(&b.prefix) {
-                                return Ok(None);
-                            }
-                            key = &key[b.prefix.len()..];
-                            current_hash = b.hash;
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
