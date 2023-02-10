@@ -383,14 +383,10 @@ mod dot;
 #[cfg(test)]
 mod tests {
     use super::{
-        agent::{read, read_tree_side, Node, TreeStoreError, TreeStoreReader},
+        agent::{read, Node, TreeStoreError, TreeStoreReader},
         *,
     };
-    use rand::{rngs::StdRng, RngCore, SeedableRng};
-    use std::{
-        collections::{BTreeMap, HashMap},
-        hash::Hasher,
-    };
+    use std::{collections::HashMap, hash::Hasher};
 
     #[test]
     fn test_bitvec_order() {
@@ -418,452 +414,6 @@ mod tests {
         assert_eq!(root, p.path[0].hash);
         assert!(p.leaf.is_none());
         check_tree_invariants(&tree.hasher, &range, root, &store);
-    }
-
-    #[test]
-    fn first_insert() {
-        let range = OwnedRange::full();
-        let (mut tree, mut root, mut store) = new_empty_tree(&range);
-        let rp = read(&store, &range, &root, &rec_id(&[1, 2, 3])).unwrap();
-        let d = tree
-            .insert(tree.latest_proof(rp).unwrap(), [42].to_vec())
-            .unwrap()
-            .unwrap();
-        assert_eq!(1, d.add.len());
-        assert_eq!([42].to_vec(), d.leaf.value);
-        assert_eq!(root, d.remove[0]);
-        root = store.apply(d);
-        check_tree_invariants(&tree.hasher, &range, root, &store);
-
-        let p = read(&store, &range, &root, &rec_id(&[1, 2, 3])).unwrap();
-        assert_eq!([42].to_vec(), p.leaf.as_ref().unwrap().value);
-        assert_eq!(1, p.path.len());
-        assert_eq!(root, p.path[0].hash);
-        check_tree_invariants(&tree.hasher, &range, root, &store);
-    }
-
-    #[test]
-    fn insert_some() {
-        let range = OwnedRange::full();
-        let (mut tree, mut root, mut store) = new_empty_tree(&range);
-        root = tree_insert(
-            &mut tree,
-            &mut store,
-            &range,
-            root,
-            &rec_id(&[2, 6, 8]),
-            [42].to_vec(),
-            true,
-        );
-        root = tree_insert(
-            &mut tree,
-            &mut store,
-            &range,
-            root,
-            &rec_id(&[4, 4, 6]),
-            [43].to_vec(),
-            true,
-        );
-        root = tree_insert(
-            &mut tree,
-            &mut store,
-            &range,
-            root,
-            &rec_id(&[0, 2, 3]),
-            [44].to_vec(),
-            false,
-        );
-
-        let p = read(&store, &range, &root, &rec_id(&[2, 6, 8])).unwrap();
-        assert_eq!([42].to_vec(), p.leaf.unwrap().value);
-        assert_eq!(3, p.path.len());
-        assert_eq!(root, p.path[0].hash);
-        check_tree_invariants(&tree.hasher, &range, root, &store);
-    }
-
-    #[test]
-    fn update_some() {
-        let range = OwnedRange {
-            start: rec_id(&[1]),
-            end: rec_id(&[6]),
-        };
-        let (mut tree, mut root, mut store) = new_empty_tree(&range);
-        root = tree_insert(
-            &mut tree,
-            &mut store,
-            &range,
-            root,
-            &rec_id(&[2, 6, 8]),
-            [42].to_vec(),
-            false,
-        );
-        root = tree_insert(
-            &mut tree,
-            &mut store,
-            &range,
-            root,
-            &rec_id(&[4, 4, 6]),
-            [43].to_vec(),
-            false,
-        );
-        // now do a read/write for an existing key
-        root = tree_insert(
-            &mut tree,
-            &mut store,
-            &range,
-            root,
-            &rec_id(&[4, 4, 6]),
-            [44].to_vec(),
-            false,
-        );
-
-        let rp = read(&store, &range, &root, &rec_id(&[4, 4, 6])).unwrap();
-        assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
-        check_tree_invariants(&tree.hasher, &range, root, &store);
-
-        // writing the same value again shouldn't do anything dumb, like cause the leaf to be deleted.
-        root = tree_insert(
-            &mut tree,
-            &mut store,
-            &range,
-            root,
-            &rec_id(&[4, 4, 6]),
-            [44].to_vec(),
-            false,
-        );
-        let rp = read(&store, &range, &root, &rec_id(&[4, 4, 6])).unwrap();
-        assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
-    }
-
-    #[test]
-    fn test_insert_lots() {
-        let range = OwnedRange::full();
-        let (mut tree, mut root, mut store) = new_empty_tree(&range);
-        let seed = [0u8; 32];
-        let mut rng: StdRng = SeedableRng::from_seed(seed);
-        let mut random_key = [0u8; 4];
-        let mut expected = BTreeMap::new();
-        for i in 0..150 {
-            rng.fill_bytes(&mut random_key);
-            let key = rec_id(&random_key);
-            // write our new key/value
-            root = tree_insert(
-                &mut tree,
-                &mut store,
-                &range,
-                root,
-                &key,
-                [i].to_vec(),
-                true,
-            );
-            expected.insert(key, i);
-
-            // verify we can read all the key/values we've stored.
-            for (k, v) in expected.iter() {
-                let p = read(&store, &range, &root, k).unwrap();
-                assert_eq!([*v].to_vec(), p.leaf.unwrap().value);
-            }
-            // if i == 16 {
-            //     dot::tree_to_dot(root, &store, "many.dot").unwrap();
-            // }
-        }
-        check_tree_invariants(&tree.hasher, &range, root, &store);
-    }
-
-    #[test]
-    fn test_arb_split_1bit() {
-        // test split where the root has branches with single bit prefixes.
-        let keys = [rec_id(&[0]), rec_id(&[0b11110000])];
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
-    }
-    #[test]
-    fn test_arb_split_multiple_bits() {
-        // test split where the root has branches with multiple bits in the prefixes.
-        let keys = [rec_id(&[0]), rec_id(&[0b00010000])];
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
-    }
-    #[test]
-    fn test_arb_root_one_branch() {
-        // test split where the root has only one branch with multiple bits in its prefix.
-        let keys = [rec_id(&[0]), rec_id(&[0, 0, 5]), rec_id(&[0, 0, 6])];
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
-    }
-
-    #[test]
-    fn test_arb_split_on_key_with_record() {
-        let keys: Vec<_> = (0u8..10).map(|k| rec_id(&[k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[5]));
-    }
-
-    #[test]
-    fn test_arb_split_on_no_record_key() {
-        let keys: Vec<_> = (0u8..100).step_by(10).map(|k| rec_id(&[k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[10, 0, 0, 5]));
-    }
-
-    #[test]
-    fn test_arb_split_one_side_ends_up_empty() {
-        let keys: Vec<_> = (10u8..100).step_by(10).map(|k| rec_id(&[k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[5]));
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[101]));
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[200]));
-    }
-
-    #[test]
-    fn test_arb_split_one_key_only() {
-        test_arb_split_merge(OwnedRange::full(), &[rec_id(&[20])], &rec_id(&[4]));
-        test_arb_split_merge(OwnedRange::full(), &[rec_id(&[20])], &rec_id(&[24]));
-    }
-
-    #[test]
-    fn test_arb_split_empty_tree() {
-        test_arb_split_merge(OwnedRange::full(), &[], &rec_id(&[4]));
-    }
-
-    #[test]
-    fn test_arb_split_dense_root() {
-        let k = &[
-            0u8, 0b11111111, 0b01111111, 0b10111100, 0b10001111, 0b01011100, 0b00111100,
-            0b11001100, 0b11100000, 0b11110001,
-        ];
-        let keys: Vec<_> = k.iter().map(|k| rec_id(&[*k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[4]));
-        test_arb_split_merge(OwnedRange::full(), &keys, &keys[3]);
-    }
-
-    #[test]
-    fn test_arb_split_lob_sided_tree() {
-        let k = &[
-            0u8, 0b11111111, 0b11111110, 0b11111100, 0b11111000, 0b11110000, 0b11110001,
-        ];
-        let keys: Vec<_> = k.iter().map(|k| rec_id(&[*k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[4]));
-        test_arb_split_merge(OwnedRange::full(), &keys, &keys[3]);
-    }
-
-    #[test]
-    fn test_arb_split_on_all_keys() {
-        let keys: Vec<_> = (2u8..251).step_by(10).map(|k| rec_id(&[k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[1]));
-        for k in &keys {
-            test_arb_split_merge(OwnedRange::full(), &keys, k);
-            let mut kk = k.clone();
-            kk.0[22] = 5;
-            test_arb_split_merge(OwnedRange::full(), &keys, &kk);
-        }
-    }
-
-    // Creates a new tree populated with 'keys'. splits it into 2 at 'split'. verifies the split was correct
-    // then merges them back together and verifies you got back to the start.
-    fn test_arb_split_merge(range: OwnedRange, keys: &[RecordId], split: &RecordId) {
-        let (mut tree, mut root, mut store) = new_empty_tree(&range);
-        for k in keys {
-            root = tree_insert(&mut tree, &mut store, &range, root, k, vec![k.0[0]], true);
-        }
-        check_tree_invariants(&tree.hasher, &range, root, &store);
-        let pre_split_root_hash = root;
-        let pre_split_store = store.clone();
-
-        let proof = read(&store, &range, &root, split).unwrap();
-        let s = tree.range_split(proof).unwrap();
-        store.apply_store_delta(s.delta);
-        check_tree_invariants(&TestHasher {}, &s.left.range, s.left.root_hash, &store);
-        check_tree_invariants(&TestHasher {}, &s.right.range, s.right.root_hash, &store);
-
-        let (mut tree_l, mut root_l, mut store_l) = new_empty_tree(&s.left.range);
-        let (mut tree_r, mut root_r, mut store_r) = new_empty_tree(&s.right.range);
-        for k in keys {
-            if k < split {
-                root_l = tree_insert(
-                    &mut tree_l,
-                    &mut store_l,
-                    &s.left.range,
-                    root_l,
-                    k,
-                    vec![k.0[0]],
-                    true,
-                );
-            } else {
-                root_r = tree_insert(
-                    &mut tree_r,
-                    &mut store_r,
-                    &s.right.range,
-                    root_r,
-                    k,
-                    vec![k.0[0]],
-                    true,
-                );
-            }
-        }
-        check_tree_invariants(&TestHasher {}, &s.left.range, root_l, &store_l);
-        check_tree_invariants(&TestHasher {}, &s.right.range, root_r, &store_r);
-
-        if root_l != s.left.root_hash {
-            dot::tree_to_dot(root_l, &store_l, "expected_left.dot").unwrap();
-            dot::tree_to_dot(s.left.root_hash, &store, "actual_left.dot").unwrap();
-            dot::tree_to_dot(s.right.root_hash, &store, "actual_right.dot").unwrap();
-            dot::tree_to_dot(root, &pre_split_store, "before_split.dot").unwrap();
-            panic!("left tree after split at {split:?} not as expected, see expected_left.dot & actual_left.dot for details");
-        }
-        if root_r != s.right.root_hash {
-            dot::tree_to_dot(root_r, &store_r, "expected_right.dot").unwrap();
-            dot::tree_to_dot(s.left.root_hash, &store, "actual_left.dot").unwrap();
-            dot::tree_to_dot(s.right.root_hash, &store, "actual_right.dot").unwrap();
-            dot::tree_to_dot(root, &pre_split_store, "before_split.dot").unwrap();
-            panic!("right tree after split at {split:?} not as expected, see expected_right.dot & actual_right.dot for details");
-        }
-
-        let left_proof = read_tree_side(&store_l, &s.left.range, &root_l, Dir::Right).unwrap();
-        let right_proof = read_tree_side(&store_r, &s.right.range, &root_r, Dir::Left).unwrap();
-
-        let merged = tree_l.merge(left_proof, right_proof).unwrap();
-        store_l.nodes.extend(store_r.nodes);
-        store_l.apply_store_delta(merged.delta);
-        if pre_split_root_hash != merged.root_hash {
-            dot::tree_to_dot(pre_split_root_hash, &pre_split_store, "before_split.dot").unwrap();
-            dot::tree_to_dot(merged.root_hash, &store_l, "after_merge.dot").unwrap();
-            assert_eq!(
-                pre_split_root_hash, merged.root_hash,
-                "tree after split then merge should be the same as before the initial split"
-            );
-        }
-        check_tree_invariants(&tree_r.hasher, &merged.range, merged.root_hash, &store_l);
-    }
-
-    #[test]
-    fn test_read_proof_verify() {
-        let range = OwnedRange::full();
-        let (mut tree, mut root, mut store) = new_empty_tree(&range);
-        let rid1 = rec_id(&[1]);
-        let rid5 = rec_id(&[5]);
-        root = tree_insert(
-            &mut tree,
-            &mut store,
-            &range,
-            root,
-            &rid1,
-            [1].to_vec(),
-            true,
-        );
-        root = tree_insert(
-            &mut tree,
-            &mut store,
-            &range,
-            root,
-            &rid5,
-            [2].to_vec(),
-            false,
-        );
-
-        let p = read(&store, &range, &root, &rid5).unwrap();
-        assert!(p.verify(&tree.hasher, &tree.overlay).is_ok());
-
-        // claim there's no leaf
-        let mut p = read(&store, &range, &root, &rid5).unwrap();
-        p.leaf = None;
-        assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
-
-        let mut p = read(&store, &range, &root, &rid5).unwrap();
-        // truncate the tail of the path to claim there's no leaf
-        p.leaf = None;
-        p.path.pop();
-        assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
-
-        let mut p = read(&store, &range, &root, &rid5).unwrap();
-        // futz with the path
-        p.key.0[0] = 2;
-        assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
-
-        // futz with the value (checks the hash)
-        let mut p = read(&store, &range, &root, &rid5).unwrap();
-        if let Some(ref mut l) = p.leaf {
-            l.value[0] += 1;
-        }
-        assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
-
-        // futz with a node (checks the hash)
-        let mut p = read(&store, &range, &root, &rid5).unwrap();
-        if let Some(ref mut b) = &mut p.path[0].left {
-            b.prefix.pop();
-        }
-        assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
-    }
-
-    #[test]
-    fn test_insert_pipeline() {
-        let range = OwnedRange::full();
-        let (mut tree, mut root, mut store) = new_empty_tree(&range);
-        let rid1 = rec_id(&[1]);
-        let rid2 = rec_id(&[2]);
-        let rid3 = rec_id(&[3]);
-        root = tree_insert(
-            &mut tree,
-            &mut store,
-            &range,
-            root,
-            &rid1,
-            [1].to_vec(),
-            false,
-        );
-        let rp_1 = read(&store, &range, &root, &rid1).unwrap();
-        let rp_2 = read(&store, &range, &root, &rid2).unwrap();
-        let rp_3 = read(&store, &range, &root, &rid3).unwrap();
-        let d1 = tree
-            .insert(tree.latest_proof(rp_1).unwrap(), [11].to_vec())
-            .unwrap()
-            .unwrap();
-        let d2 = tree
-            .insert(tree.latest_proof(rp_2).unwrap(), [12].to_vec())
-            .unwrap()
-            .unwrap();
-        let d3 = tree
-            .insert(tree.latest_proof(rp_3).unwrap(), [13].to_vec())
-            .unwrap()
-            .unwrap();
-        root = store.apply(d1);
-        check_tree_invariants(&tree.hasher, &range, root, &store);
-        root = store.apply(d2);
-        check_tree_invariants(&tree.hasher, &range, root, &store);
-        root = store.apply(d3);
-        check_tree_invariants(&tree.hasher, &range, root, &store);
-
-        let rp_1 = read(&store, &range, &root, &rid1).unwrap();
-        assert_eq!([11].to_vec(), rp_1.leaf.unwrap().value);
-        let rp_2 = read(&store, &range, &root, &rid2).unwrap();
-        assert_eq!([12].to_vec(), rp_2.leaf.unwrap().value);
-        let rp_3 = read(&store, &range, &root, &rid3).unwrap();
-        assert_eq!([13].to_vec(), rp_3.leaf.unwrap().value);
-    }
-
-    #[test]
-    fn test_stale_proof() {
-        let range = OwnedRange::full();
-        let (mut tree, mut root, mut store) = new_empty_tree(&range);
-        root = tree_insert(
-            &mut tree,
-            &mut store,
-            &range,
-            root,
-            &rec_id(&[0b10000000]),
-            [1].to_vec(),
-            false,
-        );
-        let rp_1 = read(&store, &range, &root, &rec_id(&[0b10000000])).unwrap();
-        for i in 0..20 {
-            root = tree_insert(
-                &mut tree,
-                &mut store,
-                &range,
-                root,
-                &rec_id(&[0b11000000]),
-                [i].to_vec(),
-                false,
-            );
-        }
-        let err = tree
-            .latest_proof(rp_1)
-            .expect_err("should have been declared stale");
-        assert_eq!(ProofError::Stale, err);
     }
 
     #[test]
@@ -938,12 +488,14 @@ mod tests {
         assert_eq!(a[..9], common_prefix(a, b));
         assert_eq!(b[..9], common_prefix(a, b));
     }
+
     #[test]
     fn test_common_prefix_none() {
         let a: &BitSlice<u8> = BitSlice::from_slice(&[0]);
         let b = BitSlice::from_slice(&[255u8]);
         assert!(common_prefix(a, b).is_empty());
     }
+
     #[test]
     fn test_common_prefix_same() {
         let a: &BitSlice<u8> = BitSlice::from_slice(&[1]);
@@ -953,13 +505,13 @@ mod tests {
         assert_eq!(8, c.len());
     }
 
-    fn rec_id(bytes: &[u8]) -> RecordId {
+    pub fn rec_id(bytes: &[u8]) -> RecordId {
         let mut r = RecordId([0u8; 32]);
         r.0[..bytes.len()].copy_from_slice(bytes);
         r
     }
 
-    fn new_empty_tree(
+    pub fn new_empty_tree(
         range: &OwnedRange,
     ) -> (Tree<TestHasher, TestHash>, TestHash, MemStore<TestHash>) {
         let h = TestHasher {};
@@ -972,7 +524,7 @@ mod tests {
     }
 
     // helper to insert a value into the tree and update the store
-    fn tree_insert(
+    pub fn tree_insert(
         tree: &mut Tree<TestHasher, TestHash>,
         store: &mut MemStore<TestHash>,
         range: &OwnedRange,
@@ -1000,7 +552,7 @@ mod tests {
     //      2. the left branch prefix always starts with a 0
     //      3. the right branch prefix always starts with a 1
     //      5. the leaf -> root hashes are verified.
-    fn check_tree_invariants<HO: HashOutput>(
+    pub fn check_tree_invariants<HO: HashOutput>(
         hasher: &impl NodeHasher<HO>,
         range: &OwnedRange,
         root: HO,
@@ -1060,8 +612,8 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct MemStore<HO> {
-        nodes: HashMap<Vec<u8>, Node<HO>>,
+    pub struct MemStore<HO> {
+        pub nodes: HashMap<Vec<u8>, Node<HO>>,
     }
     impl<HO> MemStore<HO> {
         fn new() -> Self {
@@ -1071,7 +623,7 @@ mod tests {
         }
     }
     impl<HO: HashOutput> MemStore<HO> {
-        fn apply_store_delta(&mut self, d: StoreDelta<HO>) {
+        pub fn apply_store_delta(&mut self, d: StoreDelta<HO>) {
             let (add, rem) = d.items();
             for n in add {
                 self.insert(n.hash(), n);
@@ -1082,7 +634,7 @@ mod tests {
         }
 
         // Returns the new root hash.
-        fn apply(&mut self, delta: Delta<HO>) -> HO {
+        pub fn apply(&mut self, delta: Delta<HO>) -> HO {
             self.insert(delta.leaf.hash, Node::Leaf(delta.leaf));
             let root_hash = delta.add.last().unwrap().hash;
             for a in delta.add {
@@ -1105,7 +657,7 @@ mod tests {
             }
         }
     }
-    struct TestHasher {}
+    pub struct TestHasher {}
     impl NodeHasher<TestHash> for TestHasher {
         fn calc_hash(&self, parts: &[&[u8]]) -> TestHash {
             let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -1118,7 +670,7 @@ mod tests {
     }
 
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-    struct TestHash([u8; 8]);
+    pub struct TestHash([u8; 8]);
     impl HashOutput for TestHash {
         fn as_u8(&self) -> &[u8] {
             self.0.as_slice()

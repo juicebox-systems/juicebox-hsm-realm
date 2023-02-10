@@ -102,3 +102,212 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         Ok(Some(delta))
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::collections::BTreeMap;
+
+    use rand::rngs::StdRng;
+    use rand::{RngCore, SeedableRng};
+
+    use super::super::super::hsm::types::OwnedRange;
+    use super::super::agent::read;
+    use super::super::tests::{check_tree_invariants, new_empty_tree, rec_id, tree_insert};
+
+    #[test]
+    fn first_insert() {
+        let range = OwnedRange::full();
+        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        let rp = read(&store, &range, &root, &rec_id(&[1, 2, 3])).unwrap();
+        let d = tree
+            .insert(tree.latest_proof(rp).unwrap(), [42].to_vec())
+            .unwrap()
+            .unwrap();
+        assert_eq!(1, d.add.len());
+        assert_eq!([42].to_vec(), d.leaf.value);
+        assert_eq!(root, d.remove[0]);
+        root = store.apply(d);
+        check_tree_invariants(&tree.hasher, &range, root, &store);
+
+        let p = read(&store, &range, &root, &rec_id(&[1, 2, 3])).unwrap();
+        assert_eq!([42].to_vec(), p.leaf.as_ref().unwrap().value);
+        assert_eq!(1, p.path.len());
+        assert_eq!(root, p.path[0].hash);
+        check_tree_invariants(&tree.hasher, &range, root, &store);
+    }
+
+    #[test]
+    fn insert_some() {
+        let range = OwnedRange::full();
+        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            &range,
+            root,
+            &rec_id(&[2, 6, 8]),
+            [42].to_vec(),
+            true,
+        );
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            &range,
+            root,
+            &rec_id(&[4, 4, 6]),
+            [43].to_vec(),
+            true,
+        );
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            &range,
+            root,
+            &rec_id(&[0, 2, 3]),
+            [44].to_vec(),
+            false,
+        );
+
+        let p = read(&store, &range, &root, &rec_id(&[2, 6, 8])).unwrap();
+        assert_eq!([42].to_vec(), p.leaf.unwrap().value);
+        assert_eq!(3, p.path.len());
+        assert_eq!(root, p.path[0].hash);
+        check_tree_invariants(&tree.hasher, &range, root, &store);
+    }
+
+    #[test]
+    fn update_some() {
+        let range = OwnedRange {
+            start: rec_id(&[1]),
+            end: rec_id(&[6]),
+        };
+        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            &range,
+            root,
+            &rec_id(&[2, 6, 8]),
+            [42].to_vec(),
+            false,
+        );
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            &range,
+            root,
+            &rec_id(&[4, 4, 6]),
+            [43].to_vec(),
+            false,
+        );
+        // now do a read/write for an existing key
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            &range,
+            root,
+            &rec_id(&[4, 4, 6]),
+            [44].to_vec(),
+            false,
+        );
+
+        let rp = read(&store, &range, &root, &rec_id(&[4, 4, 6])).unwrap();
+        assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
+        check_tree_invariants(&tree.hasher, &range, root, &store);
+
+        // writing the same value again shouldn't do anything dumb, like cause the leaf to be deleted.
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            &range,
+            root,
+            &rec_id(&[4, 4, 6]),
+            [44].to_vec(),
+            false,
+        );
+        let rp = read(&store, &range, &root, &rec_id(&[4, 4, 6])).unwrap();
+        assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
+    }
+
+    #[test]
+    fn insert_lots() {
+        let range = OwnedRange::full();
+        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        let seed = [0u8; 32];
+        let mut rng: StdRng = SeedableRng::from_seed(seed);
+        let mut random_key = [0u8; 4];
+        let mut expected = BTreeMap::new();
+        for i in 0..150 {
+            rng.fill_bytes(&mut random_key);
+            let key = rec_id(&random_key);
+            // write our new key/value
+            root = tree_insert(
+                &mut tree,
+                &mut store,
+                &range,
+                root,
+                &key,
+                [i].to_vec(),
+                true,
+            );
+            expected.insert(key, i);
+
+            // verify we can read all the key/values we've stored.
+            for (k, v) in expected.iter() {
+                let p = read(&store, &range, &root, k).unwrap();
+                assert_eq!([*v].to_vec(), p.leaf.unwrap().value);
+            }
+            // if i == 16 {
+            //     dot::tree_to_dot(root, &store, "many.dot").unwrap();
+            // }
+        }
+        check_tree_invariants(&tree.hasher, &range, root, &store);
+    }
+
+    #[test]
+    fn pipeline() {
+        let range = OwnedRange::full();
+        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        let rid1 = rec_id(&[1]);
+        let rid2 = rec_id(&[2]);
+        let rid3 = rec_id(&[3]);
+        root = tree_insert(
+            &mut tree,
+            &mut store,
+            &range,
+            root,
+            &rid1,
+            [1].to_vec(),
+            false,
+        );
+        let rp_1 = read(&store, &range, &root, &rid1).unwrap();
+        let rp_2 = read(&store, &range, &root, &rid2).unwrap();
+        let rp_3 = read(&store, &range, &root, &rid3).unwrap();
+        let d1 = tree
+            .insert(tree.latest_proof(rp_1).unwrap(), [11].to_vec())
+            .unwrap()
+            .unwrap();
+        let d2 = tree
+            .insert(tree.latest_proof(rp_2).unwrap(), [12].to_vec())
+            .unwrap()
+            .unwrap();
+        let d3 = tree
+            .insert(tree.latest_proof(rp_3).unwrap(), [13].to_vec())
+            .unwrap()
+            .unwrap();
+        root = store.apply(d1);
+        check_tree_invariants(&tree.hasher, &range, root, &store);
+        root = store.apply(d2);
+        check_tree_invariants(&tree.hasher, &range, root, &store);
+        root = store.apply(d3);
+        check_tree_invariants(&tree.hasher, &range, root, &store);
+
+        let rp_1 = read(&store, &range, &root, &rid1).unwrap();
+        assert_eq!([11].to_vec(), rp_1.leaf.unwrap().value);
+        let rp_2 = read(&store, &range, &root, &rid2).unwrap();
+        assert_eq!([12].to_vec(), rp_2.leaf.unwrap().value);
+        let rp_3 = read(&store, &range, &root, &rid3).unwrap();
+        assert_eq!([13].to_vec(), rp_3.leaf.unwrap().value);
+    }
+}
