@@ -115,7 +115,6 @@ impl Rpc for SetAddressRequest {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SetAddressRequest {
     pub hsm: HsmId,
-    #[serde(with = "super::url")]
     pub address: Url,
 }
 
@@ -138,6 +137,5 @@ pub struct GetAddressesResponse(pub Vec<AddressEntry>);
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AddressEntry {
     pub hsm: HsmId,
-    #[serde(with = "super::url")]
     pub address: Url,
 }

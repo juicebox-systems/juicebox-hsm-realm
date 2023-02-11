@@ -16,7 +16,6 @@ use tracing::{trace, warn};
 
 mod kv;
 pub mod types;
-mod url;
 
 use self::types::{
     GetRecordProofRequest, GetRecordProofResponse, GetTreeEdgeProofRequest,
