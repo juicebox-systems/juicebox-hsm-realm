@@ -4,16 +4,21 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 
 use super::super::hsm::types as hsm_types;
-use super::super::rpc::Rpc;
+use super::super::rpc::{Rpc, RpcFamily};
 use hsm_types::{
     CapturedStatement, Configuration, EntryHmac, GroupConfigurationStatement, GroupId, HsmId,
     LogIndex, OwnedRange, Partition, RealmId, RecordId, SecretsRequest, SecretsResponse,
     TransferNonce, TransferStatement,
 };
 
+#[derive(Clone, Debug)]
+pub struct AgentRpc();
+impl RpcFamily for AgentRpc {}
+
 impl Rpc for StatusRequest {
     const PATH: &'static str = "status";
     type Response = StatusResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -27,6 +32,7 @@ pub struct StatusResponse {
 impl Rpc for NewRealmRequest {
     const PATH: &'static str = "realm/new";
     type Response = NewRealmResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -51,6 +57,7 @@ pub enum NewRealmResponse {
 impl Rpc for JoinRealmRequest {
     const PATH: &'static str = "realm/join";
     type Response = JoinRealmResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -68,6 +75,7 @@ pub enum JoinRealmResponse {
 impl Rpc for NewGroupRequest {
     const PATH: &'static str = "group/new";
     type Response = NewGroupResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -92,6 +100,7 @@ pub enum NewGroupResponse {
 impl Rpc for JoinGroupRequest {
     const PATH: &'static str = "group/join";
     type Response = JoinGroupResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -114,6 +123,7 @@ pub enum JoinGroupResponse {
 impl Rpc for BecomeLeaderRequest {
     const PATH: &'static str = "become_leader";
     type Response = BecomeLeaderResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -135,6 +145,7 @@ pub enum BecomeLeaderResponse {
 impl Rpc for ReadCapturedRequest {
     const PATH: &'static str = "captured";
     type Response = ReadCapturedResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -160,6 +171,7 @@ pub enum ReadCapturedResponse {
 impl Rpc for TransferOutRequest {
     const PATH: &'static str = "transfer/out";
     type Response = TransferOutResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -192,6 +204,7 @@ pub enum TransferOutResponse {
 impl Rpc for TransferNonceRequest {
     const PATH: &'static str = "transfer/nonce";
     type Response = TransferNonceResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -212,6 +225,7 @@ pub enum TransferNonceResponse {
 impl Rpc for TransferStatementRequest {
     const PATH: &'static str = "transfer/statement";
     type Response = TransferStatementResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -235,6 +249,7 @@ pub enum TransferStatementResponse {
 impl Rpc for TransferInRequest {
     const PATH: &'static str = "transfer/in";
     type Response = TransferInResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -264,6 +279,7 @@ pub enum TransferInResponse {
 impl Rpc for CompleteTransferRequest {
     const PATH: &'static str = "transfer/complete";
     type Response = CompleteTransferResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -286,6 +302,7 @@ pub enum CompleteTransferResponse {
 impl Rpc for AppRequest {
     const PATH: &'static str = "app";
     type Response = AppResponse;
+    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]

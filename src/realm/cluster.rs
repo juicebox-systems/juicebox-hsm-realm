@@ -6,16 +6,16 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info, trace, warn};
 
-use super::super::http_client::{Client, ClientError};
+use super::super::http_client::{Client, ClientError, EndpointClient};
 use super::agent::types::{
-    CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
-    JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest,
-    NewRealmResponse, StatusRequest, StatusResponse, TransferInRequest, TransferInResponse,
-    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
-    TransferStatementRequest, TransferStatementResponse,
+    AgentRpc, CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest,
+    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
+    NewRealmRequest, NewRealmResponse, StatusRequest, StatusResponse, TransferInRequest,
+    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
+    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 use super::hsm::types as hsm_types;
-use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse};
+use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse, StoreRpc};
 use hsm_types::{
     Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange, RealmId,
 };
@@ -34,12 +34,12 @@ pub enum NewRealmError {
 pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmError> {
     type Error = NewRealmError;
     info!("setting up new realm");
-    let client = Client::new();
+    let agent_client = Client::new();
 
     let hsms = try_join_all(
         group
             .iter()
-            .map(|agent| client.send(agent, StatusRequest {})),
+            .map(|agent| agent_client.send(agent, StatusRequest {})),
     )
     .await
     .map_err(Error::NetworkError)?
@@ -61,7 +61,7 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
     debug!(?configuration, "gathered realm configuration");
 
     debug!(hsm = ?first, "requesting new realm");
-    let (realm_id, group_id, statement) = match client
+    let (realm_id, group_id, statement) = match agent_client
         .send(
             &group[0],
             NewRealmRequest {
@@ -93,7 +93,7 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
         let configuration = configuration.clone();
         let statement = statement.clone();
         async {
-            match client
+            match agent_client
                 .send(agent, JoinRealmRequest { realm: realm_id })
                 .await
                 .map_err(Error::NetworkError)?
@@ -107,7 +107,7 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
                 JoinRealmResponse::Ok { .. } => Ok(()),
             }?;
 
-            match client
+            match agent_client
                 .send(
                     agent,
                     JoinGroupRequest {
@@ -134,7 +134,7 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
     }))
     .await?;
 
-    wait_for_commit(&group[0], realm_id, group_id, &client)
+    wait_for_commit(&group[0], realm_id, group_id, &agent_client)
         .await
         .map_err(Error::NetworkError)?;
     info!(?realm_id, ?group_id, "realm initialization complete");
@@ -145,7 +145,7 @@ async fn wait_for_commit(
     leader: &Url,
     realm: RealmId,
     group: GroupId,
-    agent_client: &Client,
+    agent_client: &Client<AgentRpc>,
 ) -> Result<(), ClientError> {
     debug!(?realm, ?group, "waiting for first log entry to commit");
     loop {
@@ -307,7 +307,7 @@ pub async fn transfer(
     source: GroupId,
     destination: GroupId,
     range: OwnedRange,
-    store: &Url,
+    store: &EndpointClient<StoreRpc>,
 ) -> Result<(), TransferError> {
     type Error = TransferError;
 
@@ -425,17 +425,17 @@ pub async fn transfer(
 }
 
 async fn find_leaders(
-    store: &Url,
-    client: &Client,
+    store: &EndpointClient<StoreRpc>,
+    agent_client: &Client<AgentRpc>,
 ) -> Result<HashMap<(RealmId, GroupId), Url>, actix::MailboxError> {
     trace!("refreshing cluster information");
-    match client.send(store, GetAddressesRequest {}).await {
+    match store.send(GetAddressesRequest {}).await {
         Err(_) => todo!(),
         Ok(GetAddressesResponse(addresses)) => {
             let responses = join_all(
                 addresses
                     .iter()
-                    .map(|entry| client.send(&entry.address, StatusRequest {})),
+                    .map(|entry| agent_client.send(&entry.address, StatusRequest {})),
             )
             .await;
 

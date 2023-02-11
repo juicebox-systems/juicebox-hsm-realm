@@ -19,12 +19,12 @@ use tracing::{trace, warn};
 
 pub mod types;
 
-use super::super::http_client::Client;
+use super::super::http_client::{Client, EndpointClient};
 use super::agent::types::{
-    AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
+    AgentRpc, AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
 };
 use super::hsm::types as hsm_types;
-use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse};
+use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse, StoreRpc};
 use hsm_types::{GroupId, OwnedRange, RealmId};
 use types::{ClientRequest, ClientResponse};
 
@@ -33,16 +33,16 @@ pub struct LoadBalancer(Arc<State>);
 
 struct State {
     name: String,
-    store: Url,
-    client: Client,
+    store: EndpointClient<StoreRpc>,
+    agent_client: Client<AgentRpc>,
 }
 
 impl LoadBalancer {
-    pub fn new(name: String, store: Url) -> Self {
+    pub fn new(name: String, store: EndpointClient<StoreRpc>) -> Self {
         Self(Arc::new(State {
             name,
             store,
-            client: Client::new(),
+            agent_client: Client::new(),
         }))
     }
 
@@ -82,15 +82,19 @@ struct Partition {
     leader: Url,
 }
 
-async fn refresh(name: &str, store: &Url, client: &Client) -> HashMap<RealmId, Vec<Partition>> {
+async fn refresh(
+    name: &str,
+    store: &EndpointClient<StoreRpc>,
+    agent_client: &Client<AgentRpc>,
+) -> HashMap<RealmId, Vec<Partition>> {
     trace!(load_balancer = name, "refreshing cluster information");
-    match client.send(store, GetAddressesRequest {}).await {
+    match store.send(GetAddressesRequest {}).await {
         Err(_) => todo!(),
         Ok(GetAddressesResponse(addresses)) => {
             let responses = join_all(
                 addresses
                     .iter()
-                    .map(|entry| client.send(&entry.address, StatusRequest {})),
+                    .map(|entry| agent_client.send(&entry.address, StatusRequest {})),
             )
             .await;
 
@@ -140,7 +144,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
         let name = self.0.name.clone();
         trace!(load_balancer = name, ?request);
         let store = self.0.store.clone();
-        let agent_client = self.0.client.clone();
+        let agent_client = self.0.agent_client.clone();
 
         Box::pin(async move {
             let realms = refresh(&name, &store, &agent_client).await;
@@ -161,7 +165,7 @@ async fn handle_client_request(
     request: ClientRequest,
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
-    agent_client: &Client,
+    agent_client: &Client<AgentRpc>,
 ) -> ClientResponse {
     type Response = ClientResponse;
 

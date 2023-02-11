@@ -17,11 +17,12 @@ mod realm;
 mod types;
 
 use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
+use http_client::EndpointClient;
 use realm::agent::Agent;
 use realm::hsm::types::{OwnedRange, RealmId, RecordId};
 use realm::hsm::{Hsm, RealmKey};
 use realm::load_balancer::LoadBalancer;
-use realm::store::Store;
+use realm::store::{types::StoreRpc, Store};
 use types::{AuthToken, Policy};
 
 /// Creates HSMs and their agents.
@@ -45,7 +46,11 @@ mod hsm_gen {
             }
         }
 
-        pub async fn create_hsms(&mut self, count: usize, store: &Url) -> Vec<Url> {
+        pub async fn create_hsms(
+            &mut self,
+            count: usize,
+            store: &EndpointClient<StoreRpc>,
+        ) -> Vec<Url> {
             let listens = iter::repeat_with(|| {
                 let port = self.port.next().unwrap();
                 let hsm = Hsm::new(format!("hsm{port}"), self.secret.clone()).start();
@@ -94,10 +99,11 @@ async fn main() {
     );
 
     info!("creating in-memory store");
-    let (store, _) = Store::new()
+    let (store_url, _) = Store::new()
         .listen(SocketAddr::from(([127, 0, 0, 1], 2000)))
         .await
         .expect("TODO");
+    let store = EndpointClient::<StoreRpc>::new(store_url);
 
     let num_load_balancers = 2;
     info!(count = num_load_balancers, "creating load balancers");

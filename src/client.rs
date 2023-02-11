@@ -17,7 +17,7 @@ use std::ops::Deref;
 use super::http_client;
 use super::http_client::ClientError;
 use super::realm::hsm::types::{RealmId, SecretsRequest, SecretsResponse};
-use super::realm::load_balancer::types::{ClientRequest, ClientResponse};
+use super::realm::load_balancer::types::{ClientRequest, ClientResponse, LoadBalancerRpc};
 use super::types::{
     AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedPgkShare, OprfBlindedResult,
     OprfCipherSuite, Policy, Recover1Request, Recover1Response, Recover2Request, Recover2Response,
@@ -311,7 +311,7 @@ struct Recover1Success {
 pub struct Client {
     configuration: CheckedConfiguration,
     auth_token: AuthToken,
-    http: http_client::Client,
+    http: http_client::Client<LoadBalancerRpc>,
 }
 
 enum RequestError {

@@ -1,11 +1,31 @@
-use super::realm::rpc::Rpc;
+use std::marker::PhantomData;
+
+use super::realm::rpc::{Rpc, RpcFamily};
 use reqwest::Url;
 
 #[derive(Clone, Debug)]
-pub struct Client {
+pub struct EndpointClient<F: RpcFamily> {
+    client: Client<F>,
+    url: Url,
+}
+impl<F: RpcFamily> EndpointClient<F> {
+    pub fn new(url: Url) -> Self {
+        Self {
+            client: Client::new(),
+            url,
+        }
+    }
+    pub async fn send<R: Rpc<Family = F>>(&self, request: R) -> Result<R::Response, ClientError> {
+        self.client.send(&self.url, request).await
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Client<F: RpcFamily> {
     // reqwest::Client holds a connection pool. It's reference-counted
     // internally, so this field is relatively cheap to clone.
     http: reqwest::Client,
+    _phantom_data: PhantomData<F>,
 }
 
 #[derive(Debug)]
@@ -16,14 +36,15 @@ pub enum ClientError {
     Deserialization(rmp_serde::decode::Error),
 }
 
-impl Client {
+impl<F: RpcFamily> Client<F> {
     pub fn new() -> Self {
         Self {
             http: reqwest::Client::builder().build().expect("TODO"),
+            _phantom_data: PhantomData {},
         }
     }
 
-    pub async fn send<R: Rpc>(
+    pub async fn send<R: Rpc<Family = F>>(
         &self,
         base_url: &Url,
         request: R,
