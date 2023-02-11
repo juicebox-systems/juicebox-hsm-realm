@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 
 use super::super::hsm::types as hsm_types;
-use super::super::rpc::{Rpc, RpcFamily};
+use super::super::rpc::{Rpc, Service};
 use hsm_types::{
     CapturedStatement, Configuration, EntryHmac, GroupConfigurationStatement, GroupId, HsmId,
     LogIndex, OwnedRange, Partition, RealmId, RecordId, SecretsRequest, SecretsResponse,
@@ -13,7 +13,7 @@ use hsm_types::{
 
 #[derive(Clone, Debug)]
 pub struct AgentRpc();
-impl RpcFamily for AgentRpc {}
+impl Service for AgentRpc {}
 
 impl Rpc for StatusRequest {
     const PATH: &'static str = "status";

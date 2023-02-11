@@ -4,12 +4,12 @@ use super::super::hsm::types::{
     DataHash, GroupId, HsmId, LogEntry, LogIndex, Partition, RealmId, RecordId,
 };
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, Dir};
-use super::super::rpc::{Rpc, RpcFamily};
+use super::super::rpc::{Rpc, Service};
 use reqwest::Url;
 
 #[derive(Clone, Debug)]
 pub struct StoreRpc();
-impl RpcFamily for StoreRpc {}
+impl Service for StoreRpc {}
 
 impl Rpc for AppendRequest {
     const PATH: &'static str = "append";

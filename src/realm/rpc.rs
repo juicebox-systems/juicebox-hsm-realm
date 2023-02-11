@@ -7,12 +7,12 @@ use serde::Serialize;
 use std::fmt;
 use tracing::{trace, warn};
 
-pub trait RpcFamily {}
+pub trait Service {}
 
 pub trait Rpc: fmt::Debug + DeserializeOwned + Serialize {
     const PATH: &'static str;
     type Response: fmt::Debug + DeserializeOwned + Serialize;
-    type Family: RpcFamily;
+    type Family: Service;
 }
 
 #[derive(Debug)]
