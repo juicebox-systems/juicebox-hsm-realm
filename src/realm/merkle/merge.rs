@@ -2,10 +2,10 @@ use tracing::{info, trace};
 
 use super::super::hsm::types::OwnedRange;
 use super::{
-    agent::{DeltaBuilder, Node},
+    agent::{DeltaBuilder, Node, NodeKey},
     concat,
     proof::{PathStep, ReadProof},
-    Branch, HashOutput, InteriorNode, MergeError, MergeResult, NodeHasher, Tree,
+    Branch, HashOutput, InteriorNode, KeyVec, MergeError, MergeResult, NodeHasher, Tree,
 };
 
 impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
@@ -64,7 +64,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         branches.push(Branch::new(bp, b.hash));
                     }
                 }
-                delta.remove(n.node.hash);
+                delta.remove(NodeKey::new(n.prefix.clone(), n.node.hash));
             }
         }
 
@@ -113,7 +113,10 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         Some(right),
                     );
                     let hash = n.hash;
-                    delta.add(Node::Interior(n));
+                    delta.add(
+                        NodeKey::new(branches[0].prefix[..bit_pos].to_bitvec(), n.hash),
+                        Node::Interior(n),
+                    );
                     Branch::new(branches[0].prefix[bit_pos_start..bit_pos].into(), hash)
                 }
             }
@@ -123,7 +126,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         let root_hash = if branches.is_empty() {
             let root = InteriorNode::new(&self.hasher, &new_range, true, None, None);
             let hash = root.hash;
-            delta.add(Node::Interior(root));
+            delta.add(NodeKey::new(KeyVec::new(), root.hash), Node::Interior(root));
             hash
         } else {
             let res = reduce_to_tree(&self.hasher, &new_range, 0, 0, &branches, &mut delta);
@@ -132,7 +135,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             } else {
                 let n = InteriorNode::construct(&self.hasher, &new_range, true, Some(res), None);
                 let hash = n.hash;
-                delta.add(Node::Interior(n));
+                delta.add(NodeKey::new(KeyVec::new(), n.hash), Node::Interior(n));
                 hash
             }
         };

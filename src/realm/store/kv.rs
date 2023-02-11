@@ -2,13 +2,15 @@
 
 use std::collections::HashMap;
 
-use tracing::{trace, warn};
+use tracing::trace;
 
 use super::super::hsm::types::{DataHash, RealmId};
 use super::super::merkle::agent::{Node, StoreDelta, TreeStoreError, TreeStoreReader};
 
+type Row = (Vec<u8>, Node<DataHash>);
+
 pub struct MemStore {
-    realms: HashMap<RealmId, HashMap<DataHash, Node<DataHash>>>,
+    realms: HashMap<RealmId, Vec<Row>>,
 }
 impl MemStore {
     pub fn new() -> MemStore {
@@ -18,13 +20,20 @@ impl MemStore {
     }
     pub fn apply_store_delta(&mut self, realm: &RealmId, d: StoreDelta<DataHash>) {
         trace!(store =?self, ?realm, delta =?d);
-        let nodes = self.realms.entry(*realm).or_insert_with(HashMap::new);
-        let (add, rem) = d.items();
-        for n in add {
-            nodes.insert(n.hash(), n);
+        let nodes = self.realms.entry(*realm).or_insert_with(Vec::new);
+        for n in d.add {
+            assert_eq!(n.0.hash, n.1.hash());
+            let enc = n.0.encoded_key();
+            match nodes.binary_search_by(|i| i.0.cmp(&enc)) {
+                Ok(idx) => nodes[idx] = (enc, n.1),
+                Err(idx) => nodes.insert(idx, (enc, n.1)),
+            }
         }
-        for r in rem {
-            nodes.remove(&r);
+        for r in d.remove {
+            let enc = r.encoded_key();
+            if let Ok(idx) = nodes.binary_search_by(|i| i.0.cmp(&enc)) {
+                nodes.remove(idx);
+            }
         }
     }
 
@@ -42,16 +51,27 @@ impl std::fmt::Debug for MemStore {
 }
 
 struct RealmTreeStoreReader<'a> {
-    nodes: &'a HashMap<DataHash, Node<DataHash>>,
+    nodes: &'a Vec<Row>,
 }
 impl<'a> TreeStoreReader<DataHash> for RealmTreeStoreReader<'a> {
-    fn fetch(&self, k: &DataHash) -> Result<Node<DataHash>, TreeStoreError> {
-        match self.nodes.get(k) {
-            None => {
-                warn!(hash=?k, "failed to find node");
-                Err(TreeStoreError::MissingNode)
-            }
-            Some(n) => Ok(n.clone()),
+    fn fetch(&self, enc_key: &[u8]) -> Result<Vec<Node<DataHash>>, TreeStoreError> {
+        let mut start = match self
+            .nodes
+            .binary_search_by(|item| item.0.as_slice().cmp(enc_key))
+        {
+            Ok(idx) => idx,
+            Err(idx) => idx,
+        };
+        while start > 0 && self.nodes[start - 1].0.starts_with(enc_key) {
+            start -= 1;
         }
+        let mut end = start;
+        while end < self.nodes.len() - 1 && self.nodes[end + 1].0.starts_with(enc_key) {
+            end += 1;
+        }
+        Ok(self.nodes[start..=end]
+            .iter()
+            .map(|i| i.1.clone())
+            .collect())
     }
 }

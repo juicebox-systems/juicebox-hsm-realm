@@ -8,7 +8,7 @@ use std::{
 };
 
 use self::{
-    agent::{DeltaBuilder, Node, StoreDelta},
+    agent::{DeltaBuilder, Node, NodeKey, StoreDelta},
     overlay::TreeOverlay,
     proof::{ProofError, ReadProof, VerifiedProof},
 };
@@ -52,7 +52,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         let root = InteriorNode::new(hasher, key_range, true, None, None);
         let hash = root.hash;
         let mut delta = DeltaBuilder::new();
-        delta.add(Node::Interior(root));
+        delta.add(NodeKey::new(KeyVec::new(), root.hash), Node::Interior(root));
         (hash, delta.build())
     }
 
@@ -467,7 +467,7 @@ mod tests {
         let h = TestHasher {};
         let (root_hash, delta) = Tree::new_tree(&h, range);
         let mut store = MemStore::new();
-        store.apply_store_delta(delta);
+        store.apply_store_delta(root_hash, delta);
         assert_eq!(1, store.nodes.len());
         check_tree_invariants(&h, range, root_hash, &store);
         let t = Tree::with_existing_root(h, root_hash);
@@ -491,7 +491,7 @@ mod tests {
         let new_root = match tree.insert(vp, val).unwrap() {
             (root, None) => root,
             (root, Some(d)) => {
-                store.apply_store_delta(d);
+                store.apply_store_delta(root, d);
                 root
             }
         };
@@ -502,18 +502,19 @@ mod tests {
     }
 
     pub fn tree_size<HO: HashOutput>(
+        prefix: &KeySlice,
         root: HO,
         store: &impl TreeStoreReader<HO>,
     ) -> Result<usize, TreeStoreError> {
-        match store.fetch(&root)? {
+        match store.find(prefix, root)? {
             Node::Interior(int) => {
                 let lc = match &int.left {
                     None => 0,
-                    Some(b) => tree_size(b.hash, store)?,
+                    Some(b) => tree_size(&concat(prefix, &b.prefix), b.hash, store)?,
                 };
                 let rc = match &int.right {
                     None => 0,
-                    Some(b) => tree_size(b.hash, store)?,
+                    Some(b) => tree_size(&concat(prefix, &b.prefix), b.hash, store)?,
                 };
                 Ok(lc + rc + 1)
             }
@@ -544,7 +545,7 @@ mod tests {
         store: &impl TreeStoreReader<HO>,
     ) -> HO {
         match store
-            .fetch(&node)
+            .find(&path, node)
             .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
         {
             Node::Leaf(l) => {
@@ -585,36 +586,108 @@ mod tests {
         }
     }
 
+    pub fn check_delta_invariants<HO: HashOutput>(root: HO, delta: &StoreDelta<HO>) {
+        let add_by_hash: HashMap<HO, (&NodeKey<HO>, &Node<HO>)> =
+            delta.add.iter().map(|(k, n)| (k.hash, (k, n))).collect();
+        assert_eq!(
+            add_by_hash.len(),
+            delta.add.len(),
+            "hash is repeated in delta.add"
+        );
+
+        for (k, n) in &delta.add {
+            assert_eq!(k.hash, n.hash(), "node and key have differing hashes");
+        }
+        for k in &delta.remove {
+            let added = add_by_hash.get(&k.hash);
+            if added.is_some() {
+                panic!("add & remove contains same hash");
+            }
+        }
+        fn verify_prefixes<HO: HashOutput>(
+            add_by_hash: &HashMap<HO, (&NodeKey<HO>, &Node<HO>)>,
+            prefix: &KeySlice,
+            hash: &HO,
+        ) {
+            let n = match add_by_hash.get(hash) {
+                Some(n) => n,
+                // Interior nodes in the update will point to existing items that weren't
+                // updated so aren't in the delta.
+                None => return,
+            };
+            assert_eq!(prefix, n.0.prefix);
+            match n.1 {
+                Node::Interior(int) => {
+                    if let Some(b) = &int.left {
+                        verify_prefixes(add_by_hash, &concat(prefix, &b.prefix), &b.hash);
+                    }
+                    if let Some(b) = &int.right {
+                        verify_prefixes(add_by_hash, &concat(prefix, &b.prefix), &b.hash);
+                    }
+                }
+                Node::Leaf(_l) => {
+                    assert_eq!(n.0.prefix.len(), RecordId::num_bits());
+                }
+            }
+        }
+        verify_prefixes(&add_by_hash, KeySlice::empty(), &root);
+    }
+
     #[derive(Clone)]
     pub struct MemStore<HO> {
-        pub nodes: HashMap<Vec<u8>, Node<HO>>,
+        nodes: Vec<(Vec<u8>, Node<HO>)>,
     }
     impl<HO> MemStore<HO> {
         fn new() -> Self {
-            MemStore {
-                nodes: HashMap::new(),
-            }
+            MemStore { nodes: Vec::new() }
         }
     }
     impl<HO: HashOutput> MemStore<HO> {
-        pub fn apply_store_delta(&mut self, d: StoreDelta<HO>) {
-            for n in d.add {
-                self.insert(n.hash(), n);
-            }
-            for r in d.remove {
-                self.nodes.remove(r.as_u8());
+        pub fn len(&self) -> usize {
+            self.nodes.len()
+        }
+        pub fn add_from_other_store(&mut self, other: MemStore<HO>) {
+            for (enc, n) in other.nodes {
+                match self.nodes.binary_search_by(|i| i.0.cmp(&enc)) {
+                    Ok(idx) => self.nodes[idx] = (enc, n),
+                    Err(idx) => self.nodes.insert(idx, (enc, n)),
+                }
             }
         }
-        fn insert(&mut self, k: HO, n: Node<HO>) {
-            self.nodes.insert(k.as_u8().to_vec(), n);
+        pub fn apply_store_delta(&mut self, new_root: HO, d: StoreDelta<HO>) {
+            check_delta_invariants(new_root, &d);
+            for (k, n) in d.add {
+                let enc = k.encoded_key();
+                match self.nodes.binary_search_by(|i| i.0.cmp(&enc)) {
+                    Ok(idx) => self.nodes[idx] = (enc, n),
+                    Err(idx) => self.nodes.insert(idx, (enc, n)),
+                }
+            }
+            for k in d.remove {
+                let enc = k.encoded_key();
+                if let Ok(idx) = self.nodes.binary_search_by(|i| i.0.cmp(&enc)) {
+                    self.nodes.remove(idx);
+                }
+            }
         }
     }
     impl<HO: HashOutput> TreeStoreReader<HO> for MemStore<HO> {
-        fn fetch(&self, k: &HO) -> Result<Node<HO>, TreeStoreError> {
-            match self.nodes.get(k.as_u8()) {
-                None => Err(TreeStoreError::MissingNode),
-                Some(n) => Ok(n.clone()),
+        fn fetch(&self, k: &[u8]) -> Result<Vec<Node<HO>>, TreeStoreError> {
+            let mut start = match self.nodes.binary_search_by(|item| item.0.as_slice().cmp(k)) {
+                Ok(idx) => idx,
+                Err(idx) => idx,
+            };
+            while start > 0 && self.nodes[start - 1].0.starts_with(k) {
+                start -= 1;
             }
+            let mut end = start;
+            while end < self.nodes.len() - 1 && self.nodes[end + 1].0.starts_with(k) {
+                end += 1;
+            }
+            Ok(self.nodes[start..=end]
+                .iter()
+                .map(|i| i.1.clone())
+                .collect())
         }
     }
     pub struct TestHasher {}
@@ -630,7 +703,7 @@ mod tests {
     }
 
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct TestHash([u8; 8]);
+    pub struct TestHash(pub [u8; 8]);
     impl HashOutput for TestHash {
         fn as_u8(&self) -> &[u8] {
             self.0.as_slice()
