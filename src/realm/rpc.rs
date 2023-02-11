@@ -31,7 +31,7 @@ where
     let request: R = match rmp_serde::from_slice(request_bytes.as_ref()) {
         Ok(request) => request,
         Err(e) => {
-            warn!(error = ?e, "store deserialization error");
+            warn!(error = ?e, "deserialization error");
             return Ok(Response::builder()
                 .status(http::StatusCode::BAD_REQUEST)
                 .body(Full::from(Bytes::new()))
