@@ -8,13 +8,12 @@ use super::super::rpc::{Rpc, Service};
 use reqwest::Url;
 
 #[derive(Clone, Debug)]
-pub struct StoreRpc();
-impl Service for StoreRpc {}
+pub struct StoreService();
+impl Service for StoreService {}
 
-impl Rpc for AppendRequest {
+impl Rpc<StoreService> for AppendRequest {
     const PATH: &'static str = "append";
     type Response = AppendResponse;
-    type Family = StoreRpc;
 }
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AppendRequest {
@@ -30,10 +29,9 @@ pub enum AppendResponse {
     PreconditionFailed,
 }
 
-impl Rpc for ReadEntryRequest {
+impl Rpc<StoreService> for ReadEntryRequest {
     const PATH: &'static str = "read_entry";
     type Response = ReadEntryResponse;
-    type Family = StoreRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -51,10 +49,9 @@ pub enum ReadEntryResponse {
     DoesNotExist { last: LogIndex },
 }
 
-impl Rpc for ReadLatestRequest {
+impl Rpc<StoreService> for ReadLatestRequest {
     const PATH: &'static str = "read_latest";
     type Response = ReadLatestResponse;
-    type Family = StoreRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -70,10 +67,9 @@ pub enum ReadLatestResponse {
     None,
 }
 
-impl Rpc for GetRecordProofRequest {
+impl Rpc<StoreService> for GetRecordProofRequest {
     const PATH: &'static str = "record_proof";
     type Response = GetRecordProofResponse;
-    type Family = StoreRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -94,10 +90,9 @@ pub enum GetRecordProofResponse {
     StoreMissingNode,
 }
 
-impl Rpc for GetTreeEdgeProofRequest {
+impl Rpc<StoreService> for GetTreeEdgeProofRequest {
     const PATH: &'static str = "tree_proof";
     type Response = GetTreeEdgeProofResponse;
-    type Family = StoreRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -115,10 +110,9 @@ pub enum GetTreeEdgeProofResponse {
     StoreMissingNode,
 }
 
-impl Rpc for SetAddressRequest {
+impl Rpc<StoreService> for SetAddressRequest {
     const PATH: &'static str = "set_address";
     type Response = SetAddressResponse;
-    type Family = StoreRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -132,10 +126,9 @@ pub enum SetAddressResponse {
     Ok,
 }
 
-impl Rpc for GetAddressesRequest {
+impl Rpc<StoreService> for GetAddressesRequest {
     const PATH: &'static str = "address";
     type Response = GetAddressesResponse;
-    type Family = StoreRpc;
 }
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetAddressesRequest {}

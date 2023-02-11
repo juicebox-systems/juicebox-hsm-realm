@@ -15,7 +15,7 @@ impl<F: Service> EndpointClient<F> {
             url,
         }
     }
-    pub async fn send<R: Rpc<Family = F>>(&self, request: R) -> Result<R::Response, ClientError> {
+    pub async fn send<R: Rpc<F>>(&self, request: R) -> Result<R::Response, ClientError> {
         self.client.send(&self.url, request).await
     }
 }
@@ -44,7 +44,7 @@ impl<F: Service> Client<F> {
         }
     }
 
-    pub async fn send<R: Rpc<Family = F>>(
+    pub async fn send<R: Rpc<F>>(
         &self,
         base_url: &Url,
         request: R,

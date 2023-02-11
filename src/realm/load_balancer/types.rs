@@ -6,13 +6,12 @@ use super::super::hsm::types::{RealmId, SecretsRequest, SecretsResponse};
 use super::super::rpc::Rpc;
 
 #[derive(Clone, Debug)]
-pub struct LoadBalancerRpc();
-impl Service for LoadBalancerRpc {}
+pub struct LoadBalancerService();
+impl Service for LoadBalancerService {}
 
-impl Rpc for ClientRequest {
+impl Rpc<LoadBalancerService> for ClientRequest {
     const PATH: &'static str = "req";
     type Response = ClientResponse;
-    type Family = LoadBalancerRpc;
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

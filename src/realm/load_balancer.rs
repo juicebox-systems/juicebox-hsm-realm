@@ -21,10 +21,10 @@ pub mod types;
 
 use super::super::http_client::{Client, EndpointClient};
 use super::agent::types::{
-    AgentRpc, AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
+    AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
 };
 use super::hsm::types as hsm_types;
-use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse, StoreRpc};
+use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse, StoreService};
 use hsm_types::{GroupId, OwnedRange, RealmId};
 use types::{ClientRequest, ClientResponse};
 
@@ -33,12 +33,12 @@ pub struct LoadBalancer(Arc<State>);
 
 struct State {
     name: String,
-    store: EndpointClient<StoreRpc>,
-    agent_client: Client<AgentRpc>,
+    store: EndpointClient<StoreService>,
+    agent_client: Client<AgentService>,
 }
 
 impl LoadBalancer {
-    pub fn new(name: String, store: EndpointClient<StoreRpc>) -> Self {
+    pub fn new(name: String, store: EndpointClient<StoreService>) -> Self {
         Self(Arc::new(State {
             name,
             store,
@@ -84,8 +84,8 @@ struct Partition {
 
 async fn refresh(
     name: &str,
-    store: &EndpointClient<StoreRpc>,
-    agent_client: &Client<AgentRpc>,
+    store: &EndpointClient<StoreService>,
+    agent_client: &Client<AgentService>,
 ) -> HashMap<RealmId, Vec<Partition>> {
     trace!(load_balancer = name, "refreshing cluster information");
     match store.send(GetAddressesRequest {}).await {
@@ -165,7 +165,7 @@ async fn handle_client_request(
     request: ClientRequest,
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
-    agent_client: &Client<AgentRpc>,
+    agent_client: &Client<AgentService>,
 ) -> ClientResponse {
     type Response = ClientResponse;
 

@@ -12,13 +12,12 @@ use hsm_types::{
 };
 
 #[derive(Clone, Debug)]
-pub struct AgentRpc();
-impl Service for AgentRpc {}
+pub struct AgentService();
+impl Service for AgentService {}
 
-impl Rpc for StatusRequest {
+impl Rpc<AgentService> for StatusRequest {
     const PATH: &'static str = "status";
     type Response = StatusResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -29,10 +28,9 @@ pub struct StatusResponse {
     pub hsm: Option<hsm_types::StatusResponse>,
 }
 
-impl Rpc for NewRealmRequest {
+impl Rpc<AgentService> for NewRealmRequest {
     const PATH: &'static str = "realm/new";
     type Response = NewRealmResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -54,10 +52,9 @@ pub enum NewRealmResponse {
     StorePreconditionFailed,
 }
 
-impl Rpc for JoinRealmRequest {
+impl Rpc<AgentService> for JoinRealmRequest {
     const PATH: &'static str = "realm/join";
     type Response = JoinRealmResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -72,10 +69,9 @@ pub enum JoinRealmResponse {
     NoHsm,
 }
 
-impl Rpc for NewGroupRequest {
+impl Rpc<AgentService> for NewGroupRequest {
     const PATH: &'static str = "group/new";
     type Response = NewGroupResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -97,10 +93,9 @@ pub enum NewGroupResponse {
     StorePreconditionFailed,
 }
 
-impl Rpc for JoinGroupRequest {
+impl Rpc<AgentService> for JoinGroupRequest {
     const PATH: &'static str = "group/join";
     type Response = JoinGroupResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -120,10 +115,9 @@ pub enum JoinGroupResponse {
     NoHsm,
 }
 
-impl Rpc for BecomeLeaderRequest {
+impl Rpc<AgentService> for BecomeLeaderRequest {
     const PATH: &'static str = "become_leader";
     type Response = BecomeLeaderResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -142,10 +136,9 @@ pub enum BecomeLeaderResponse {
     NotCaptured { have: Option<LogIndex> },
 }
 
-impl Rpc for ReadCapturedRequest {
+impl Rpc<AgentService> for ReadCapturedRequest {
     const PATH: &'static str = "captured";
     type Response = ReadCapturedResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -168,10 +161,9 @@ pub enum ReadCapturedResponse {
     NoHsm,
 }
 
-impl Rpc for TransferOutRequest {
+impl Rpc<AgentService> for TransferOutRequest {
     const PATH: &'static str = "transfer/out";
     type Response = TransferOutResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -201,10 +193,9 @@ pub enum TransferOutResponse {
     InvalidProof,
 }
 
-impl Rpc for TransferNonceRequest {
+impl Rpc<AgentService> for TransferNonceRequest {
     const PATH: &'static str = "transfer/nonce";
     type Response = TransferNonceResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -222,10 +213,9 @@ pub enum TransferNonceResponse {
     NotLeader,
 }
 
-impl Rpc for TransferStatementRequest {
+impl Rpc<AgentService> for TransferStatementRequest {
     const PATH: &'static str = "transfer/statement";
     type Response = TransferStatementResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -246,10 +236,9 @@ pub enum TransferStatementResponse {
     NotTransferring,
 }
 
-impl Rpc for TransferInRequest {
+impl Rpc<AgentService> for TransferInRequest {
     const PATH: &'static str = "transfer/in";
     type Response = TransferInResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -276,10 +265,9 @@ pub enum TransferInResponse {
     NotOwner,
 }
 
-impl Rpc for CompleteTransferRequest {
+impl Rpc<AgentService> for CompleteTransferRequest {
     const PATH: &'static str = "transfer/complete";
     type Response = CompleteTransferResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -299,10 +287,9 @@ pub enum CompleteTransferResponse {
     NotLeader,
 }
 
-impl Rpc for AppRequest {
+impl Rpc<AgentService> for AppRequest {
     const PATH: &'static str = "app";
     type Response = AppResponse;
-    type Family = AgentRpc;
 }
 
 #[derive(Debug, Deserialize, Serialize)]

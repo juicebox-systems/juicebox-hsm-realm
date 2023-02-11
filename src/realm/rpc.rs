@@ -9,10 +9,9 @@ use tracing::{trace, warn};
 
 pub trait Service {}
 
-pub trait Rpc: fmt::Debug + DeserializeOwned + Serialize {
+pub trait Rpc<S: Service>: fmt::Debug + DeserializeOwned + Serialize {
     const PATH: &'static str;
     type Response: fmt::Debug + DeserializeOwned + Serialize;
-    type Family: Service;
 }
 
 #[derive(Debug)]
@@ -21,7 +20,7 @@ pub enum HandlerError {
     // connection. For now, there's nothing here.
 }
 
-pub async fn handle_rpc<'a, S, H, R: Rpc, O>(
+pub async fn handle_rpc<'a, S, H, R: Rpc<SVC>, SVC: Service, O>(
     service: &'a S,
     incoming_request: Request<IncomingBody>,
     handler: H,

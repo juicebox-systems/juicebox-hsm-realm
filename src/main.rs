@@ -22,7 +22,7 @@ use realm::agent::Agent;
 use realm::hsm::types::{OwnedRange, RealmId, RecordId};
 use realm::hsm::{Hsm, RealmKey};
 use realm::load_balancer::LoadBalancer;
-use realm::store::{types::StoreRpc, Store};
+use realm::store::{types::StoreService, Store};
 use types::{AuthToken, Policy};
 
 /// Creates HSMs and their agents.
@@ -49,7 +49,7 @@ mod hsm_gen {
         pub async fn create_hsms(
             &mut self,
             count: usize,
-            store: &EndpointClient<StoreRpc>,
+            store: &EndpointClient<StoreService>,
         ) -> Vec<Url> {
             let listens = iter::repeat_with(|| {
                 let port = self.port.next().unwrap();
@@ -103,7 +103,7 @@ async fn main() {
         .listen(SocketAddr::from(([127, 0, 0, 1], 2000)))
         .await
         .expect("TODO");
-    let store = EndpointClient::<StoreRpc>::new(store_url);
+    let store = EndpointClient::<StoreService>::new(store_url);
 
     let num_load_balancers = 2;
     info!(count = num_load_balancers, "creating load balancers");

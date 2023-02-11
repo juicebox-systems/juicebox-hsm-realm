@@ -8,14 +8,14 @@ use tracing::{debug, info, trace, warn};
 
 use super::super::http_client::{Client, ClientError, EndpointClient};
 use super::agent::types::{
-    AgentRpc, CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest,
+    AgentService, CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest,
     JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
     NewRealmRequest, NewRealmResponse, StatusRequest, StatusResponse, TransferInRequest,
     TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
     TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 use super::hsm::types as hsm_types;
-use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse, StoreRpc};
+use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse, StoreService};
 use hsm_types::{
     Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange, RealmId,
 };
@@ -145,7 +145,7 @@ async fn wait_for_commit(
     leader: &Url,
     realm: RealmId,
     group: GroupId,
-    agent_client: &Client<AgentRpc>,
+    agent_client: &Client<AgentService>,
 ) -> Result<(), ClientError> {
     debug!(?realm, ?group, "waiting for first log entry to commit");
     loop {
@@ -307,7 +307,7 @@ pub async fn transfer(
     source: GroupId,
     destination: GroupId,
     range: OwnedRange,
-    store: &EndpointClient<StoreRpc>,
+    store: &EndpointClient<StoreService>,
 ) -> Result<(), TransferError> {
     type Error = TransferError;
 
@@ -425,8 +425,8 @@ pub async fn transfer(
 }
 
 async fn find_leaders(
-    store: &EndpointClient<StoreRpc>,
-    agent_client: &Client<AgentRpc>,
+    store: &EndpointClient<StoreService>,
+    agent_client: &Client<AgentService>,
 ) -> Result<HashMap<(RealmId, GroupId), Url>, actix::MailboxError> {
     trace!("refreshing cluster information");
     match store.send(GetAddressesRequest {}).await {

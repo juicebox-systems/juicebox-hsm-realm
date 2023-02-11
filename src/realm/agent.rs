@@ -22,7 +22,7 @@ use tracing::{info, trace, warn};
 
 pub mod types;
 
-use self::types::AgentRpc;
+use self::types::AgentService;
 
 use super::super::http_client::{Client, ClientError, EndpointClient};
 use super::hsm::types as hsm_types;
@@ -33,7 +33,7 @@ use super::store::types::{
     AddressEntry, AppendRequest, AppendResponse, GetAddressesRequest, GetAddressesResponse,
     GetRecordProofRequest, GetRecordProofResponse, GetTreeEdgeProofRequest,
     GetTreeEdgeProofResponse, ReadEntryRequest, ReadEntryResponse, ReadLatestRequest,
-    ReadLatestResponse, SetAddressRequest, SetAddressResponse, StoreRpc,
+    ReadLatestResponse, SetAddressRequest, SetAddressResponse, StoreService,
 };
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
@@ -54,8 +54,8 @@ pub struct Agent(Arc<AgentInner>);
 struct AgentInner {
     name: String,
     hsm: Addr<Hsm>,
-    store: EndpointClient<StoreRpc>,
-    peer_client: Client<AgentRpc>,
+    store: EndpointClient<StoreService>,
+    peer_client: Client<AgentService>,
     state: Mutex<State>,
 }
 
@@ -83,7 +83,7 @@ enum AppendingState {
 use AppendingState::{Appending, NotAppending};
 
 impl Agent {
-    pub fn new(name: String, hsm: Addr<Hsm>, store: EndpointClient<StoreRpc>) -> Self {
+    pub fn new(name: String, hsm: Addr<Hsm>, store: EndpointClient<StoreService>) -> Self {
         Self(Arc::new(AgentInner {
             name,
             hsm,
@@ -1045,7 +1045,7 @@ async fn start_app_request(
     request: AppRequest,
     name: String,
     hsm: Addr<Hsm>,
-    store: &EndpointClient<StoreRpc>,
+    store: &EndpointClient<StoreService>,
 ) -> Result<AppendRequest, AppResponse> {
     type HsmResponse = hsm_types::AppResponse;
     type Response = AppResponse;
@@ -1104,7 +1104,7 @@ async fn start_app_request(
 
 impl Agent {
     /// Precondition: agent is leader.
-    fn append(&self, store: EndpointClient<StoreRpc>, append_request: AppendRequest) {
+    fn append(&self, store: EndpointClient<StoreService>, append_request: AppendRequest) {
         let realm = append_request.realm;
         let group = append_request.group;
 
@@ -1129,7 +1129,7 @@ impl Agent {
     /// doing the appending.
     async fn keep_appending(
         &self,
-        store: EndpointClient<StoreRpc>,
+        store: EndpointClient<StoreService>,
         realm: RealmId,
         group: GroupId,
         next: LogIndex,
