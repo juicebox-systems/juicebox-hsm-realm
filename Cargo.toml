@@ -1,3 +1,6 @@
+[workspace]
+members = ["codegen"]
+
 [package]
 name = "loam-mvp"
 version = "0.0.0"
@@ -34,7 +37,7 @@ voprf = "0.4.0"
 [patch.crates-io]
 # waiting on this issue/pr to be resolved
 # https://github.com/ferrilab/bitvec/issues/215
-bitvec = { git = 'https://github.com/superfell/bitvec', branch='vec_order' }
+bitvec = { git = 'https://github.com/superfell/bitvec', branch = 'vec_order' }
 
 [dev-dependencies]
 criterion = "0.4.0"
