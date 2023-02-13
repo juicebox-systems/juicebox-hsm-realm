@@ -47,8 +47,8 @@ impl<HO: HashOutput> DeltaBuilder<HO> {
     pub fn add(&mut self, n: Node<HO>) {
         self.to_add.push(n);
     }
-    pub fn remove(&mut self, hash: &HO) {
-        self.to_remove.remove(hash);
+    pub fn remove(&mut self, hash: HO) {
+        self.to_remove.insert(hash);
     }
     pub fn build(mut self) -> StoreDelta<HO> {
         for n in &self.to_add {
