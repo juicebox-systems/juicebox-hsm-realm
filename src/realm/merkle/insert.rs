@@ -18,12 +18,19 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         if proof.root_hash() != &self.overlay.latest_root {
             return Err(ProofError::Stale);
         }
-        if let Some(leaf) = &proof.leaf {
-            if leaf.value == v {
-                return Ok(None);
+        let leaf_hash_to_remove = match &proof.leaf {
+            Some(leaf) => {
+                if leaf.value == v {
+                    return Ok(None);
+                }
+                Some(leaf.hash)
             }
-        }
+            None => None,
+        };
         let mut delta = Delta::new(LeafNode::new(&self.hasher, &proof.key, v));
+        if let Some(hash) = leaf_hash_to_remove {
+            delta.remove.push(hash);
+        }
         let key = KeySlice::from_slice(&proof.key.0);
 
         let last = proof
@@ -113,7 +120,9 @@ mod tests {
 
     use super::super::super::hsm::types::OwnedRange;
     use super::super::agent::read;
-    use super::super::tests::{check_tree_invariants, new_empty_tree, rec_id, tree_insert};
+    use super::super::tests::{
+        check_tree_invariants, new_empty_tree, rec_id, tree_insert, tree_size,
+    };
 
     #[test]
     fn first_insert() {
@@ -174,6 +183,7 @@ mod tests {
         assert_eq!(3, p.path.len());
         assert_eq!(root, p.path[0].hash);
         check_tree_invariants(&tree.hasher, &range, root, &store);
+        assert_eq!(tree_size(root, &store).unwrap(), store.nodes.len());
     }
 
     #[test]
@@ -228,6 +238,8 @@ mod tests {
         );
         let rp = read(&store, &range, &root, &rec_id(&[4, 4, 6])).unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
+        check_tree_invariants(&tree.hasher, &range, root, &store);
+        assert_eq!(tree_size(root, &store).unwrap(), store.nodes.len());
     }
 
     #[test]
@@ -263,6 +275,7 @@ mod tests {
             // }
         }
         check_tree_invariants(&tree.hasher, &range, root, &store);
+        assert_eq!(tree_size(root, &store).unwrap(), store.nodes.len());
     }
 
     #[test]

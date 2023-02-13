@@ -64,7 +64,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         branches.push(Branch::new(bp, b.hash));
                     }
                 }
-                delta.remove(&n.node.hash);
+                delta.remove(n.node.hash);
             }
         }
 

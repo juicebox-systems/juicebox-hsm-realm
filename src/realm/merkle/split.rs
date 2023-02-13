@@ -92,7 +92,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 };
                 delta.add(Node::Interior(left_node));
                 delta.add(Node::Interior(right_node));
-                delta.remove(&root.hash);
+                delta.remove(root.hash);
                 Ok(SplitResult {
                     old_root: root.hash,
                     left,
@@ -118,7 +118,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 };
                 delta.add(Node::Interior(left_node));
                 delta.add(Node::Interior(right_node));
-                delta.remove(&root.hash);
+                delta.remove(root.hash);
                 Ok(SplitResult {
                     old_root: root.hash,
                     left,
@@ -134,7 +134,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 );
                 let mut left = split.left.clone().unwrap();
                 let mut right = split.right.clone().unwrap();
-                delta.remove(&split.hash);
+                delta.remove(split.hash);
 
                 for path_idx in (0..split_idx).rev() {
                     let parent = &proof.path[path_idx].node;
@@ -168,7 +168,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                             Dir::Right => (new_node_res, ext_prefix_res),
                         }
                     };
-                    delta.remove(&parent.hash);
+                    delta.remove(parent.hash);
                 }
                 let left_root = if !left.prefix.is_empty() {
                     let n =
@@ -215,7 +215,9 @@ mod tests {
     use super::super::super::hsm::types::{OwnedRange, RecordId};
     use super::super::{
         agent::{read, read_tree_side},
-        tests::{check_tree_invariants, new_empty_tree, rec_id, tree_insert, TestHasher},
+        tests::{
+            check_tree_invariants, new_empty_tree, rec_id, tree_insert, tree_size, TestHasher,
+        },
         {dot, Dir},
     };
 
@@ -310,6 +312,7 @@ mod tests {
             root = tree_insert(&mut tree, &mut store, &range, root, k, vec![k.0[0]], true);
         }
         check_tree_invariants(&tree.hasher, &range, root, &store);
+        assert_eq!(tree_size(root, &store).unwrap(), store.nodes.len());
         let pre_split_root_hash = root;
         let pre_split_store = store.clone();
 
@@ -318,6 +321,11 @@ mod tests {
         store.apply_store_delta(s.delta);
         check_tree_invariants(&TestHasher {}, &s.left.range, s.left.root_hash, &store);
         check_tree_invariants(&TestHasher {}, &s.right.range, s.right.root_hash, &store);
+        assert_eq!(
+            tree_size(s.left.root_hash, &store).unwrap()
+                + tree_size(s.right.root_hash, &store).unwrap(),
+            store.nodes.len()
+        );
 
         let (mut tree_l, mut root_l, mut store_l) = new_empty_tree(&s.left.range);
         let (mut tree_r, mut root_r, mut store_r) = new_empty_tree(&s.right.range);
@@ -377,5 +385,9 @@ mod tests {
             );
         }
         check_tree_invariants(&tree_r.hasher, &merged.range, merged.root_hash, &store_l);
+        assert_eq!(
+            tree_size(merged.root_hash, &store_l).unwrap(),
+            store_l.nodes.len()
+        );
     }
 }

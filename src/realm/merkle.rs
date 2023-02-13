@@ -519,6 +519,7 @@ mod tests {
         let (root_hash, delta) = Tree::new_tree(&h, range);
         let mut store = MemStore::new();
         store.apply_store_delta(delta);
+        assert_eq!(1, store.nodes.len());
         check_tree_invariants(&h, range, root_hash, &store);
         let t = Tree::with_existing_root(h, root_hash);
         (t, root_hash, store)
@@ -548,7 +549,27 @@ mod tests {
         new_root
     }
 
-    // walks the tree starting at root verifying all the invariants are all true
+    pub fn tree_size<HO: HashOutput>(
+        root: HO,
+        store: &impl TreeStoreReader<HO>,
+    ) -> Result<usize, TreeStoreError> {
+        match store.fetch(&root)? {
+            Node::Interior(int) => {
+                let lc = match &int.left {
+                    None => 0,
+                    Some(b) => tree_size(b.hash, store)?,
+                };
+                let rc = match &int.right {
+                    None => 0,
+                    Some(b) => tree_size(b.hash, store)?,
+                };
+                Ok(lc + rc + 1)
+            }
+            Node::Leaf(_) => Ok(1),
+        }
+    }
+
+    // Walks the tree starting at root verifying all the invariants are all true
     //      1. only the root may have an empty branch
     //      2. the left branch prefix always starts with a 0
     //      3. the right branch prefix always starts with a 1
