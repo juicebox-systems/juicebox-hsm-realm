@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use super::{agent::Node, Delta, HashOutput};
+use super::{
+    agent::{Node, StoreDelta},
+    HashOutput,
+};
 
 // TreeOverlay keeps track of recent changes and can be used to get an up to date
 // view of the tree for a recent ReadProof.
@@ -24,19 +27,17 @@ impl<HO: HashOutput> TreeOverlay<HO> {
         o
     }
 
-    pub fn add_delta(&mut self, d: &Delta<HO>) {
+    pub fn add_delta(&mut self, root: HO, d: &StoreDelta<HO>) {
         // We apply the delta to nodes, and keep track of what was added.
         // When a delta is expired its used to remove entries
         // from nodes.
         let mut c = DeltaCleanup {
-            root: *d.root(),
-            to_remove: Vec::with_capacity(d.add.len() + 1),
+            root,
+            to_remove: Vec::with_capacity(d.add.len()),
         };
-        c.to_remove.push(d.leaf.hash);
-        self.nodes.insert(d.leaf.hash, Node::Leaf(d.leaf.clone()));
         for n in &d.add {
-            c.to_remove.push(n.hash);
-            self.nodes.insert(n.hash, Node::Interior(n.clone()));
+            c.to_remove.push(n.hash());
+            self.nodes.insert(n.hash(), n.clone());
         }
         self.roots.insert(c.root);
         self.latest_root = c.root;

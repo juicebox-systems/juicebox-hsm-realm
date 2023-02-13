@@ -1377,24 +1377,22 @@ fn handle_app_request(
     let last_entry = leader.log.last().unwrap();
 
     let (client_response, change) = app::process(app_ctx, request.request, latest_value);
-    let delta = match change {
+    let (root_hash, delta) = match change {
         Some(change) => match change {
             RecordChange::Update(record) => match tree.insert(tree_latest_proof, record) {
-                Ok(None) => None,
-                Ok(Some(d)) => Some((*d.root(), d.store_delta())),
+                Ok((root_hash, delta)) => (root_hash, delta),
                 Err(ProofError::Stale) => return Response::StaleProof,
                 Err(ProofError::Invalid) => return Response::InvalidProof,
             },
         },
-        None => None,
+        None => (*tree_latest_proof.root_hash(), None),
     };
 
     let index = last_entry.entry.index.next();
-    let mut partition = last_entry.entry.partition.as_ref().unwrap().clone();
-    if let Some((root_hash, _)) = &delta {
-        partition.root_hash = *root_hash;
-    }
-    let partition = Some(partition);
+    let partition = Some(Partition {
+        range: last_entry.entry.partition.as_ref().unwrap().range.clone(),
+        root_hash,
+    });
 
     let transferring_out = last_entry.entry.transferring_out.clone();
     let prev_hmac = last_entry.entry.entry_hmac.clone();
@@ -1423,6 +1421,6 @@ fn handle_app_request(
     });
     Response::Ok {
         entry: new_entry,
-        delta: delta.map(|(_, sd)| sd),
+        delta,
     }
 }

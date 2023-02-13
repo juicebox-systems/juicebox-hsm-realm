@@ -24,9 +24,10 @@ pub enum TreeStoreError {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[non_exhaustive]
 pub struct StoreDelta<HO: HashOutput> {
-    add: Vec<Node<HO>>,
-    remove: HashSet<HO>,
+    pub add: Vec<Node<HO>>,
+    pub remove: HashSet<HO>,
 }
 impl<HO: HashOutput> StoreDelta<HO> {
     pub fn items(self) -> (Vec<Node<HO>>, HashSet<HO>) {
