@@ -1,13 +1,21 @@
-use actix::prelude::*;
-use reqwest::Url;
+use serde::{Deserialize, Serialize};
 
 use super::super::hsm::types::{
     DataHash, GroupId, HsmId, LogEntry, LogIndex, Partition, RealmId, RecordId,
 };
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, Dir};
+use super::super::rpc::{Rpc, Service};
+use reqwest::Url;
 
-#[derive(Debug, Message)]
-#[rtype(result = "AppendResponse")]
+#[derive(Clone, Debug)]
+pub struct StoreService();
+impl Service for StoreService {}
+
+impl Rpc<StoreService> for AppendRequest {
+    const PATH: &'static str = "append";
+    type Response = AppendResponse;
+}
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AppendRequest {
     pub realm: RealmId,
     pub group: GroupId,
@@ -15,21 +23,25 @@ pub struct AppendRequest {
     pub delta: Option<StoreDelta<DataHash>>,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum AppendResponse {
     Ok,
     PreconditionFailed,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "ReadEntryResponse")]
+impl Rpc<StoreService> for ReadEntryRequest {
+    const PATH: &'static str = "read_entry";
+    type Response = ReadEntryResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReadEntryRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub index: LogIndex,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum ReadEntryResponse {
     Ok(LogEntry),
@@ -37,28 +49,37 @@ pub enum ReadEntryResponse {
     DoesNotExist { last: LogIndex },
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "ReadLatestResponse")]
+impl Rpc<StoreService> for ReadLatestRequest {
+    const PATH: &'static str = "read_latest";
+    type Response = ReadLatestResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReadLatestRequest {
     pub realm: RealmId,
     pub group: GroupId,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum ReadLatestResponse {
     Ok { entry: LogEntry },
     None,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "GetRecordProofResponse")]
+impl Rpc<StoreService> for GetRecordProofRequest {
+    const PATH: &'static str = "record_proof";
+    type Response = GetRecordProofResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GetRecordProofRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub record: RecordId,
 }
-#[derive(Debug, MessageResponse)]
+
+#[derive(Debug, Deserialize, Serialize)]
 pub enum GetRecordProofResponse {
     Ok {
         proof: ReadProof<DataHash>,
@@ -69,8 +90,12 @@ pub enum GetRecordProofResponse {
     StoreMissingNode,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "GetTreeEdgeProofResponse")]
+impl Rpc<StoreService> for GetTreeEdgeProofRequest {
+    const PATH: &'static str = "tree_proof";
+    type Response = GetTreeEdgeProofResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GetTreeEdgeProofRequest {
     pub realm: RealmId,
     pub group: GroupId,
@@ -78,33 +103,40 @@ pub struct GetTreeEdgeProofRequest {
     pub dir: Dir,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum GetTreeEdgeProofResponse {
     Ok { proof: ReadProof<DataHash> },
     UnknownGroup,
     StoreMissingNode,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "SetAddressResponse")]
+impl Rpc<StoreService> for SetAddressRequest {
+    const PATH: &'static str = "set_address";
+    type Response = SetAddressResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SetAddressRequest {
     pub hsm: HsmId,
     pub address: Url,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum SetAddressResponse {
     Ok,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "GetAddressesResponse")]
+impl Rpc<StoreService> for GetAddressesRequest {
+    const PATH: &'static str = "address";
+    type Response = GetAddressesResponse;
+}
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GetAddressesRequest {}
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GetAddressesResponse(pub Vec<AddressEntry>);
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AddressEntry {
     pub hsm: HsmId,
     pub address: Url,

@@ -1,9 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 use super::super::hsm::types::RecordId;
 use super::{Dir, HashOutput, InteriorNode, KeySlice, KeyVec, LeafNode, OwnedRange, ReadProof};
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Node<HO> {
     Interior(InteriorNode<HO>),
     Leaf(LeafNode<HO>),
@@ -22,12 +23,12 @@ pub enum TreeStoreError {
     MissingNode,
 }
 
-#[derive(Clone, Debug)]
-pub struct StoreDelta<HO> {
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct StoreDelta<HO: HashOutput> {
     add: Vec<Node<HO>>,
     remove: HashSet<HO>,
 }
-impl<HO> StoreDelta<HO> {
+impl<HO: HashOutput> StoreDelta<HO> {
     pub fn items(self) -> (Vec<Node<HO>>, HashSet<HO>) {
         (self.add, self.remove)
     }

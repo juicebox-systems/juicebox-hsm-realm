@@ -1,22 +1,21 @@
 use bitvec::vec::BitVec;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
 
 use super::super::hsm::types as hsm_types;
+use super::super::rpc::{Rpc, Service};
 use hsm_types::{
     CapturedStatement, Configuration, EntryHmac, GroupConfigurationStatement, GroupId, HsmId,
     LogIndex, OwnedRange, Partition, RealmId, RecordId, SecretsRequest, SecretsResponse,
     TransferNonce, TransferStatement,
 };
 
-pub trait Rpc: fmt::Debug + DeserializeOwned + Serialize {
-    const PATH: &'static str;
-    type Response: fmt::Debug + DeserializeOwned + Serialize;
-}
+#[derive(Clone, Debug)]
+pub struct AgentService();
+impl Service for AgentService {}
 
-impl Rpc for StatusRequest {
+impl Rpc<AgentService> for StatusRequest {
     const PATH: &'static str = "status";
     type Response = StatusResponse;
 }
@@ -29,7 +28,7 @@ pub struct StatusResponse {
     pub hsm: Option<hsm_types::StatusResponse>,
 }
 
-impl Rpc for NewRealmRequest {
+impl Rpc<AgentService> for NewRealmRequest {
     const PATH: &'static str = "realm/new";
     type Response = NewRealmResponse;
 }
@@ -53,7 +52,7 @@ pub enum NewRealmResponse {
     StorePreconditionFailed,
 }
 
-impl Rpc for JoinRealmRequest {
+impl Rpc<AgentService> for JoinRealmRequest {
     const PATH: &'static str = "realm/join";
     type Response = JoinRealmResponse;
 }
@@ -70,7 +69,7 @@ pub enum JoinRealmResponse {
     NoHsm,
 }
 
-impl Rpc for NewGroupRequest {
+impl Rpc<AgentService> for NewGroupRequest {
     const PATH: &'static str = "group/new";
     type Response = NewGroupResponse;
 }
@@ -94,7 +93,7 @@ pub enum NewGroupResponse {
     StorePreconditionFailed,
 }
 
-impl Rpc for JoinGroupRequest {
+impl Rpc<AgentService> for JoinGroupRequest {
     const PATH: &'static str = "group/join";
     type Response = JoinGroupResponse;
 }
@@ -116,7 +115,7 @@ pub enum JoinGroupResponse {
     NoHsm,
 }
 
-impl Rpc for BecomeLeaderRequest {
+impl Rpc<AgentService> for BecomeLeaderRequest {
     const PATH: &'static str = "become_leader";
     type Response = BecomeLeaderResponse;
 }
@@ -137,7 +136,7 @@ pub enum BecomeLeaderResponse {
     NotCaptured { have: Option<LogIndex> },
 }
 
-impl Rpc for ReadCapturedRequest {
+impl Rpc<AgentService> for ReadCapturedRequest {
     const PATH: &'static str = "captured";
     type Response = ReadCapturedResponse;
 }
@@ -162,7 +161,7 @@ pub enum ReadCapturedResponse {
     NoHsm,
 }
 
-impl Rpc for TransferOutRequest {
+impl Rpc<AgentService> for TransferOutRequest {
     const PATH: &'static str = "transfer/out";
     type Response = TransferOutResponse;
 }
@@ -194,7 +193,7 @@ pub enum TransferOutResponse {
     InvalidProof,
 }
 
-impl Rpc for TransferNonceRequest {
+impl Rpc<AgentService> for TransferNonceRequest {
     const PATH: &'static str = "transfer/nonce";
     type Response = TransferNonceResponse;
 }
@@ -214,7 +213,7 @@ pub enum TransferNonceResponse {
     NotLeader,
 }
 
-impl Rpc for TransferStatementRequest {
+impl Rpc<AgentService> for TransferStatementRequest {
     const PATH: &'static str = "transfer/statement";
     type Response = TransferStatementResponse;
 }
@@ -237,7 +236,7 @@ pub enum TransferStatementResponse {
     NotTransferring,
 }
 
-impl Rpc for TransferInRequest {
+impl Rpc<AgentService> for TransferInRequest {
     const PATH: &'static str = "transfer/in";
     type Response = TransferInResponse;
 }
@@ -266,7 +265,7 @@ pub enum TransferInResponse {
     NotOwner,
 }
 
-impl Rpc for CompleteTransferRequest {
+impl Rpc<AgentService> for CompleteTransferRequest {
     const PATH: &'static str = "transfer/complete";
     type Response = CompleteTransferResponse;
 }
@@ -288,7 +287,7 @@ pub enum CompleteTransferResponse {
     NotLeader,
 }
 
-impl Rpc for AppRequest {
+impl Rpc<AgentService> for AppRequest {
     const PATH: &'static str = "app";
     type Response = AppResponse;
 }

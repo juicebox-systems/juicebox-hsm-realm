@@ -1,6 +1,18 @@
 use serde::{Deserialize, Serialize};
 
+use crate::realm::rpc::Service;
+
 use super::super::hsm::types::{RealmId, SecretsRequest, SecretsResponse};
+use super::super::rpc::Rpc;
+
+#[derive(Clone, Debug)]
+pub struct LoadBalancerService();
+impl Service for LoadBalancerService {}
+
+impl Rpc<LoadBalancerService> for ClientRequest {
+    const PATH: &'static str = "req";
+    type Response = ClientResponse;
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ClientRequest {

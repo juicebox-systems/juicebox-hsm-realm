@@ -1,4 +1,3 @@
-use actix::prelude::*;
 use bitvec::prelude::Msb0;
 use bitvec::vec::BitVec;
 use bytes::Bytes;
@@ -20,13 +19,12 @@ use tracing::{trace, warn};
 
 pub mod types;
 
-use super::agent::client::AgentClient;
+use super::super::http_client::{Client, EndpointClient};
 use super::agent::types::{
-    AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
+    AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
 };
 use super::hsm::types as hsm_types;
-use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse};
-use super::store::Store;
+use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse, StoreService};
 use hsm_types::{GroupId, OwnedRange, RealmId};
 use types::{ClientRequest, ClientResponse};
 
@@ -35,16 +33,16 @@ pub struct LoadBalancer(Arc<State>);
 
 struct State {
     name: String,
-    store: Addr<Store>,
-    agent_client: AgentClient,
+    store: EndpointClient<StoreService>,
+    agent_client: Client<AgentService>,
 }
 
 impl LoadBalancer {
-    pub fn new(name: String, store: Addr<Store>) -> Self {
+    pub fn new(name: String, store: EndpointClient<StoreService>) -> Self {
         Self(Arc::new(State {
             name,
             store,
-            agent_client: AgentClient::new(),
+            agent_client: Client::new(),
         }))
     }
 
@@ -86,8 +84,8 @@ struct Partition {
 
 async fn refresh(
     name: &str,
-    store: Addr<Store>,
-    agent_client: &AgentClient,
+    store: &EndpointClient<StoreService>,
+    agent_client: &Client<AgentService>,
 ) -> HashMap<RealmId, Vec<Partition>> {
     trace!(load_balancer = name, "refreshing cluster information");
     match store.send(GetAddressesRequest {}).await {
@@ -149,7 +147,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
         let agent_client = self.0.agent_client.clone();
 
         Box::pin(async move {
-            let realms = refresh(&name, store, &agent_client).await;
+            let realms = refresh(&name, &store, &agent_client).await;
             let request =
                 rmp_serde::from_slice(request.collect().await?.to_bytes().as_ref()).expect("TODO");
             let response = handle_client_request(request, &name, &realms, &agent_client).await;
@@ -167,7 +165,7 @@ async fn handle_client_request(
     request: ClientRequest,
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
-    agent_client: &AgentClient,
+    agent_client: &Client<AgentService>,
 ) -> ClientResponse {
     type Response = ClientResponse;
 

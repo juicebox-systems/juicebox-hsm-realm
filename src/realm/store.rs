@@ -1,8 +1,18 @@
-use actix::prelude::*;
+use bytes::Bytes;
+use futures::Future;
+use http_body_util::Full;
+use hyper::server::conn::http1;
+use hyper::service::Service;
+use hyper::{body::Incoming as IncomingBody, Request, Response};
 use reqwest::Url;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
-use tracing::trace;
+use std::net::SocketAddr;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
+use tracing::{trace, warn};
 
 mod kv;
 pub mod types;
@@ -11,9 +21,9 @@ use self::types::{
     GetRecordProofRequest, GetRecordProofResponse, GetTreeEdgeProofRequest,
     GetTreeEdgeProofResponse,
 };
-
 use super::hsm::types::{GroupId, HsmId, LogEntry, LogIndex, RealmId};
 use super::merkle::agent::TreeStoreError;
+use super::rpc::{handle_rpc, HandlerError, Rpc};
 use kv::MemStore;
 use types::{
     AddressEntry, AppendRequest, AppendResponse, GetAddressesRequest, GetAddressesResponse,
@@ -21,7 +31,13 @@ use types::{
     SetAddressResponse,
 };
 
-pub struct Store {
+#[derive(Clone)]
+pub struct Store(Arc<InnerStore>);
+
+struct InnerStore {
+    state: Mutex<State>,
+}
+struct State {
     groups: HashMap<(RealmId, GroupId), GroupState>,
     addresses: HashMap<HsmId, Url>,
     kv: MemStore,
@@ -33,32 +49,103 @@ struct GroupState {
 
 impl Store {
     pub fn new() -> Self {
-        Self {
-            groups: HashMap::new(),
-            addresses: HashMap::new(),
-            kv: MemStore::new(),
-        }
+        Self(Arc::new(InnerStore {
+            state: Mutex::new(State {
+                groups: HashMap::new(),
+                addresses: HashMap::new(),
+                kv: MemStore::new(),
+            }),
+        }))
     }
 }
 
-impl Actor for Store {
-    type Context = Context<Self>;
+impl Service<Request<IncomingBody>> for Store {
+    type Response = Response<Full<Bytes>>;
+    type Error = hyper::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
+        let store = self.clone();
+        Box::pin(async move {
+            let Some(path) = request.uri().path().strip_prefix('/') else {
+                return Ok(Response::builder()
+                    .status(http::StatusCode::NOT_FOUND)
+                    .body(Full::from(Bytes::new()))
+                    .unwrap());
+            };
+            match path {
+                AppendRequest::PATH => handle_rpc(&store, request, Self::handle_append).await,
+                ReadEntryRequest::PATH => {
+                    handle_rpc(&store, request, Self::handle_read_entry).await
+                }
+                ReadLatestRequest::PATH => {
+                    handle_rpc(&store, request, Self::handle_read_latest).await
+                }
+                GetRecordProofRequest::PATH => {
+                    handle_rpc(&store, request, Self::handle_record_proof).await
+                }
+                GetTreeEdgeProofRequest::PATH => {
+                    handle_rpc(&store, request, Self::handle_tree_proof).await
+                }
+                SetAddressRequest::PATH => {
+                    handle_rpc(&store, request, Self::handle_set_address).await
+                }
+                GetAddressesRequest::PATH => {
+                    handle_rpc(&store, request, Self::handle_get_address).await
+                }
+                _ => Ok(Response::builder()
+                    .status(http::StatusCode::NOT_FOUND)
+                    .body(Full::from(Bytes::new()))
+                    .unwrap()),
+            }
+        })
+    }
 }
 
-impl Handler<AppendRequest> for Store {
-    type Result = AppendResponse;
+impl Store {
+    pub async fn listen(
+        self,
+        address: SocketAddr,
+    ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
+        let listener = TcpListener::bind(address).await?;
+        let url = Url::parse(&format!("http://{address}")).unwrap();
 
-    fn handle(&mut self, request: AppendRequest, _ctx: &mut Context<Self>) -> Self::Result {
+        Ok((
+            url,
+            tokio::spawn(async move {
+                loop {
+                    match listener.accept().await {
+                        Err(e) => warn!("error accepting connection: {e:?}"),
+                        Ok((stream, _)) => {
+                            let store = self.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = http1::Builder::new()
+                                    .serve_connection(stream, store.clone())
+                                    .await
+                                {
+                                    warn!("error serving connection: {e:?}");
+                                }
+                            });
+                        }
+                    }
+                }
+            }),
+        ))
+    }
+
+    async fn handle_append(&self, request: AppendRequest) -> Result<AppendResponse, HandlerError> {
         trace!(?request);
+        let mut store_state_lock = self.0.state.lock().unwrap();
+        let store_state: &mut State = &mut store_state_lock;
 
-        let response = match self.groups.entry((request.realm, request.group)) {
+        let response = match store_state.groups.entry((request.realm, request.group)) {
             Occupied(mut bucket) => {
                 let state = bucket.get_mut();
                 let last = state.log.last().unwrap();
                 if request.entry.index == last.index.next() {
                     state.log.push(request.entry);
                     if let Some(delta) = request.delta {
-                        self.kv.apply_store_delta(&request.realm, delta);
+                        store_state.kv.apply_store_delta(&request.realm, delta);
                     }
                     AppendResponse::Ok
                 } else {
@@ -70,7 +157,7 @@ impl Handler<AppendRequest> for Store {
                 if request.entry.index == LogIndex(1) {
                     if let Some(delta) = request.delta {
                         assert!(request.entry.partition.is_some());
-                        self.kv.apply_store_delta(&request.realm, delta);
+                        store_state.kv.apply_store_delta(&request.realm, delta);
                     }
                     let state = GroupState {
                         log: vec![request.entry],
@@ -83,17 +170,18 @@ impl Handler<AppendRequest> for Store {
             }
         };
         trace!(?response);
-        response
+        Ok(response)
     }
-}
 
-impl Handler<ReadEntryRequest> for Store {
-    type Result = ReadEntryResponse;
-
-    fn handle(&mut self, request: ReadEntryRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    async fn handle_read_entry(
+        &self,
+        request: ReadEntryRequest,
+    ) -> Result<ReadEntryResponse, HandlerError> {
         type Response = ReadEntryResponse;
         trace!(?request);
-        let response = match self.groups.get(&(request.realm, request.group)) {
+
+        let store_state = self.0.state.lock().unwrap();
+        let response = match store_state.groups.get(&(request.realm, request.group)) {
             None => Response::Discarded { start: LogIndex(1) },
 
             Some(state) => {
@@ -110,16 +198,16 @@ impl Handler<ReadEntryRequest> for Store {
             }
         };
         trace!(?response);
-        response
+        Ok(response)
     }
-}
 
-impl Handler<ReadLatestRequest> for Store {
-    type Result = ReadLatestResponse;
-
-    fn handle(&mut self, request: ReadLatestRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    async fn handle_read_latest(
+        &self,
+        request: ReadLatestRequest,
+    ) -> Result<ReadLatestResponse, HandlerError> {
         trace!(?request);
-        let response = match self.groups.get(&(request.realm, request.group)) {
+        let store_state = self.0.state.lock().unwrap();
+        let response = match store_state.groups.get(&(request.realm, request.group)) {
             None => ReadLatestResponse::None,
 
             Some(state) => {
@@ -130,16 +218,16 @@ impl Handler<ReadLatestRequest> for Store {
             }
         };
         trace!(?response);
-        response
+        Ok(response)
     }
-}
 
-impl Handler<GetRecordProofRequest> for Store {
-    type Result = GetRecordProofResponse;
-
-    fn handle(&mut self, request: GetRecordProofRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    async fn handle_record_proof(
+        &self,
+        request: GetRecordProofRequest,
+    ) -> Result<GetRecordProofResponse, HandlerError> {
         trace!(?request);
-        let response = match self.groups.get(&(request.realm, request.group)) {
+        let store_state = self.0.state.lock().unwrap();
+        let response = match store_state.groups.get(&(request.realm, request.group)) {
             None => GetRecordProofResponse::UnknownGroup,
 
             Some(state) => {
@@ -151,7 +239,7 @@ impl Handler<GetRecordProofRequest> for Store {
                             GetRecordProofResponse::NotOwner
                         } else {
                             match super::merkle::agent::read(
-                                &self.kv.reader(&request.realm),
+                                &store_state.kv.reader(&request.realm),
                                 &partition.range,
                                 &partition.root_hash,
                                 &request.record,
@@ -170,25 +258,21 @@ impl Handler<GetRecordProofRequest> for Store {
             }
         };
         trace!(?response);
-        response
+        Ok(response)
     }
-}
 
-impl Handler<GetTreeEdgeProofRequest> for Store {
-    type Result = GetTreeEdgeProofResponse;
-
-    fn handle(
-        &mut self,
+    async fn handle_tree_proof(
+        &self,
         request: GetTreeEdgeProofRequest,
-        _ctx: &mut Context<Self>,
-    ) -> Self::Result {
+    ) -> Result<GetTreeEdgeProofResponse, HandlerError> {
         trace!(?request);
-        let response = match self.groups.get(&(request.realm, request.group)) {
+        let store_state = self.0.state.lock().unwrap();
+        let response = match store_state.groups.get(&(request.realm, request.group)) {
             None => GetTreeEdgeProofResponse::UnknownGroup,
 
             Some(_) => {
                 match super::merkle::agent::read_tree_side(
-                    &self.kv.reader(&request.realm),
+                    &store_state.kv.reader(&request.realm),
                     &request.partition.range,
                     &request.partition.root_hash,
                     request.dir,
@@ -199,29 +283,30 @@ impl Handler<GetTreeEdgeProofRequest> for Store {
             }
         };
         trace!(?response);
-        response
+        Ok(response)
     }
-}
 
-impl Handler<SetAddressRequest> for Store {
-    type Result = SetAddressResponse;
-
-    fn handle(&mut self, request: SetAddressRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    async fn handle_set_address(
+        &self,
+        request: SetAddressRequest,
+    ) -> Result<SetAddressResponse, HandlerError> {
         trace!(?request);
-        self.addresses.insert(request.hsm, request.address);
+        let mut store_state = self.0.state.lock().unwrap();
+        store_state.addresses.insert(request.hsm, request.address);
         let response = SetAddressResponse::Ok;
         trace!(?response);
-        response
+        Ok(response)
     }
-}
 
-impl Handler<GetAddressesRequest> for Store {
-    type Result = GetAddressesResponse;
-
-    fn handle(&mut self, request: GetAddressesRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    async fn handle_get_address(
+        &self,
+        request: GetAddressesRequest,
+    ) -> Result<GetAddressesResponse, HandlerError> {
         trace!(?request);
+        let store_state = self.0.state.lock().unwrap();
         let response = GetAddressesResponse(
-            self.addresses
+            store_state
+                .addresses
                 .iter()
                 .map(|(hsm, address)| AddressEntry {
                     hsm: *hsm,
@@ -230,6 +315,6 @@ impl Handler<GetAddressesRequest> for Store {
                 .collect(),
         );
         trace!(?response);
-        response
+        Ok(response)
     }
 }

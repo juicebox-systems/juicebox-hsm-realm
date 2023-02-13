@@ -1,4 +1,3 @@
-use actix::prelude::*;
 use futures::future::{join_all, try_join_all};
 use reqwest::Url;
 use std::collections::HashMap;
@@ -7,24 +6,23 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info, trace, warn};
 
-use super::agent::client::{AgentClient, AgentClientError};
+use super::super::http_client::{Client, ClientError, EndpointClient};
 use super::agent::types::{
-    CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
-    JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest,
-    NewRealmResponse, StatusRequest, StatusResponse, TransferInRequest, TransferInResponse,
-    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
-    TransferStatementRequest, TransferStatementResponse,
+    AgentService, CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest,
+    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
+    NewRealmRequest, NewRealmResponse, StatusRequest, StatusResponse, TransferInRequest,
+    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
+    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 use super::hsm::types as hsm_types;
-use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse};
-use super::store::Store;
+use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse, StoreService};
 use hsm_types::{
     Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange, RealmId,
 };
 
 #[derive(Debug)]
 pub enum NewRealmError {
-    NetworkError(AgentClientError),
+    NetworkError(ClientError),
     NoHsm { agent: Url },
     HaveRealm { agent: Url },
     InvalidConfiguration,
@@ -36,7 +34,7 @@ pub enum NewRealmError {
 pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmError> {
     type Error = NewRealmError;
     info!("setting up new realm");
-    let agent_client = AgentClient::new();
+    let agent_client = Client::new();
 
     let hsms = try_join_all(
         group
@@ -147,8 +145,8 @@ async fn wait_for_commit(
     leader: &Url,
     realm: RealmId,
     group: GroupId,
-    agent_client: &AgentClient,
-) -> Result<(), AgentClientError> {
+    agent_client: &Client<AgentService>,
+) -> Result<(), ClientError> {
     debug!(?realm, ?group, "waiting for first log entry to commit");
     loop {
         let status = agent_client.send(leader, StatusRequest {}).await?;
@@ -182,7 +180,7 @@ async fn wait_for_commit(
 
 #[derive(Debug)]
 pub enum NewGroupError {
-    NetworkError(AgentClientError),
+    NetworkError(ClientError),
     NoHsm { agent: Url },
     InvalidRealm { agent: Url },
     InvalidConfiguration,
@@ -195,7 +193,7 @@ pub async fn new_group(realm: RealmId, group: &[Url]) -> Result<GroupId, NewGrou
     type Error = NewGroupError;
     info!(?realm, "setting up new group");
 
-    let agent_client = AgentClient::new();
+    let agent_client = Client::new();
 
     // Ensure all HSMs are up and have joined the realm. Get their IDs to form
     // the configuration.
@@ -309,7 +307,7 @@ pub async fn transfer(
     source: GroupId,
     destination: GroupId,
     range: OwnedRange,
-    store: &Addr<Store>,
+    store: &EndpointClient<StoreService>,
 ) -> Result<(), TransferError> {
     type Error = TransferError;
 
@@ -321,7 +319,7 @@ pub async fn transfer(
         "transferring ownership"
     );
 
-    let agent_client = AgentClient::new();
+    let agent_client = Client::new();
 
     let leaders = find_leaders(store, &agent_client).await.expect("TODO");
 
@@ -427,8 +425,8 @@ pub async fn transfer(
 }
 
 async fn find_leaders(
-    store: &Addr<Store>,
-    agent_client: &AgentClient,
+    store: &EndpointClient<StoreService>,
+    agent_client: &Client<AgentService>,
 ) -> Result<HashMap<(RealmId, GroupId), Url>, actix::MailboxError> {
     trace!("refreshing cluster information");
     match store.send(GetAddressesRequest {}).await {
