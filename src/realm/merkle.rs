@@ -290,57 +290,6 @@ pub enum MergeError {
     NotAdjacentRanges,
 }
 
-pub struct Delta<HO> {
-    // Nodes are in tail -> root order.
-    pub add: Vec<InteriorNode<HO>>,
-    pub leaf: LeafNode<HO>,
-    pub remove: Vec<HO>,
-}
-impl<HO: Debug> Debug for Delta<HO> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(
-            f,
-            "[l] hash={:?}, value={:?}",
-            &self.leaf.hash, self.leaf.value
-        )?;
-        for n in &self.add {
-            writeln!(
-                f,
-                "[i] hash={:?} left:{:?} right:{:?}",
-                &n.hash, n.left, n.right
-            )?;
-        }
-        for n in &self.remove {
-            writeln!(f, "remove {n:?}")?;
-        }
-        Ok(())
-    }
-}
-impl<HO: HashOutput> Delta<HO> {
-    fn new(new_leaf: LeafNode<HO>) -> Self {
-        Delta {
-            leaf: new_leaf,
-            add: Vec::new(),
-            remove: Vec::new(),
-        }
-    }
-    pub fn root(&self) -> &HO {
-        &self
-            .add
-            .last()
-            .expect("add should contain at least a new root")
-            .hash
-    }
-    pub fn store_delta(self) -> StoreDelta<HO> {
-        let mut b = DeltaBuilder::new();
-        for n in self.add {
-            b.add(Node::Interior(n));
-        }
-        b.add(Node::Leaf(self.leaf));
-        b.build()
-    }
-}
-
 pub trait HashOutput: Hash + Copy + Eq + Debug {
     fn as_u8(&self) -> &[u8];
 }
@@ -540,8 +489,11 @@ mod tests {
         let rp = read(store, range, &root, key).unwrap();
         let vp = tree.latest_proof(rp).unwrap();
         let new_root = match tree.insert(vp, val).unwrap() {
-            None => root,
-            Some(d) => store.apply(d),
+            (root, None) => root,
+            (root, Some(d)) => {
+                store.apply_store_delta(d);
+                root
+            }
         };
         if !skip_tree_check {
             check_tree_invariants(&tree.hasher, range, new_root, store);
@@ -646,26 +598,12 @@ mod tests {
     }
     impl<HO: HashOutput> MemStore<HO> {
         pub fn apply_store_delta(&mut self, d: StoreDelta<HO>) {
-            let (add, rem) = d.items();
-            for n in add {
+            for n in d.add {
                 self.insert(n.hash(), n);
             }
-            for r in rem {
+            for r in d.remove {
                 self.nodes.remove(r.as_u8());
             }
-        }
-
-        // Returns the new root hash.
-        pub fn apply(&mut self, delta: Delta<HO>) -> HO {
-            self.insert(delta.leaf.hash, Node::Leaf(delta.leaf));
-            let root_hash = delta.add.last().unwrap().hash;
-            for a in delta.add {
-                self.insert(a.hash, Node::Interior(a));
-            }
-            for h in delta.remove {
-                self.nodes.remove(h.as_u8());
-            }
-            root_hash
         }
         fn insert(&mut self, k: HO, n: Node<HO>) {
             self.nodes.insert(k.as_u8().to_vec(), n);
