@@ -33,6 +33,24 @@ jobs:
         profile: minimal
         toolchain: stable
 
+    - name: Use Go cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/go/bin
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Use Go path
+      # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
+      run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+    - name: Install Bigtable tools
+      run: |
+        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
+        command -V cbt || go install cloud.google.com/go/cbt@latest
+
     - name: Use Rust/Cargo cache
       uses: actions/cache@v3
       with:
@@ -79,8 +97,12 @@ jobs:
         command: audit
 
     - name: Run main
-      uses: actions-rs/cargo@v1
-      with:
-        command: run
-      env:
-        RUST_BACKTRACE: '1'
+      run: |
+        emulator -host localhost -port 9000 &
+        BIGTABLE_EMULATOR_HOST=localhost:9000 \
+          cbt -creds /dev/null -project prj -instance inst \
+          createtable tab families=fam
+        pid=$!
+        RUST_BACKTRACE=1 cargo run
+        kill $pid
+      shell: bash
