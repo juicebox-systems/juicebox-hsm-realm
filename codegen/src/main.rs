@@ -31,7 +31,10 @@ fn main() {
         .include_file("mod.rs")
         .out_dir(output)
         .compile(
-            &[input.join("google/bigtable/v2/bigtable.proto")],
+            &[
+                input.join("google/bigtable/v2/bigtable.proto"),
+                input.join("google/rpc/code.proto"),
+            ],
             &[input], // root location to search proto dependencies
         )
         .expect("tonic build failed");
