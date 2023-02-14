@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::HashSet;
 
 use super::super::hsm::types::RecordId;
@@ -70,23 +71,37 @@ impl<HO: HashOutput> NodeKey<HO> {
     }
     // Returns a lexicographically ordered encoding of this prefix & hash
     // that leads with prefix.
-    pub fn encoded_key(&self) -> Vec<u8> {
-        encode_prefix_and_hash(self.prefix.clone(), self.hash)
+    pub fn store_key(&self) -> StoreKey {
+        StoreKey::new(self.prefix.clone(), self.hash)
     }
 }
 
-fn encode_prefix_and_hash<HO: HashOutput>(prefix: KeyVec, hash: HO) -> Vec<u8> {
-    // encoded key consists of
-    //   the prefix length in bits encoded into 2 bytes.
-    //   the prefix encoded into bytes
-    //   the hash
-    let prefix_len_bytes = len_of_encoded_prefix(&prefix);
-    let len = prefix_len_bytes + hash.as_u8().len();
-    let mut out: Vec<u8> = Vec::with_capacity(len);
-    encode_prefix_into(prefix, &mut out);
-    out.extend(hash.as_u8());
-    out
+// The key value for a row in the key value store. Nodes are stored in the Store
+// using these keys. See NodeKey for a way to get one of these.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct StoreKey(Vec<u8>);
+impl StoreKey {
+    pub fn new<HO: HashOutput>(prefix: KeyVec, hash: HO) -> StoreKey {
+        // encoded key consists of
+        //   the number of bits in the prefix encoded into 2 bytes.
+        //   the prefix encoded into bytes
+        //   the hash
+        let prefix_len_bytes = len_of_encoded_prefix(&prefix);
+        let len = prefix_len_bytes + hash.as_u8().len();
+        let mut out: Vec<u8> = Vec::with_capacity(len);
+        encode_prefix_into(prefix, &mut out);
+        out.extend(hash.as_u8());
+        StoreKey(out)
+    }
+    pub fn starts_with(&self, s: &StoreKeyStart) -> bool {
+        self.0.starts_with(&s.0)
+    }
+    pub fn cmp_start(&self, o: &StoreKeyStart) -> Ordering {
+        self.0.cmp(&o.0)
+    }
 }
+// The beginning part of a StoreKey
+pub struct StoreKeyStart(Vec<u8>);
 
 // Returns the number of bytes that the encoded version of this prefix will require.
 fn len_of_encoded_prefix(prefix: &KeySlice) -> usize {
@@ -108,7 +123,7 @@ fn encode_prefix_into(mut prefix: KeyVec, dest: &mut Vec<u8>) {
 
 // Generates the encoded version of each prefix for this recordId. starts at
 // prefix[..0] and end with at prefix[..recordId::num_bits()]
-pub fn encode_prefixes(k: &RecordId) -> Vec<Vec<u8>> {
+pub fn all_store_key_starts(k: &RecordId) -> Vec<StoreKeyStart> {
     let mut out = Vec::with_capacity(RecordId::num_bits() + 1);
     let key = KeySlice::from_slice(&k.0);
     let clear_masks: [u8; 7] = [
@@ -128,21 +143,15 @@ pub fn encode_prefixes(k: &RecordId) -> Vec<Vec<u8>> {
         if bits_last_byte > 0 {
             enc.push(k.0[num_wb] & clear_masks[bits_last_byte - 1]);
         }
-        out.push(enc);
+        out.push(StoreKeyStart(enc));
     }
     out
 }
 
 pub trait TreeStoreReader<HO: HashOutput> {
-    fn fetch(&self, key: &[u8]) -> Result<Vec<Node<HO>>, TreeStoreError>;
+    fn range(&self, key: &StoreKeyStart) -> Result<Vec<Node<HO>>, TreeStoreError>;
 
-    fn find(&self, prefix: &KeySlice, hash: HO) -> Result<Node<HO>, TreeStoreError> {
-        let k = encode_prefix_and_hash(prefix.to_bitvec(), hash);
-        self.fetch(&k)?
-            .into_iter()
-            .find(|n| n.hash() == hash)
-            .ok_or(TreeStoreError::MissingNode)
-    }
+    fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError>;
 }
 
 pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
@@ -151,11 +160,11 @@ pub fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
     root_hash: &HO,
     k: &RecordId,
 ) -> Result<ReadProof<HO>, TreeStoreError> {
-    let prefixes = encode_prefixes(k);
+    let prefixes = all_store_key_starts(k);
     let find = |prefix_len: usize, hash: HO| {
         let k = &prefixes[prefix_len];
         store
-            .fetch(k)?
+            .range(k)?
             .into_iter()
             .find(|n| n.hash() == hash)
             .ok_or(TreeStoreError::MissingNode)
@@ -206,7 +215,7 @@ pub fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     let mut key = KeyVec::with_capacity(RecordId::num_bits());
     let mut current = *root_hash;
     loop {
-        match store.find(&key, current)? {
+        match store.fetch(key.clone(), current)? {
             Node::Interior(int) => match int.branch(side) {
                 None => match int.branch(side.opposite()) {
                     None => {
@@ -265,41 +274,41 @@ mod tests {
     use super::super::super::hsm::types::RecordId;
     use super::super::tests::TestHash;
     use super::super::{KeySlice, KeyVec};
-    use super::{encode_prefix_into, encode_prefixes, NodeKey};
+    use super::{all_store_key_starts, encode_prefix_into, NodeKey};
     use bitvec::bitvec;
     use bitvec::prelude::Msb0;
 
     #[test]
     fn store_key_encoding() {
         let k = NodeKey::new(KeyVec::new(), TestHash([1u8; 8]));
-        assert_eq!([0u8, 0, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(), k.encoded_key());
+        assert_eq!([0u8, 0, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(), k.store_key().0);
 
         let k = NodeKey::new(bitvec![u8,Msb0; 0], TestHash([1u8; 8]));
         assert_eq!(
             [0u8, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(),
-            k.encoded_key()
+            k.store_key().0
         );
         let k = NodeKey::new(bitvec![u8,Msb0; 1], TestHash([4u8; 8]));
         assert_eq!(
             [0u8, 1, 128, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
-            k.encoded_key()
+            k.store_key().0
         );
 
         let k = NodeKey::new(bitvec![u8,Msb0; 0,1], TestHash([4u8; 8]));
         assert_eq!(
             [0u8, 2, 64, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
-            k.encoded_key()
+            k.store_key().0
         );
 
         let k = NodeKey::new(bitvec![u8,Msb0; 1,1,1,1,1,1,1,1], TestHash([4u8; 8]));
         assert_eq!(
             [0u8, 8, 255, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
-            k.encoded_key()
+            k.store_key().0
         );
         let k = NodeKey::new(bitvec![u8,Msb0; 1,1,1,1,1,1,1,1,1], TestHash([4u8; 8]));
         assert_eq!(
             [0u8, 9, 255, 128, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
-            k.encoded_key()
+            k.store_key().0
         );
     }
 
@@ -307,14 +316,14 @@ mod tests {
     fn bulk_prefix_encoding() {
         // cross check the bulk & single encoders
         let test = |r| {
-            let prefixes = encode_prefixes(&r);
+            let prefixes = all_store_key_starts(&r);
             assert_eq!(257, prefixes.len());
             let k = KeySlice::from_slice(&r.0);
             let mut buff = Vec::with_capacity(64);
             for (i, prefix) in prefixes.iter().enumerate() {
                 buff.clear();
                 encode_prefix_into(k[..i].to_bitvec(), &mut buff);
-                assert_eq!(&buff, prefix, "with prefix len {i}");
+                assert_eq!(buff, prefix.0, "with prefix len {i}");
             }
         };
         test(RecordId([0x00; 32]));

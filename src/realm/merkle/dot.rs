@@ -28,7 +28,7 @@ fn add_node_to_dot<HO: HashOutput>(
     w: &mut impl Write,
 ) -> std::io::Result<()> {
     match reader
-        .find(&prefix, h)
+        .fetch(prefix.clone(), h)
         .unwrap_or_else(|_| panic!("node with hash {h:?} should exist"))
     {
         Node::Interior(int) => {

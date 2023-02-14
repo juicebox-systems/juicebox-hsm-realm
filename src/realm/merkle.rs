@@ -333,7 +333,7 @@ mod dot;
 #[cfg(test)]
 mod tests {
     use super::{
-        agent::{read, Node, TreeStoreError, TreeStoreReader},
+        agent::{read, Node, StoreKey, StoreKeyStart, TreeStoreError, TreeStoreReader},
         *,
     };
     use std::{collections::HashMap, hash::Hasher};
@@ -506,7 +506,7 @@ mod tests {
         root: HO,
         store: &impl TreeStoreReader<HO>,
     ) -> Result<usize, TreeStoreError> {
-        match store.find(prefix, root)? {
+        match store.fetch(prefix.to_bitvec(), root)? {
             Node::Interior(int) => {
                 let lc = match &int.left {
                     None => 0,
@@ -545,7 +545,7 @@ mod tests {
         store: &impl TreeStoreReader<HO>,
     ) -> HO {
         match store
-            .find(&path, node)
+            .fetch(path.clone(), node)
             .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
         {
             Node::Leaf(l) => {
@@ -635,7 +635,7 @@ mod tests {
 
     #[derive(Clone)]
     pub struct MemStore<HO> {
-        nodes: Vec<(Vec<u8>, Node<HO>)>,
+        nodes: Vec<(StoreKey, Node<HO>)>,
     }
     impl<HO> MemStore<HO> {
         fn new() -> Self {
@@ -657,14 +657,14 @@ mod tests {
         pub fn apply_store_delta(&mut self, new_root: HO, d: StoreDelta<HO>) {
             check_delta_invariants(new_root, &d);
             for (k, n) in d.add {
-                let enc = k.encoded_key();
+                let enc = k.store_key();
                 match self.nodes.binary_search_by(|i| i.0.cmp(&enc)) {
                     Ok(idx) => self.nodes[idx] = (enc, n),
                     Err(idx) => self.nodes.insert(idx, (enc, n)),
                 }
             }
             for k in d.remove {
-                let enc = k.encoded_key();
+                let enc = k.store_key();
                 if let Ok(idx) = self.nodes.binary_search_by(|i| i.0.cmp(&enc)) {
                     self.nodes.remove(idx);
                 }
@@ -672,22 +672,32 @@ mod tests {
         }
     }
     impl<HO: HashOutput> TreeStoreReader<HO> for MemStore<HO> {
-        fn fetch(&self, k: &[u8]) -> Result<Vec<Node<HO>>, TreeStoreError> {
-            let mut start = match self.nodes.binary_search_by(|item| item.0.as_slice().cmp(k)) {
+        fn range(&self, key_start: &StoreKeyStart) -> Result<Vec<Node<HO>>, TreeStoreError> {
+            let mut start = match self
+                .nodes
+                .binary_search_by(|item| item.0.cmp_start(key_start))
+            {
                 Ok(idx) => idx,
                 Err(idx) => idx,
             };
-            while start > 0 && self.nodes[start - 1].0.starts_with(k) {
+            while start > 0 && self.nodes[start - 1].0.starts_with(key_start) {
                 start -= 1;
             }
             let mut end = start;
-            while end < self.nodes.len() - 1 && self.nodes[end + 1].0.starts_with(k) {
+            while end < self.nodes.len() - 1 && self.nodes[end + 1].0.starts_with(key_start) {
                 end += 1;
             }
             Ok(self.nodes[start..=end]
                 .iter()
                 .map(|i| i.1.clone())
                 .collect())
+        }
+        fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError> {
+            let k = StoreKey::new(prefix, hash);
+            match self.nodes.binary_search_by(|item| item.0.cmp(&k)) {
+                Ok(idx) => Ok(self.nodes[idx].1.clone()),
+                Err(_) => Err(TreeStoreError::MissingNode),
+            }
         }
     }
     pub struct TestHasher {}
