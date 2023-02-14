@@ -71,48 +71,39 @@ impl<HO: HashOutput> NodeKey<HO> {
     // Returns a lexicographically ordered encoding of this prefix & hash
     // that leads with prefix.
     pub fn encoded_key(&self) -> Vec<u8> {
-        encode_prefix_and_hash(&self.prefix, self.hash)
+        encode_prefix_and_hash(self.prefix.clone(), self.hash)
     }
 }
 
-fn encode_prefix_and_hash<HO: HashOutput>(prefix: &KeySlice, hash: HO) -> Vec<u8> {
+fn encode_prefix_and_hash<HO: HashOutput>(prefix: KeyVec, hash: HO) -> Vec<u8> {
     // encoded key consists of
-    //  the prefix encoded into bytes
-    //  a byte containing the number of bits used in the last byte of the prefix
-    //  a delimiter
-    //  the hash
-    let prefix_len = len_of_encoded_prefix(prefix);
-    let len = prefix_len + hash.as_u8().len();
-    let mut out: Vec<u8> = vec![0; len];
-    encode_prefix_into(prefix, &mut out[..prefix_len]);
-    out[prefix_len..].copy_from_slice(hash.as_u8());
+    //   the prefix length in bits encoded into 2 bytes.
+    //   the prefix encoded into bytes
+    //   the hash
+    let prefix_len_bytes = len_of_encoded_prefix(&prefix);
+    let len = prefix_len_bytes + hash.as_u8().len();
+    let mut out: Vec<u8> = Vec::with_capacity(len);
+    encode_prefix_into(prefix, &mut out);
+    out.extend(hash.as_u8());
     out
 }
 
-// Returns the number of bytes that the encoded version of this prefix will require. It
-// include the delimiter.
+// Returns the number of bytes that the encoded version of this prefix will require.
 fn len_of_encoded_prefix(prefix: &KeySlice) -> usize {
-    let len = (prefix.len() / 8) + 1 + 1;
+    let len = (prefix.len() / 8) + 2;
     if prefix.len() % 8 != 0 {
         len + 1
     } else {
         len
     }
 }
-// Encode the prefix into the supplied buffer, the buffer must be at least
-// `len_of_encoded_prefix(prefix)` long
-fn encode_prefix_into(prefix: &KeySlice, dest: &mut [u8]) {
-    let mut bv = prefix.to_bitvec();
-    bv.set_uninitialized(false);
-    let v = bv.into_vec();
-    dest[..v.len()].copy_from_slice(&v);
-    if prefix.is_empty() {
-        dest[v.len()] = 0;
-    } else {
-        let c = (prefix.len() % 8) as u8;
-        dest[v.len()] = if c == 0 { 8 } else { c }
-    }
-    dest[v.len() + 1] = 255;
+// Encode the prefix into the supplied buffer.
+fn encode_prefix_into(mut prefix: KeyVec, dest: &mut Vec<u8>) {
+    let num_prefix_bits = prefix.len() as u16;
+    dest.extend(&num_prefix_bits.to_be_bytes());
+    prefix.set_uninitialized(false);
+    let v = prefix.into_vec();
+    dest.extend(&v);
 }
 
 // Generates the encoded version of each prefix for this recordId. starts at
@@ -126,24 +117,17 @@ pub fn encode_prefixes(k: &RecordId) -> Vec<Vec<u8>> {
     for i in 0..=RecordId::num_bits() {
         let len_bytes = len_of_encoded_prefix(&key[..i]);
         let mut enc = Vec::with_capacity(len_bytes);
+        // prefix len
+        let num_prefix_bits = i as u16;
+        enc.extend(num_prefix_bits.to_be_bytes());
         // whole bytes are easy
         let num_wb = i / 8;
-        enc.resize(num_wb, 0);
-        enc.copy_from_slice(&k.0[..num_wb]);
+        enc.extend(&k.0[..num_wb]);
+        // deal with clearing trailing bits of the last byte that are not part of the prefix
         let bits_last_byte = i % 8;
         if bits_last_byte > 0 {
             enc.push(k.0[num_wb] & clear_masks[bits_last_byte - 1]);
         }
-        if i > 0 {
-            enc.push(if bits_last_byte == 0 {
-                8
-            } else {
-                bits_last_byte as u8
-            });
-        } else {
-            enc.push(0);
-        }
-        enc.push(255);
         out.push(enc);
     }
     out
@@ -153,7 +137,7 @@ pub trait TreeStoreReader<HO: HashOutput> {
     fn fetch(&self, key: &[u8]) -> Result<Vec<Node<HO>>, TreeStoreError>;
 
     fn find(&self, prefix: &KeySlice, hash: HO) -> Result<Node<HO>, TreeStoreError> {
-        let k = encode_prefix_and_hash(prefix, hash);
+        let k = encode_prefix_and_hash(prefix.to_bitvec(), hash);
         self.fetch(&k)?
             .into_iter()
             .find(|n| n.hash() == hash)
@@ -281,40 +265,40 @@ mod tests {
     use super::super::super::hsm::types::RecordId;
     use super::super::tests::TestHash;
     use super::super::{KeySlice, KeyVec};
-    use super::{encode_prefix_into, encode_prefixes, len_of_encoded_prefix, NodeKey};
+    use super::{encode_prefix_into, encode_prefixes, NodeKey};
     use bitvec::bitvec;
     use bitvec::prelude::Msb0;
 
     #[test]
     fn store_key_encoding() {
         let k = NodeKey::new(KeyVec::new(), TestHash([1u8; 8]));
-        assert_eq!([0u8, 255, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(), k.encoded_key());
+        assert_eq!([0u8, 0, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(), k.encoded_key());
 
         let k = NodeKey::new(bitvec![u8,Msb0; 0], TestHash([1u8; 8]));
         assert_eq!(
-            [0u8, 1, 255, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(),
+            [0u8, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(),
             k.encoded_key()
         );
-        let k = NodeKey::new(bitvec![u8,Msb0; 1], TestHash([1u8; 8]));
+        let k = NodeKey::new(bitvec![u8,Msb0; 1], TestHash([4u8; 8]));
         assert_eq!(
-            [128u8, 1, 255, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(),
-            k.encoded_key()
-        );
-
-        let k = NodeKey::new(bitvec![u8,Msb0; 0,1], TestHash([1u8; 8]));
-        assert_eq!(
-            [64u8, 2, 255, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(),
+            [0u8, 1, 128, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
             k.encoded_key()
         );
 
-        let k = NodeKey::new(bitvec![u8,Msb0; 1,1,1,1,1,1,1,1], TestHash([1u8; 8]));
+        let k = NodeKey::new(bitvec![u8,Msb0; 0,1], TestHash([4u8; 8]));
         assert_eq!(
-            [255u8, 8, 255, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(),
+            [0u8, 2, 64, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
             k.encoded_key()
         );
-        let k = NodeKey::new(bitvec![u8,Msb0; 1,1,1,1,1,1,1,1,1], TestHash([1u8; 8]));
+
+        let k = NodeKey::new(bitvec![u8,Msb0; 1,1,1,1,1,1,1,1], TestHash([4u8; 8]));
         assert_eq!(
-            [255u8, 128, 1, 255, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(),
+            [0u8, 8, 255, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
+            k.encoded_key()
+        );
+        let k = NodeKey::new(bitvec![u8,Msb0; 1,1,1,1,1,1,1,1,1], TestHash([4u8; 8]));
+        assert_eq!(
+            [0u8, 9, 255, 128, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
             k.encoded_key()
         );
     }
@@ -326,11 +310,11 @@ mod tests {
             let prefixes = encode_prefixes(&r);
             assert_eq!(257, prefixes.len());
             let k = KeySlice::from_slice(&r.0);
-            let mut buff = vec![0; 64];
+            let mut buff = Vec::with_capacity(64);
             for (i, prefix) in prefixes.iter().enumerate() {
-                let l = len_of_encoded_prefix(&k[..i]);
-                encode_prefix_into(&k[..i], &mut buff[..l]);
-                assert_eq!(&buff[..l], prefix, "with prefix len {i}");
+                buff.clear();
+                encode_prefix_into(k[..i].to_bitvec(), &mut buff);
+                assert_eq!(&buff, prefix, "with prefix len {i}");
             }
         };
         test(RecordId([0x00; 32]));
