@@ -120,25 +120,30 @@ fn encode_prefix_into(prefix: &KeySlice, dest: &mut [u8]) {
 pub fn encode_prefixes(k: &RecordId) -> Vec<Vec<u8>> {
     let mut out = Vec::with_capacity(RecordId::num_bits() + 1);
     let key = KeySlice::from_slice(&k.0);
-    let clear_masks: [u8; 8] = [
+    let clear_masks: [u8; 7] = [
         0b10000000, 0b11000000, 0b11100000, 0b11110000, 0b11111000, 0b11111100, 0b11111110,
-        0b11111111,
     ];
     for i in 0..=RecordId::num_bits() {
-        let l = len_of_encoded_prefix(&key[..i]);
-        let mut enc = vec![0; l];
+        let len_bytes = len_of_encoded_prefix(&key[..i]);
+        let mut enc = Vec::with_capacity(len_bytes);
         // whole bytes are easy
         let num_wb = i / 8;
-        enc[..num_wb].copy_from_slice(&k.0[..num_wb]);
-        let mut di = num_wb;
-        if i % 8 > 0 {
-            enc[di] = k.0[di] & clear_masks[(i % 8) - 1];
-            di += 1;
+        enc.resize(num_wb, 0);
+        enc.copy_from_slice(&k.0[..num_wb]);
+        let bits_last_byte = i % 8;
+        if bits_last_byte > 0 {
+            enc.push(k.0[num_wb] & clear_masks[bits_last_byte - 1]);
         }
         if i > 0 {
-            enc[di] = if (i % 8) == 0 { 8 } else { (i % 8) as u8 }
+            enc.push(if bits_last_byte == 0 {
+                8
+            } else {
+                bits_last_byte as u8
+            });
+        } else {
+            enc.push(0);
         }
-        enc[di + 1] = 255;
+        enc.push(255);
         out.push(enc);
     }
     out
@@ -317,15 +322,24 @@ mod tests {
     #[test]
     fn bulk_prefix_encoding() {
         // cross check the bulk & single encoders
-        let r = RecordId([0x5a; 32]);
-        let prefixes = encode_prefixes(&r);
-        assert_eq!(257, prefixes.len());
-        let k = KeySlice::from_slice(&r.0);
-        let mut buff = vec![0; 64];
-        for (i, prefix) in prefixes.iter().enumerate() {
-            let l = len_of_encoded_prefix(&k[..i]);
-            encode_prefix_into(&k[..i], &mut buff[..l]);
-            assert_eq!(&buff[..l], prefix, "with prefix len {i}");
-        }
+        let test = |r| {
+            let prefixes = encode_prefixes(&r);
+            assert_eq!(257, prefixes.len());
+            let k = KeySlice::from_slice(&r.0);
+            let mut buff = vec![0; 64];
+            for (i, prefix) in prefixes.iter().enumerate() {
+                let l = len_of_encoded_prefix(&k[..i]);
+                encode_prefix_into(&k[..i], &mut buff[..l]);
+                assert_eq!(&buff[..l], prefix, "with prefix len {i}");
+            }
+        };
+        test(RecordId([0x00; 32]));
+        test(RecordId([0x01; 32]));
+        test(RecordId([0x5a; 32]));
+        test(RecordId([0xa5; 32]));
+        test(RecordId([0x7F; 32]));
+        test(RecordId([0x80; 32]));
+        test(RecordId([0xFE; 32]));
+        test(RecordId([0xFF; 32]));
     }
 }
