@@ -11,6 +11,8 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::FmtSubscriber;
 
+mod autogen;
+mod bigtable_demo;
 mod client;
 mod http_client;
 mod realm;
@@ -76,10 +78,13 @@ async fn main() {
             Err(e) => panic!("failed to parse LOGLEVEL: {e}"),
         })
         .unwrap_or(Level::DEBUG);
-    // Quiet down `hyper`.
+    // Quiet down some libs.
     let filter = FilterFn::new(|metadata| {
         if let Some(module) = metadata.module_path() {
-            if module.starts_with("hyper::") {
+            if module.starts_with("h2::")
+                || module.starts_with("hyper::")
+                || module.starts_with("tower::")
+            {
                 return false;
             }
         }
@@ -97,6 +102,8 @@ async fn main() {
         max_level = %log_level,
         "set up tracing. you can set verbosity with env var LOGLEVEL."
     );
+
+    bigtable_demo::demo().await;
 
     info!("creating in-memory store");
     let (store_url, _) = Store::new()

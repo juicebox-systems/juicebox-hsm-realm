@@ -1,3 +1,6 @@
+[workspace]
+members = ["codegen"]
+
 [package]
 name = "loam-mvp"
 version = "0.0.0"
@@ -17,6 +20,8 @@ hmac = "0.12.1"
 http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
+prost = "0.11.6"
+prost-types = "0.11.6"
 rand = "0.8.5"
 reqwest = { version = "0.11.14", default-features = false }
 rmp = "0.8.11"
@@ -26,6 +31,7 @@ sha2 = "0.10.6"
 sharks = "0.5.0"
 subtle = "2.4.1"
 tokio = { version = "1.25.0", features = ["rt"] }
+tonic = { version = "0.8.3", features = ["channel"] }
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
 url = { version = "2.3.1", features = ["serde"] }
@@ -34,7 +40,7 @@ voprf = "0.4.0"
 [patch.crates-io]
 # waiting on this issue/pr to be resolved
 # https://github.com/ferrilab/bitvec/issues/215
-bitvec = { git = 'https://github.com/superfell/bitvec', branch='vec_order' }
+bitvec = { git = 'https://github.com/superfell/bitvec', branch = 'vec_order' }
 
 [dev-dependencies]
 criterion = "0.4.0"
