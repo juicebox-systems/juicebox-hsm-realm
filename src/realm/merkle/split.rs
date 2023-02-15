@@ -330,13 +330,13 @@ mod tests {
     // Creates a new tree populated with 'keys'. splits it into 2 at 'split'. verifies the split was correct
     // then merges them back together and verifies you got back to the start.
     async fn test_arb_split_merge(range: OwnedRange, keys: &[RecordId], split: &RecordId) {
-        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        let (mut tree, mut root, mut store) = new_empty_tree(&range).await;
         for k in keys {
             root = tree_insert(&mut tree, &mut store, &range, root, k, vec![k.0[0]], true).await;
         }
-        check_tree_invariants(&tree.hasher, &range, root, &store);
+        check_tree_invariants(&tree.hasher, &range, root, &store).await;
         assert_eq!(
-            tree_size(KeySlice::empty(), root, &store).unwrap(),
+            tree_size(KeySlice::empty(), root, &store).await.unwrap(),
             store.len()
         );
         let pre_split_root_hash = root;
@@ -346,16 +346,20 @@ mod tests {
         let s = tree.range_split(proof).unwrap();
         check_delta_invariants(s.right.root_hash, &s.delta);
         store.apply_store_delta(s.left.root_hash, s.delta);
-        check_tree_invariants(&TestHasher {}, &s.left.range, s.left.root_hash, &store);
-        check_tree_invariants(&TestHasher {}, &s.right.range, s.right.root_hash, &store);
+        check_tree_invariants(&TestHasher {}, &s.left.range, s.left.root_hash, &store).await;
+        check_tree_invariants(&TestHasher {}, &s.right.range, s.right.root_hash, &store).await;
         assert_eq!(
-            tree_size(KeySlice::empty(), s.left.root_hash, &store).unwrap()
-                + tree_size(KeySlice::empty(), s.right.root_hash, &store).unwrap(),
+            tree_size(KeySlice::empty(), s.left.root_hash, &store)
+                .await
+                .unwrap()
+                + tree_size(KeySlice::empty(), s.right.root_hash, &store)
+                    .await
+                    .unwrap(),
             store.len()
         );
 
-        let (mut tree_l, mut root_l, mut store_l) = new_empty_tree(&s.left.range);
-        let (mut tree_r, mut root_r, mut store_r) = new_empty_tree(&s.right.range);
+        let (mut tree_l, mut root_l, mut store_l) = new_empty_tree(&s.left.range).await;
+        let (mut tree_r, mut root_r, mut store_r) = new_empty_tree(&s.right.range).await;
         for k in keys {
             if k < split {
                 root_l = tree_insert(
@@ -381,41 +385,67 @@ mod tests {
                 .await;
             }
         }
-        check_tree_invariants(&TestHasher {}, &s.left.range, root_l, &store_l);
-        check_tree_invariants(&TestHasher {}, &s.right.range, root_r, &store_r);
+        check_tree_invariants(&TestHasher {}, &s.left.range, root_l, &store_l).await;
+        check_tree_invariants(&TestHasher {}, &s.right.range, root_r, &store_r).await;
 
         if root_l != s.left.root_hash {
-            dot::tree_to_dot(root_l, &store_l, "expected_left.dot").unwrap();
-            dot::tree_to_dot(s.left.root_hash, &store, "actual_left.dot").unwrap();
-            dot::tree_to_dot(s.right.root_hash, &store, "actual_right.dot").unwrap();
-            dot::tree_to_dot(root, &pre_split_store, "before_split.dot").unwrap();
+            dot::tree_to_dot(root_l, &store_l, "expected_left.dot")
+                .await
+                .unwrap();
+            dot::tree_to_dot(s.left.root_hash, &store, "actual_left.dot")
+                .await
+                .unwrap();
+            dot::tree_to_dot(s.right.root_hash, &store, "actual_right.dot")
+                .await
+                .unwrap();
+            dot::tree_to_dot(root, &pre_split_store, "before_split.dot")
+                .await
+                .unwrap();
             panic!("left tree after split at {split:?} not as expected, see expected_left.dot & actual_left.dot for details");
         }
         if root_r != s.right.root_hash {
-            dot::tree_to_dot(root_r, &store_r, "expected_right.dot").unwrap();
-            dot::tree_to_dot(s.left.root_hash, &store, "actual_left.dot").unwrap();
-            dot::tree_to_dot(s.right.root_hash, &store, "actual_right.dot").unwrap();
-            dot::tree_to_dot(root, &pre_split_store, "before_split.dot").unwrap();
+            dot::tree_to_dot(root_r, &store_r, "expected_right.dot")
+                .await
+                .unwrap();
+            dot::tree_to_dot(s.left.root_hash, &store, "actual_left.dot")
+                .await
+                .unwrap();
+            dot::tree_to_dot(s.right.root_hash, &store, "actual_right.dot")
+                .await
+                .unwrap();
+            dot::tree_to_dot(root, &pre_split_store, "before_split.dot")
+                .await
+                .unwrap();
             panic!("right tree after split at {split:?} not as expected, see expected_right.dot & actual_right.dot for details");
         }
 
-        let left_proof = read_tree_side(&store_l, &s.left.range, &root_l, Dir::Right).unwrap();
-        let right_proof = read_tree_side(&store_r, &s.right.range, &root_r, Dir::Left).unwrap();
+        let left_proof = read_tree_side(&store_l, &s.left.range, &root_l, Dir::Right)
+            .await
+            .unwrap();
+        let right_proof = read_tree_side(&store_r, &s.right.range, &root_r, Dir::Left)
+            .await
+            .unwrap();
 
         let merged = tree_l.merge(left_proof, right_proof).unwrap();
         store_l.add_from_other_store(store_r);
         store_l.apply_store_delta(merged.root_hash, merged.delta);
         if pre_split_root_hash != merged.root_hash {
-            dot::tree_to_dot(pre_split_root_hash, &pre_split_store, "before_split.dot").unwrap();
-            dot::tree_to_dot(merged.root_hash, &store_l, "after_merge.dot").unwrap();
+            dot::tree_to_dot(pre_split_root_hash, &pre_split_store, "before_split.dot")
+                .await
+                .unwrap();
+            dot::tree_to_dot(merged.root_hash, &store_l, "after_merge.dot")
+                .await
+                .unwrap();
             assert_eq!(
                 pre_split_root_hash, merged.root_hash,
                 "tree after split then merge should be the same as before the initial split"
             );
         }
-        check_tree_invariants(&tree_r.hasher, &merged.range, merged.root_hash, &store_l);
+        check_tree_invariants(&tree_r.hasher, &merged.range, merged.root_hash, &store_l).await;
         assert_eq!(
-            tree_size(KeySlice::empty(), merged.root_hash, &store_l).unwrap(),
+            tree_size(KeySlice::empty(), merged.root_hash, &store_l)
+                .await
+                .unwrap(),
             store_l.len()
         );
     }

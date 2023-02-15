@@ -291,11 +291,11 @@ pub enum MergeError {
     NotAdjacentRanges,
 }
 
-pub trait HashOutput: Hash + Copy + Eq + Debug + Sync {
+pub trait HashOutput: Hash + Copy + Eq + Debug + Sync + Send {
     fn as_u8(&self) -> &[u8];
 }
 
-pub trait NodeHasher<HO> {
+pub trait NodeHasher<HO>: Sync {
     fn calc_hash(&self, parts: &[&[u8]]) -> HO;
 }
 
@@ -333,6 +333,7 @@ mod dot;
 
 #[cfg(test)]
 mod tests {
+    use async_recursion::async_recursion;
     use async_trait::async_trait;
 
     use super::{
@@ -364,14 +365,14 @@ mod tests {
     #[tokio::test]
     async fn get_nothing() {
         let range = OwnedRange::full();
-        let (tree, root, store) = new_empty_tree(&range);
+        let (tree, root, store) = new_empty_tree(&range).await;
         let p = read(&store, &range, &root, &rec_id(&[1, 2, 3]))
             .await
             .unwrap();
         assert_eq!(1, p.path.len());
         assert_eq!(root, p.path[0].hash);
         assert!(p.leaf.is_none());
-        check_tree_invariants(&tree.hasher, &range, root, &store);
+        check_tree_invariants(&tree.hasher, &range, root, &store).await;
     }
 
     #[test]
@@ -469,7 +470,7 @@ mod tests {
         r
     }
 
-    pub fn new_empty_tree(
+    pub async fn new_empty_tree(
         range: &OwnedRange,
     ) -> (Tree<TestHasher, TestHash>, TestHash, MemStore<TestHash>) {
         let h = TestHasher {};
@@ -477,7 +478,7 @@ mod tests {
         let mut store = MemStore::new();
         store.apply_store_delta(root_hash, delta);
         assert_eq!(1, store.nodes.len());
-        check_tree_invariants(&h, range, root_hash, &store);
+        check_tree_invariants(&h, range, root_hash, &store).await;
         let t = Tree::with_existing_root(h, root_hash);
         (t, root_hash, store)
     }
@@ -504,25 +505,26 @@ mod tests {
             }
         };
         if !skip_tree_check {
-            check_tree_invariants(&tree.hasher, range, new_root, store);
+            check_tree_invariants(&tree.hasher, range, new_root, store).await;
         }
         new_root
     }
 
-    pub fn tree_size<HO: HashOutput>(
+    #[async_recursion]
+    pub async fn tree_size<HO: HashOutput>(
         prefix: &KeySlice,
         root: HO,
         store: &impl TreeStoreReader<HO>,
     ) -> Result<usize, TreeStoreError> {
-        match store.fetch(prefix.to_bitvec(), root)? {
+        match store.fetch(prefix.to_bitvec(), root).await? {
             Node::Interior(int) => {
                 let lc = match &int.left {
                     None => 0,
-                    Some(b) => tree_size(&concat(prefix, &b.prefix), b.hash, store)?,
+                    Some(b) => tree_size(&concat(prefix, &b.prefix), b.hash, store).await?,
                 };
                 let rc = match &int.right {
                     None => 0,
-                    Some(b) => tree_size(&concat(prefix, &b.prefix), b.hash, store)?,
+                    Some(b) => tree_size(&concat(prefix, &b.prefix), b.hash, store).await?,
                 };
                 Ok(lc + rc + 1)
             }
@@ -535,16 +537,18 @@ mod tests {
     //      2. the left branch prefix always starts with a 0
     //      3. the right branch prefix always starts with a 1
     //      5. the leaf -> root hashes are verified.
-    pub fn check_tree_invariants<HO: HashOutput>(
+    pub async fn check_tree_invariants<HO: HashOutput>(
         hasher: &impl NodeHasher<HO>,
         range: &OwnedRange,
         root: HO,
         store: &impl TreeStoreReader<HO>,
     ) {
-        let root_hash = check_tree_node_invariants(hasher, range, true, root, KeyVec::new(), store);
+        let root_hash =
+            check_tree_node_invariants(hasher, range, true, root, KeyVec::new(), store).await;
         assert_eq!(root_hash, root);
     }
-    fn check_tree_node_invariants<HO: HashOutput>(
+    #[async_recursion]
+    async fn check_tree_node_invariants<HO: HashOutput>(
         hasher: &impl NodeHasher<HO>,
         range: &OwnedRange,
         is_at_root: bool,
@@ -554,6 +558,7 @@ mod tests {
     ) -> HO {
         match store
             .fetch(path.clone(), node)
+            .await
             .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
         {
             Node::Leaf(l) => {
@@ -570,7 +575,8 @@ mod tests {
                         let new_path = concat(&path, &b.prefix);
                         let exp_child_hash = check_tree_node_invariants(
                             hasher, range, false, b.hash, new_path, store,
-                        );
+                        )
+                        .await;
                         assert_eq!(exp_child_hash, b.hash);
                     }
                 }
@@ -582,7 +588,8 @@ mod tests {
                         let new_path = concat(&path, &b.prefix);
                         let exp_child_hash = check_tree_node_invariants(
                             hasher, range, false, b.hash, new_path, store,
-                        );
+                        )
+                        .await;
                         assert_eq!(exp_child_hash, b.hash);
                     }
                 }
@@ -682,7 +689,7 @@ mod tests {
                 .map(|i| i.1.clone())
                 .collect())
         }
-        fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError> {
+        async fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError> {
             let k = StoreKey::new(prefix, hash);
             match self.nodes.get(&k.into_bytes()) {
                 Some(n) => Ok(n.clone()),

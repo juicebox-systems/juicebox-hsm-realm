@@ -339,7 +339,7 @@ mod tests {
     #[tokio::test]
     async fn verify() {
         let range = OwnedRange::full();
-        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        let (mut tree, mut root, mut store) = new_empty_tree(&range).await;
         let rid1 = rec_id(&[1]);
         let rid5 = rec_id(&[5]);
         root = tree_insert(
@@ -400,7 +400,7 @@ mod tests {
     #[tokio::test]
     async fn stale_proof() {
         let range = OwnedRange::full();
-        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        let (mut tree, mut root, mut store) = new_empty_tree(&range).await;
         root = tree_insert(
             &mut tree,
             &mut store,

@@ -146,10 +146,10 @@ pub fn all_store_key_starts(k: &RecordId) -> Vec<StoreKeyStart> {
 }
 
 #[async_trait]
-pub trait TreeStoreReader<HO: HashOutput> {
+pub trait TreeStoreReader<HO: HashOutput>: Sync {
     async fn range(&self, key: StoreKeyStart) -> Result<Vec<Node<HO>>, TreeStoreError>;
 
-    fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError>;
+    async fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError>;
 }
 
 pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
@@ -209,7 +209,7 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
 
 // Reads down the tree from the root always following one side until a leaf is reached.
 // Needed for merge.
-pub fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
+pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     store: &R,
     range: &OwnedRange,
     root_hash: &HO,
@@ -219,7 +219,7 @@ pub fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     let mut key = KeyVec::with_capacity(RecordId::num_bits());
     let mut current = *root_hash;
     loop {
-        match store.fetch(key.clone(), current)? {
+        match store.fetch(key.clone(), current).await? {
             Node::Interior(int) => match int.branch(side) {
                 None => match int.branch(side.opposite()) {
                     None => {

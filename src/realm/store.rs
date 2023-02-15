@@ -279,7 +279,9 @@ impl Store {
                     &request.partition.range,
                     &request.partition.root_hash,
                     request.dir,
-                ) {
+                )
+                .await
+                {
                     Ok(proof) => GetTreeEdgeProofResponse::Ok { proof },
                     Err(TreeStoreError::MissingNode) => GetTreeEdgeProofResponse::StoreMissingNode,
                 }

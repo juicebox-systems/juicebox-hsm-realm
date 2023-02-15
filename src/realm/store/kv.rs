@@ -61,7 +61,11 @@ impl<'a> TreeStoreReader<DataHash> for RealmTreeStoreReader<'a> {
             .map(|i| i.1.clone())
             .collect())
     }
-    fn fetch(&self, prefix: KeyVec, hash: DataHash) -> Result<Node<DataHash>, TreeStoreError> {
+    async fn fetch(
+        &self,
+        prefix: KeyVec,
+        hash: DataHash,
+    ) -> Result<Node<DataHash>, TreeStoreError> {
         let k = StoreKey::new(prefix, hash);
         match self.nodes.get(&k.into_bytes()) {
             Some(n) => Ok(n.clone()),
