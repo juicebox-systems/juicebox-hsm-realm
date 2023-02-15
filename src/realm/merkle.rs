@@ -15,6 +15,7 @@ use self::{
 use super::hsm::types::{OwnedRange, RecordId};
 
 pub mod agent;
+mod base128;
 mod insert;
 mod merge;
 mod overlay;
