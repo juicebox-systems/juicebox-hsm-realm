@@ -113,6 +113,11 @@ impl StoreKeyStart {
                 c[i] = 0;
             }
         }
+        // The encoding of the recordId prefix means that its impossible to have
+        // a StoreKeyStart value that leads with 0xFF, and so this is unreachable.
+        // The base128 encoding of the prefix leaves the MSB clear. For the empty
+        // prefix the encoding will have the single byte of the terminator, which'll
+        // have the value 128.
         unreachable!()
     }
     pub fn into_bytes(self) -> Vec<u8> {
