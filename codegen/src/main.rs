@@ -33,6 +33,7 @@ fn main() {
         .compile(
             &[
                 input.join("google/bigtable/v2/bigtable.proto"),
+                input.join("google/bigtable/admin/v2/bigtable_table_admin.proto"),
                 input.join("google/rpc/code.proto"),
             ],
             &[input], // root location to search proto dependencies
