@@ -480,7 +480,7 @@ impl Agent {
             group = ?new_realm_response.group,
             "appending log entry for new realm"
         );
-        assert_eq!(new_realm_response.entry.index, LogIndex(1));
+        assert_eq!(new_realm_response.entry.index, LogIndex::FIRST);
         let response = match store
             .send(AppendRequest {
                 realm: new_realm_response.realm,
@@ -506,7 +506,7 @@ impl Agent {
     }
 
     fn finish_new_group(&self, realm: RealmId, group: GroupId) {
-        let index = LogIndex(1);
+        let index = LogIndex::FIRST;
         self.start_watching(realm, group, index);
         let existing = self.0.state.lock().unwrap().leader.insert(
             (realm, group),
@@ -576,7 +576,7 @@ impl Agent {
             group = ?new_group_response.group,
             "appending log entry for new group"
         );
-        assert_eq!(new_group_response.entry.index, LogIndex(1));
+        assert_eq!(new_group_response.entry.index, LogIndex::FIRST);
         match store
             .send(AppendRequest {
                 realm,
@@ -622,7 +622,7 @@ impl Agent {
             Ok(HsmResponse::InvalidConfiguration) => Ok(Response::InvalidConfiguration),
             Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
             Ok(HsmResponse::Ok) => {
-                self.start_watching(request.realm, request.group, LogIndex(1));
+                self.start_watching(request.realm, request.group, LogIndex::FIRST);
                 Ok(Response::Ok)
             }
         }

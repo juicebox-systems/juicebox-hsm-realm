@@ -155,7 +155,7 @@ impl Store {
             }
 
             Vacant(bucket) => {
-                if request.entry.index == LogIndex(1) {
+                if request.entry.index == LogIndex::FIRST {
                     if let Some(delta) = request.delta {
                         assert!(request.entry.partition.is_some());
                         store_state.kv.apply_store_delta(&request.realm, delta);
@@ -183,7 +183,9 @@ impl Store {
 
         let store_state = self.0.state.lock().await;
         let response = match store_state.groups.get(&(request.realm, request.group)) {
-            None => Response::Discarded { start: LogIndex(1) },
+            None => Response::Discarded {
+                start: LogIndex::FIRST,
+            },
 
             Some(state) => {
                 let first = state.log.first().unwrap();

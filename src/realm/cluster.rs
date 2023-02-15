@@ -168,7 +168,7 @@ async fn wait_for_commit(
             ..
         }) = group
         {
-            if *committed >= LogIndex(1) {
+            if *committed >= LogIndex::FIRST {
                 info!(?realm, ?group, ?committed, "first log entry committed");
                 return Ok(());
             }

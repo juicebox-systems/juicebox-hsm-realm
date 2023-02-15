@@ -97,6 +97,8 @@ impl fmt::Debug for RecordId {
 pub struct LogIndex(pub u64);
 
 impl LogIndex {
+    pub const FIRST: Self = Self(1);
+
     pub fn next(&self) -> Self {
         Self(self.0.checked_add(1).unwrap())
     }
