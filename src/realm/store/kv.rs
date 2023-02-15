@@ -1,6 +1,6 @@
 // We don't have a KV store integrated yet, so this takes its place.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use tracing::trace;
 
@@ -10,10 +10,8 @@ use super::super::merkle::{
     KeyVec,
 };
 
-type Row = (StoreKey, Node<DataHash>);
-
 pub struct MemStore {
-    realms: HashMap<RealmId, Vec<Row>>,
+    realms: HashMap<RealmId, BTreeMap<Vec<u8>, Node<DataHash>>>,
 }
 impl MemStore {
     pub fn new() -> MemStore {
@@ -23,20 +21,15 @@ impl MemStore {
     }
     pub fn apply_store_delta(&mut self, realm: &RealmId, d: StoreDelta<DataHash>) {
         trace!(store =?self, ?realm, delta =?d);
-        let nodes = self.realms.entry(*realm).or_insert_with(Vec::new);
+        let nodes = self.realms.entry(*realm).or_insert_with(BTreeMap::new);
         for n in d.add {
             assert_eq!(n.0.hash, n.1.hash());
             let enc = n.0.store_key();
-            match nodes.binary_search_by(|i| i.0.cmp(&enc)) {
-                Ok(idx) => nodes[idx] = (enc, n.1),
-                Err(idx) => nodes.insert(idx, (enc, n.1)),
-            }
+            nodes.insert(enc.into_bytes(), n.1);
         }
         for r in d.remove {
-            let enc = r.store_key();
-            if let Ok(idx) = nodes.binary_search_by(|i| i.0.cmp(&enc)) {
-                nodes.remove(idx);
-            }
+            let enc = r.store_key().into_bytes();
+            nodes.remove(&enc);
         }
     }
 
@@ -54,34 +47,23 @@ impl std::fmt::Debug for MemStore {
 }
 
 struct RealmTreeStoreReader<'a> {
-    nodes: &'a Vec<Row>,
+    nodes: &'a BTreeMap<Vec<u8>, Node<DataHash>>,
 }
 impl<'a> TreeStoreReader<DataHash> for RealmTreeStoreReader<'a> {
     fn range(&self, key_start: &StoreKeyStart) -> Result<Vec<Node<DataHash>>, TreeStoreError> {
-        let mut start = match self
+        let start = key_start.clone();
+        let end = key_start.next();
+        Ok(self
             .nodes
-            .binary_search_by(|item| item.0.cmp_start(key_start))
-        {
-            Ok(idx) => idx,
-            Err(idx) => idx,
-        };
-        while start > 0 && self.nodes[start - 1].0.starts_with(key_start) {
-            start -= 1;
-        }
-        let mut end = start;
-        while end < self.nodes.len() - 1 && self.nodes[end + 1].0.starts_with(key_start) {
-            end += 1;
-        }
-        Ok(self.nodes[start..=end]
-            .iter()
+            .range(start.into_bytes()..end.into_bytes())
             .map(|i| i.1.clone())
             .collect())
     }
     fn fetch(&self, prefix: KeyVec, hash: DataHash) -> Result<Node<DataHash>, TreeStoreError> {
         let k = StoreKey::new(prefix, hash);
-        match self.nodes.binary_search_by(|item| item.0.cmp(&k)) {
-            Ok(idx) => Ok(self.nodes[idx].1.clone()),
-            Err(_) => Err(TreeStoreError::MissingNode),
+        match self.nodes.get(&k.into_bytes()) {
+            Some(n) => Ok(n.clone()),
+            None => Err(TreeStoreError::MissingNode),
         }
     }
 }

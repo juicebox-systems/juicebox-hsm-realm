@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::collections::HashSet;
 
 use super::super::hsm::types::RecordId;
@@ -96,16 +95,30 @@ impl StoreKey {
         out.extend(hash.as_u8());
         StoreKey(out)
     }
-    pub fn starts_with(&self, s: &StoreKeyStart) -> bool {
-        self.0.starts_with(&s.0)
-    }
-    pub fn cmp_start(&self, o: &StoreKeyStart) -> Ordering {
-        self.0.cmp(&o.0)
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
     }
 }
 // The beginning part of a StoreKey
+#[derive(Clone)]
 pub struct StoreKeyStart(Vec<u8>);
-
+impl StoreKeyStart {
+    pub fn next(&self) -> Self {
+        let mut c = self.0.clone();
+        for i in (0..c.len()).rev() {
+            if c[i] < 255 {
+                c[i] += 1;
+                return StoreKeyStart(c);
+            } else {
+                c[i] = 0;
+            }
+        }
+        unreachable!()
+    }
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+}
 // Encode the prefix and delimiter into the supplied buffer.
 fn encode_prefix_into(mut prefix: KeyVec, dest: &mut Vec<u8>) {
     prefix.set_uninitialized(false);
