@@ -5,9 +5,9 @@ use std::collections::{BTreeMap, HashMap};
 use async_trait::async_trait;
 use tracing::trace;
 
-use super::super::hsm::types::{DataHash, RealmId};
+use super::super::hsm::types::{DataHash, RealmId, RecordId};
 use super::super::merkle::{
-    agent::{Node, StoreDelta, StoreKey, StoreKeyStart, TreeStoreError, TreeStoreReader},
+    agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError, TreeStoreReader},
     KeyVec,
 };
 
@@ -52,14 +52,20 @@ struct RealmTreeStoreReader<'a> {
 }
 #[async_trait]
 impl<'a> TreeStoreReader<DataHash> for RealmTreeStoreReader<'a> {
-    async fn range(&self, key_start: StoreKeyStart) -> Result<Vec<Node<DataHash>>, TreeStoreError> {
-        let start = key_start.clone();
-        let end = key_start.next();
-        Ok(self
-            .nodes
-            .range(start.into_bytes()..end.into_bytes())
-            .map(|i| i.1.clone())
-            .collect())
+    async fn path_lookup(
+        &self,
+        record_id: RecordId,
+    ) -> Result<HashMap<DataHash, Node<DataHash>>, TreeStoreError> {
+        let mut results = HashMap::new();
+        for start in all_store_key_starts(&record_id) {
+            let end = start.next();
+            results.extend(
+                self.nodes
+                    .range(start.into_bytes()..end.into_bytes())
+                    .map(|i| (i.1.hash(), i.1.clone())),
+            );
+        }
+        Ok(results)
     }
     async fn fetch(
         &self,

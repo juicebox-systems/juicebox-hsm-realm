@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::super::hsm::types::RecordId;
 use super::{
@@ -147,7 +147,10 @@ pub fn all_store_key_starts(k: &RecordId) -> Vec<StoreKeyStart> {
 
 #[async_trait]
 pub trait TreeStoreReader<HO: HashOutput>: Sync {
-    async fn range(&self, key: StoreKeyStart) -> Result<Vec<Node<HO>>, TreeStoreError>;
+    async fn path_lookup(
+        &self,
+        record_id: RecordId,
+    ) -> Result<HashMap<HO, Node<HO>>, TreeStoreError>;
 
     async fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError>;
 }
@@ -158,27 +161,13 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
     root_hash: &HO,
     k: &RecordId,
 ) -> Result<ReadProof<HO>, TreeStoreError> {
-    let prefixes = all_store_key_starts(k);
-    async fn find<R: TreeStoreReader<HO>, HO: HashOutput>(
-        store: &R,
-        prefixes: &[StoreKeyStart],
-        prefix_len: usize,
-        hash: HO,
-    ) -> Result<Node<HO>, TreeStoreError> {
-        let k = prefixes[prefix_len].clone();
-        store
-            .range(k)
-            .await?
-            .into_iter()
-            .find(|n| n.hash() == hash)
-            .ok_or(TreeStoreError::MissingNode)
-    }
-    let root = match find(store, &prefixes, 0, *root_hash).await? {
-        Node::Interior(int) => int,
-        Node::Leaf(_) => panic!("found unexpected leaf node"),
+    let mut nodes = store.path_lookup(k.clone()).await?;
+    let root = match nodes.remove(root_hash) {
+        None => return Err(TreeStoreError::MissingNode),
+        Some(Node::Leaf(_)) => panic!("found unexpected leaf node"),
+        Some(Node::Interior(int)) => int,
     };
     let mut res = ReadProof::new(k.clone(), range.clone(), root);
-    let mut prefix_len = 0;
     let mut key = KeySlice::from_slice(&k.0);
     loop {
         let n = res.path.last().unwrap();
@@ -190,13 +179,13 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
                     return Ok(res);
                 }
                 key = &key[b.prefix.len()..];
-                prefix_len += b.prefix.len();
-                match find(store, &prefixes, prefix_len, b.hash).await? {
-                    Node::Interior(int) => {
+                match nodes.remove(&b.hash) {
+                    None => return Err(TreeStoreError::MissingNode),
+                    Some(Node::Interior(int)) => {
                         res.path.push(int);
                         continue;
                     }
-                    Node::Leaf(v) => {
+                    Some(Node::Leaf(v)) => {
                         assert!(key.is_empty());
                         res.leaf = Some(v);
                         return Ok(res);
