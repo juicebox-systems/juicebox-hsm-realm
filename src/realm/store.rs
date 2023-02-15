@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use futures::lock::Mutex;
 use futures::Future;
 use http_body_util::Full;
 use hyper::server::conn::http1;
@@ -9,7 +10,7 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tracing::{trace, warn};
@@ -135,7 +136,7 @@ impl Store {
 
     async fn handle_append(&self, request: AppendRequest) -> Result<AppendResponse, HandlerError> {
         trace!(?request);
-        let mut store_state_lock = self.0.state.lock().unwrap();
+        let mut store_state_lock = self.0.state.lock().await;
         let store_state: &mut State = &mut store_state_lock;
 
         let response = match store_state.groups.entry((request.realm, request.group)) {
@@ -180,7 +181,7 @@ impl Store {
         type Response = ReadEntryResponse;
         trace!(?request);
 
-        let store_state = self.0.state.lock().unwrap();
+        let store_state = self.0.state.lock().await;
         let response = match store_state.groups.get(&(request.realm, request.group)) {
             None => Response::Discarded { start: LogIndex(1) },
 
@@ -206,7 +207,7 @@ impl Store {
         request: ReadLatestRequest,
     ) -> Result<ReadLatestResponse, HandlerError> {
         trace!(?request);
-        let store_state = self.0.state.lock().unwrap();
+        let store_state = self.0.state.lock().await;
         let response = match store_state.groups.get(&(request.realm, request.group)) {
             None => ReadLatestResponse::None,
 
@@ -226,7 +227,7 @@ impl Store {
         request: GetRecordProofRequest,
     ) -> Result<GetRecordProofResponse, HandlerError> {
         trace!(?request);
-        let store_state = self.0.state.lock().unwrap();
+        let store_state = self.0.state.lock().await;
         let response = match store_state.groups.get(&(request.realm, request.group)) {
             None => GetRecordProofResponse::UnknownGroup,
 
@@ -243,7 +244,9 @@ impl Store {
                                 &partition.range,
                                 &partition.root_hash,
                                 &request.record,
-                            ) {
+                            )
+                            .await
+                            {
                                 Ok(proof) => GetRecordProofResponse::Ok {
                                     proof,
                                     index: last.index,
@@ -266,7 +269,7 @@ impl Store {
         request: GetTreeEdgeProofRequest,
     ) -> Result<GetTreeEdgeProofResponse, HandlerError> {
         trace!(?request);
-        let store_state = self.0.state.lock().unwrap();
+        let store_state = self.0.state.lock().await;
         let response = match store_state.groups.get(&(request.realm, request.group)) {
             None => GetTreeEdgeProofResponse::UnknownGroup,
 
@@ -291,7 +294,7 @@ impl Store {
         request: SetAddressRequest,
     ) -> Result<SetAddressResponse, HandlerError> {
         trace!(?request);
-        let mut store_state = self.0.state.lock().unwrap();
+        let mut store_state = self.0.state.lock().await;
         store_state.addresses.insert(request.hsm, request.address);
         let response = SetAddressResponse::Ok;
         trace!(?response);
@@ -303,7 +306,7 @@ impl Store {
         request: GetAddressesRequest,
     ) -> Result<GetAddressesResponse, HandlerError> {
         trace!(?request);
-        let store_state = self.0.state.lock().unwrap();
+        let store_state = self.0.state.lock().await;
         let response = GetAddressesResponse(
             store_state
                 .addresses

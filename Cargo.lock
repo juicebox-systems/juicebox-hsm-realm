@@ -969,6 +969,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
+ "async-trait",
  "bitvec",
  "bytes",
  "criterion",

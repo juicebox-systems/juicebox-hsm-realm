@@ -146,11 +146,13 @@ mod tests {
         KeySlice, KeyVec, NodeKey,
     };
 
-    #[test]
-    fn first_insert() {
+    #[tokio::test]
+    async fn first_insert() {
         let range = OwnedRange::full();
         let (mut tree, root, mut store) = new_empty_tree(&range);
-        let rp = read(&store, &range, &root, &rec_id(&[1, 2, 3])).unwrap();
+        let rp = read(&store, &range, &root, &rec_id(&[1, 2, 3]))
+            .await
+            .unwrap();
         let (new_root, d) = tree
             .insert(tree.latest_proof(rp).unwrap(), [42].to_vec())
             .unwrap();
@@ -171,14 +173,16 @@ mod tests {
         store.apply_store_delta(new_root, d);
         check_tree_invariants(&tree.hasher, &range, new_root, &store);
 
-        let p = read(&store, &range, &new_root, &rec_id(&[1, 2, 3])).unwrap();
+        let p = read(&store, &range, &new_root, &rec_id(&[1, 2, 3]))
+            .await
+            .unwrap();
         assert_eq!([42].to_vec(), p.leaf.as_ref().unwrap().value);
         assert_eq!(1, p.path.len());
         assert_eq!(new_root, p.path[0].hash);
     }
 
-    #[test]
-    fn new_records() {
+    #[tokio::test]
+    async fn new_records() {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         root = tree_insert(
@@ -189,7 +193,8 @@ mod tests {
             &rec_id(&[2, 6, 8]),
             [42].to_vec(),
             true,
-        );
+        )
+        .await;
         root = tree_insert(
             &mut tree,
             &mut store,
@@ -198,7 +203,8 @@ mod tests {
             &rec_id(&[4, 4, 6]),
             [43].to_vec(),
             true,
-        );
+        )
+        .await;
         root = tree_insert(
             &mut tree,
             &mut store,
@@ -207,9 +213,12 @@ mod tests {
             &rec_id(&[0, 2, 3]),
             [44].to_vec(),
             false,
-        );
+        )
+        .await;
 
-        let p = read(&store, &range, &root, &rec_id(&[2, 6, 8])).unwrap();
+        let p = read(&store, &range, &root, &rec_id(&[2, 6, 8]))
+            .await
+            .unwrap();
         assert_eq!([42].to_vec(), p.leaf.unwrap().value);
         assert_eq!(3, p.path.len());
         assert_eq!(root, p.path[0].hash);
@@ -220,8 +229,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn update_existing() {
+    #[tokio::test]
+    async fn update_existing() {
         let range = OwnedRange {
             start: rec_id(&[1]),
             end: rec_id(&[6]),
@@ -235,7 +244,8 @@ mod tests {
             &rec_id(&[2, 6, 8]),
             [42].to_vec(),
             false,
-        );
+        )
+        .await;
         root = tree_insert(
             &mut tree,
             &mut store,
@@ -244,7 +254,8 @@ mod tests {
             &rec_id(&[4, 4, 6]),
             [43].to_vec(),
             false,
-        );
+        )
+        .await;
         // now do a read/write for an existing key
         root = tree_insert(
             &mut tree,
@@ -254,9 +265,12 @@ mod tests {
             &rec_id(&[4, 4, 6]),
             [44].to_vec(),
             false,
-        );
+        )
+        .await;
 
-        let rp = read(&store, &range, &root, &rec_id(&[4, 4, 6])).unwrap();
+        let rp = read(&store, &range, &root, &rec_id(&[4, 4, 6]))
+            .await
+            .unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
         check_tree_invariants(&tree.hasher, &range, root, &store);
 
@@ -269,8 +283,11 @@ mod tests {
             &rec_id(&[4, 4, 6]),
             [44].to_vec(),
             false,
-        );
-        let rp = read(&store, &range, &root, &rec_id(&[4, 4, 6])).unwrap();
+        )
+        .await;
+        let rp = read(&store, &range, &root, &rec_id(&[4, 4, 6]))
+            .await
+            .unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
         check_tree_invariants(&tree.hasher, &range, root, &store);
         assert_eq!(
@@ -279,8 +296,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn lots() {
+    #[tokio::test]
+    async fn lots() {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         let seed = [0u8; 32];
@@ -299,12 +316,13 @@ mod tests {
                 &key,
                 [i].to_vec(),
                 true,
-            );
+            )
+            .await;
             expected.insert(key, i);
 
             // verify we can read all the key/values we've stored.
             for (k, v) in expected.iter() {
-                let p = read(&store, &range, &root, k).unwrap();
+                let p = read(&store, &range, &root, k).await.unwrap();
                 assert_eq!([*v].to_vec(), p.leaf.unwrap().value);
             }
             // if i == 16 {
@@ -318,8 +336,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn pipeline() {
+    #[tokio::test]
+    async fn pipeline() {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         let rid1 = rec_id(&[1]);
@@ -333,10 +351,11 @@ mod tests {
             &rid1,
             [1].to_vec(),
             false,
-        );
-        let rp_1 = read(&store, &range, &root, &rid1).unwrap();
-        let rp_2 = read(&store, &range, &root, &rid2).unwrap();
-        let rp_3 = read(&store, &range, &root, &rid3).unwrap();
+        )
+        .await;
+        let rp_1 = read(&store, &range, &root, &rid1).await.unwrap();
+        let rp_2 = read(&store, &range, &root, &rid2).await.unwrap();
+        let rp_3 = read(&store, &range, &root, &rid3).await.unwrap();
         let (root1, d1) = tree
             .insert(tree.latest_proof(rp_1).unwrap(), [11].to_vec())
             .unwrap();
@@ -367,11 +386,11 @@ mod tests {
             store.len()
         );
 
-        let rp_1 = read(&store, &range, &root3, &rid1).unwrap();
+        let rp_1 = read(&store, &range, &root3, &rid1).await.unwrap();
         assert_eq!([11].to_vec(), rp_1.leaf.unwrap().value);
-        let rp_2 = read(&store, &range, &root3, &rid2).unwrap();
+        let rp_2 = read(&store, &range, &root3, &rid2).await.unwrap();
         assert_eq!([12].to_vec(), rp_2.leaf.unwrap().value);
-        let rp_3 = read(&store, &range, &root3, &rid3).unwrap();
+        let rp_3 = read(&store, &range, &root3, &rid3).await.unwrap();
         assert_eq!([13].to_vec(), rp_3.leaf.unwrap().value);
     }
 }

@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use async_trait::async_trait;
 use tracing::trace;
 
 use super::super::hsm::types::{DataHash, RealmId};
@@ -49,8 +50,9 @@ impl std::fmt::Debug for MemStore {
 struct RealmTreeStoreReader<'a> {
     nodes: &'a BTreeMap<Vec<u8>, Node<DataHash>>,
 }
+#[async_trait]
 impl<'a> TreeStoreReader<DataHash> for RealmTreeStoreReader<'a> {
-    fn range(&self, key_start: &StoreKeyStart) -> Result<Vec<Node<DataHash>>, TreeStoreError> {
+    async fn range(&self, key_start: StoreKeyStart) -> Result<Vec<Node<DataHash>>, TreeStoreError> {
         let start = key_start.clone();
         let end = key_start.next();
         Ok(self

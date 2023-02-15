@@ -291,7 +291,7 @@ pub enum MergeError {
     NotAdjacentRanges,
 }
 
-pub trait HashOutput: Hash + Copy + Eq + Debug {
+pub trait HashOutput: Hash + Copy + Eq + Debug + Sync {
     fn as_u8(&self) -> &[u8];
 }
 
@@ -333,6 +333,8 @@ mod dot;
 
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
+
     use super::{
         agent::{read, Node, StoreKey, StoreKeyStart, TreeStoreError, TreeStoreReader},
         *,
@@ -359,11 +361,13 @@ mod tests {
         assert!(r > k_slice);
     }
 
-    #[test]
-    fn get_nothing() {
+    #[tokio::test]
+    async fn get_nothing() {
         let range = OwnedRange::full();
         let (tree, root, store) = new_empty_tree(&range);
-        let p = read(&store, &range, &root, &rec_id(&[1, 2, 3])).unwrap();
+        let p = read(&store, &range, &root, &rec_id(&[1, 2, 3]))
+            .await
+            .unwrap();
         assert_eq!(1, p.path.len());
         assert_eq!(root, p.path[0].hash);
         assert!(p.leaf.is_none());
@@ -479,7 +483,7 @@ mod tests {
     }
 
     // helper to insert a value into the tree and update the store
-    pub fn tree_insert(
+    pub async fn tree_insert(
         tree: &mut Tree<TestHasher, TestHash>,
         store: &mut MemStore<TestHash>,
         range: &OwnedRange,
@@ -490,7 +494,7 @@ mod tests {
     ) -> TestHash {
         // spot stupid test bugs
         assert!(range.contains(key), "test bug, key not inside key range");
-        let rp = read(store, range, &root, key).unwrap();
+        let rp = read(store, range, &root, key).await.unwrap();
         let vp = tree.latest_proof(rp).unwrap();
         let new_root = match tree.insert(vp, val).unwrap() {
             (root, None) => root,
@@ -667,8 +671,9 @@ mod tests {
             }
         }
     }
+    #[async_trait]
     impl<HO: HashOutput> TreeStoreReader<HO> for MemStore<HO> {
-        fn range(&self, key_start: &StoreKeyStart) -> Result<Vec<Node<HO>>, TreeStoreError> {
+        async fn range(&self, key_start: StoreKeyStart) -> Result<Vec<Node<HO>>, TreeStoreError> {
             let start = key_start.clone();
             let end = key_start.next();
             Ok(self

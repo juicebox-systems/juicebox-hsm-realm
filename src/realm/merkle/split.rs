@@ -244,95 +244,95 @@ mod tests {
         {dot, Dir, KeySlice},
     };
 
-    #[test]
-    fn one_bit() {
+    #[tokio::test]
+    async fn one_bit() {
         // test split where the root has branches with single bit prefixes.
         let keys = [rec_id(&[0]), rec_id(&[0b11110000])];
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
+        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000])).await;
     }
-    #[test]
-    fn multiple_bits() {
+    #[tokio::test]
+    async fn multiple_bits() {
         // test split where the root has branches with multiple bits in the prefixes.
         let keys = [rec_id(&[0]), rec_id(&[0b00010000])];
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
+        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000])).await;
     }
-    #[test]
-    fn root_one_branch() {
+    #[tokio::test]
+    async fn root_one_branch() {
         // test split where the root has only one branch with multiple bits in its prefix.
         let keys = [rec_id(&[0]), rec_id(&[0, 0, 5]), rec_id(&[0, 0, 6])];
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
+        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000])).await;
     }
 
-    #[test]
-    fn on_key_with_record() {
+    #[tokio::test]
+    async fn on_key_with_record() {
         let keys: Vec<_> = (0u8..10).map(|k| rec_id(&[k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[5]));
+        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[5])).await;
     }
 
-    #[test]
-    fn on_key_with_no_record() {
+    #[tokio::test]
+    async fn on_key_with_no_record() {
         let keys: Vec<_> = (0u8..100).step_by(10).map(|k| rec_id(&[k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[10, 0, 0, 5]));
+        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[10, 0, 0, 5])).await;
     }
 
-    #[test]
-    fn one_side_ends_up_empty() {
+    #[tokio::test]
+    async fn one_side_ends_up_empty() {
         let keys: Vec<_> = (10u8..100).step_by(10).map(|k| rec_id(&[k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[5]));
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[101]));
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[200]));
+        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[5])).await;
+        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[101])).await;
+        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[200])).await;
     }
 
-    #[test]
-    fn one_key_only() {
-        test_arb_split_merge(OwnedRange::full(), &[rec_id(&[20])], &rec_id(&[4]));
-        test_arb_split_merge(OwnedRange::full(), &[rec_id(&[20])], &rec_id(&[24]));
+    #[tokio::test]
+    async fn one_key_only() {
+        test_arb_split_merge(OwnedRange::full(), &[rec_id(&[20])], &rec_id(&[4])).await;
+        test_arb_split_merge(OwnedRange::full(), &[rec_id(&[20])], &rec_id(&[24])).await;
     }
 
-    #[test]
-    fn empty_tree() {
-        test_arb_split_merge(OwnedRange::full(), &[], &rec_id(&[4]));
+    #[tokio::test]
+    async fn empty_tree() {
+        test_arb_split_merge(OwnedRange::full(), &[], &rec_id(&[4])).await;
     }
 
-    #[test]
-    fn dense_root() {
+    #[tokio::test]
+    async fn dense_root() {
         let k = &[
             0u8, 0b11111111, 0b01111111, 0b10111100, 0b10001111, 0b01011100, 0b00111100,
             0b11001100, 0b11100000, 0b11110001,
         ];
         let keys: Vec<_> = k.iter().map(|k| rec_id(&[*k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[4]));
-        test_arb_split_merge(OwnedRange::full(), &keys, &keys[3]);
+        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[4])).await;
+        test_arb_split_merge(OwnedRange::full(), &keys, &keys[3]).await;
     }
 
-    #[test]
-    fn lob_sided_tree() {
+    #[tokio::test]
+    async fn lob_sided_tree() {
         let k = &[
             0u8, 0b11111111, 0b11111110, 0b11111100, 0b11111000, 0b11110000, 0b11110001,
         ];
         let keys: Vec<_> = k.iter().map(|k| rec_id(&[*k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[4]));
-        test_arb_split_merge(OwnedRange::full(), &keys, &keys[3]);
+        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[4])).await;
+        test_arb_split_merge(OwnedRange::full(), &keys, &keys[3]).await;
     }
 
-    #[test]
-    fn on_and_between_all_keys() {
+    #[tokio::test]
+    async fn on_and_between_all_keys() {
         let keys: Vec<_> = (2u8..251).step_by(10).map(|k| rec_id(&[k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[1]));
+        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[1])).await;
         for k in &keys {
-            test_arb_split_merge(OwnedRange::full(), &keys, k);
+            test_arb_split_merge(OwnedRange::full(), &keys, k).await;
             let mut kk = k.clone();
             kk.0[22] = 5;
-            test_arb_split_merge(OwnedRange::full(), &keys, &kk);
+            test_arb_split_merge(OwnedRange::full(), &keys, &kk).await;
         }
     }
 
     // Creates a new tree populated with 'keys'. splits it into 2 at 'split'. verifies the split was correct
     // then merges them back together and verifies you got back to the start.
-    fn test_arb_split_merge(range: OwnedRange, keys: &[RecordId], split: &RecordId) {
+    async fn test_arb_split_merge(range: OwnedRange, keys: &[RecordId], split: &RecordId) {
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         for k in keys {
-            root = tree_insert(&mut tree, &mut store, &range, root, k, vec![k.0[0]], true);
+            root = tree_insert(&mut tree, &mut store, &range, root, k, vec![k.0[0]], true).await;
         }
         check_tree_invariants(&tree.hasher, &range, root, &store);
         assert_eq!(
@@ -342,7 +342,7 @@ mod tests {
         let pre_split_root_hash = root;
         let pre_split_store = store.clone();
 
-        let proof = read(&store, &range, &root, split).unwrap();
+        let proof = read(&store, &range, &root, split).await.unwrap();
         let s = tree.range_split(proof).unwrap();
         check_delta_invariants(s.right.root_hash, &s.delta);
         store.apply_store_delta(s.left.root_hash, s.delta);
@@ -366,7 +366,8 @@ mod tests {
                     k,
                     vec![k.0[0]],
                     true,
-                );
+                )
+                .await;
             } else {
                 root_r = tree_insert(
                     &mut tree_r,
@@ -376,7 +377,8 @@ mod tests {
                     k,
                     vec![k.0[0]],
                     true,
-                );
+                )
+                .await;
             }
         }
         check_tree_invariants(&TestHasher {}, &s.left.range, root_l, &store_l);
