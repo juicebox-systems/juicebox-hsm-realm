@@ -337,7 +337,7 @@ mod tests {
     use async_trait::async_trait;
 
     use super::{
-        agent::{read, Node, StoreKey, StoreKeyStart, TreeStoreError, TreeStoreReader},
+        agent::{all_store_key_starts, read, Node, StoreKey, TreeStoreError, TreeStoreReader},
         *,
     };
     use std::{
@@ -680,14 +680,20 @@ mod tests {
     }
     #[async_trait]
     impl<HO: HashOutput> TreeStoreReader<HO> for MemStore<HO> {
-        async fn range(&self, key_start: StoreKeyStart) -> Result<Vec<Node<HO>>, TreeStoreError> {
-            let start = key_start.clone();
-            let end = key_start.next();
-            Ok(self
-                .nodes
-                .range(start.into_bytes()..end.into_bytes())
-                .map(|i| i.1.clone())
-                .collect())
+        async fn path_lookup(
+            &self,
+            record_id: RecordId,
+        ) -> Result<HashMap<HO, Node<HO>>, TreeStoreError> {
+            let mut results = HashMap::new();
+            for start in all_store_key_starts(&record_id) {
+                let end = start.next();
+                results.extend(
+                    self.nodes
+                        .range(start.into_bytes()..end.into_bytes())
+                        .map(|i| (i.1.hash(), i.1.clone())),
+                );
+            }
+            Ok(results)
         }
         async fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError> {
             let k = StoreKey::new(prefix, hash);
