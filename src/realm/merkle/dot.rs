@@ -3,7 +3,9 @@ use std::{
     io::{BufWriter, Write},
 };
 
-use super::{agent::Node, agent::TreeStoreReader, Branch, Dir, HashOutput};
+use super::{
+    agent::Node, agent::TreeStoreReader, concat, Branch, Dir, HashOutput, KeySlice, KeyVec,
+};
 
 // Creates a dot file for a visualization of the tree starting
 // at the supplied root hash.
@@ -15,25 +17,26 @@ pub fn tree_to_dot<HO: HashOutput>(
     let f = File::create(output_file).unwrap();
     let mut w = BufWriter::new(f);
     writeln!(w, "digraph merkletree {{")?;
-    add_node_to_dot(root, reader, &mut w)?;
+    add_node_to_dot(KeyVec::new(), root, reader, &mut w)?;
     writeln!(w, "}}")?;
     w.flush()
 }
 fn add_node_to_dot<HO: HashOutput>(
+    prefix: KeyVec,
     h: HO,
     reader: &impl TreeStoreReader<HO>,
     w: &mut impl Write,
 ) -> std::io::Result<()> {
     match reader
-        .fetch(&h)
+        .fetch(prefix.clone(), h)
         .unwrap_or_else(|_| panic!("node with hash {h:?} should exist"))
     {
         Node::Interior(int) => {
             if let Some(ref b) = int.left {
-                write_branch(&int.hash, b, Dir::Left, reader, w)?;
+                write_branch(&prefix, &int.hash, b, Dir::Left, reader, w)?;
             }
             if let Some(ref b) = int.right {
-                write_branch(&int.hash, b, Dir::Right, reader, w)?;
+                write_branch(&prefix, &int.hash, b, Dir::Right, reader, w)?;
             }
             writeln!(
                 w,
@@ -47,6 +50,7 @@ fn add_node_to_dot<HO: HashOutput>(
     }
 }
 fn write_branch<HO: HashOutput>(
+    prefix: &KeySlice,
     parent: &HO,
     b: &Branch<HO>,
     dir: Dir,
@@ -63,5 +67,5 @@ fn write_branch<HO: HashOutput>(
         lb,
         super::compact_keyslice_str(&b.prefix, "\\n")
     )?;
-    add_node_to_dot(b.hash, reader, w)
+    add_node_to_dot(concat(prefix, &b.prefix), b.hash, reader, w)
 }

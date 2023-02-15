@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::{
-    agent::{Node, StoreDelta},
+    agent::{Node, NodeKey, StoreDelta},
     HashOutput,
 };
 
@@ -35,8 +35,8 @@ impl<HO: HashOutput> TreeOverlay<HO> {
             root,
             to_remove: Vec::with_capacity(d.add.len()),
         };
-        for n in &d.add {
-            c.to_remove.push(n.hash());
+        for (k, n) in &d.add {
+            c.to_remove.push(k.clone());
             self.nodes.insert(n.hash(), n.clone());
         }
         self.roots.insert(c.root);
@@ -54,7 +54,7 @@ impl<HO: HashOutput> TreeOverlay<HO> {
     pub fn expire_oldest_delta(&mut self) {
         if let Some(d) = self.changes.pop_front() {
             for n in d.to_remove {
-                self.nodes.remove(&n);
+                self.nodes.remove(&n.hash);
             }
             self.roots.remove(&d.root);
         };
@@ -63,5 +63,5 @@ impl<HO: HashOutput> TreeOverlay<HO> {
 
 struct DeltaCleanup<HO> {
     root: HO,
-    to_remove: Vec<HO>,
+    to_remove: Vec<NodeKey<HO>>,
 }
