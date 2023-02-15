@@ -11,7 +11,6 @@ edition = "2021"
 [dependencies]
 actix = "0.13.0"
 actix-rt = "2.7.0"
-async-recursion = "1.0.2"
 async-trait = "0.1.64"
 bitvec = { version = "1.0.1", features = ["serde"] }
 bytes = "1.4.0"
@@ -45,6 +44,7 @@ voprf = "0.4.0"
 bitvec = { git = 'https://github.com/superfell/bitvec', branch = 'vec_order' }
 
 [dev-dependencies]
+async-recursion = "1.0.2"
 criterion = "0.4.0"
 hex-literal = "0.3.4"
 rand_chacha = "0.3.1"
