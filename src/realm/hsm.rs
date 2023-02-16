@@ -1,4 +1,3 @@
-use actix::prelude::*;
 use digest::Digest;
 use hmac::{Hmac, Mac};
 use rand::rngs::OsRng;
@@ -9,8 +8,13 @@ use std::fmt;
 use tracing::{info, trace, warn};
 
 mod app;
+pub mod client;
+pub mod http;
+mod rpc;
 pub mod types;
 
+use self::rpc::{HsmRequest, HsmRpc};
+use self::types::Partition;
 use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
 use app::{RecordChange, RootOprfKey};
 use types::{
@@ -25,8 +29,6 @@ use types::{
     TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatement,
     TransferStatementRequest, TransferStatementResponse, TransferringOut,
 };
-
-use self::types::Partition;
 
 #[derive(Clone)]
 pub struct RealmKey(digest::Key<Hmac<Sha256>>);
@@ -294,7 +296,7 @@ impl NodeHasher<DataHash> for MerkleHasher {
     }
 }
 
-pub struct Hsm {
+struct Hsm {
     name: String,
     persistent: PersistentState,
     volatile: VolatileState,
@@ -335,10 +337,15 @@ struct LeaderLogEntry {
     response: Option<SecretsResponse>,
 }
 
+enum HsmError {
+    Deserialization(rmp_serde::decode::Error),
+    Serialization(rmp_serde::encode::Error),
+}
+
 impl Hsm {
-    pub fn new(name: String, realm_key: RealmKey) -> Self {
+    fn new(name: String, realm_key: RealmKey) -> Self {
         let root_oprf_key = RootOprfKey::from(&realm_key);
-        Self {
+        Hsm {
             name,
             persistent: PersistentState {
                 id: HsmId::random(),
@@ -350,6 +357,44 @@ impl Hsm {
                 leader: HashMap::new(),
             },
         }
+    }
+    fn handle_request(&mut self, request_bytes: bytes::Bytes) -> Result<Vec<u8>, HsmError> {
+        let request: HsmRequest = match rmp_serde::from_slice(request_bytes.as_ref()) {
+            Ok(request) => request,
+            Err(e) => {
+                warn!(error = ?e, "deserialization error");
+                return Err(HsmError::Deserialization(e));
+            }
+        };
+        match request {
+            HsmRequest::Status(r) => self.dispatch_request(r, Self::handle_status_request),
+            HsmRequest::NewRealm(r) => self.dispatch_request(r, Self::handle_new_realm),
+            HsmRequest::JoinRealm(r) => self.dispatch_request(r, Self::handle_join_realm),
+            HsmRequest::NewGroup(r) => self.dispatch_request(r, Self::handle_new_group),
+            HsmRequest::JoinGroup(r) => self.dispatch_request(r, Self::handle_join_group),
+            HsmRequest::BecomeLeader(r) => self.dispatch_request(r, Self::handle_become_leader),
+            HsmRequest::CaptureNext(r) => self.dispatch_request(r, Self::handle_capture_next),
+            HsmRequest::ReadCaptured(r) => self.dispatch_request(r, Self::handle_read_captured),
+            HsmRequest::Commit(r) => self.dispatch_request(r, Self::handle_commit),
+            HsmRequest::TransferOut(r) => self.dispatch_request(r, Self::handle_transfer_out),
+            HsmRequest::TransferNonce(r) => self.dispatch_request(r, Self::handle_transfer_nonce),
+            HsmRequest::TransferStatement(r) => {
+                self.dispatch_request(r, Self::handle_transfer_statement)
+            }
+            HsmRequest::TransferIn(r) => self.dispatch_request(r, Self::handle_transfer_in),
+            HsmRequest::CompleteTransfer(r) => {
+                self.dispatch_request(r, Self::handle_complete_transfer)
+            }
+            HsmRequest::AppRequest(r) => self.dispatch_request(r, Self::handle_app),
+        }
+    }
+    fn dispatch_request<Req: HsmRpc, F: FnMut(&mut Self, Req) -> Req::Response>(
+        &mut self,
+        r: Req,
+        mut f: F,
+    ) -> Result<Vec<u8>, HsmError> {
+        let response = f(self, r);
+        rmp_serde::encode::to_vec(&response).map_err(HsmError::Serialization)
     }
 
     fn create_new_group(
@@ -434,16 +479,8 @@ impl Hsm {
             delta: data,
         }
     }
-}
 
-impl Actor for Hsm {
-    type Context = Context<Self>;
-}
-
-impl Handler<StatusRequest> for Hsm {
-    type Result = StatusResponse;
-
-    fn handle(&mut self, request: StatusRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_status_request(&mut self, request: StatusRequest) -> StatusResponse {
         trace!(hsm = self.name, ?request);
         let response =
             StatusResponse {
@@ -481,12 +518,8 @@ impl Handler<StatusRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<NewRealmRequest> for Hsm {
-    type Result = NewRealmResponse;
-
-    fn handle(&mut self, request: NewRealmRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_new_realm(&mut self, request: NewRealmRequest) -> NewRealmResponse {
         type Response = NewRealmResponse;
         trace!(hsm = self.name, ?request);
         let response = if self.persistent.realm.is_some() {
@@ -508,12 +541,8 @@ impl Handler<NewRealmRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<JoinRealmRequest> for Hsm {
-    type Result = JoinRealmResponse;
-
-    fn handle(&mut self, request: JoinRealmRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_join_realm(&mut self, request: JoinRealmRequest) -> JoinRealmResponse {
         trace!(hsm = self.name, ?request);
 
         let response = match &self.persistent.realm {
@@ -540,12 +569,8 @@ impl Handler<JoinRealmRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<NewGroupRequest> for Hsm {
-    type Result = NewGroupResponse;
-
-    fn handle(&mut self, request: NewGroupRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_new_group(&mut self, request: NewGroupRequest) -> NewGroupResponse {
         type Response = NewGroupResponse;
         trace!(hsm = self.name, ?request);
 
@@ -569,12 +594,8 @@ impl Handler<NewGroupRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<JoinGroupRequest> for Hsm {
-    type Result = JoinGroupResponse;
-
-    fn handle(&mut self, request: JoinGroupRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_join_group(&mut self, request: JoinGroupRequest) -> JoinGroupResponse {
         type Response = JoinGroupResponse;
         trace!(hsm = self.name, ?request);
         let response = match &mut self.persistent.realm {
@@ -611,12 +632,8 @@ impl Handler<JoinGroupRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<CaptureNextRequest> for Hsm {
-    type Result = CaptureNextResponse;
-
-    fn handle(&mut self, request: CaptureNextRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_capture_next(&mut self, request: CaptureNextRequest) -> CaptureNextResponse {
         type Response = CaptureNextResponse;
         trace!(hsm = self.name, ?request);
 
@@ -683,12 +700,8 @@ impl Handler<CaptureNextRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<BecomeLeaderRequest> for Hsm {
-    type Result = BecomeLeaderResponse;
-
-    fn handle(&mut self, request: BecomeLeaderRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_become_leader(&mut self, request: BecomeLeaderRequest) -> BecomeLeaderResponse {
         type Response = BecomeLeaderResponse;
         trace!(hsm = self.name, ?request);
 
@@ -753,12 +766,8 @@ impl Handler<BecomeLeaderRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<ReadCapturedRequest> for Hsm {
-    type Result = ReadCapturedResponse;
-
-    fn handle(&mut self, request: ReadCapturedRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_read_captured(&mut self, request: ReadCapturedRequest) -> ReadCapturedResponse {
         type Response = ReadCapturedResponse;
         trace!(hsm = self.name, ?request);
         let response = match &self.persistent.realm {
@@ -794,12 +803,8 @@ impl Handler<ReadCapturedRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<CommitRequest> for Hsm {
-    type Result = CommitResponse;
-
-    fn handle(&mut self, request: CommitRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_commit(&mut self, request: CommitRequest) -> CommitResponse {
         type Response = CommitResponse;
         trace!(hsm = self.name, ?request);
 
@@ -885,12 +890,8 @@ impl Handler<CommitRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<TransferOutRequest> for Hsm {
-    type Result = TransferOutResponse;
-
-    fn handle(&mut self, request: TransferOutRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_transfer_out(&mut self, request: TransferOutRequest) -> TransferOutResponse {
         type Response = TransferOutResponse;
         trace!(hsm = self.name, ?request);
 
@@ -1017,12 +1018,8 @@ impl Handler<TransferOutRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<TransferNonceRequest> for Hsm {
-    type Result = TransferNonceResponse;
-
-    fn handle(&mut self, request: TransferNonceRequest, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle_transfer_nonce(&mut self, request: TransferNonceRequest) -> TransferNonceResponse {
         type Response = TransferNonceResponse;
         trace!(hsm = self.name, ?request);
 
@@ -1050,16 +1047,11 @@ impl Handler<TransferNonceRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<TransferStatementRequest> for Hsm {
-    type Result = TransferStatementResponse;
-
-    fn handle(
+    fn handle_transfer_statement(
         &mut self,
         request: TransferStatementRequest,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
+    ) -> TransferStatementResponse {
         type Response = TransferStatementResponse;
         trace!(hsm = self.name, ?request);
         let response = (|| {
@@ -1106,12 +1098,8 @@ impl Handler<TransferStatementRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<TransferInRequest> for Hsm {
-    type Result = TransferInResponse;
-
-    fn handle(&mut self, request: TransferInRequest, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle_transfer_in(&mut self, request: TransferInRequest) -> TransferInResponse {
         type Response = TransferInResponse;
         trace!(hsm = self.name, ?request);
 
@@ -1227,16 +1215,11 @@ impl Handler<TransferInRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<CompleteTransferRequest> for Hsm {
-    type Result = CompleteTransferResponse;
-
-    fn handle(
+    fn handle_complete_transfer(
         &mut self,
         request: CompleteTransferRequest,
-        _ctx: &mut Context<Self>,
-    ) -> Self::Result {
+    ) -> CompleteTransferResponse {
         type Response = CompleteTransferResponse;
         trace!(hsm = self.name, ?request);
 
@@ -1301,12 +1284,8 @@ impl Handler<CompleteTransferRequest> for Hsm {
         trace!(hsm = self.name, ?response);
         response
     }
-}
 
-impl Handler<AppRequest> for Hsm {
-    type Result = AppResponse;
-
-    fn handle(&mut self, request: AppRequest, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle_app(&mut self, request: AppRequest) -> AppResponse {
         type Response = AppResponse;
         trace!(hsm = self.name, ?request);
         let hsm_name = &self.name;
