@@ -41,6 +41,8 @@ where
         }
     };
 
+    // TODO: these traces are entirely uninformative about which service
+    // instance this is for.
     trace!(?request);
     let response = handler(service, request).await;
     trace!(?response);

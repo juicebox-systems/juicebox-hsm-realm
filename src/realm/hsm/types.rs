@@ -99,6 +99,14 @@ pub struct LogIndex(pub u64);
 impl LogIndex {
     pub const FIRST: Self = Self(1);
 
+    pub fn prev(&self) -> Option<Self> {
+        if self.0 <= 1 {
+            None
+        } else {
+            self.0.checked_sub(1).map(Self)
+        }
+    }
+
     pub fn next(&self) -> Self {
         Self(self.0.checked_add(1).unwrap())
     }

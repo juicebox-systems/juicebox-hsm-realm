@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info, trace, warn};
 
-use super::super::http_client::{Client, ClientError, EndpointClient};
+use super::super::http_client::{Client, ClientError};
 use super::agent::types::{
     AgentService, CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest,
     JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
@@ -15,7 +15,7 @@ use super::agent::types::{
     TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 use super::hsm::types as hsm_types;
-use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse, StoreService};
+use super::store::bigtable::StoreClient;
 use hsm_types::{
     Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange, RealmId,
 };
@@ -144,10 +144,10 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
 async fn wait_for_commit(
     leader: &Url,
     realm: RealmId,
-    group: GroupId,
+    group_id: GroupId,
     agent_client: &Client<AgentService>,
 ) -> Result<(), ClientError> {
-    debug!(?realm, ?group, "waiting for first log entry to commit");
+    debug!(?realm, group = ?group_id, "waiting for first log entry to commit");
     loop {
         let status = agent_client.send(leader, StatusRequest {}).await?;
         let Some(hsm) = status.hsm else { continue };
@@ -155,10 +155,10 @@ async fn wait_for_commit(
         if realm_status.id != realm {
             continue;
         }
-        let group = realm_status
+        let group_status = realm_status
             .groups
             .iter()
-            .find(|group_status| group_status.id == group);
+            .find(|group_status| group_status.id == group_id);
         if let Some(GroupStatus {
             leader:
                 Some(LeaderStatus {
@@ -166,10 +166,10 @@ async fn wait_for_commit(
                     ..
                 }),
             ..
-        }) = group
+        }) = group_status
         {
             if *committed >= LogIndex::FIRST {
-                info!(?realm, ?group, ?committed, "first log entry committed");
+                info!(?realm, group = ?group_id, ?committed, "first log entry committed");
                 return Ok(());
             }
         }
@@ -291,7 +291,7 @@ pub async fn new_group(realm: RealmId, group: &[Url]) -> Result<GroupId, NewGrou
     wait_for_commit(&group[0], realm, group_id, &agent_client)
         .await
         .map_err(Error::NetworkError)?;
-    debug!(?realm, ?group, "group initialization complete");
+    debug!(?realm, group = ?group_id, "group initialization complete");
     Ok(group_id)
 }
 
@@ -307,7 +307,7 @@ pub async fn transfer(
     source: GroupId,
     destination: GroupId,
     range: OwnedRange,
-    store: &EndpointClient<StoreService>,
+    store: &StoreClient,
 ) -> Result<(), TransferError> {
     type Error = TransferError;
 
@@ -425,46 +425,43 @@ pub async fn transfer(
 }
 
 async fn find_leaders(
-    store: &EndpointClient<StoreService>,
+    store: &StoreClient,
     agent_client: &Client<AgentService>,
-) -> Result<HashMap<(RealmId, GroupId), Url>, actix::MailboxError> {
+) -> Result<HashMap<(RealmId, GroupId), Url>, tonic::Status> {
     trace!("refreshing cluster information");
-    match store.send(GetAddressesRequest {}).await {
-        Err(_) => todo!(),
-        Ok(GetAddressesResponse(addresses)) => {
-            let responses = join_all(
-                addresses
-                    .iter()
-                    .map(|entry| agent_client.send(&entry.address, StatusRequest {})),
-            )
-            .await;
+    let addresses = store.get_addresses().await?;
 
-            let mut leaders: HashMap<(RealmId, GroupId), Url> = HashMap::new();
-            for (AddressEntry { address: agent, .. }, response) in zip(addresses, responses) {
-                match response {
-                    Ok(StatusResponse {
-                        hsm:
-                            Some(hsm_types::StatusResponse {
-                                realm: Some(status),
-                                ..
-                            }),
-                    }) => {
-                        for group in status.groups {
-                            if group.leader.is_some() {
-                                leaders.insert((status.id, group.id), agent.clone());
-                            }
-                        }
-                    }
+    let responses = join_all(
+        addresses
+            .iter()
+            .map(|(_, address)| agent_client.send(address, StatusRequest {})),
+    )
+    .await;
 
-                    Ok(_) => {}
-
-                    Err(err) => {
-                        warn!(?agent, ?err, "could not get status");
+    let mut leaders: HashMap<(RealmId, GroupId), Url> = HashMap::new();
+    for ((_, agent), response) in zip(addresses, responses) {
+        match response {
+            Ok(StatusResponse {
+                hsm:
+                    Some(hsm_types::StatusResponse {
+                        realm: Some(status),
+                        ..
+                    }),
+            }) => {
+                for group in status.groups {
+                    if group.leader.is_some() {
+                        leaders.insert((status.id, group.id), agent.clone());
                     }
                 }
             }
-            trace!("done refreshing cluster information");
-            Ok(leaders)
+
+            Ok(_) => {}
+
+            Err(err) => {
+                warn!(?agent, ?err, "could not get status");
+            }
         }
     }
+    trace!("done refreshing cluster information");
+    Ok(leaders)
 }
