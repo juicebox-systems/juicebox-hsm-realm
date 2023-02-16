@@ -427,7 +427,7 @@ pub async fn transfer(
 async fn find_leaders(
     store: &EndpointClient<StoreService>,
     agent_client: &Client<AgentService>,
-) -> Result<HashMap<(RealmId, GroupId), Url>, actix::MailboxError> {
+) -> Result<HashMap<(RealmId, GroupId), Url>, ClientError> {
     trace!("refreshing cluster information");
     match store.send(GetAddressesRequest {}).await {
         Err(_) => todo!(),

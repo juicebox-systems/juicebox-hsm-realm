@@ -1,4 +1,3 @@
-use actix::prelude::*;
 use hmac::Hmac;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -270,11 +269,10 @@ impl fmt::Debug for TransferStatement {
     }
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "StatusResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StatusRequest {}
 
-#[derive(Debug, Deserialize, MessageResponse, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct StatusResponse {
     pub id: HsmId,
     pub realm: Option<RealmStatus>,
@@ -301,13 +299,12 @@ pub struct LeaderStatus {
     pub owned_range: Option<OwnedRange>,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "NewRealmResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct NewRealmRequest {
     pub configuration: Configuration,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum NewRealmResponse {
     Ok(NewGroupInfo),
@@ -315,7 +312,7 @@ pub enum NewRealmResponse {
     InvalidConfiguration,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct NewGroupInfo {
     pub realm: RealmId,
     pub group: GroupId,
@@ -324,26 +321,24 @@ pub struct NewGroupInfo {
     pub delta: Option<StoreDelta<DataHash>>,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "JoinRealmResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct JoinRealmRequest {
     pub realm: RealmId,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum JoinRealmResponse {
     Ok { hsm: HsmId },
     HaveOtherRealm,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "NewGroupResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct NewGroupRequest {
     pub realm: RealmId,
     pub configuration: Configuration,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum NewGroupResponse {
     Ok(NewGroupInfo),
@@ -351,8 +346,7 @@ pub enum NewGroupResponse {
     InvalidConfiguration,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "JoinGroupResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct JoinGroupRequest {
     pub realm: RealmId,
     pub group: GroupId,
@@ -360,7 +354,7 @@ pub struct JoinGroupRequest {
     pub statement: GroupConfigurationStatement,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum JoinGroupResponse {
     Ok,
     InvalidRealm,
@@ -368,15 +362,14 @@ pub enum JoinGroupResponse {
     InvalidStatement,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "CaptureNextResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CaptureNextRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub entry: LogEntry,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum CaptureNextResponse {
     Ok {
         hsm_id: HsmId,
@@ -389,15 +382,14 @@ pub enum CaptureNextResponse {
     MissingPrev,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "BecomeLeaderResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BecomeLeaderRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub last_entry: LogEntry,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum BecomeLeaderResponse {
     Ok,
     InvalidRealm,
@@ -406,14 +398,13 @@ pub enum BecomeLeaderResponse {
     NotCaptured { have: Option<LogIndex> },
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "ReadCapturedResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReadCapturedRequest {
     pub realm: RealmId,
     pub group: GroupId,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum ReadCapturedResponse {
     Ok {
         hsm_id: HsmId,
@@ -426,8 +417,7 @@ pub enum ReadCapturedResponse {
     None,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "CommitResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CommitRequest {
     pub realm: RealmId,
     pub group: GroupId,
@@ -436,7 +426,7 @@ pub struct CommitRequest {
     pub captures: Vec<(HsmId, CapturedStatement)>,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum CommitResponse {
     Ok {
         committed: Option<LogIndex>,
@@ -451,8 +441,7 @@ pub enum CommitResponse {
     NotLeader,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "TransferOutResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TransferOutRequest {
     pub realm: RealmId,
     pub source: GroupId,
@@ -462,7 +451,7 @@ pub struct TransferOutRequest {
     pub proof: ReadProof<DataHash>,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum TransferOutResponse {
     Ok {
@@ -480,14 +469,13 @@ pub enum TransferOutResponse {
     InvalidProof,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "TransferNonceResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TransferNonceRequest {
     pub realm: RealmId,
     pub destination: GroupId,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum TransferNonceResponse {
     Ok(TransferNonce),
     InvalidRealm,
@@ -495,8 +483,7 @@ pub enum TransferNonceResponse {
     NotLeader,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "TransferStatementResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TransferStatementRequest {
     pub realm: RealmId,
     pub source: GroupId,
@@ -504,7 +491,7 @@ pub struct TransferStatementRequest {
     pub nonce: TransferNonce,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum TransferStatementResponse {
     Ok(TransferStatement),
     InvalidRealm,
@@ -514,14 +501,13 @@ pub enum TransferStatementResponse {
     Busy,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TransferInProofs {
     pub owned: ReadProof<DataHash>,
     pub transferring: ReadProof<DataHash>,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "TransferInResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TransferInRequest {
     pub realm: RealmId,
     pub destination: GroupId,
@@ -531,7 +517,7 @@ pub struct TransferInRequest {
     pub statement: TransferStatement,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum TransferInResponse {
     Ok {
@@ -549,8 +535,7 @@ pub enum TransferInResponse {
     MissingProofs,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "CompleteTransferResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CompleteTransferRequest {
     pub realm: RealmId,
     pub source: GroupId,
@@ -558,7 +543,7 @@ pub struct CompleteTransferRequest {
     pub range: OwnedRange,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum CompleteTransferResponse {
     Ok(LogEntry),
@@ -568,8 +553,7 @@ pub enum CompleteTransferResponse {
     NotLeader,
 }
 
-#[derive(Debug, Message)]
-#[rtype(result = "AppResponse")]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AppRequest {
     pub realm: RealmId,
     pub group: GroupId,
@@ -579,7 +563,7 @@ pub struct AppRequest {
     pub proof: ReadProof<DataHash>,
 }
 
-#[derive(Debug, MessageResponse)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum AppResponse {
     Ok {
