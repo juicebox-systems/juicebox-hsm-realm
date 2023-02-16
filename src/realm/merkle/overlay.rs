@@ -37,7 +37,7 @@ impl<HO: HashOutput> TreeOverlay<HO> {
         };
         for (k, n) in &d.add {
             c.to_remove.push(k.clone());
-            self.nodes.insert(n.hash(), n.clone());
+            self.nodes.insert(k.hash, n.clone());
         }
         self.roots.insert(c.root);
         self.latest_root = c.root;

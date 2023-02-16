@@ -25,10 +25,16 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             if leaf.value == v {
                 return Ok((self.overlay.latest_root, None));
             }
-            delta.remove(NodeKey::new(KeyVec::from_slice(&proof.key.0), leaf.hash));
+            let last_int = proof.path.last().unwrap();
+            let leaf_hash = last_int
+                .node
+                .branch(last_int.next_dir)
+                .as_ref()
+                .unwrap()
+                .hash;
+            delta.remove(NodeKey::new(KeyVec::from_slice(&proof.key.0), leaf_hash));
         }
-        let leaf = LeafNode::new(&self.hasher, &proof.key, v);
-        let leaf_hash = leaf.hash;
+        let (leaf_hash, leaf) = LeafNode::new(&self.hasher, &proof.key, v);
         delta.add(
             NodeKey::new(KeyVec::from_slice(&proof.key.0), leaf_hash),
             Node::Leaf(leaf),
@@ -166,7 +172,6 @@ mod tests {
             .unwrap();
         if let Node::Leaf(leaf) = leaf_node {
             assert_eq!([42].to_vec(), leaf.value);
-            assert_eq!(leaf_key.hash, leaf.hash);
         }
         assert_eq!(leaf_key.prefix, KeyVec::from_slice(&rec_id(&[1, 2, 3]).0));
         assert!(d.remove.contains(&NodeKey::new(KeyVec::new(), root)));

@@ -11,15 +11,7 @@ use super::{
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Node<HO> {
     Interior(InteriorNode<HO>),
-    Leaf(LeafNode<HO>),
-}
-impl<HO: HashOutput> Node<HO> {
-    pub fn hash(&self) -> HO {
-        match self {
-            Node::Interior(int) => int.hash,
-            Node::Leaf(leaf) => leaf.hash,
-        }
-    }
+    Leaf(LeafNode),
 }
 
 #[derive(Debug)]

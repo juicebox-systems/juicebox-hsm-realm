@@ -49,7 +49,7 @@ async fn add_node_to_dot<W: Write + Send, HO: HashOutput>(
             )
         }
         Node::Leaf(l) => {
-            writeln!(w,"h{:?} [label=\"{:?}\\nv:{:?}\" style=filled fillcolor=lightblue1 ordering=out shape=box];", l.hash,l.hash,l.value)
+            writeln!(w,"h{:?} [label=\"{:?}\\nv:{:?}\" style=filled fillcolor=lightblue1 ordering=out shape=box];", h,h,l.value)
         }
     }
 }

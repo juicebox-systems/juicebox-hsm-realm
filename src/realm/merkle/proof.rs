@@ -19,7 +19,7 @@ pub struct ReadProof<HO> {
     pub key: RecordId,
     // The key_range for the tree that the proof was read from.
     pub range: OwnedRange,
-    pub leaf: Option<LeafNode<HO>>,
+    pub leaf: Option<LeafNode>,
     // The path in root -> leaf order of the nodes traversed to get to the leaf. Or if the leaf
     // doesn't exist the furthest existing node in the path of the key.
     pub path: Vec<InteriorNode<HO>>,
@@ -52,7 +52,7 @@ impl<HO: HashOutput> ReadProof<HO> {
             return Err(ProofError::Stale);
         }
         self.verify_proof(hasher)
-            .map(|_| VerifiedProof::new_make_latest(self, overlay))
+            .map(|leaf_hash| VerifiedProof::new_make_latest(self, overlay, leaf_hash))
     }
 
     // Verify the ReadProof. This includes the hash verification and the key
@@ -66,17 +66,11 @@ impl<HO: HashOutput> ReadProof<HO> {
             .map(|_| VerifiedProof::new_already_latest(self))
     }
 
-    fn verify_proof<H: NodeHasher<HO>>(&self, hasher: &H) -> Result<(), ProofError> {
+    // Returns the leaf hash
+    fn verify_proof<H: NodeHasher<HO>>(&self, hasher: &H) -> Result<Option<HO>, ProofError> {
         // Do some basic sanity checks of the Proof struct first.
         if self.path.is_empty() || !self.range.contains(&self.key) {
             return Err(ProofError::Invalid);
-        }
-        // Verify the leaf hash matches
-        if let Some(leaf) = &self.leaf {
-            let exp_hash = LeafNode::calc_hash(hasher, &self.key, &leaf.value);
-            if exp_hash != leaf.hash {
-                return Err(ProofError::Invalid);
-            }
         }
         self.verify_path(
             hasher,
@@ -85,9 +79,7 @@ impl<HO: HashOutput> ReadProof<HO> {
             &self.path[0],
             &self.path[1..],
         )
-        .map(|_| ())?;
-
-        Ok(())
+        .map(|(_, leaf)| leaf)
     }
 
     // Walks down the path and
@@ -104,7 +96,7 @@ impl<HO: HashOutput> ReadProof<HO> {
         is_root: bool,
         node: &InteriorNode<HO>,
         path_tail: &[InteriorNode<HO>],
-    ) -> Result<HO, ProofError> {
+    ) -> Result<(HO, Option<HO>), ProofError> {
         let dir = Dir::from(key_tail[0]);
         match node.branch(dir).as_ref() {
             None => {
@@ -130,7 +122,7 @@ impl<HO: HashOutput> ReadProof<HO> {
                         if ch != node.hash {
                             return Err(ProofError::Invalid);
                         }
-                        Ok(ch)
+                        Ok((ch, None))
                     }
                 }
             }
@@ -142,15 +134,16 @@ impl<HO: HashOutput> ReadProof<HO> {
                         Some(lh) => {
                             // The branch prefix should point to the remainder of the key
                             // and it should have the leaf's hash.
-                            if (key_tail != b.prefix) || (lh.hash != b.hash) {
+                            let leaf_hash = LeafNode::calc_hash(h, &self.key, &lh.value);
+                            if (key_tail != b.prefix) || (leaf_hash != b.hash) {
                                 return Err(ProofError::Invalid);
                             }
                             let nh =
-                                node.with_new_child_hash(h, &self.range, is_root, dir, lh.hash);
+                                node.with_new_child_hash(h, &self.range, is_root, dir, leaf_hash);
                             if nh.hash != node.hash {
                                 return Err(ProofError::Invalid);
                             }
-                            Ok(nh.hash)
+                            Ok((nh.hash, Some(leaf_hash)))
                         }
                         None => {
                             // This branch should not be able to lead to the key.
@@ -167,7 +160,7 @@ impl<HO: HashOutput> ReadProof<HO> {
                             if nh != node.hash {
                                 return Err(ProofError::Invalid);
                             }
-                            Ok(nh)
+                            Ok((nh, None))
                         }
                     }
                 } else {
@@ -175,7 +168,7 @@ impl<HO: HashOutput> ReadProof<HO> {
                     if key_tail[..b.prefix.len()] != b.prefix {
                         return Err(ProofError::Invalid);
                     }
-                    let child_h = self.verify_path(
+                    let (child_h, leaf_h) = self.verify_path(
                         h,
                         &key_tail[b.prefix.len()..],
                         false,
@@ -189,7 +182,7 @@ impl<HO: HashOutput> ReadProof<HO> {
                     if nh.hash != node.hash {
                         return Err(ProofError::Invalid);
                     }
-                    Ok(nh.hash)
+                    Ok((nh.hash, leaf_h))
                 }
             }
         }
@@ -209,7 +202,7 @@ pub struct PathStep<HO> {
 #[non_exhaustive] // Don't allow creation from outside this module.
 pub struct VerifiedProof<HO> {
     pub path: Vec<PathStep<HO>>,
-    pub leaf: Option<LeafNode<HO>>,
+    pub leaf: Option<LeafNode>,
     pub key: RecordId,
     pub range: OwnedRange,
 }
@@ -247,7 +240,11 @@ impl<HO: HashOutput> VerifiedProof<HO> {
         vp
     }
 
-    fn new_make_latest(mut proof: ReadProof<HO>, overlay: &TreeOverlay<HO>) -> VerifiedProof<HO> {
+    fn new_make_latest(
+        mut proof: ReadProof<HO>,
+        overlay: &TreeOverlay<HO>,
+        leaf_hash: Option<HO>,
+    ) -> VerifiedProof<HO> {
         assert!(
             overlay.roots.contains(proof.root_hash()),
             "verify should have already checked this"
@@ -260,11 +257,14 @@ impl<HO: HashOutput> VerifiedProof<HO> {
         std::mem::swap(&mut old_path, &mut proof.path);
         let old_path_len = old_path.len();
 
+        if let Some(l) = proof.leaf {
+            proof_nodes.insert(
+                leaf_hash.expect("The proof has a leaf, verify should have given us the leaf hash"),
+                Node::Leaf(l),
+            );
+        }
         for n in old_path {
             proof_nodes.insert(n.hash, Node::Interior(n));
-        }
-        if let Some(l) = proof.leaf {
-            proof_nodes.insert(l.hash, Node::Leaf(l));
         }
         let fetch = |hash| match overlay.nodes.get(&hash) {
             Some(Node::Interior(int)) => Node::Interior(int.clone()),

@@ -183,16 +183,15 @@ impl<HO: HashOutput> InteriorNode<HO> {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct LeafNode<HO> {
+pub struct LeafNode {
     pub value: Vec<u8>,
-    pub hash: HO,
 }
-impl<HO> LeafNode<HO> {
-    fn new<H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: Vec<u8>) -> LeafNode<HO> {
+impl LeafNode {
+    fn new<HO, H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: Vec<u8>) -> (HO, LeafNode) {
         let h = Self::calc_hash(hasher, k, &v);
-        LeafNode { value: v, hash: h }
+        (h, LeafNode { value: v })
     }
-    fn calc_hash<H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: &[u8]) -> HO {
+    fn calc_hash<HO, H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: &[u8]) -> HO {
         hasher.calc_hash(&[&k.0, v])
     }
 }
@@ -561,11 +560,7 @@ mod tests {
             .await
             .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
         {
-            Node::Leaf(l) => {
-                let exp_hash = LeafNode::calc_hash(hasher, &rec_id(&path.into_vec()), &l.value);
-                assert_eq!(exp_hash, l.hash);
-                exp_hash
-            }
+            Node::Leaf(l) => LeafNode::calc_hash(hasher, &rec_id(&path.into_vec()), &l.value),
             Node::Interior(int) => {
                 match &int.left {
                     None => assert!(is_at_root),
@@ -610,9 +605,6 @@ mod tests {
             "hash is repeated in delta.add"
         );
 
-        for (k, n) in &delta.add {
-            assert_eq!(k.hash, n.hash(), "node and key have differing hashes");
-        }
         for k in &delta.remove {
             let added = add_by_hash.get(&k.hash);
             if added.is_some() {
@@ -650,7 +642,7 @@ mod tests {
 
     #[derive(Clone)]
     pub struct MemStore<HO> {
-        nodes: BTreeMap<Vec<u8>, Node<HO>>,
+        nodes: BTreeMap<Vec<u8>, (HO, Node<HO>)>,
     }
     impl<HO> MemStore<HO> {
         fn new() -> Self {
@@ -670,7 +662,7 @@ mod tests {
             check_delta_invariants(new_root, &d);
             for (k, n) in d.add {
                 let enc = k.store_key();
-                self.nodes.insert(enc.into_bytes(), n);
+                self.nodes.insert(enc.into_bytes(), (k.hash, n));
             }
             for k in d.remove {
                 let enc = k.store_key();
@@ -690,7 +682,7 @@ mod tests {
                 results.extend(
                     self.nodes
                         .range(start.into_bytes()..end.into_bytes())
-                        .map(|i| (i.1.hash(), i.1.clone())),
+                        .map(|i| (i.1 .0, i.1 .1.clone())),
                 );
             }
             Ok(results)
@@ -698,7 +690,7 @@ mod tests {
         async fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError> {
             let k = StoreKey::new(prefix, hash);
             match self.nodes.get(&k.into_bytes()) {
-                Some(n) => Ok(n.clone()),
+                Some((_hash, n)) => Ok(n.clone()),
                 None => Err(TreeStoreError::MissingNode),
             }
         }
