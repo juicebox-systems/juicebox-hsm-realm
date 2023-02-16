@@ -21,7 +21,7 @@ use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use http_client::EndpointClient;
 use realm::agent::Agent;
 use realm::hsm::types::{OwnedRange, RealmId, RecordId};
-use realm::hsm::{client::HsmHttpClient, HttpHsm, RealmKey};
+use realm::hsm::{http::client::HsmHttpClient, http::host::HttpHsm, RealmKey};
 use realm::load_balancer::LoadBalancer;
 use realm::store::{types::StoreService, Store};
 use types::{AuthToken, Policy};
