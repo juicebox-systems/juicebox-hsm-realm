@@ -586,6 +586,7 @@ pub enum AppResponse {
     InvalidProof,
     NotOwner,
     NotLeader,
+    InvalidRecordData,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
