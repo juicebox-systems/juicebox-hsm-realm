@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
 
 use super::super::hsm::types::RecordId;
 use super::{
@@ -24,13 +25,25 @@ impl<HO: HashOutput> Node<HO> {
 #[derive(Debug)]
 pub enum TreeStoreError {
     MissingNode,
+    Network(Box<dyn Error + Send>),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+// TODO: `non_exhaustive` doesn't prevent others in the same crate from
+// constructing these, which I think was the intent.
 #[non_exhaustive]
 pub struct StoreDelta<HO: HashOutput> {
     pub add: Vec<(NodeKey<HO>, Node<HO>)>,
     pub remove: HashSet<NodeKey<HO>>,
+}
+
+impl<HO: HashOutput> Default for StoreDelta<HO> {
+    fn default() -> Self {
+        Self {
+            add: Vec::new(),
+            remove: HashSet::new(),
+        }
+    }
 }
 
 pub struct DeltaBuilder<HO> {

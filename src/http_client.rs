@@ -3,11 +3,14 @@ use std::marker::PhantomData;
 use super::realm::rpc::{Rpc, Service};
 use reqwest::Url;
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct EndpointClient<F: Service> {
     client: Client<F>,
     url: Url,
 }
+
+#[allow(dead_code)]
 impl<F: Service> EndpointClient<F> {
     pub fn new(url: Url) -> Self {
         Self {
@@ -15,6 +18,7 @@ impl<F: Service> EndpointClient<F> {
             url,
         }
     }
+
     pub async fn send<R: Rpc<F>>(&self, request: R) -> Result<R::Response, ClientError> {
         self.client.send(&self.url, request).await
     }

@@ -8,8 +8,7 @@ use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use reqwest::Url;
 use std::collections::btree_map::Entry::{Occupied, Vacant};
-use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -21,31 +20,28 @@ use tracing::{info, trace, warn};
 
 pub mod types;
 
-use self::types::AgentService;
-
-use super::super::http_client::{Client, ClientError, EndpointClient};
+use super::super::http_client::{Client, ClientError};
 use super::hsm::client::HsmClient;
-use super::hsm::types::{self as hsm_types};
+use super::hsm::types as hsm_types;
+use super::merkle;
+use super::merkle::agent::{StoreDelta, TreeStoreError};
 use super::merkle::Dir;
 use super::rpc::{handle_rpc, HandlerError, Rpc};
-use super::store::types::{
-    AddressEntry, AppendRequest, AppendResponse, GetAddressesRequest, GetAddressesResponse,
-    GetRecordProofRequest, GetRecordProofResponse, GetTreeEdgeProofRequest,
-    GetTreeEdgeProofResponse, ReadEntryRequest, ReadEntryResponse, ReadLatestRequest,
-    ReadLatestResponse, SetAddressRequest, SetAddressResponse, StoreService,
-};
+use super::store::bigtable;
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
-    EntryHmac, GroupId, HsmId, LogIndex, RealmId, SecretsResponse, TransferInProofs,
+    DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RealmId, SecretsResponse,
+    TransferInProofs,
 };
 use types::{
-    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
-    CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
-    JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
-    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse, TransferInRequest,
-    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
-    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
+    AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
+    CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
+    JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest,
+    NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse,
+    TransferInRequest, TransferInResponse, TransferNonceRequest, TransferNonceResponse,
+    TransferOutRequest, TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
+
 #[derive(Clone, Debug)]
 pub struct Agent(Arc<AgentInner>);
 
@@ -53,7 +49,8 @@ pub struct Agent(Arc<AgentInner>);
 struct AgentInner {
     name: String,
     hsm: HsmClient,
-    store: EndpointClient<StoreService>,
+    store: bigtable::StoreClient,
+    store_admin: bigtable::StoreAdminClient,
     peer_client: Client<AgentService>,
     state: Mutex<State>,
 }
@@ -67,11 +64,17 @@ struct State {
 struct LeaderState {
     /// Log entries may be received out of order from the HSM. They are buffered
     /// here until they can be appended to the log in order.
-    append_queue: HashMap<LogIndex, AppendRequest>,
+    append_queue: HashMap<LogIndex, Append>,
     /// This serves as a mutex to prevent multiple concurrent appends to the
     /// store.
     appending: AppendingState,
     response_channels: HashMap<EntryHmac, oneshot::Sender<SecretsResponse>>,
+}
+
+#[derive(Debug)]
+struct Append {
+    pub entry: LogEntry,
+    pub delta: Option<StoreDelta<DataHash>>,
 }
 
 #[derive(Debug)]
@@ -82,11 +85,17 @@ enum AppendingState {
 use AppendingState::{Appending, NotAppending};
 
 impl Agent {
-    pub fn new(name: String, hsm: HsmClient, store: EndpointClient<StoreService>) -> Self {
+    pub fn new(
+        name: String,
+        hsm: HsmClient,
+        store: bigtable::StoreClient,
+        store_admin: bigtable::StoreAdminClient,
+    ) -> Self {
         Self(Arc::new(AgentInner {
             name,
             hsm,
             store,
+            store_admin,
             peer_client: Client::new(),
             state: Mutex::new(State {
                 leader: HashMap::new(),
@@ -104,20 +113,13 @@ impl Agent {
         tokio::spawn(async move {
             let mut next_index = next_index;
             loop {
-                match store
-                    .send(ReadEntryRequest {
-                        realm,
-                        group,
-                        index: next_index,
-                    })
-                    .await
-                {
+                match store.read_log_entry(&realm, &group, next_index).await {
                     Err(_) => todo!(),
-                    Ok(ReadEntryResponse::Discarded { .. }) => todo!(),
-                    Ok(ReadEntryResponse::DoesNotExist { .. }) => {
+                    Ok(None) => {
+                        // TODO: how would we tell if the log was truncated?
                         sleep(Duration::from_millis(1)).await;
                     }
-                    Ok(ReadEntryResponse::Ok(entry)) => {
+                    Ok(Some(entry)) => {
                         let index = entry.index;
                         trace!(agent = name, ?realm, ?group, ?index, "found log entry");
                         match hsm
@@ -287,23 +289,17 @@ impl Agent {
             };
         trace!(agent = name, peer_hsms = ?peers.keys(), "found peer HSMs from configuration");
 
-        match store.send(GetAddressesRequest {}).await {
+        match store.get_addresses().await {
             Err(_) => todo!(),
-            Ok(GetAddressesResponse(addresses)) => {
-                for AddressEntry { hsm, address } in addresses {
+            Ok(addresses) => {
+                for (hsm, address) in addresses {
                     peers.entry(hsm).and_modify(|e| *e = Some(address));
                 }
             }
         };
         trace!(
             agent = name,
-            peers = ?peers
-                .iter()
-                .map(|(id, addr)| {
-                     // Actix addresses aren't printable.
-                    (id, addr.is_some())
-                })
-                .collect::<Vec<_>>(),
+            ?peers,
             "looked up peer agent addresses from store"
         );
         Ok(peers)
@@ -348,15 +344,8 @@ impl Agent {
             Err(_) => todo!(),
             Ok(hsm_types::StatusResponse { id, .. }) => id,
         };
-        match store
-            .send(SetAddressRequest {
-                hsm: hsm_id,
-                address: url.clone(),
-            })
-            .await
-        {
-            Err(_) => todo!(),
-            Ok(SetAddressResponse::Ok) => {}
+        if let Err(e) = store.set_address(&hsm_id, &url).await {
+            todo!("{e}")
         }
 
         Ok((
@@ -477,35 +466,48 @@ impl Agent {
             agent = name,
             realm = ?new_realm_response.realm,
             group = ?new_realm_response.group,
+            "creating tables for new realm"
+        );
+        self.0
+            .store_admin
+            .initialize_realm(&new_realm_response.realm)
+            .await
+            .expect("TODO");
+
+        info!(
+            agent = name,
+            realm = ?new_realm_response.realm,
+            group = ?new_realm_response.group,
             "appending log entry for new realm"
         );
-        assert_eq!(new_realm_response.entry.index, LogIndex(1));
-        let response = match store
-            .send(AppendRequest {
-                realm: new_realm_response.realm,
-                group: new_realm_response.group,
-                entry: new_realm_response.entry,
-                delta: new_realm_response.delta,
-            })
+        assert_eq!(new_realm_response.entry.index, LogIndex::FIRST);
+
+        match store
+            .append(
+                &new_realm_response.realm,
+                &new_realm_response.group,
+                &new_realm_response.entry,
+                &new_realm_response.delta.unwrap_or_default(),
+            )
             .await
         {
-            Ok(AppendResponse::Ok) => Response::Ok {
-                realm: new_realm_response.realm,
-                group: new_realm_response.group,
-                statement: new_realm_response.statement,
-            },
-            Ok(AppendResponse::PreconditionFailed) => Response::StorePreconditionFailed,
-            Err(_) => Response::NoStore,
-        };
-
-        if let Response::Ok { realm, group, .. } = response {
-            self.finish_new_group(realm, group);
+            Ok(()) => {
+                self.finish_new_group(new_realm_response.realm, new_realm_response.group);
+                Ok(Response::Ok {
+                    realm: new_realm_response.realm,
+                    group: new_realm_response.group,
+                    statement: new_realm_response.statement,
+                })
+            }
+            Err(bigtable::AppendError::Grpc(_)) => Ok(Response::NoStore),
+            Err(bigtable::AppendError::MerkleWrites(_)) => todo!(),
+            Err(bigtable::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
+            Err(bigtable::AppendError::MerkleDeletes(_)) => todo!(),
         }
-        Ok(response)
     }
 
     fn finish_new_group(&self, realm: RealmId, group: GroupId) {
-        let index = LogIndex(1);
+        let index = LogIndex::FIRST;
         self.start_watching(realm, group, index);
         let existing = self.0.state.lock().unwrap().leader.insert(
             (realm, group),
@@ -575,25 +577,28 @@ impl Agent {
             group = ?new_group_response.group,
             "appending log entry for new group"
         );
-        assert_eq!(new_group_response.entry.index, LogIndex(1));
+        assert_eq!(new_group_response.entry.index, LogIndex::FIRST);
+
         match store
-            .send(AppendRequest {
-                realm,
-                group: new_group_response.group,
-                entry: new_group_response.entry,
-                delta: new_group_response.delta,
-            })
+            .append(
+                &realm,
+                &new_group_response.group,
+                &new_group_response.entry,
+                &new_group_response.delta.unwrap_or_default(),
+            )
             .await
         {
-            Ok(AppendResponse::Ok) => {
+            Ok(()) => {
                 self.finish_new_group(realm, new_group_response.group);
                 Ok(Response::Ok {
                     group: new_group_response.group,
                     statement: new_group_response.statement,
                 })
             }
-            Ok(AppendResponse::PreconditionFailed) => Ok(Response::StorePreconditionFailed),
-            Err(_) => Ok(Response::NoStore),
+            Err(bigtable::AppendError::Grpc(_)) => Ok(Response::NoStore),
+            Err(bigtable::AppendError::MerkleWrites(_)) => todo!(),
+            Err(bigtable::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
+            Err(bigtable::AppendError::MerkleDeletes(_)) => todo!(),
         }
     }
 
@@ -621,7 +626,7 @@ impl Agent {
             Ok(HsmResponse::InvalidConfiguration) => Ok(Response::InvalidConfiguration),
             Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
             Ok(HsmResponse::Ok) => {
-                self.start_watching(request.realm, request.group, LogIndex(1));
+                self.start_watching(request.realm, request.group, LogIndex::FIRST);
                 Ok(Response::Ok)
             }
         }
@@ -638,15 +643,12 @@ impl Agent {
         let store = &self.0.store;
 
         let last_entry = match store
-            .send(ReadLatestRequest {
-                realm: request.realm,
-                group: request.group,
-            })
+            .read_last_log_entry(&request.realm, &request.group)
             .await
         {
             Err(_) => return Ok(Response::NoStore),
-            Ok(ReadLatestResponse::Ok { entry, .. }) => entry,
-            Ok(ReadLatestResponse::None) => todo!(),
+            Ok(Some(entry)) => entry,
+            Ok(None) => todo!(),
         };
 
         match hsm
@@ -715,15 +717,12 @@ impl Agent {
         // expected to run just once.
         loop {
             let entry = match store
-                .send(ReadLatestRequest {
-                    realm: request.realm,
-                    group: request.source,
-                })
+                .read_last_log_entry(&request.realm, &request.source)
                 .await
             {
                 Err(_) => return Ok(Response::NoStore),
-                Ok(ReadLatestResponse::Ok { entry, .. }) => entry,
-                Ok(ReadLatestResponse::None) => todo!(),
+                Ok(Some(entry)) => entry,
+                Ok(None) => todo!(),
             };
             let Some(partition) = entry.partition else {
                 return Ok(Response::NotOwner);
@@ -740,19 +739,20 @@ impl Agent {
                 }
             };
 
-            let proof = match store
-                .send(GetRecordProofRequest {
-                    realm: request.realm,
-                    group: request.source,
-                    record: rec_id,
-                })
-                .await
+            let proof = match merkle::agent::read(
+                &store.realm_reader(&request.realm),
+                &partition.range,
+                &partition.root_hash,
+                &rec_id,
+            )
+            .await
             {
-                Err(_) => return Ok(Response::NoStore),
-                Ok(GetRecordProofResponse::Ok { proof, .. }) => proof,
-                Ok(GetRecordProofResponse::StoreMissingNode) => todo!(),
-                Ok(GetRecordProofResponse::UnknownGroup) => todo!(),
-                Ok(GetRecordProofResponse::NotOwner) => return Ok(Response::NotOwner),
+                Ok(proof) => proof,
+                Err(TreeStoreError::MissingNode) => todo!(),
+                Err(TreeStoreError::Network(e)) => {
+                    warn!(error = ?e, "handle_transfer_out: error reading proof");
+                    return Ok(Response::NoStore);
+                }
             };
 
             return match hsm
@@ -783,15 +783,7 @@ impl Agent {
                         Some(t) => t.partition.clone(),
                         None => panic!("Log entry missing TransferringOut section"),
                     };
-                    self.append(
-                        store.clone(),
-                        AppendRequest {
-                            realm,
-                            group: source,
-                            entry,
-                            delta,
-                        },
-                    );
+                    self.append(realm, source, Append { entry, delta });
                     Ok(Response::Ok {
                         transferring: transferring_partition,
                     })
@@ -870,16 +862,14 @@ impl Agent {
         // expected to run just once.
         loop {
             let entry = match store
-                .send(ReadLatestRequest {
-                    realm: request.realm,
-                    group: request.destination,
-                })
+                .read_last_log_entry(&request.realm, &request.destination)
                 .await
             {
                 Err(_) => return Ok(Response::NoStore),
-                Ok(ReadLatestResponse::Ok { entry, .. }) => entry,
-                Ok(ReadLatestResponse::None) => todo!(),
+                Ok(Some(entry)) => entry,
+                Ok(None) => todo!(),
             };
+
             let proofs = match entry.partition {
                 None => None,
                 Some(partition) => {
@@ -893,33 +883,29 @@ impl Agent {
                             }
                         }
                     };
-                    let transferring_in_proof_req = store.send(GetTreeEdgeProofRequest {
-                        realm: request.realm,
-                        group: request.source,
-                        partition: request.transferring.clone(),
-                        dir: proof_dir,
-                    });
-                    let owned_range_proof_req = store.send(GetTreeEdgeProofRequest {
-                        realm: request.realm,
-                        group: request.destination,
-                        partition: partition.clone(),
-                        dir: proof_dir.opposite(),
-                    });
+
+                    let realm_reader = store.realm_reader(&request.realm);
+                    let transferring_in_proof_req = merkle::agent::read_tree_side(
+                        &realm_reader,
+                        &request.transferring.range,
+                        &request.transferring.root_hash,
+                        proof_dir,
+                    );
+                    let owned_range_proof_req = merkle::agent::read_tree_side(
+                        &realm_reader,
+                        &partition.range,
+                        &partition.root_hash,
+                        proof_dir.opposite(),
+                    );
                     let transferring_in_proof = match transferring_in_proof_req.await {
-                        Err(_) => return Ok(Response::NoStore),
-                        Ok(GetTreeEdgeProofResponse::StoreMissingNode) => todo!(),
-                        Ok(GetTreeEdgeProofResponse::UnknownGroup) => {
-                            return Ok(Response::InvalidGroup)
-                        }
-                        Ok(GetTreeEdgeProofResponse::Ok { proof }) => proof,
+                        Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
+                        Err(TreeStoreError::MissingNode) => todo!(),
+                        Ok(proof) => proof,
                     };
                     let owned_range_proof = match owned_range_proof_req.await {
-                        Err(_) => return Ok(Response::NoStore),
-                        Ok(GetTreeEdgeProofResponse::StoreMissingNode) => todo!(),
-                        Ok(GetTreeEdgeProofResponse::UnknownGroup) => {
-                            return Ok(Response::InvalidGroup)
-                        }
-                        Ok(GetTreeEdgeProofResponse::Ok { proof }) => proof,
+                        Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
+                        Err(TreeStoreError::MissingNode) => todo!(),
+                        Ok(proof) => proof,
                     };
                     Some(TransferInProofs {
                         owned: owned_range_proof,
@@ -927,6 +913,7 @@ impl Agent {
                     })
                 }
             };
+
             return match hsm
                 .send(hsm_types::TransferInRequest {
                     realm: request.realm,
@@ -952,15 +939,7 @@ impl Agent {
                     continue;
                 }
                 Ok(HsmResponse::Ok { entry, delta }) => {
-                    self.append(
-                        store.clone(),
-                        AppendRequest {
-                            realm: request.realm,
-                            group: request.destination,
-                            entry,
-                            delta,
-                        },
-                    );
+                    self.append(request.realm, request.destination, Append { entry, delta });
                     Ok(Response::Ok)
                 }
             };
@@ -974,7 +953,6 @@ impl Agent {
         type Response = CompleteTransferResponse;
         type HsmResponse = hsm_types::CompleteTransferResponse;
         let hsm = &self.0.hsm;
-        let store = &self.0.store;
 
         let result = hsm
             .send(hsm_types::CompleteTransferRequest {
@@ -991,15 +969,7 @@ impl Agent {
             Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
             Ok(HsmResponse::NotTransferring) => Ok(Response::Ok),
             Ok(HsmResponse::Ok(entry)) => {
-                self.append(
-                    store.clone(),
-                    AppendRequest {
-                        realm: request.realm,
-                        group: request.source,
-                        entry,
-                        delta: None,
-                    },
-                );
+                self.append(request.realm, request.source, Append { entry, delta: None });
                 Ok(Response::Ok)
             }
         }
@@ -1030,7 +1000,7 @@ impl Agent {
                         .insert(append_request.entry.entry_hmac.clone(), sender);
                 }
 
-                self.append(store.clone(), append_request);
+                self.append(realm, group, append_request);
                 match receiver.await {
                     Ok(response) => Ok(Response::Ok(response)),
                     Err(oneshot::Canceled) => Ok(Response::NotLeader),
@@ -1044,25 +1014,39 @@ async fn start_app_request(
     request: AppRequest,
     name: String,
     hsm: &HsmClient,
-    store: &EndpointClient<StoreService>,
-) -> Result<AppendRequest, AppResponse> {
+    store: &bigtable::StoreClient,
+) -> Result<Append, AppResponse> {
     type HsmResponse = hsm_types::AppResponse;
     type Response = AppResponse;
 
     loop {
-        let (proof, index) = match store
-            .send(GetRecordProofRequest {
-                realm: request.realm,
-                group: request.group,
-                record: request.rid.clone(),
-            })
+        let entry = match store
+            .read_last_log_entry(&request.realm, &request.group)
             .await
         {
-            Ok(GetRecordProofResponse::Ok { proof, index }) => (proof, index),
-            Ok(GetRecordProofResponse::StoreMissingNode) => todo!(),
-            Ok(GetRecordProofResponse::UnknownGroup) => todo!(),
-            Ok(GetRecordProofResponse::NotOwner) => todo!(),
             Err(_) => return Err(Response::NoStore),
+            Ok(Some(entry)) => entry,
+            Ok(None) => return Err(Response::InvalidGroup),
+        };
+
+        let Some(partition) = entry.partition else {
+            return Err(Response::NotLeader); // TODO: is that the right error?
+        };
+
+        let proof = match merkle::agent::read(
+            &store.realm_reader(&request.realm),
+            &partition.range,
+            &partition.root_hash,
+            &request.rid,
+        )
+        .await
+        {
+            Ok(proof) => proof,
+            Err(TreeStoreError::MissingNode) => todo!(),
+            Err(TreeStoreError::Network(e)) => {
+                warn!(error = ?e, "start_app_request: error reading proof");
+                return Err(Response::NoStore);
+            }
         };
 
         match hsm
@@ -1071,7 +1055,7 @@ async fn start_app_request(
                 group: request.group,
                 rid: request.rid.clone(),
                 request: request.request.clone(),
-                index,
+                index: entry.index,
                 proof,
             })
             .await
@@ -1090,12 +1074,7 @@ async fn start_app_request(
                     ?delta,
                     "got new log entry and data updates from HSM"
                 );
-                return Ok(AppendRequest {
-                    realm: request.realm,
-                    group: request.group,
-                    entry,
-                    delta,
-                });
+                return Ok(Append { entry, delta });
             }
         };
     }
@@ -1103,10 +1082,7 @@ async fn start_app_request(
 
 impl Agent {
     /// Precondition: agent is leader.
-    fn append(&self, store: EndpointClient<StoreService>, append_request: AppendRequest) {
-        let realm = append_request.realm;
-        let group = append_request.group;
-
+    fn append(&self, realm: RealmId, group: GroupId, append_request: Append) {
         let appending = {
             let mut locked = self.0.state.lock().unwrap();
             let leader = locked.leader.get_mut(&(realm, group)).unwrap();
@@ -1120,19 +1096,14 @@ impl Agent {
         if let NotAppending { next } = appending {
             let agent = self.clone();
 
-            tokio::spawn(async move { agent.keep_appending(store, realm, group, next).await });
+            tokio::spawn(async move { agent.keep_appending(realm, group, next).await });
         }
     }
 
     /// Precondition: `leader.appending` is Appending because this task is the one
     /// doing the appending.
-    async fn keep_appending(
-        &self,
-        store: EndpointClient<StoreService>,
-        realm: RealmId,
-        group: GroupId,
-        next: LogIndex,
-    ) {
+    async fn keep_appending(&self, realm: RealmId, group: GroupId, next: LogIndex) {
+        let store = self.0.store.clone();
         let mut next = next;
         loop {
             let request = {
@@ -1148,12 +1119,20 @@ impl Agent {
                 request
             };
 
-            match store.send(request).await {
-                Err(_) => todo!(),
-                Ok(AppendResponse::PreconditionFailed) => {
+            match store
+                .append(
+                    &realm,
+                    &group,
+                    &request.entry,
+                    &request.delta.unwrap_or_default(),
+                )
+                .await
+            {
+                Err(bigtable::AppendError::LogPrecondition) => {
                     todo!("stop leading")
                 }
-                Ok(AppendResponse::Ok) => {
+                Err(_) => todo!(),
+                Ok(()) => {
                     next = next.next();
                 }
             }

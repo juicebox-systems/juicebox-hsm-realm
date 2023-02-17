@@ -19,12 +19,12 @@ use tracing::{trace, warn};
 
 pub mod types;
 
-use super::super::http_client::{Client, EndpointClient};
+use super::super::http_client::Client;
 use super::agent::types::{
     AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
 };
 use super::hsm::types as hsm_types;
-use super::store::types::{AddressEntry, GetAddressesRequest, GetAddressesResponse, StoreService};
+use super::store::bigtable::StoreClient;
 use hsm_types::{GroupId, OwnedRange, RealmId};
 use types::{ClientRequest, ClientResponse};
 
@@ -33,12 +33,12 @@ pub struct LoadBalancer(Arc<State>);
 
 struct State {
     name: String,
-    store: EndpointClient<StoreService>,
+    store: StoreClient,
     agent_client: Client<AgentService>,
 }
 
 impl LoadBalancer {
-    pub fn new(name: String, store: EndpointClient<StoreService>) -> Self {
+    pub fn new(name: String, store: StoreClient) -> Self {
         Self(Arc::new(State {
             name,
             store,
@@ -84,22 +84,22 @@ struct Partition {
 
 async fn refresh(
     name: &str,
-    store: &EndpointClient<StoreService>,
+    store: &StoreClient,
     agent_client: &Client<AgentService>,
 ) -> HashMap<RealmId, Vec<Partition>> {
     trace!(load_balancer = name, "refreshing cluster information");
-    match store.send(GetAddressesRequest {}).await {
+    match store.get_addresses().await {
         Err(_) => todo!(),
-        Ok(GetAddressesResponse(addresses)) => {
+        Ok(addresses) => {
             let responses = join_all(
                 addresses
                     .iter()
-                    .map(|entry| agent_client.send(&entry.address, StatusRequest {})),
+                    .map(|(_, address)| agent_client.send(address, StatusRequest {})),
             )
             .await;
 
             let mut realms: HashMap<RealmId, Vec<Partition>> = HashMap::new();
-            for (AddressEntry { address: agent, .. }, response) in zip(addresses, responses) {
+            for ((_, agent), response) in zip(addresses, responses) {
                 match response {
                     Ok(StatusResponse {
                         hsm:

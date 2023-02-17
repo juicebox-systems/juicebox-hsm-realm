@@ -1,4 +1,5 @@
 use futures::future::{join_all, try_join_all};
+use http::Uri;
 use reqwest::Url;
 use std::iter;
 use std::net::SocketAddr;
@@ -11,19 +12,17 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::FmtSubscriber;
 
 mod autogen;
-mod bigtable_demo;
 mod client;
 mod http_client;
 mod realm;
 mod types;
 
 use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
-use http_client::EndpointClient;
 use realm::agent::Agent;
 use realm::hsm::types::{OwnedRange, RealmId, RecordId};
 use realm::hsm::{http::client::HsmHttpClient, http::host::HttpHsm, RealmKey};
 use realm::load_balancer::LoadBalancer;
-use realm::store::{types::StoreService, Store};
+use realm::store::bigtable;
 use types::{AuthToken, Policy};
 
 /// Creates HSMs and their agents.
@@ -50,7 +49,8 @@ mod hsm_gen {
         pub async fn create_hsms(
             &mut self,
             count: usize,
-            store: &EndpointClient<StoreService>,
+            store: &bigtable::StoreClient,
+            store_admin: &bigtable::StoreAdminClient,
         ) -> Vec<Url> {
             let listens = iter::repeat_with(|| {
                 let hsm_port = self.port.next().unwrap();
@@ -62,7 +62,12 @@ mod hsm_gen {
                         .await
                         .unwrap();
                     let hsm = HsmHttpClient::new_client(hsm_url);
-                    let agent = Agent::new(format!("agent{agent_port}"), hsm, store.clone());
+                    let agent = Agent::new(
+                        format!("agent{agent_port}"),
+                        hsm,
+                        store.clone(),
+                        store_admin.clone(),
+                    );
                     let address = SocketAddr::from(([127, 0, 0, 1], agent_port));
                     let result = agent.listen(address).await;
                     result.map(|(url, _)| url)
@@ -88,6 +93,8 @@ async fn main() {
         if let Some(module) = metadata.module_path() {
             if module.starts_with("h2::")
                 || module.starts_with("hyper::")
+                || module.starts_with("tokio_util::")
+                || module.starts_with("tonic::")
                 || module.starts_with("tower::")
             {
                 return false;
@@ -108,14 +115,24 @@ async fn main() {
         "set up tracing. you can set verbosity with env var LOGLEVEL."
     );
 
-    bigtable_demo::demo().await;
+    info!("connecting to Bigtable");
+    let instance = bigtable::Instance {
+        project: String::from("prj"),
+        instance: String::from("inst"),
+    };
+    let store =
+        bigtable::StoreClient::new(Uri::from_static("http://localhost:9000"), instance.clone())
+            .await
+            .expect("TODO");
+    let store_admin = bigtable::StoreAdminClient::new(
+        Uri::from_static("http://localhost:9000"),
+        instance.clone(),
+    )
+    .await
+    .expect("TODO");
 
-    info!("creating in-memory store");
-    let (store_url, _) = Store::new()
-        .listen(SocketAddr::from(([127, 0, 0, 1], 2000)))
-        .await
-        .expect("TODO");
-    let store = EndpointClient::<StoreService>::new(store_url);
+    info!("initializing service discovery table");
+    store_admin.initialize_discovery().await.expect("TODO");
 
     let num_load_balancers = 2;
     info!(count = num_load_balancers, "creating load balancers");
@@ -133,13 +150,15 @@ async fn main() {
 
     let num_hsms = 5;
     info!(count = num_hsms, "creating initial HSMs and agents");
-    let group1: Vec<Url> = hsm_generator.create_hsms(num_hsms, &store).await;
+    let group1: Vec<Url> = hsm_generator
+        .create_hsms(num_hsms, &store, &store_admin)
+        .await;
     let (realm_id, group_id1) = realm::cluster::new_realm(&group1).await.unwrap();
     info!(?realm_id, group_id = ?group_id1, "initialized cluster");
 
     info!("creating additional groups");
-    let group2: Vec<Url> = hsm_generator.create_hsms(5, &store).await;
-    let group3: Vec<Url> = hsm_generator.create_hsms(4, &store).await;
+    let group2: Vec<Url> = hsm_generator.create_hsms(5, &store, &store_admin).await;
+    let group3: Vec<Url> = hsm_generator.create_hsms(4, &store, &store_admin).await;
 
     let mut groups = try_join_all([
         realm::cluster::new_group(realm_id, &group2),
@@ -218,8 +237,11 @@ async fn main() {
     let mut realm_ids: Vec<RealmId> = join_all([5000, 6000, 7000].map(|start_port| {
         let mut hsm_generator = HsmGenerator::new(start_port);
         let store = store.clone();
+        let store_admin = store_admin.clone();
         async move {
-            let agents = hsm_generator.create_hsms(num_hsms, &store).await;
+            let agents = hsm_generator
+                .create_hsms(num_hsms, &store, &store_admin)
+                .await;
             realm::cluster::new_realm(&agents).await.unwrap().0
         }
     }))

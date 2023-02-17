@@ -420,7 +420,7 @@ impl Hsm {
         );
         assert!(existing.is_none());
 
-        let index = LogIndex(1);
+        let index = LogIndex::FIRST;
         let (partition, data) = match &owned_range {
             None => (None, None),
             Some(key_range) => {
@@ -662,7 +662,7 @@ impl Hsm {
                     Some(group) => {
                         match &group.captured {
                             None => {
-                                if request.entry.index != LogIndex(1) {
+                                if request.entry.index != LogIndex::FIRST {
                                     return Response::MissingPrev;
                                 }
                                 if request.entry.prev_hmac != EntryHmac::zero() {
