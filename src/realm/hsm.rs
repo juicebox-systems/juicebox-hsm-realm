@@ -1135,8 +1135,7 @@ impl Hsm {
                         // as the Merkle tree can deal with that from its overlay.
                         if let Some(proofs) = &request.proofs {
                             if request.transferring.range != proofs.transferring.range
-                                || &request.transferring.root_hash
-                                    != proofs.transferring.root_hash()
+                                || request.transferring.root_hash != proofs.transferring.root_hash
                             {
                                 return Response::InvalidProof;
                             }
@@ -1342,7 +1341,7 @@ fn handle_app_request(
         Err(ProofError::Stale) => {
             info!(
                 r = ?request.proof.key,
-                root = ?request.proof.root_hash(),
+                root = ?request.proof.root_hash,
                 "stale proof trying to get current value"
             );
             return Response::StaleProof;

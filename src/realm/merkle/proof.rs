@@ -23,19 +23,18 @@ pub struct ReadProof<HO> {
     // The path in root -> leaf order of the nodes traversed to get to the leaf. Or if the leaf
     // doesn't exist the furthest existing node in the path of the key.
     pub path: Vec<InteriorNode<HO>>,
+    // The hash of the root node
+    pub root_hash: HO,
 }
 impl<HO: HashOutput> ReadProof<HO> {
-    pub fn new(key: RecordId, range: OwnedRange, root: InteriorNode<HO>) -> Self {
+    pub fn new(key: RecordId, range: OwnedRange, root_hash: HO, root: InteriorNode<HO>) -> Self {
         ReadProof {
             key,
             range,
+            root_hash,
             leaf: None,
             path: vec![root],
         }
-    }
-
-    pub fn root_hash(&self) -> &HO {
-        &self.path[0].hash
     }
 
     // Verify the ReadProof. This includes the hash verification and the key
@@ -48,7 +47,7 @@ impl<HO: HashOutput> ReadProof<HO> {
         overlay: &TreeOverlay<HO>,
     ) -> Result<VerifiedProof<HO>, ProofError> {
         // Ensure the root hash is one the overlay knows about.
-        if !overlay.roots.contains(self.root_hash()) {
+        if !overlay.roots.contains(&self.root_hash) {
             return Err(ProofError::Stale);
         }
         self.verify_proof(hasher)
@@ -76,6 +75,7 @@ impl<HO: HashOutput> ReadProof<HO> {
             hasher,
             KeySlice::from_slice(&self.key.0),
             true,
+            self.root_hash,
             &self.path[0],
             &self.path[1..],
         )
@@ -94,6 +94,7 @@ impl<HO: HashOutput> ReadProof<HO> {
         h: &H,
         key_tail: &KeySlice,
         is_root: bool,
+        hash: HO,
         node: &InteriorNode<HO>,
         path_tail: &[InteriorNode<HO>],
     ) -> Result<(HO, Option<HO>), ProofError> {
@@ -119,7 +120,7 @@ impl<HO: HashOutput> ReadProof<HO> {
                             &node.left,
                             &node.right,
                         );
-                        if ch != node.hash {
+                        if ch != hash {
                             return Err(ProofError::Invalid);
                         }
                         Ok((ch, None))
@@ -138,12 +139,12 @@ impl<HO: HashOutput> ReadProof<HO> {
                             if (key_tail != b.prefix) || (leaf_hash != b.hash) {
                                 return Err(ProofError::Invalid);
                             }
-                            let nh =
+                            let (nh, _) =
                                 node.with_new_child_hash(h, &self.range, is_root, dir, leaf_hash);
-                            if nh.hash != node.hash {
+                            if nh != hash {
                                 return Err(ProofError::Invalid);
                             }
-                            Ok((nh.hash, Some(leaf_hash)))
+                            Ok((nh, Some(leaf_hash)))
                         }
                         None => {
                             // This branch should not be able to lead to the key.
@@ -157,7 +158,7 @@ impl<HO: HashOutput> ReadProof<HO> {
                                 &node.left,
                                 &node.right,
                             );
-                            if nh != node.hash {
+                            if nh != hash {
                                 return Err(ProofError::Invalid);
                             }
                             Ok((nh, None))
@@ -172,17 +173,18 @@ impl<HO: HashOutput> ReadProof<HO> {
                         h,
                         &key_tail[b.prefix.len()..],
                         false,
+                        b.hash,
                         &path_tail[0],
                         &path_tail[1..],
                     )?;
                     if child_h != b.hash {
                         return Err(ProofError::Invalid);
                     }
-                    let nh = node.with_new_child_hash(h, &self.range, is_root, dir, child_h);
-                    if nh.hash != node.hash {
+                    let (nh, _) = node.with_new_child_hash(h, &self.range, is_root, dir, child_h);
+                    if nh != hash {
                         return Err(ProofError::Invalid);
                     }
-                    Ok((nh.hash, leaf_h))
+                    Ok((nh, leaf_h))
                 }
             }
         }
@@ -191,6 +193,8 @@ impl<HO: HashOutput> ReadProof<HO> {
 
 #[derive(Debug)]
 pub struct PathStep<HO> {
+    // The hash of the node
+    pub hash: HO,
     pub node: InteriorNode<HO>,
     // The full key prefix to this node.
     pub prefix: KeyVec,
@@ -217,10 +221,12 @@ impl<HO: HashOutput> VerifiedProof<HO> {
         };
         let key = KeySlice::from_slice(&vp.key.0);
         let mut key_pos = 0;
+        let mut current_hash = proof.root_hash;
         for n in proof.path {
             let d = Dir::from(key[key_pos]);
             vp.path.push(PathStep {
                 node: n,
+                hash: current_hash,
                 prefix: key[..key_pos].to_bitvec(),
                 next_dir: d,
             });
@@ -231,6 +237,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
                 Some(b) => {
                     if key[key_pos..].starts_with(&b.prefix) {
                         key_pos += b.prefix.len();
+                        current_hash = b.hash;
                     } else {
                         break;
                     }
@@ -246,10 +253,10 @@ impl<HO: HashOutput> VerifiedProof<HO> {
         leaf_hash: Option<HO>,
     ) -> VerifiedProof<HO> {
         assert!(
-            overlay.roots.contains(proof.root_hash()),
+            overlay.roots.contains(&proof.root_hash),
             "verify should have already checked this"
         );
-        if proof.root_hash() == &overlay.latest_root {
+        if proof.root_hash == overlay.latest_root {
             return Self::new_already_latest(proof);
         }
         let mut proof_nodes = HashMap::with_capacity(proof.path.len() + 1);
@@ -263,8 +270,21 @@ impl<HO: HashOutput> VerifiedProof<HO> {
                 Node::Leaf(l),
             );
         }
+        let mut key = KeySlice::from_slice(&proof.key.0);
+        let mut current_hash = proof.root_hash;
         for n in old_path {
-            proof_nodes.insert(n.hash, Node::Interior(n));
+            let next_hash = match n.branch(Dir::from(key[0])) {
+                Some(b) => {
+                    key = &key[b.prefix.len()..];
+                    Some(b.hash)
+                }
+                None => None,
+            };
+            proof_nodes.insert(current_hash, Node::Interior(n));
+            current_hash = match next_hash {
+                None => break,
+                Some(h) => h,
+            }
         }
         let fetch = |hash| match overlay.nodes.get(&hash) {
             Some(Node::Interior(int)) => Node::Interior(int.clone()),
@@ -290,6 +310,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
                     let prefix = &full_key[..key_pos];
                     let key_tail = &full_key[key_pos..];
                     let d = Dir::from(key_tail[0]);
+                    let int_hash = current_hash;
                     let done = match int.branch(d) {
                         None => true,
                         Some(b) => {
@@ -304,6 +325,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
                     };
                     vp.path.push(PathStep {
                         node: int,
+                        hash: int_hash,
                         prefix: prefix.to_bitvec(),
                         next_dir: d,
                     });
@@ -322,7 +344,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
     }
 
     pub fn root_hash(&self) -> &HO {
-        &self.path[0].node.hash
+        &self.path[0].hash
     }
 }
 

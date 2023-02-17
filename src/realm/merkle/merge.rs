@@ -64,7 +64,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         branches.push(Branch::new(bp, b.hash));
                     }
                 }
-                delta.remove(NodeKey::new(n.prefix.clone(), n.node.hash));
+                delta.remove(NodeKey::new(n.prefix.clone(), n.hash));
             }
         }
 
@@ -105,16 +105,15 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         reduce_to_tree(h, partition, bit_pos, bit_pos + 1, &branches[..idx], delta);
                     let right =
                         reduce_to_tree(h, partition, bit_pos, bit_pos + 1, &branches[idx..], delta);
-                    let n = InteriorNode::construct(
+                    let (hash, n) = InteriorNode::construct(
                         h,
                         partition,
                         bit_pos == 0,
                         Some(left),
                         Some(right),
                     );
-                    let hash = n.hash;
                     delta.add(
-                        NodeKey::new(branches[0].prefix[..bit_pos].to_bitvec(), n.hash),
+                        NodeKey::new(branches[0].prefix[..bit_pos].to_bitvec(), hash),
                         Node::Interior(n),
                     );
                     Branch::new(branches[0].prefix[bit_pos_start..bit_pos].into(), hash)
@@ -124,18 +123,17 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
         // Handle edge case where we're merging two empty trees, branches will be empty.
         let root_hash = if branches.is_empty() {
-            let root = InteriorNode::new(&self.hasher, &new_range, true, None, None);
-            let hash = root.hash;
-            delta.add(NodeKey::new(KeyVec::new(), root.hash), Node::Interior(root));
+            let (hash, root) = InteriorNode::new(&self.hasher, &new_range, true, None, None);
+            delta.add(NodeKey::new(KeyVec::new(), hash), Node::Interior(root));
             hash
         } else {
             let res = reduce_to_tree(&self.hasher, &new_range, 0, 0, &branches, &mut delta);
             if res.prefix.is_empty() {
                 res.hash
             } else {
-                let n = InteriorNode::construct(&self.hasher, &new_range, true, Some(res), None);
-                let hash = n.hash;
-                delta.add(NodeKey::new(KeyVec::new(), n.hash), Node::Interior(n));
+                let (hash, n) =
+                    InteriorNode::construct(&self.hasher, &new_range, true, Some(res), None);
+                delta.add(NodeKey::new(KeyVec::new(), hash), Node::Interior(n));
                 hash
             }
         };

@@ -172,7 +172,7 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
         Some(Node::Leaf(_)) => panic!("found unexpected leaf node"),
         Some(Node::Interior(int)) => int,
     };
-    let mut res = ReadProof::new(k.clone(), range.clone(), root);
+    let mut res = ReadProof::new(k.clone(), range.clone(), *root_hash, root);
     let mut key = KeySlice::from_slice(&k.0);
     loop {
         let n = res.path.last().unwrap();
@@ -229,6 +229,7 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
                         return Ok(ReadProof {
                             key: k.clone(),
                             range: range.clone(),
+                            root_hash: *root_hash,
                             leaf: None,
                             path,
                         });
@@ -251,6 +252,7 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
                 return Ok(ReadProof {
                     key: keyvec_to_rec_id(key),
                     range: range.clone(),
+                    root_hash: *root_hash,
                     leaf: Some(l),
                     path,
                 });
