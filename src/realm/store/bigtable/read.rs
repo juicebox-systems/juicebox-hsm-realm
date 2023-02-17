@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
 use tonic::Code;
-use tracing::trace;
+use tracing::{trace, warn};
 
 use super::BigtableClient;
 
@@ -63,7 +63,7 @@ pub async fn read_rows(
                 Err(e) => {
                     // TODO, this seems to be a bug in hyper, in that it doesn't handle RST properly
                     // https://github.com/hyperium/hyper/issues/2872
-                    trace!(?e, code=?e.code(), "stream.message error during read_rows");
+                    warn!(?e, code=?e.code(), "stream.message error during read_rows");
                     if e.code() == Code::Unknown {
                         tokio::time::sleep(Duration::from_millis(1)).await;
                         trace!("retrying read_rows");
