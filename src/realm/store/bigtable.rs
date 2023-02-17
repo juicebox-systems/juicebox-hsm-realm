@@ -9,6 +9,7 @@ use google::bigtable::v2::{
     MutateRowRequest, MutateRowResponse, MutateRowsRequest, Mutation, ReadRowsRequest, RowFilter,
     RowRange, RowSet,
 };
+use http::Uri;
 use std::collections::HashMap;
 use std::fmt::Write;
 use tonic::transport::{Channel, Endpoint};
@@ -134,11 +135,9 @@ pub struct StoreAdminClient {
 }
 
 impl StoreAdminClient {
-    pub async fn new(url: String, instance: Instance) -> Result<Self, f64> {
-        let endpoint = Endpoint::from_shared(url).expect("TODO");
-        let bigtable = BigtableTableAdminClient::connect(endpoint)
-            .await
-            .expect("TODO");
+    pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
+        let endpoint = Endpoint::from(url);
+        let bigtable = BigtableTableAdminClient::connect(endpoint).await?;
         Ok(Self { bigtable, instance })
     }
 
@@ -238,9 +237,9 @@ pub enum AppendError {
 }
 
 impl StoreClient {
-    pub async fn new(url: String, instance: Instance) -> Result<Self, f64> {
-        let endpoint = Endpoint::from_shared(url).expect("TODO");
-        let bigtable = BigtableClient::connect(endpoint).await.expect("TODO");
+    pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
+        let endpoint = Endpoint::from(url);
+        let bigtable = BigtableClient::connect(endpoint).await?;
         Ok(Self { bigtable, instance })
     }
 

@@ -1,4 +1,5 @@
 use futures::future::{join_all, try_join_all};
+use http::Uri;
 use reqwest::Url;
 use std::iter;
 use std::net::SocketAddr;
@@ -119,13 +120,16 @@ async fn main() {
         project: String::from("prj"),
         instance: String::from("inst"),
     };
-    let store = bigtable::StoreClient::new(String::from("http://localhost:9000"), instance.clone())
-        .await
-        .expect("TODO");
-    let store_admin =
-        bigtable::StoreAdminClient::new(String::from("http://localhost:9000"), instance.clone())
+    let store =
+        bigtable::StoreClient::new(Uri::from_static("http://localhost:9000"), instance.clone())
             .await
             .expect("TODO");
+    let store_admin = bigtable::StoreAdminClient::new(
+        Uri::from_static("http://localhost:9000"),
+        instance.clone(),
+    )
+    .await
+    .expect("TODO");
 
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
