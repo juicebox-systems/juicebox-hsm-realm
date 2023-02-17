@@ -103,7 +103,7 @@ fn process_read_chunk(
     chunk: CellChunk,
     active_row: Option<RowBuffer>,
 ) -> (Option<RowBuffer>, Option<(RowKey, Vec<Cell>)>) {
-    let (row_key, mut completed, cell) = match active_row {
+    let (row_key, mut completed, old_cell) = match active_row {
         // The chunk starts a new row.
         None => {
             assert!(!chunk.row_key.is_empty());
@@ -124,11 +124,11 @@ fn process_read_chunk(
     // At this point, we have an active row and may or may not have an
     // active cell.
 
-    let cell = match chunk.qualifier {
+    let new_cell = match chunk.qualifier {
         // The chunk starts a new cell.
         Some(qualifier) => {
-            if let Some(cell) = cell {
-                completed.push(cell);
+            if let Some(old_cell) = old_cell {
+                completed.push(old_cell);
             }
 
             let mut value = chunk.value;
@@ -151,7 +151,7 @@ fn process_read_chunk(
         }
 
         // The chunk continues an existing cell.
-        None => match cell {
+        None => match old_cell {
             Some(mut cell) => {
                 cell.value.extend(chunk.value);
                 cell
@@ -163,7 +163,7 @@ fn process_read_chunk(
     // At this point, we have an active row and an active cell.
     match chunk.row_status {
         Some(RowStatus::CommitRow(true)) => {
-            completed.push(cell);
+            completed.push(new_cell);
             (None, Some((row_key, completed)))
         }
 
@@ -173,7 +173,7 @@ fn process_read_chunk(
             Some(RowBuffer {
                 row_key,
                 completed,
-                cell,
+                cell: new_cell,
             }),
             None,
         ),
