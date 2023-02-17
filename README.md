@@ -1,9 +1,9 @@
-
 ## Local Bigtable emulator
 
-You'll need the Bigtable emulator and the Cloud Bigtable CLI tool to run
-offline. You can install these either using the hefty `gcloud` SDK or using the
-Go compiler.
+You'll need the Bigtable emulator to run offline. You may also want the Cloud
+Bigtable CLI tool, which works with the emulator and is installed the same way.
+You can install these either using the hefty `gcloud` SDK or using the Go
+compiler.
 
 ### Option 1: Install using the `gcloud` SDK:
 
@@ -37,15 +37,21 @@ And start the emulator:
 emulator -host localhost -port 9000
 ```
 
-### Create a table
+### Using cbt
 
 `cbt` is a Cloud Bigtable CLI tool. We'll make an alias for using it with the
 local emulator, then create a table.
 
 ```sh
 alias lbt='BIGTABLE_EMULATOR_HOST=localhost:9000 cbt -creds /dev/null -project prj -instance inst'
-lbt createtable tab families=fam
+```
+
+List tables:
+```sh
 lbt ls
 ```
 
-Now you can run the MVP locally.
+You can create tables like this:
+```sh
+lbt createtable tab families=fam
+```
