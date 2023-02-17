@@ -1,4 +1,3 @@
-use actix::prelude::*;
 use futures::future::{join_all, try_join_all};
 use reqwest::Url;
 use std::iter;
@@ -20,7 +19,7 @@ mod types;
 use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use realm::agent::Agent;
 use realm::hsm::types::{OwnedRange, RealmId, RecordId};
-use realm::hsm::{Hsm, RealmKey};
+use realm::hsm::{http::client::HsmHttpClient, http::host::HttpHsm, RealmKey};
 use realm::load_balancer::LoadBalancer;
 use realm::store::bigtable;
 use types::{AuthToken, Policy};
@@ -53,16 +52,22 @@ mod hsm_gen {
             store_admin: &bigtable::StoreAdminClient,
         ) -> Vec<Url> {
             let listens = iter::repeat_with(|| {
-                let port = self.port.next().unwrap();
-                let hsm = Hsm::new(format!("hsm{port}"), self.secret.clone()).start();
-                let agent = Agent::new(
-                    format!("agent{port}"),
-                    hsm,
-                    store.clone(),
-                    store_admin.clone(),
-                );
-                let address = SocketAddr::from(([127, 0, 0, 1], port));
+                let hsm_port = self.port.next().unwrap();
+                let agent_port = self.port.next().unwrap();
+                let secret = self.secret.clone();
                 async move {
+                    let (hsm_url, _) = HttpHsm::new(format!("hsm{hsm_port}"), secret)
+                        .listen(SocketAddr::from(([127, 0, 0, 1], hsm_port)))
+                        .await
+                        .unwrap();
+                    let hsm = HsmHttpClient::new_client(hsm_url);
+                    let agent = Agent::new(
+                        format!("agent{agent_port}"),
+                        hsm,
+                        store.clone(),
+                        store_admin.clone(),
+                    );
+                    let address = SocketAddr::from(([127, 0, 0, 1], agent_port));
                     let result = agent.listen(address).await;
                     result.map(|(url, _)| url)
                 }
@@ -74,7 +79,7 @@ mod hsm_gen {
 }
 use hsm_gen::HsmGenerator;
 
-#[actix_rt::main]
+#[tokio::main]
 async fn main() {
     let log_level = std::env::var("LOGLEVEL")
         .map(|s| match Level::from_str(&s) {
@@ -358,5 +363,4 @@ async fn main() {
     println!();
 
     println!("main: exiting");
-    System::current().stop();
 }

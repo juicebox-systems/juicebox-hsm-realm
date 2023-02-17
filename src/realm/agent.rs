@@ -1,4 +1,3 @@
-use actix::prelude::*;
 use bytes::Bytes;
 use future::join_all;
 use futures::channel::oneshot;
@@ -22,8 +21,8 @@ use tracing::{info, trace, warn};
 pub mod types;
 
 use super::super::http_client::{Client, ClientError};
+use super::hsm::client::HsmClient;
 use super::hsm::types as hsm_types;
-use super::hsm::Hsm;
 use super::merkle;
 use super::merkle::agent::{StoreDelta, TreeStoreError};
 use super::merkle::Dir;
@@ -49,7 +48,7 @@ pub struct Agent(Arc<AgentInner>);
 #[derive(Debug)]
 struct AgentInner {
     name: String,
-    hsm: Addr<Hsm>,
+    hsm: HsmClient,
     store: bigtable::StoreClient,
     store_admin: bigtable::StoreAdminClient,
     peer_client: Client<AgentService>,
@@ -88,7 +87,7 @@ use AppendingState::{Appending, NotAppending};
 impl Agent {
     pub fn new(
         name: String,
-        hsm: Addr<Hsm>,
+        hsm: HsmClient,
         store: bigtable::StoreClient,
         store_admin: bigtable::StoreAdminClient,
     ) -> Self {
@@ -985,7 +984,7 @@ impl Agent {
         let hsm = &self.0.hsm;
         let store = &self.0.store;
 
-        let result = start_app_request(request, name.clone(), hsm.clone(), store).await;
+        let result = start_app_request(request, name.clone(), hsm, store).await;
         match result {
             Err(response) => Ok(response),
             Ok(append_request) => {
@@ -1014,7 +1013,7 @@ impl Agent {
 async fn start_app_request(
     request: AppRequest,
     name: String,
-    hsm: Addr<Hsm>,
+    hsm: &HsmClient,
     store: &bigtable::StoreClient,
 ) -> Result<Append, AppResponse> {
     type HsmResponse = hsm_types::AppResponse;
