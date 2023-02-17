@@ -10,7 +10,7 @@ use google::bigtable::v2::{
     RowRange, RowSet,
 };
 use std::collections::HashMap;
-use std::io::Write;
+use std::fmt::Write;
 use tonic::transport::{Channel, Endpoint};
 use tracing::trace;
 use url::Url;
@@ -48,7 +48,7 @@ impl Instance {
 }
 
 fn merkle_table(instance: &Instance, realm: &RealmId) -> String {
-    let mut buf = Vec::new();
+    let mut buf = String::new();
     write!(
         buf,
         "projects/{project}/instances/{instance}/tables/",
@@ -60,20 +60,20 @@ fn merkle_table(instance: &Instance, realm: &RealmId) -> String {
         write!(buf, "{byte:02x}").unwrap();
     }
     write!(buf, "-merkle").unwrap();
-    String::from_utf8(buf).unwrap()
+    buf
 }
 
 fn merkle_table_brief(realm: &RealmId) -> String {
-    let mut buf = Vec::new();
+    let mut buf = String::new();
     for byte in realm.0 {
         write!(buf, "{byte:02x}").unwrap();
     }
     write!(buf, "-merkle").unwrap();
-    String::from_utf8(buf).unwrap()
+    buf
 }
 
 fn log_table(instance: &Instance, realm: &RealmId) -> String {
-    let mut buf = Vec::new();
+    let mut buf = String::new();
     write!(
         buf,
         "projects/{project}/instances/{instance}/tables/",
@@ -85,16 +85,16 @@ fn log_table(instance: &Instance, realm: &RealmId) -> String {
         write!(buf, "{byte:02x}").unwrap();
     }
     write!(buf, "-log").unwrap();
-    String::from_utf8(buf).unwrap()
+    buf
 }
 
 fn log_table_brief(realm: &RealmId) -> String {
-    let mut buf = Vec::new();
+    let mut buf = String::new();
     for byte in realm.0 {
         write!(buf, "{byte:02x}").unwrap();
     }
     write!(buf, "-log").unwrap();
-    String::from_utf8(buf).unwrap()
+    buf
 }
 
 fn discovery_table(instance: &Instance) -> String {
@@ -120,13 +120,10 @@ impl DownwardLogIndex {
 }
 
 fn log_key(group: &GroupId, index: LogIndex) -> Vec<u8> {
-    let mut buf = Vec::new();
-    for byte in group.0 {
-        write!(buf, "{byte:02x}").unwrap();
-    }
-    write!(buf, "/").unwrap();
-    buf.extend(DownwardLogIndex(index).bytes());
-    buf
+    (group.0.iter())
+        .chain(DownwardLogIndex(index).bytes().iter())
+        .cloned()
+        .collect()
 }
 
 #[derive(Clone, Debug)]
@@ -629,18 +626,26 @@ impl<'a> TreeStoreReader<DataHash> for RealmReader<'a> {
 mod tests {
     use super::*;
 
+    const REALM1: RealmId = RealmId([
+        0x66, 0x80, 0x13, 0x4b, 0xf4, 0x5d, 0xc9, 0x3f, 0xce, 0xee, 0xcd, 0x03, 0xe5, 0x38, 0xc8,
+        0x9f,
+    ]);
+    const GROUP1: GroupId = GroupId([
+        0x0d, 0xbb, 0x03, 0x61, 0xb0, 0xc3, 0x23, 0xdd, 0xeb, 0xa3, 0x4f, 0x4d, 0x02, 0x3a, 0xbb,
+        0x53,
+    ]);
+
     #[test]
     fn test_merkle_table() {
         let instance = Instance {
             project: String::from("prj1"),
             instance: String::from("inst2"),
         };
-        let realm = RealmId([0xca; 16]);
         let expected =
-            "projects/prj1/instances/inst2/tables/cacacacacacacacacacacacacacacaca-merkle";
-        assert_eq!(merkle_table(&instance, &realm), expected);
+            "projects/prj1/instances/inst2/tables/6680134bf45dc93fceeecd03e538c89f-merkle";
+        assert_eq!(merkle_table(&instance, &REALM1), expected);
         assert_eq!(
-            format!("{}/tables/{}", instance.path(), merkle_table_brief(&realm)),
+            format!("{}/tables/{}", instance.path(), merkle_table_brief(&REALM1)),
             expected
         );
     }
@@ -671,6 +676,17 @@ mod tests {
         assert_eq!(
             format!("{}/tables/{}", instance.path(), discovery_table_brief()),
             expected
+        );
+    }
+
+    #[test]
+    fn test_log_key() {
+        assert_eq!(
+            log_key(&GROUP1, LogIndex(12943236441930260757)),
+            vec![
+                0x0d, 0xbb, 0x03, 0x61, 0xb0, 0xc3, 0x23, 0xdd, 0xeb, 0xa3, 0x4f, 0x4d, 0x02, 0x3a,
+                0xbb, 0x53, 0x4c, 0x60, 0x63, 0x08, 0x42, 0xdb, 0x1e, 0xea
+            ]
         );
     }
 }
