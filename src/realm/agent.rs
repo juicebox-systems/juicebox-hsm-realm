@@ -114,7 +114,7 @@ impl Agent {
             let mut next_index = next_index;
             loop {
                 match store.read_log_entry(&realm, &group, next_index).await {
-                    Err(_) => todo!(),
+                    Err(e) => panic!("{e:?}"),
                     Ok(None) => {
                         // TODO: how would we tell if the log was truncated?
                         sleep(Duration::from_millis(1)).await;

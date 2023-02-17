@@ -4,6 +4,9 @@ use google::bigtable::v2::read_rows_response::CellChunk;
 use google::bigtable::v2::ReadRowsRequest;
 use std::collections::HashMap;
 use std::fmt;
+use std::time::Duration;
+use tonic::Code;
+use tracing::trace;
 
 use super::BigtableClient;
 
@@ -51,23 +54,42 @@ pub async fn read_rows(
     bigtable: &mut BigtableClient,
     request: ReadRowsRequest,
 ) -> Result<HashMap<RowKey, Vec<Cell>>, tonic::Status> {
-    let mut stream = bigtable.read_rows(request).await?.into_inner();
-    let mut rows = HashMap::new();
-    let mut active_row: Option<RowBuffer> = None;
-    while let Some(message) = stream.message().await? {
-        for chunk in message.chunks {
-            let complete_row;
-            (active_row, complete_row) = process_read_chunk(chunk, active_row);
-            if let Some((key, row)) = complete_row {
-                rows.insert(key, row);
-            }
+    'outer: loop {
+        let mut stream = bigtable.read_rows(request.clone()).await?.into_inner();
+        let mut rows = HashMap::new();
+        let mut active_row: Option<RowBuffer> = None;
+        loop {
+            match stream.message().await {
+                Err(e) => {
+                    // TODO, this seems to be a bug in hyper, in that it doesn't handle RST properly
+                    // https://github.com/hyperium/hyper/issues/2872
+                    trace!(?e, code=?e.code(), "stream.message error during read_rows");
+                    if e.code() == Code::Unknown {
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                        trace!("retrying read_rows");
+                        continue 'outer;
+                    } else {
+                        return Err(e);
+                    }
+                }
+                Ok(None) => break,
+                Ok(Some(message)) => {
+                    for chunk in message.chunks {
+                        let complete_row;
+                        (active_row, complete_row) = process_read_chunk(chunk, active_row);
+                        if let Some((key, row)) = complete_row {
+                            rows.insert(key, row);
+                        }
+                    }
+                }
+            };
         }
+        assert!(
+            active_row.is_none(),
+            "ReadRowsResponse missing chunks: last row didn't complete",
+        );
+        return Ok(rows);
     }
-    assert!(
-        active_row.is_none(),
-        "ReadRowsResponse missing chunks: last row didn't complete",
-    );
-    Ok(rows)
 }
 
 // In between processing chunks, there's either an active row with an active
