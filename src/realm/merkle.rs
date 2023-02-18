@@ -331,6 +331,7 @@ mod tests {
     use async_recursion::async_recursion;
     use async_trait::async_trait;
 
+    use super::super::hsm::types::RealmId;
     use super::{
         agent::{all_store_key_starts, read, Node, StoreKey, TreeStoreError, TreeStoreReader},
         *,
@@ -339,6 +340,8 @@ mod tests {
         collections::{BTreeMap, HashMap},
         hash::Hasher,
     };
+
+    pub const TEST_REALM: RealmId = RealmId([42u8; 16]);
 
     #[test]
     fn test_bitvec_order() {
@@ -361,7 +364,7 @@ mod tests {
     async fn get_nothing() {
         let range = OwnedRange::full();
         let (tree, root, store) = new_empty_tree(&range).await;
-        let p = read(&store, &range, &root, &rec_id(&[1, 2, 3]))
+        let p = read(&TEST_REALM, &store, &range, &root, &rec_id(&[1, 2, 3]))
             .await
             .unwrap();
         assert_eq!(1, p.path.len());
@@ -489,7 +492,7 @@ mod tests {
     ) -> TestHash {
         // spot stupid test bugs
         assert!(range.contains(key), "test bug, key not inside key range");
-        let rp = read(store, range, &root, key).await.unwrap();
+        let rp = read(&TEST_REALM, store, range, &root, key).await.unwrap();
         let vp = tree.latest_proof(rp).unwrap();
         let new_root = match tree.insert(vp, val).unwrap() {
             (root, None) => root,
@@ -510,7 +513,7 @@ mod tests {
         root: HO,
         store: &impl TreeStoreReader<HO>,
     ) -> Result<usize, TreeStoreError> {
-        match store.fetch(prefix.to_bitvec(), root).await? {
+        match store.fetch(&TEST_REALM, prefix.to_bitvec(), &root).await? {
             Node::Interior(int) => {
                 let lc = match &int.left {
                     None => 0,
@@ -551,7 +554,7 @@ mod tests {
         store: &impl TreeStoreReader<HO>,
     ) -> HO {
         match store
-            .fetch(path.clone(), node)
+            .fetch(&TEST_REALM, path.clone(), &node)
             .await
             .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
         {
@@ -669,10 +672,11 @@ mod tests {
     impl<HO: HashOutput> TreeStoreReader<HO> for MemStore<HO> {
         async fn path_lookup(
             &self,
-            record_id: RecordId,
+            _realm_id: &RealmId,
+            record_id: &RecordId,
         ) -> Result<HashMap<HO, Node<HO>>, TreeStoreError> {
             let mut results = HashMap::new();
-            for start in all_store_key_starts(&record_id) {
+            for start in all_store_key_starts(record_id) {
                 let end = start.next();
                 results.extend(
                     self.nodes
@@ -682,7 +686,12 @@ mod tests {
             }
             Ok(results)
         }
-        async fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError> {
+        async fn fetch(
+            &self,
+            _realm_id: &RealmId,
+            prefix: KeyVec,
+            hash: &HO,
+        ) -> Result<Node<HO>, TreeStoreError> {
             let k = StoreKey::new(prefix, hash);
             match self.nodes.get(&k.into_bytes()) {
                 Some((_hash, n)) => Ok(n.clone()),

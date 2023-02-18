@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 
-use super::super::hsm::types::RecordId;
+use super::super::hsm::types::{RealmId, RecordId};
 use super::{
     base128, Dir, HashOutput, InteriorNode, KeySlice, KeyVec, LeafNode, OwnedRange, ReadProof,
 };
@@ -79,7 +79,7 @@ impl<HO: HashOutput> NodeKey<HO> {
     // Returns a lexicographically ordered encoding of this prefix & hash
     // that leads with prefix.
     pub fn store_key(&self) -> StoreKey {
-        StoreKey::new(self.prefix.clone(), self.hash)
+        StoreKey::new(self.prefix.clone(), &self.hash)
     }
 }
 
@@ -88,7 +88,7 @@ impl<HO: HashOutput> NodeKey<HO> {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct StoreKey(Vec<u8>);
 impl StoreKey {
-    pub fn new<HO: HashOutput>(prefix: KeyVec, hash: HO) -> StoreKey {
+    pub fn new<HO: HashOutput>(prefix: KeyVec, hash: &HO) -> StoreKey {
         // encoded key consists of
         //   the prefix base128 encoded
         //   a delimiter which has Msb set and the lower 4 bits indicate the
@@ -154,19 +154,26 @@ pub fn all_store_key_starts(k: &RecordId) -> Vec<StoreKeyStart> {
 pub trait TreeStoreReader<HO: HashOutput>: Sync {
     async fn path_lookup(
         &self,
-        record_id: RecordId,
+        realm_id: &RealmId,
+        record_id: &RecordId,
     ) -> Result<HashMap<HO, Node<HO>>, TreeStoreError>;
 
-    async fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError>;
+    async fn fetch(
+        &self,
+        realm_id: &RealmId,
+        prefix: KeyVec,
+        hash: &HO,
+    ) -> Result<Node<HO>, TreeStoreError>;
 }
 
 pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
+    realm_id: &RealmId,
     store: &R,
     range: &OwnedRange,
     root_hash: &HO,
     k: &RecordId,
 ) -> Result<ReadProof<HO>, TreeStoreError> {
-    let mut nodes = store.path_lookup(k.clone()).await?;
+    let mut nodes = store.path_lookup(realm_id, k).await?;
     let root = match nodes.remove(root_hash) {
         None => return Err(TreeStoreError::MissingNode),
         Some(Node::Leaf(_)) => panic!("found unexpected leaf node"),
@@ -204,6 +211,7 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
 // Reads down the tree from the root always following one side until a leaf is reached.
 // Needed for merge.
 pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
+    realm_id: &RealmId,
     store: &R,
     range: &OwnedRange,
     root_hash: &HO,
@@ -213,7 +221,7 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     let mut key = KeyVec::with_capacity(RecordId::num_bits());
     let mut current = *root_hash;
     loop {
-        match store.fetch(key.clone(), current).await? {
+        match store.fetch(realm_id, key.clone(), &current).await? {
             Node::Interior(int) => match int.branch(side) {
                 None => match int.branch(side.opposite()) {
                     None => {

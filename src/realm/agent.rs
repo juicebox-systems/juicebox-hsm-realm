@@ -740,7 +740,8 @@ impl Agent {
             };
 
             let proof = match merkle::agent::read(
-                &store.realm_reader(&request.realm),
+                &request.realm,
+                store,
                 &partition.range,
                 &partition.root_hash,
                 &rec_id,
@@ -884,15 +885,16 @@ impl Agent {
                         }
                     };
 
-                    let realm_reader = store.realm_reader(&request.realm);
                     let transferring_in_proof_req = merkle::agent::read_tree_side(
-                        &realm_reader,
+                        &request.realm,
+                        store,
                         &request.transferring.range,
                         &request.transferring.root_hash,
                         proof_dir,
                     );
                     let owned_range_proof_req = merkle::agent::read_tree_side(
-                        &realm_reader,
+                        &request.realm,
+                        store,
                         &partition.range,
                         &partition.root_hash,
                         proof_dir.opposite(),
@@ -1034,7 +1036,8 @@ async fn start_app_request(
         };
 
         let proof = match merkle::agent::read(
-            &store.realm_reader(&request.realm),
+            &request.realm,
+            store,
             &partition.range,
             &partition.root_hash,
             &request.rid,
