@@ -287,6 +287,7 @@ pub enum MergeError {
 }
 
 pub trait HashOutput: Hash + Copy + Eq + Debug + Sync + Send {
+    fn from_slice(bytes: &[u8]) -> Option<Self>;
     fn as_u8(&self) -> &[u8];
 }
 
@@ -715,6 +716,15 @@ mod tests {
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
     pub struct TestHash(pub [u8; 8]);
     impl HashOutput for TestHash {
+        fn from_slice(bytes: &[u8]) -> Option<TestHash> {
+            if bytes.len() == 8 {
+                let mut h = TestHash([0u8; 8]);
+                h.0.copy_from_slice(bytes);
+                Some(h)
+            } else {
+                None
+            }
+        }
         fn as_u8(&self) -> &[u8] {
             self.0.as_slice()
         }

@@ -532,11 +532,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
         let nodes: HashMap<DataHash, Node<DataHash>> = rows
             .into_iter()
             .map(|(row_key, cells)| {
-                // TODO: there should be an easier way to parse a StoreKey.
-                let mut hash = DataHash(Default::default());
-                let hash_len = hash.0.len();
-                hash.0
-                    .copy_from_slice(&row_key.0[(row_key.0.len() - hash_len)..]);
+                let (_, hash) = StoreKey::parse(&row_key.0).unwrap();
                 let node: Node<DataHash> = rmp_serde::from_slice(
                     &cells
                         .into_iter()

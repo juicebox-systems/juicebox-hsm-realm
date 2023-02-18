@@ -104,7 +104,19 @@ impl StoreKey {
     pub fn into_bytes(self) -> Vec<u8> {
         self.0
     }
+    pub fn parse<HO: HashOutput>(bytes: &[u8]) -> Option<(EncodedRecordPrefix, HO)> {
+        match bytes.iter().position(|b| b & 128 != 0) {
+            None => None,
+            Some(p) => {
+                let ep = EncodedRecordPrefix(&bytes[..=p]);
+                HO::from_slice(&bytes[p + 1..]).map(|h| (ep, h))
+            }
+        }
+    }
 }
+pub struct EncodedRecordPrefix<'a>(&'a [u8]);
+// When/If we have a need to decode this back to the prefix, we can write the base128 decoder.
+
 // The beginning part of a StoreKey
 #[derive(Clone)]
 pub struct StoreKeyStart(Vec<u8>);
