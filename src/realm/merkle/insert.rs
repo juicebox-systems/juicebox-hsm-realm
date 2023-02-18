@@ -25,10 +25,16 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             if leaf.value == v {
                 return Ok((self.overlay.latest_root, None));
             }
-            delta.remove(NodeKey::new(KeyVec::from_slice(&proof.key.0), leaf.hash));
+            let last_int = proof.path.last().unwrap();
+            let leaf_hash = last_int
+                .node
+                .branch(last_int.next_dir)
+                .as_ref()
+                .unwrap()
+                .hash;
+            delta.remove(NodeKey::new(KeyVec::from_slice(&proof.key.0), leaf_hash));
         }
-        let leaf = LeafNode::new(&self.hasher, &proof.key, v);
-        let leaf_hash = leaf.hash;
+        let (leaf_hash, leaf) = LeafNode::new(&self.hasher, &proof.key, v);
         delta.add(
             NodeKey::new(KeyVec::from_slice(&proof.key.0), leaf_hash),
             Node::Leaf(leaf),
@@ -43,39 +49,37 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             None => {
                 // update node to have empty branch point to the new leaf.
                 let b = Branch::new(key[last.prefix.len()..].into(), leaf_hash);
-                let updated_n =
+                let (hash, updated_n) =
                     last.node
                         .with_new_child(&self.hasher, &proof.range, true, last.next_dir, b);
-                let hash = updated_n.hash;
                 delta.add(
                     NodeKey::new(last.prefix.clone(), hash),
                     Node::Interior(updated_n),
                 );
-                delta.remove(NodeKey::new(last.prefix, last.node.hash));
+                delta.remove(NodeKey::new(last.prefix, last.hash));
                 hash
             }
             Some(b) => {
                 if key[last.prefix.len()..] == b.prefix {
                     // this points to the existing leaf, just need to update it.
-                    let updated_n = last.node.with_new_child_hash(
+                    let (new_hash, updated_n) = last.node.with_new_child_hash(
                         &self.hasher,
                         &proof.range,
                         last.prefix.is_empty(),
                         last.next_dir,
                         leaf_hash,
                     );
-                    let new_hash = updated_n.hash;
                     delta.add(
                         NodeKey::new(last.prefix.clone(), new_hash),
                         Node::Interior(updated_n),
                     );
-                    delta.remove(NodeKey::new(last.prefix, last.node.hash));
+                    delta.remove(NodeKey::new(last.prefix, last.hash));
                     new_hash
                 } else {
                     // This points somewhere else. Add a child node that contains(b.dest, new_leaf) and update n to point to it
                     let comm = common_prefix(&key[last.prefix.len()..], &b.prefix);
                     assert!(!comm.is_empty());
-                    let new_child = InteriorNode::construct(
+                    let (child_hash, new_child) = InteriorNode::construct(
                         &self.hasher,
                         &proof.range,
                         false,
@@ -85,45 +89,44 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         )),
                         Some(Branch::new(b.prefix[comm.len()..].into(), b.hash)),
                     );
-                    let updated_n = last.node.with_new_child(
+                    let (new_hash, updated_n) = last.node.with_new_child(
                         &self.hasher,
                         &proof.range,
                         last.prefix.is_empty(),
                         last.next_dir,
-                        Branch::new(comm.into(), new_child.hash),
+                        Branch::new(comm.into(), child_hash),
                     );
                     delta.add(
                         NodeKey::new(
                             key[..last.prefix.len() + comm.len()].to_bitvec(),
-                            new_child.hash,
+                            child_hash,
                         ),
                         Node::Interior(new_child),
                     );
-                    let new_hash = updated_n.hash;
                     delta.add(
                         NodeKey::new(last.prefix.clone(), new_hash),
                         Node::Interior(updated_n),
                     );
-                    delta.remove(NodeKey::new(last.prefix, last.node.hash));
+                    delta.remove(NodeKey::new(last.prefix, last.hash));
                     new_hash
                 }
             }
         };
         // now roll the hash back up the path.
+        let mut updated_n;
         for parent in proof.path.into_iter().rev() {
-            let updated_n = parent.node.with_new_child_hash(
+            (child_hash, updated_n) = parent.node.with_new_child_hash(
                 &self.hasher,
                 &proof.range,
                 parent.prefix.is_empty(),
                 parent.next_dir,
                 child_hash,
             );
-            child_hash = updated_n.hash;
             delta.add(
                 NodeKey::new(parent.prefix.clone(), child_hash),
                 Node::Interior(updated_n),
             );
-            delta.remove(NodeKey::new(parent.prefix, parent.node.hash));
+            delta.remove(NodeKey::new(parent.prefix, parent.hash));
         }
         let final_delta = delta.build();
         self.overlay.add_delta(child_hash, &final_delta);
@@ -166,7 +169,6 @@ mod tests {
             .unwrap();
         if let Node::Leaf(leaf) = leaf_node {
             assert_eq!([42].to_vec(), leaf.value);
-            assert_eq!(leaf_key.hash, leaf.hash);
         }
         assert_eq!(leaf_key.prefix, KeyVec::from_slice(&rec_id(&[1, 2, 3]).0));
         assert!(d.remove.contains(&NodeKey::new(KeyVec::new(), root)));
@@ -178,7 +180,7 @@ mod tests {
             .unwrap();
         assert_eq!([42].to_vec(), p.leaf.as_ref().unwrap().value);
         assert_eq!(1, p.path.len());
-        assert_eq!(new_root, p.path[0].hash);
+        assert_eq!(new_root, p.root_hash);
     }
 
     #[tokio::test]
@@ -221,7 +223,7 @@ mod tests {
             .unwrap();
         assert_eq!([42].to_vec(), p.leaf.unwrap().value);
         assert_eq!(3, p.path.len());
-        assert_eq!(root, p.path[0].hash);
+        assert_eq!(root, p.root_hash);
         check_tree_invariants(&tree.hasher, &range, root, &store).await;
         assert_eq!(
             tree_size(KeySlice::empty(), root, &store).await.unwrap(),

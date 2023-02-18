@@ -50,10 +50,9 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     //      Apply the store delta returned from insert to storage. Keep track of what
     //      the new root hash is.
     pub fn new_tree(hasher: &H, key_range: &OwnedRange) -> (HO, StoreDelta<HO>) {
-        let root = InteriorNode::new(hasher, key_range, true, None, None);
-        let hash = root.hash;
+        let (hash, root) = InteriorNode::new(hasher, key_range, true, None, None);
         let mut delta = DeltaBuilder::new();
-        delta.add(NodeKey::new(KeyVec::new(), root.hash), Node::Interior(root));
+        delta.add(NodeKey::new(KeyVec::new(), hash), Node::Interior(root));
         (hash, delta.build())
     }
 
@@ -78,7 +77,6 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 pub struct InteriorNode<HO> {
     left: Option<Branch<HO>>,
     right: Option<Branch<HO>>,
-    hash: HO,
 }
 impl<HO: HashOutput> InteriorNode<HO> {
     fn new<H: NodeHasher<HO>>(
@@ -87,11 +85,11 @@ impl<HO: HashOutput> InteriorNode<HO> {
         is_root: bool,
         left: Option<Branch<HO>>,
         right: Option<Branch<HO>>,
-    ) -> InteriorNode<HO> {
+    ) -> (HO, InteriorNode<HO>) {
         Branch::assert_dir(&left, Dir::Left);
         Branch::assert_dir(&right, Dir::Right);
         let hash = Self::calc_hash(h, key_range, is_root, &left, &right);
-        InteriorNode { left, right, hash }
+        (hash, InteriorNode { left, right })
     }
     // construct returns a new InteriorNode with the supplied children. It will determine
     // which should be left and right. If you know which should be left & right use new instead.
@@ -102,7 +100,7 @@ impl<HO: HashOutput> InteriorNode<HO> {
         is_root: bool,
         a: Option<Branch<HO>>,
         b: Option<Branch<HO>>,
-    ) -> InteriorNode<HO> {
+    ) -> (HO, InteriorNode<HO>) {
         match (&a, &b) {
             (None, None) => Self::new(h, key_range, is_root, None, None),
             (Some(x), _) => {
@@ -152,7 +150,7 @@ impl<HO: HashOutput> InteriorNode<HO> {
         &self,
         h: &H,
         key_range: &OwnedRange,
-    ) -> InteriorNode<HO> {
+    ) -> (HO, InteriorNode<HO>) {
         InteriorNode::new(h, key_range, true, self.left.clone(), self.right.clone())
     }
     fn with_new_child<H: NodeHasher<HO>>(
@@ -162,7 +160,7 @@ impl<HO: HashOutput> InteriorNode<HO> {
         is_root: bool,
         dir: Dir,
         child: Branch<HO>,
-    ) -> InteriorNode<HO> {
+    ) -> (HO, InteriorNode<HO>) {
         match dir {
             Dir::Left => InteriorNode::new(h, key_range, is_root, Some(child), self.right.clone()),
             Dir::Right => InteriorNode::new(h, key_range, is_root, self.left.clone(), Some(child)),
@@ -175,7 +173,7 @@ impl<HO: HashOutput> InteriorNode<HO> {
         is_root: bool,
         dir: Dir,
         hash: HO,
-    ) -> InteriorNode<HO> {
+    ) -> (HO, InteriorNode<HO>) {
         let b = self.branch(dir).as_ref().unwrap();
         let nb = Branch::new(b.prefix.clone(), hash);
         self.with_new_child(h, key_range, is_root, dir, nb)
@@ -183,16 +181,15 @@ impl<HO: HashOutput> InteriorNode<HO> {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct LeafNode<HO> {
+pub struct LeafNode {
     pub value: Vec<u8>,
-    pub hash: HO,
 }
-impl<HO> LeafNode<HO> {
-    fn new<H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: Vec<u8>) -> LeafNode<HO> {
+impl LeafNode {
+    fn new<HO, H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: Vec<u8>) -> (HO, LeafNode) {
         let h = Self::calc_hash(hasher, k, &v);
-        LeafNode { value: v, hash: h }
+        (h, LeafNode { value: v })
     }
-    fn calc_hash<H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: &[u8]) -> HO {
+    fn calc_hash<HO, H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: &[u8]) -> HO {
         hasher.calc_hash(&[&k.0, v])
     }
 }
@@ -258,8 +255,6 @@ impl Display for Dir {
 // The result of performing a split operation on the tree. The tree is split
 // into 2 halves.
 pub struct SplitResult<HO: HashOutput> {
-    // The previous root hash.
-    pub old_root: HO,
     // The new tree that was from the left side of the split point.
     pub left: SplitRoot<HO>,
     // The new tree that was from the right side of the split point.
@@ -370,7 +365,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(1, p.path.len());
-        assert_eq!(root, p.path[0].hash);
         assert!(p.leaf.is_none());
         check_tree_invariants(&tree.hasher, &range, root, &store).await;
     }
@@ -378,20 +372,20 @@ mod tests {
     #[test]
     fn test_empty_root_prefix_hash() {
         let h = TestHasher {};
-        let root = InteriorNode::new(&h, &OwnedRange::full(), true, None, None);
+        let (root_hash, _) = InteriorNode::new(&h, &OwnedRange::full(), true, None, None);
         let p0 = OwnedRange {
             start: rec_id(&[1]),
             end: rec_id(&[2]),
         };
-        let root_p0 = InteriorNode::new(&h, &p0, true, None, None);
+        let (hash_p0, _) = InteriorNode::new(&h, &p0, true, None, None);
         let p1 = OwnedRange {
             start: p0.start,
             end: p0.end.next().unwrap(),
         };
-        let root_p1 = InteriorNode::new(&h, &p1, true, None, None);
-        assert_ne!(root.hash, root_p0.hash);
-        assert_ne!(root.hash, root_p1.hash);
-        assert_ne!(root_p0.hash, root_p1.hash);
+        let (hash_p1, _) = InteriorNode::new(&h, &p1, true, None, None);
+        assert_ne!(root_hash, hash_p0);
+        assert_ne!(root_hash, hash_p1);
+        assert_ne!(hash_p0, hash_p1);
     }
 
     #[test]
@@ -426,7 +420,7 @@ mod tests {
                 TestHash([8, 7, 6, 5, 4, 3, 2, 1]),
             )),
         );
-        assert_ne!(a.hash, b.hash);
+        assert_ne!(a.0, b.0);
     }
 
     #[test]
@@ -561,11 +555,7 @@ mod tests {
             .await
             .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
         {
-            Node::Leaf(l) => {
-                let exp_hash = LeafNode::calc_hash(hasher, &rec_id(&path.into_vec()), &l.value);
-                assert_eq!(exp_hash, l.hash);
-                exp_hash
-            }
+            Node::Leaf(l) => LeafNode::calc_hash(hasher, &rec_id(&path.into_vec()), &l.value),
             Node::Interior(int) => {
                 match &int.left {
                     None => assert!(is_at_root),
@@ -595,7 +585,7 @@ mod tests {
                 }
                 let exp_hash =
                     InteriorNode::calc_hash(hasher, range, is_at_root, &int.left, &int.right);
-                assert_eq!(exp_hash, int.hash);
+                assert_eq!(exp_hash, node);
                 exp_hash
             }
         }
@@ -610,9 +600,6 @@ mod tests {
             "hash is repeated in delta.add"
         );
 
-        for (k, n) in &delta.add {
-            assert_eq!(k.hash, n.hash(), "node and key have differing hashes");
-        }
         for k in &delta.remove {
             let added = add_by_hash.get(&k.hash);
             if added.is_some() {
@@ -650,7 +637,7 @@ mod tests {
 
     #[derive(Clone)]
     pub struct MemStore<HO> {
-        nodes: BTreeMap<Vec<u8>, Node<HO>>,
+        nodes: BTreeMap<Vec<u8>, (HO, Node<HO>)>,
     }
     impl<HO> MemStore<HO> {
         fn new() -> Self {
@@ -670,7 +657,7 @@ mod tests {
             check_delta_invariants(new_root, &d);
             for (k, n) in d.add {
                 let enc = k.store_key();
-                self.nodes.insert(enc.into_bytes(), n);
+                self.nodes.insert(enc.into_bytes(), (k.hash, n));
             }
             for k in d.remove {
                 let enc = k.store_key();
@@ -690,7 +677,7 @@ mod tests {
                 results.extend(
                     self.nodes
                         .range(start.into_bytes()..end.into_bytes())
-                        .map(|i| (i.1.hash(), i.1.clone())),
+                        .map(|i| (i.1 .0, i.1 .1.clone())),
                 );
             }
             Ok(results)
@@ -698,7 +685,7 @@ mod tests {
         async fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError> {
             let k = StoreKey::new(prefix, hash);
             match self.nodes.get(&k.into_bytes()) {
-                Some(n) => Ok(n.clone()),
+                Some((_hash, n)) => Ok(n.clone()),
                 None => Err(TreeStoreError::MissingNode),
             }
         }

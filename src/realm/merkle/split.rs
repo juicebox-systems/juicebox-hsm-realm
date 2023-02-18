@@ -72,7 +72,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 // This splits into the current tree (with new hash for partition change) plus a new empty root.
                 info!("starting split to {side} of root node");
                 let root = &proof.path[0].node;
-                let (left_node, right_node) = match side {
+                let ((left_hash, left_node), (right_hash, right_node)) = match side {
                     Dir::Left => (
                         InteriorNode::new(&self.hasher, &left_range, true, None, None),
                         root.root_with_new_partition(&self.hasher, &right_range),
@@ -83,11 +83,11 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     ),
                 };
                 let left = SplitRoot {
-                    root_hash: left_node.hash,
+                    root_hash: left_hash,
                     range: left_range,
                 };
                 let right = SplitRoot {
-                    root_hash: right_node.hash,
+                    root_hash: right_hash,
                     range: right_range,
                 };
                 delta.add(
@@ -98,9 +98,8 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     NodeKey::new(KeyVec::new(), right.root_hash),
                     Node::Interior(right_node),
                 );
-                delta.remove(NodeKey::new(KeyVec::new(), root.hash));
+                delta.remove(NodeKey::new(KeyVec::new(), proof.path[0].hash));
                 Ok(SplitResult {
-                    old_root: root.hash,
                     left,
                     right,
                     delta: delta.build(),
@@ -110,16 +109,16 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 // Simple case, split is in the middle of the root node.
                 info!("starting split at root node");
                 let root = &proof.path[0].node;
-                let left_node =
+                let (left_hash, left_node) =
                     InteriorNode::new(&self.hasher, &left_range, true, root.left.clone(), None);
-                let right_node =
+                let (right_hash, right_node) =
                     InteriorNode::new(&self.hasher, &right_range, true, None, root.right.clone());
                 let left = SplitRoot {
-                    root_hash: left_node.hash,
+                    root_hash: left_hash,
                     range: left_range,
                 };
                 let right = SplitRoot {
-                    root_hash: right_node.hash,
+                    root_hash: right_hash,
                     range: right_range,
                 };
                 delta.add(
@@ -130,28 +129,29 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     NodeKey::new(KeyVec::new(), right.root_hash),
                     Node::Interior(right_node),
                 );
-                delta.remove(NodeKey::new(KeyVec::new(), root.hash));
+                delta.remove(NodeKey::new(KeyVec::new(), proof.path[0].hash));
                 Ok(SplitResult {
-                    old_root: root.hash,
                     left,
                     right,
                     delta: delta.build(),
                 })
             }
             SplitLocation::PathIndex(split_idx) => {
-                let split = &proof.path[split_idx].node;
+                let split_step = &proof.path[split_idx];
+                let split = &split_step.node;
                 info!(
                     "starting split. split is at path[{split_idx}] with hash {:?}",
-                    split.hash
+                    split_step.hash
                 );
                 let mut left = split.left.clone().unwrap();
                 let mut right = split.right.clone().unwrap();
                 delta.remove(NodeKey::new(
                     proof.path[split_idx].prefix.clone(),
-                    split.hash,
+                    split_step.hash,
                 ));
 
                 for path_idx in (0..split_idx).rev() {
+                    let parent_hash = proof.path[path_idx].hash;
                     let parent = &proof.path[path_idx].node;
                     let parent_d = proof.path[path_idx].next_dir;
                     let parent_b = parent.branch(parent_d).as_ref().unwrap();
@@ -162,7 +162,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                             Dir::Left => (right, &right_range, left),
                             Dir::Right => (left, &left_range, right),
                         };
-                        let new_node = parent.with_new_child(
+                        let (new_hash, new_node) = parent.with_new_child(
                             &self.hasher,
                             new_node_range,
                             path_idx == 0,
@@ -172,9 +172,9 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                                 gets_new_node.hash,
                             ),
                         );
-                        let new_node_res = Branch::new(KeyVec::new(), new_node.hash);
+                        let new_node_res = Branch::new(KeyVec::new(), new_hash);
                         delta.add(
-                            NodeKey::new(proof.path[path_idx].prefix.clone(), new_node.hash),
+                            NodeKey::new(proof.path[path_idx].prefix.clone(), new_hash),
                             Node::Interior(new_node),
                         );
                         let ext_prefix_res = Branch::new(
@@ -188,34 +188,31 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     };
                     delta.remove(NodeKey::new(
                         proof.path[path_idx].prefix.clone(),
-                        parent.hash,
+                        parent_hash,
                     ));
                 }
                 let left_root = if !left.prefix.is_empty() {
-                    let n =
+                    let (h, n) =
                         InteriorNode::construct(&self.hasher, &left_range, true, None, Some(left));
-                    let h = n.hash;
                     delta.add(NodeKey::new(KeyVec::new(), h), Node::Interior(n));
                     h
                 } else {
                     left.hash
                 };
                 let right_root = if !right.prefix.is_empty() {
-                    let n = InteriorNode::construct(
+                    let (h, n) = InteriorNode::construct(
                         &self.hasher,
                         &right_range,
                         true,
                         None,
                         Some(right),
                     );
-                    let h = n.hash;
                     delta.add(NodeKey::new(KeyVec::new(), h), Node::Interior(n));
                     h
                 } else {
                     right.hash
                 };
                 Ok(SplitResult {
-                    old_root: self.overlay.latest_root,
                     left: SplitRoot {
                         root_hash: left_root,
                         range: left_range,

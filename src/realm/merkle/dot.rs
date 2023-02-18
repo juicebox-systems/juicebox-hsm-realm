@@ -35,21 +35,21 @@ async fn add_node_to_dot<W: Write + Send, HO: HashOutput>(
     {
         Node::Interior(int) => {
             if let Some(ref b) = int.left {
-                write_branch(&int.hash, b, Dir::Left, w)?;
+                write_branch(&h, b, Dir::Left, w)?;
                 add_node_to_dot(concat(&prefix, &b.prefix), b.hash, reader, w).await?;
             }
             if let Some(ref b) = int.right {
-                write_branch(&int.hash, b, Dir::Right, w)?;
+                write_branch(&h, b, Dir::Right, w)?;
                 add_node_to_dot(concat(&prefix, &b.prefix), b.hash, reader, w).await?;
             }
             writeln!(
                 w,
                 "h{:?} [label=\"{:?}\" style=filled fillcolor=azure3 ordering=out shape=box];",
-                int.hash, int.hash
+                h, h
             )
         }
         Node::Leaf(l) => {
-            writeln!(w,"h{:?} [label=\"{:?}\\nv:{:?}\" style=filled fillcolor=lightblue1 ordering=out shape=box];", l.hash,l.hash,l.value)
+            writeln!(w,"h{:?} [label=\"{:?}\\nv:{:?}\" style=filled fillcolor=lightblue1 ordering=out shape=box];", h, h, l.value)
         }
     }
 }
