@@ -1406,8 +1406,15 @@ fn handle_app_request(
             RecordChange::Update(record) => {
                 let cipher =
                     Aes256Gcm::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
+                // TODO: can we use this nonce to help generate unique leaf hashes?
+                // TODO: can we use or add the previous root hash into this? (this seems hard as you need the same nonce to decode it)
                 let nonce = Nonce::from_slice(&tree_latest_proof.key.0[..12]);
                 let plain_text: &[u8] = &record;
+
+                // TODO: An optimization we could do is to use the authentication tag as the leaf's hash. Right now this is checking
+                // the integrity of the record twice: once in the Merkle tree hash and once in the AES GCM tag.
+                // We may also want to use the AD part of AEAD. For example, the generation number in the user's record isn't necessarily
+                // private and could allow the agent to reply to some queries without the HSM getting involved.
                 let cipher_text = cipher
                     .encrypt(nonce, plain_text)
                     .expect("couldn't encrypt record");
