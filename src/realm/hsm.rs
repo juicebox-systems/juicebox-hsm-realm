@@ -298,10 +298,10 @@ impl NodeHasher<DataHash> for MerkleHasher {
     }
 }
 
-/// A private key used to encrypt/decrypt leaf node values.
-struct LeafEncryptionKey([u8; 32]);
+/// A private key used to encrypt/decrypt record values.
+struct RecordEncryptionKey([u8; 32]);
 
-impl LeafEncryptionKey {
+impl RecordEncryptionKey {
     fn from(realm_key: &RealmKey) -> Self {
         // generated from /dev/random
         let salt = [
@@ -309,7 +309,7 @@ impl LeafEncryptionKey {
             0xeb, 0xb2, 0x6b, 0x91, 0x0a, 0x97, 0x5c, 0xee, 0xfa, 0x57, 0xf7, 0x76, 0x5d, 0x96,
             0x49, 0xa4, 0xd3, 0xd6,
         ];
-        let info = "leaf".as_bytes();
+        let info = "record".as_bytes();
         let hk = Hkdf::<Sha256>::new(Some(&salt), &realm_key.0);
         let mut out = [0u8; 32];
         hk.expand(info, &mut out).unwrap();
@@ -342,7 +342,7 @@ struct PersistentGroupState {
 
 struct VolatileState {
     leader: HashMap<GroupId, LeaderVolatileGroupState>,
-    leaf_key: LeafEncryptionKey,
+    record_key: RecordEncryptionKey,
 }
 
 struct LeaderVolatileGroupState {
@@ -367,7 +367,7 @@ enum HsmError {
 impl Hsm {
     fn new(name: String, realm_key: RealmKey) -> Self {
         let root_oprf_key = RootOprfKey::from(&realm_key);
-        let leaf_key = LeafEncryptionKey::from(&realm_key);
+        let leaf_key = RecordEncryptionKey::from(&realm_key);
         Hsm {
             name,
             persistent: PersistentState {
@@ -378,7 +378,7 @@ impl Hsm {
             },
             volatile: VolatileState {
                 leader: HashMap::new(),
-                leaf_key,
+                record_key: leaf_key,
             },
         }
     }
@@ -1330,7 +1330,7 @@ impl Hsm {
                             handle_app_request(
                                 &app_ctx,
                                 request,
-                                &self.volatile.leaf_key,
+                                &self.volatile.record_key,
                                 &self.persistent,
                                 leader,
                             )
@@ -1356,7 +1356,7 @@ impl Hsm {
 fn handle_app_request(
     app_ctx: &app::AppContext,
     request: AppRequest,
-    leaf_key: &LeafEncryptionKey,
+    leaf_key: &RecordEncryptionKey,
     persistent: &PersistentState,
     leader: &mut LeaderVolatileGroupState,
 ) -> AppResponse {
