@@ -41,11 +41,17 @@ where
         }
     };
 
-    // TODO: these traces are entirely uninformative about which service
-    // instance this is for.
-    trace!(?request);
+    trace!(
+        request_type = std::any::type_name::<R>(),
+        ?request,
+        "received request"
+    );
     let response = handler(service, request).await;
-    trace!(?response);
+    trace!(
+        response_type = std::any::type_name::<R::Response>(),
+        ?response,
+        "responding"
+    );
 
     match response {
         Err(e) => match e { /* no possible errors */ },
