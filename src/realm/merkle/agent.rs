@@ -158,11 +158,10 @@ pub trait TreeStoreReader<HO: HashOutput>: Sync {
         record_id: &RecordId,
     ) -> Result<HashMap<HO, Node<HO>>, TreeStoreError>;
 
-    async fn fetch(
+    async fn read_node(
         &self,
         realm_id: &RealmId,
-        prefix: KeyVec,
-        hash: &HO,
+        key: StoreKey,
     ) -> Result<Node<HO>, TreeStoreError>;
 }
 
@@ -221,7 +220,10 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     let mut key = KeyVec::with_capacity(RecordId::num_bits());
     let mut current = *root_hash;
     loop {
-        match store.fetch(realm_id, key.clone(), &current).await? {
+        match store
+            .read_node(realm_id, StoreKey::new(key.clone(), &current))
+            .await?
+        {
             Node::Interior(int) => match int.branch(side) {
                 None => match int.branch(side.opposite()) {
                     None => {

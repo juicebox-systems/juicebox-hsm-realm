@@ -3,7 +3,7 @@ use std::{
     io::{BufWriter, Write},
 };
 
-use super::super::hsm::types::RealmId;
+use super::{super::hsm::types::RealmId, agent::StoreKey};
 use super::{agent::Node, agent::TreeStoreReader, concat, Branch, Dir, HashOutput, KeyVec};
 use async_recursion::async_recursion;
 
@@ -22,6 +22,7 @@ pub async fn tree_to_dot<HO: HashOutput>(
     writeln!(w, "}}")?;
     w.flush()
 }
+
 #[async_recursion]
 async fn add_node_to_dot<W: Write + Send, HO: HashOutput>(
     realm_id: &RealmId,
@@ -31,7 +32,7 @@ async fn add_node_to_dot<W: Write + Send, HO: HashOutput>(
     w: &mut W,
 ) -> std::io::Result<()> {
     match reader
-        .fetch(realm_id, prefix.clone(), &h)
+        .read_node(realm_id, StoreKey::new(prefix.clone(), &h))
         .await
         .unwrap_or_else(|_| panic!("node with hash {h:?} should exist"))
     {

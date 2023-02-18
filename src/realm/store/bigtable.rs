@@ -20,7 +20,6 @@ mod mutate;
 mod read;
 
 use super::super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordId};
-use super::super::merkle;
 use super::super::merkle::agent::{
     all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError, TreeStoreReader,
 };
@@ -554,13 +553,12 @@ impl TreeStoreReader<DataHash> for StoreClient {
         Ok(nodes)
     }
 
-    async fn fetch(
+    async fn read_node(
         &self,
         realm: &RealmId,
-        prefix: merkle::KeyVec,
-        hash: &DataHash,
+        key: StoreKey,
     ) -> Result<Node<DataHash>, TreeStoreError> {
-        trace!(realm = ?realm, prefix = ?prefix, hash = ?hash, "read_node starting");
+        trace!(realm = ?realm, key = ?key, "read_node starting");
 
         let rows = read_rows(
             &mut self.bigtable.clone(),
@@ -568,7 +566,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
                 table_name: merkle_table(&self.instance, realm),
                 app_profile_id: String::new(),
                 rows: Some(RowSet {
-                    row_keys: vec![StoreKey::new(prefix.clone(), hash).into_bytes()],
+                    row_keys: vec![key.clone().into_bytes()],
                     row_ranges: Vec::new(),
                 }),
                 filter: Some(RowFilter {
@@ -592,7 +590,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
             None => Err(TreeStoreError::MissingNode),
         };
 
-        trace!(realm = ?realm, prefix = ?prefix, hash = ?hash, ok = node.is_ok(), "read_node completed");
+        trace!(realm = ?realm, key = ?key, ok = node.is_ok(), "read_node completed");
         node
     }
 }

@@ -513,7 +513,10 @@ mod tests {
         root: HO,
         store: &impl TreeStoreReader<HO>,
     ) -> Result<usize, TreeStoreError> {
-        match store.fetch(&TEST_REALM, prefix.to_bitvec(), &root).await? {
+        match store
+            .read_node(&TEST_REALM, StoreKey::new(prefix.to_bitvec(), &root))
+            .await?
+        {
             Node::Interior(int) => {
                 let lc = match &int.left {
                     None => 0,
@@ -554,7 +557,7 @@ mod tests {
         store: &impl TreeStoreReader<HO>,
     ) -> HO {
         match store
-            .fetch(&TEST_REALM, path.clone(), &node)
+            .read_node(&TEST_REALM, StoreKey::new(path.clone(), &node))
             .await
             .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
         {
@@ -686,14 +689,12 @@ mod tests {
             }
             Ok(results)
         }
-        async fn fetch(
+        async fn read_node(
             &self,
             _realm_id: &RealmId,
-            prefix: KeyVec,
-            hash: &HO,
+            key: StoreKey,
         ) -> Result<Node<HO>, TreeStoreError> {
-            let k = StoreKey::new(prefix, hash);
-            match self.nodes.get(&k.into_bytes()) {
+            match self.nodes.get(&key.into_bytes()) {
                 Some((_hash, n)) => Ok(n.clone()),
                 None => Err(TreeStoreError::MissingNode),
             }
