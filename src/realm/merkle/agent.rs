@@ -38,6 +38,7 @@ impl<HO: HashOutput> Default for StoreDelta<HO> {
     }
 }
 
+#[derive(Default)]
 pub struct DeltaBuilder<HO> {
     to_add: Vec<(NodeKey<HO>, Node<HO>)>,
     to_remove: HashSet<NodeKey<HO>>,

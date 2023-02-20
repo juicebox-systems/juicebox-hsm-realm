@@ -4,44 +4,47 @@ use reqwest::Url;
 use std::iter;
 use std::net::SocketAddr;
 use std::ops::RangeFrom;
-use std::str::FromStr;
-use tracing::{info, Level};
-use tracing_subscriber::filter::FilterFn;
-use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::FmtSubscriber;
+use std::process::Child;
+use tracing::info;
 
-mod autogen;
-mod client;
-mod http_client;
-mod realm;
-mod types;
-
-use client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
-use realm::agent::Agent;
-use realm::hsm::types::{OwnedRange, RealmId, RecordId};
-use realm::hsm::{http::client::HsmHttpClient, http::host::HttpHsm, RealmKey};
-use realm::load_balancer::LoadBalancer;
-use realm::store::bigtable;
-use types::{AuthToken, Policy};
+use loam_mvp::client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
+use loam_mvp::logging;
+use loam_mvp::realm;
+use loam_mvp::realm::agent::Agent;
+use loam_mvp::realm::hsm::http::client::HsmHttpClient;
+use loam_mvp::realm::hsm::types::{OwnedRange, RecordId};
+use loam_mvp::realm::load_balancer::LoadBalancer;
+use loam_mvp::realm::store::bigtable;
+use loam_mvp::types::{AuthToken, Policy};
 
 /// Creates HSMs and their agents.
 ///
 /// This module exists to encapsulate the secret shared between the HSMs.
 mod hsm_gen {
+    use std::{fmt::Write, process::Command, time::Duration};
+
+    use loam_mvp::realm::hsm::types::StatusRequest;
+    use rand::rngs::OsRng;
+    use rand::RngCore;
     use reqwest::Url;
 
     use super::*;
 
     pub struct HsmGenerator {
-        secret: RealmKey,
+        secret: String,
         port: RangeFrom<u16>,
     }
 
     impl HsmGenerator {
         pub fn new(start_port: u16) -> Self {
+            let mut v = vec![0; 32];
+            OsRng.fill_bytes(&mut v);
+            let mut buf = String::new();
+            for byte in v {
+                write!(buf, "{byte:02x}").unwrap();
+            }
             Self {
-                secret: RealmKey::random(),
+                secret: buf,
                 port: start_port..,
             }
         }
@@ -51,17 +54,31 @@ mod hsm_gen {
             count: usize,
             store: &bigtable::StoreClient,
             store_admin: &bigtable::StoreAdminClient,
-        ) -> Vec<Url> {
+        ) -> (Vec<Url>, Vec<ProcessKiller>) {
             let listens = iter::repeat_with(|| {
                 let hsm_port = self.port.next().unwrap();
                 let agent_port = self.port.next().unwrap();
-                let secret = self.secret.clone();
+                let hsm_child = Command::new("target/debug/http_hsm")
+                    .args([
+                        "-l",
+                        &SocketAddr::from(([127, 0, 0, 1], hsm_port)).to_string(),
+                        "-k",
+                        &self.secret,
+                    ])
+                    .spawn()
+                    .expect("TODO!");
+                let hsm_url = Url::parse(&format!("http://127.0.0.1:{hsm_port}")).unwrap();
                 async move {
-                    let (hsm_url, _) = HttpHsm::new(format!("hsm{hsm_port}"), secret)
-                        .listen(SocketAddr::from(([127, 0, 0, 1], hsm_port)))
-                        .await
-                        .unwrap();
                     let hsm = HsmHttpClient::new_client(hsm_url);
+                    // wait for the HSM to be up.
+                    for _tries in 0..10 {
+                        if hsm.send(StatusRequest {}).await.is_ok() {
+                            break;
+                        } else {
+                            tokio::time::sleep(Duration::from_millis(2)).await;
+                            continue;
+                        }
+                    }
                     let agent = Agent::new(
                         format!("agent{agent_port}"),
                         hsm,
@@ -70,11 +87,15 @@ mod hsm_gen {
                     );
                     let address = SocketAddr::from(([127, 0, 0, 1], agent_port));
                     let result = agent.listen(address).await;
-                    result.map(|(url, _)| url)
+                    result.map(|(url, _)| (url, ProcessKiller(hsm_child)))
                 }
             })
             .take(count);
-            try_join_all(listens).await.expect("TODO")
+            try_join_all(listens)
+                .await
+                .expect("TODO")
+                .into_iter()
+                .unzip()
         }
     }
 }
@@ -82,38 +103,7 @@ use hsm_gen::HsmGenerator;
 
 #[tokio::main]
 async fn main() {
-    let log_level = std::env::var("LOGLEVEL")
-        .map(|s| match Level::from_str(&s) {
-            Ok(level) => level,
-            Err(e) => panic!("failed to parse LOGLEVEL: {e}"),
-        })
-        .unwrap_or(Level::DEBUG);
-    // Quiet down some libs.
-    let filter = FilterFn::new(|metadata| {
-        if let Some(module) = metadata.module_path() {
-            if module.starts_with("h2::")
-                || module.starts_with("hyper::")
-                || module.starts_with("tokio_util::")
-                || module.starts_with("tonic::")
-                || module.starts_with("tower::")
-            {
-                return false;
-            }
-        }
-        true
-    });
-    let subscriber = FmtSubscriber::builder()
-        .with_file(true)
-        .with_line_number(true)
-        .with_max_level(log_level)
-        .with_span_events(FmtSpan::ACTIVE)
-        .with_target(false)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber.with(filter)).unwrap();
-    info!(
-        max_level = %log_level,
-        "set up tracing. you can set verbosity with env var LOGLEVEL."
-    );
+    logging::configure();
 
     info!("connecting to Bigtable");
     let instance = bigtable::Instance {
@@ -150,15 +140,17 @@ async fn main() {
 
     let num_hsms = 5;
     info!(count = num_hsms, "creating initial HSMs and agents");
-    let group1: Vec<Url> = hsm_generator
+    let (group1, mut child_processes) = hsm_generator
         .create_hsms(num_hsms, &store, &store_admin)
         .await;
     let (realm_id, group_id1) = realm::cluster::new_realm(&group1).await.unwrap();
     info!(?realm_id, group_id = ?group_id1, "initialized cluster");
 
     info!("creating additional groups");
-    let group2: Vec<Url> = hsm_generator.create_hsms(5, &store, &store_admin).await;
-    let group3: Vec<Url> = hsm_generator.create_hsms(4, &store, &store_admin).await;
+    let (group2, group2_children) = hsm_generator.create_hsms(5, &store, &store_admin).await;
+    let (group3, group3_children) = hsm_generator.create_hsms(4, &store, &store_admin).await;
+    child_processes.extend(group2_children);
+    child_processes.extend(group3_children);
 
     let mut groups = try_join_all([
         realm::cluster::new_group(realm_id, &group2),
@@ -234,18 +226,25 @@ async fn main() {
     .unwrap();
 
     info!("creating additional realms");
-    let mut realm_ids: Vec<RealmId> = join_all([5000, 6000, 7000].map(|start_port| {
-        let mut hsm_generator = HsmGenerator::new(start_port);
-        let store = store.clone();
-        let store_admin = store_admin.clone();
-        async move {
-            let agents = hsm_generator
-                .create_hsms(num_hsms, &store, &store_admin)
-                .await;
-            realm::cluster::new_realm(&agents).await.unwrap().0
-        }
-    }))
-    .await;
+    let (mut realm_ids, realm_processes): (Vec<_>, Vec<_>) =
+        join_all([5000, 6000, 7000].map(|start_port| {
+            let mut hsm_generator = HsmGenerator::new(start_port);
+            let store = store.clone();
+            let store_admin = store_admin.clone();
+            async move {
+                let agents = hsm_generator
+                    .create_hsms(num_hsms, &store, &store_admin)
+                    .await;
+                (
+                    realm::cluster::new_realm(&agents.0).await.unwrap().0,
+                    agents.1,
+                )
+            }
+        }))
+        .await
+        .into_iter()
+        .unzip();
+    child_processes.extend(realm_processes.into_iter().flatten());
     realm_ids.push(realm_id);
 
     let mut lb = load_balancers.iter().cycle();
@@ -365,6 +364,24 @@ async fn main() {
         }
     }
     println!();
+    println!(
+        "waiting for {} child processes to exit",
+        child_processes.len()
+    );
+    drop(child_processes);
 
     println!("main: exiting");
+}
+
+pub struct ProcessKiller(Child);
+
+impl Drop for ProcessKiller {
+    fn drop(&mut self) {
+        if let Err(e) = self.0.kill() {
+            info!(?e, "failed to kill child process");
+        }
+        if let Err(e) = self.0.wait() {
+            info!(?e, "failed to wait for child process to exit");
+        }
+    }
 }
