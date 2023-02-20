@@ -1,11 +1,11 @@
 use futures::future::{join_all, try_join_all};
 use http::Uri;
 use reqwest::Url;
-use std::iter;
 use std::net::SocketAddr;
 use std::ops::RangeFrom;
-use std::process::Child;
-use tracing::info;
+use std::process::{Child, ExitStatus};
+use std::{io, iter};
+use tracing::{info, warn};
 
 use loam_mvp::client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use loam_mvp::logging;
@@ -368,20 +368,26 @@ async fn main() {
         "waiting for {} child processes to exit",
         child_processes.len()
     );
-    drop(child_processes);
+    for mut cp in child_processes.into_iter() {
+        if let Err(e) = cp.kill() {
+            warn!(?e, "failed to kill child process");
+        }
+    }
 
     println!("main: exiting");
 }
 
 pub struct ProcessKiller(Child);
 
+impl ProcessKiller {
+    fn kill(&mut self) -> io::Result<ExitStatus> {
+        self.0.kill()?;
+        self.0.wait()
+    }
+}
 impl Drop for ProcessKiller {
     fn drop(&mut self) {
-        if let Err(e) = self.0.kill() {
-            info!(?e, "failed to kill child process");
-        }
-        if let Err(e) = self.0.wait() {
-            info!(?e, "failed to wait for child process to exit");
-        }
+        // Err is deliberately ignored.
+        if self.kill().is_err() {};
     }
 }
