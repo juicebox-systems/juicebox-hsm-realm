@@ -367,7 +367,7 @@ enum HsmError {
 impl Hsm {
     fn new(name: String, realm_key: RealmKey) -> Self {
         let root_oprf_key = RootOprfKey::from(&realm_key);
-        let leaf_key = RecordEncryptionKey::from(&realm_key);
+        let record_key = RecordEncryptionKey::from(&realm_key);
         Hsm {
             name,
             persistent: PersistentState {
@@ -378,7 +378,7 @@ impl Hsm {
             },
             volatile: VolatileState {
                 leader: HashMap::new(),
-                record_key: leaf_key,
+                record_key,
             },
         }
     }
