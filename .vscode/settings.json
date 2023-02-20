@@ -19,6 +19,7 @@
         "oneshot",
         "Oprf",
         "oprfs",
+        "pico",
         "presso",
         "reqwest",
         "rngs",

@@ -1,3 +1,8 @@
+## Builds
+
+* `cargo test --lib` run the unit tests
+* `cargo run --bin demo` run the demo aka "integration test"
+
 ## Local Bigtable emulator
 
 You'll need the Bigtable emulator to run offline. You may also want the Cloud

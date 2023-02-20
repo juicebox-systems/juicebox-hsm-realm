@@ -47,6 +47,13 @@ impl RealmKey {
         OsRng.fill_bytes(&mut key);
         Self(key)
     }
+    // derive a realmKey from the supplied input.
+    // TODO, ensure this goes away.
+    pub fn derive_from(b: &[u8]) -> Self {
+        let mut mac = Hmac::<sha2::Sha512>::new_from_slice(b"worlds worst secret").expect("TODO");
+        mac.update(b);
+        Self(mac.finalize().into_bytes())
+    }
 }
 
 impl GroupId {

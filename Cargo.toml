@@ -13,6 +13,7 @@ aes-gcm = "0.10.1"
 async-trait = "0.1.64"
 bitvec = { version = "1.0.1", features = ["serde"] }
 bytes = "1.4.0"
+clap = { version = "4.1.6", features = ["derive"] }
 digest = "0.10.6"
 futures = "0.3.25"
 hkdf = "0.12.3"
