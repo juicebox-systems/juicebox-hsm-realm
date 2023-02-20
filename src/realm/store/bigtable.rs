@@ -20,7 +20,6 @@ mod mutate;
 mod read;
 
 use super::super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordId};
-use super::super::merkle;
 use super::super::merkle::agent::{
     all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError, TreeStoreReader,
 };
@@ -428,108 +427,6 @@ impl StoreClient {
         Ok(last)
     }
 
-    async fn path_lookup(
-        &self,
-        realm: &RealmId,
-        record_id: &RecordId,
-    ) -> Result<HashMap<DataHash, Node<DataHash>>, TreeStoreError> {
-        trace!(realm = ?realm, record = ?record_id, "path_lookup starting");
-
-        let rows = read_rows(
-            &mut self.bigtable.clone(),
-            ReadRowsRequest {
-                table_name: merkle_table(&self.instance, realm),
-                app_profile_id: String::new(),
-                rows: Some(RowSet {
-                    row_keys: Vec::new(),
-                    row_ranges: all_store_key_starts(record_id)
-                        .into_iter()
-                        .map(|prefix| RowRange {
-                            end_key: Some(EndKeyOpen(prefix.next().into_bytes())),
-                            start_key: Some(StartKeyClosed(prefix.into_bytes())),
-                        })
-                        .collect(),
-                }),
-                filter: Some(RowFilter {
-                    filter: Some(row_filter::Filter::CellsPerColumnLimitFilter(1)),
-                }),
-                rows_limit: 0,
-                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
-            },
-        )
-        .await
-        .map_err(|e| TreeStoreError::Network(Box::new(e)))?;
-
-        let nodes: HashMap<DataHash, Node<DataHash>> = rows
-            .into_iter()
-            .map(|(row_key, cells)| {
-                // TODO: there should be an easier way to parse a StoreKey.
-                let mut hash = DataHash(Default::default());
-                let hash_len = hash.0.len();
-                hash.0
-                    .copy_from_slice(&row_key.0[(row_key.0.len() - hash_len)..]);
-                let node: Node<DataHash> = rmp_serde::from_slice(
-                    &cells
-                        .into_iter()
-                        .find(|cell| cell.family == "f" && cell.qualifier == b"n")
-                        .expect("every Merkle row should contain a node value")
-                        .value,
-                )
-                .expect("TODO");
-                (hash, node)
-            })
-            .collect();
-
-        trace!(realm = ?realm, record = ?record_id, nodes = nodes.len(), "path_lookup completed");
-        Ok(nodes)
-    }
-
-    async fn read_node(
-        &self,
-        realm: &RealmId,
-        prefix: &merkle::KeyVec,
-        hash: &DataHash,
-    ) -> Result<Node<DataHash>, TreeStoreError> {
-        trace!(realm = ?realm, prefix = ?prefix, hash = ?hash, "read_node starting");
-
-        let rows = read_rows(
-            &mut self.bigtable.clone(),
-            ReadRowsRequest {
-                table_name: merkle_table(&self.instance, realm),
-                app_profile_id: String::new(),
-                rows: Some(RowSet {
-                    row_keys: vec![StoreKey::new(prefix.clone(), *hash).into_bytes()],
-                    row_ranges: Vec::new(),
-                }),
-                filter: Some(RowFilter {
-                    filter: Some(row_filter::Filter::CellsPerColumnLimitFilter(1)),
-                }),
-                rows_limit: 0,
-                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
-            },
-        )
-        .await
-        .map_err(|e| TreeStoreError::Network(Box::new(e)))?;
-
-        let node = match rows.into_iter().next().and_then(|(_key, cells)| {
-            cells
-                .into_iter()
-                .find(|cell| cell.family == "f" && cell.qualifier == b"n")
-                .map(|cell| rmp_serde::from_slice(&cell.value).expect("TODO"))
-                .expect("every Merkle row should contain a node value")
-        }) {
-            Some(node) => Ok(node),
-            None => Err(TreeStoreError::MissingNode),
-        };
-
-        trace!(realm = ?realm, prefix = ?prefix, hash = ?hash, ok = node.is_ok(), "read_node completed");
-        node
-    }
-
-    pub fn realm_reader<'a>(&'a self, realm: &'a RealmId) -> impl TreeStoreReader<DataHash> + 'a {
-        RealmReader { store: self, realm }
-    }
-
     pub async fn get_addresses(&self) -> Result<Vec<(HsmId, Url)>, tonic::Status> {
         let rows = read_rows(
             &mut self.bigtable.clone(),
@@ -598,26 +495,99 @@ impl StoreClient {
     }
 }
 
-struct RealmReader<'a> {
-    store: &'a StoreClient,
-    realm: &'a RealmId,
-}
-
 #[async_trait]
-impl<'a> TreeStoreReader<DataHash> for RealmReader<'a> {
+impl TreeStoreReader<DataHash> for StoreClient {
     async fn path_lookup(
         &self,
-        record_id: RecordId,
+        realm: &RealmId,
+        record_id: &RecordId,
     ) -> Result<HashMap<DataHash, Node<DataHash>>, TreeStoreError> {
-        self.store.path_lookup(self.realm, &record_id).await
+        trace!(realm = ?realm, record = ?record_id, "path_lookup starting");
+
+        let rows = read_rows(
+            &mut self.bigtable.clone(),
+            ReadRowsRequest {
+                table_name: merkle_table(&self.instance, realm),
+                app_profile_id: String::new(),
+                rows: Some(RowSet {
+                    row_keys: Vec::new(),
+                    row_ranges: all_store_key_starts(record_id)
+                        .into_iter()
+                        .map(|prefix| RowRange {
+                            end_key: Some(EndKeyOpen(prefix.next().into_bytes())),
+                            start_key: Some(StartKeyClosed(prefix.into_bytes())),
+                        })
+                        .collect(),
+                }),
+                filter: Some(RowFilter {
+                    filter: Some(row_filter::Filter::CellsPerColumnLimitFilter(1)),
+                }),
+                rows_limit: 0,
+                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+            },
+        )
+        .await
+        .map_err(|e| TreeStoreError::Network(Box::new(e)))?;
+
+        let nodes: HashMap<DataHash, Node<DataHash>> = rows
+            .into_iter()
+            .map(|(row_key, cells)| {
+                let (_, hash) = StoreKey::parse(&row_key.0).unwrap();
+                let node: Node<DataHash> = rmp_serde::from_slice(
+                    &cells
+                        .into_iter()
+                        .find(|cell| cell.family == "f" && cell.qualifier == b"n")
+                        .expect("every Merkle row should contain a node value")
+                        .value,
+                )
+                .expect("TODO");
+                (hash, node)
+            })
+            .collect();
+
+        trace!(realm = ?realm, record = ?record_id, nodes = nodes.len(), "path_lookup completed");
+        Ok(nodes)
     }
 
-    async fn fetch(
+    async fn read_node(
         &self,
-        prefix: merkle::KeyVec,
-        hash: DataHash,
+        realm: &RealmId,
+        key: StoreKey,
     ) -> Result<Node<DataHash>, TreeStoreError> {
-        self.store.read_node(self.realm, &prefix, &hash).await
+        trace!(realm = ?realm, key = ?key, "read_node starting");
+
+        let rows = read_rows(
+            &mut self.bigtable.clone(),
+            ReadRowsRequest {
+                table_name: merkle_table(&self.instance, realm),
+                app_profile_id: String::new(),
+                rows: Some(RowSet {
+                    row_keys: vec![key.clone().into_bytes()],
+                    row_ranges: Vec::new(),
+                }),
+                filter: Some(RowFilter {
+                    filter: Some(row_filter::Filter::CellsPerColumnLimitFilter(1)),
+                }),
+                rows_limit: 0,
+                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+            },
+        )
+        .await
+        .map_err(|e| TreeStoreError::Network(Box::new(e)))?;
+
+        let node = match rows.into_iter().next().and_then(|(_key, cells)| {
+            cells
+                .into_iter()
+                .find(|cell| cell.family == "f" && cell.qualifier == b"n")
+                .map(|cell| rmp_serde::from_slice(&cell.value).expect("TODO"))
+                .expect("every Merkle row should contain a node value")
+        }) {
+            Some(node) => Ok(node),
+            None => Err(TreeStoreError::MissingNode),
+        };
+
+        trace!(realm = ?realm, key = ?key, ok = node.is_ok(), "read_node completed");
+        node
     }
 }
 

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 
-use super::super::hsm::types::RecordId;
+use super::super::hsm::types::{RealmId, RecordId};
 use super::{
     base128, Dir, HashOutput, InteriorNode, KeySlice, KeyVec, LeafNode, OwnedRange, ReadProof,
 };
@@ -79,7 +79,7 @@ impl<HO: HashOutput> NodeKey<HO> {
     // Returns a lexicographically ordered encoding of this prefix & hash
     // that leads with prefix.
     pub fn store_key(&self) -> StoreKey {
-        StoreKey::new(self.prefix.clone(), self.hash)
+        StoreKey::new(self.prefix.clone(), &self.hash)
     }
 }
 
@@ -88,7 +88,7 @@ impl<HO: HashOutput> NodeKey<HO> {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct StoreKey(Vec<u8>);
 impl StoreKey {
-    pub fn new<HO: HashOutput>(prefix: KeyVec, hash: HO) -> StoreKey {
+    pub fn new<HO: HashOutput>(prefix: KeyVec, hash: &HO) -> StoreKey {
         // encoded key consists of
         //   the prefix base128 encoded
         //   a delimiter which has Msb set and the lower 4 bits indicate the
@@ -104,7 +104,19 @@ impl StoreKey {
     pub fn into_bytes(self) -> Vec<u8> {
         self.0
     }
+    pub fn parse<HO: HashOutput>(bytes: &[u8]) -> Option<(EncodedRecordPrefix, HO)> {
+        match bytes.iter().position(|b| b & 128 != 0) {
+            None => None,
+            Some(p) => {
+                let ep = EncodedRecordPrefix(&bytes[..=p]);
+                HO::from_slice(&bytes[p + 1..]).map(|h| (ep, h))
+            }
+        }
+    }
 }
+pub struct EncodedRecordPrefix<'a>(&'a [u8]);
+// When/If we have a need to decode this back to the prefix, we can write the base128 decoder.
+
 // The beginning part of a StoreKey
 #[derive(Clone)]
 pub struct StoreKeyStart(Vec<u8>);
@@ -154,19 +166,25 @@ pub fn all_store_key_starts(k: &RecordId) -> Vec<StoreKeyStart> {
 pub trait TreeStoreReader<HO: HashOutput>: Sync {
     async fn path_lookup(
         &self,
-        record_id: RecordId,
+        realm_id: &RealmId,
+        record_id: &RecordId,
     ) -> Result<HashMap<HO, Node<HO>>, TreeStoreError>;
 
-    async fn fetch(&self, prefix: KeyVec, hash: HO) -> Result<Node<HO>, TreeStoreError>;
+    async fn read_node(
+        &self,
+        realm_id: &RealmId,
+        key: StoreKey,
+    ) -> Result<Node<HO>, TreeStoreError>;
 }
 
 pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
+    realm_id: &RealmId,
     store: &R,
     range: &OwnedRange,
     root_hash: &HO,
     k: &RecordId,
 ) -> Result<ReadProof<HO>, TreeStoreError> {
-    let mut nodes = store.path_lookup(k.clone()).await?;
+    let mut nodes = store.path_lookup(realm_id, k).await?;
     let root = match nodes.remove(root_hash) {
         None => return Err(TreeStoreError::MissingNode),
         Some(Node::Leaf(_)) => panic!("found unexpected leaf node"),
@@ -204,6 +222,7 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
 // Reads down the tree from the root always following one side until a leaf is reached.
 // Needed for merge.
 pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
+    realm_id: &RealmId,
     store: &R,
     range: &OwnedRange,
     root_hash: &HO,
@@ -213,7 +232,10 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     let mut key = KeyVec::with_capacity(RecordId::num_bits());
     let mut current = *root_hash;
     loop {
-        match store.fetch(key.clone(), current).await? {
+        match store
+            .read_node(realm_id, StoreKey::new(key.clone(), &current))
+            .await?
+        {
             Node::Interior(int) => match int.branch(side) {
                 None => match int.branch(side.opposite()) {
                     None => {
@@ -274,7 +296,7 @@ mod tests {
     use super::super::super::hsm::types::RecordId;
     use super::super::tests::TestHash;
     use super::super::{KeySlice, KeyVec};
-    use super::{all_store_key_starts, encode_prefix_into, NodeKey};
+    use super::{all_store_key_starts, encode_prefix_into, NodeKey, StoreKey};
     use bitvec::bitvec;
     use bitvec::prelude::Msb0;
 
@@ -336,5 +358,43 @@ mod tests {
         test(RecordId([0x80; 32]));
         test(RecordId([0xFE; 32]));
         test(RecordId([0xFF; 32]));
+    }
+
+    #[test]
+    fn test_store_key_parse() {
+        let prefix = bitvec![u8,Msb0; 1,0,1];
+        let hash = TestHash([1, 2, 3, 4, 5, 6, 7, 8]);
+        let sk = StoreKey::new(prefix, &hash);
+        assert_eq!(vec![0b01010000, 128 | 3, 1, 2, 3, 4, 5, 6, 7, 8], sk.0);
+        match StoreKey::parse::<TestHash>(&sk.0) {
+            None => panic!("should have decoded store key"),
+            Some((p, h)) => {
+                assert_eq!(h, hash);
+                assert_eq!(&[0b01010000, 128 | 3], p.0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_store_key_parse_empty_prefix() {
+        let prefix = bitvec![u8,Msb0; ];
+        let hash = TestHash([1, 2, 3, 4, 5, 6, 7, 8]);
+        let sk = StoreKey::new(prefix, &hash);
+        assert_eq!(vec![128, 1, 2, 3, 4, 5, 6, 7, 8], sk.0);
+        match StoreKey::parse::<TestHash>(&sk.0) {
+            None => panic!("should have decoded store key"),
+            Some((p, h)) => {
+                assert_eq!(h, hash);
+                assert_eq!(&[128], p.0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_store_key_parse_bad_input() {
+        assert!(StoreKey::parse::<TestHash>(&[0, 0, 128, 1, 2, 3, 4]).is_none());
+        assert!(StoreKey::parse::<TestHash>(&[]).is_none());
+        assert!(StoreKey::parse::<TestHash>(&[1, 2]).is_none());
+        assert!(StoreKey::parse::<TestHash>(&[1, 2, 128 | 1]).is_none());
     }
 }

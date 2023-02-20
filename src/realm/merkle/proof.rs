@@ -354,7 +354,7 @@ mod tests {
     use super::super::super::hsm::types::OwnedRange;
     use super::super::{
         agent::read,
-        tests::{new_empty_tree, rec_id, tree_insert},
+        tests::{new_empty_tree, rec_id, tree_insert, TEST_REALM},
     };
     use super::ProofError;
 
@@ -385,34 +385,46 @@ mod tests {
         )
         .await;
 
-        let p = read(&store, &range, &root, &rid5).await.unwrap();
+        let p = read(&TEST_REALM, &store, &range, &root, &rid5)
+            .await
+            .unwrap();
         assert!(p.verify(&tree.hasher, &tree.overlay).is_ok());
 
         // claim there's no leaf
-        let mut p = read(&store, &range, &root, &rid5).await.unwrap();
+        let mut p = read(&TEST_REALM, &store, &range, &root, &rid5)
+            .await
+            .unwrap();
         p.leaf = None;
         assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
 
-        let mut p = read(&store, &range, &root, &rid5).await.unwrap();
+        let mut p = read(&TEST_REALM, &store, &range, &root, &rid5)
+            .await
+            .unwrap();
         // truncate the tail of the path to claim there's no leaf
         p.leaf = None;
         p.path.pop();
         assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
 
-        let mut p = read(&store, &range, &root, &rid5).await.unwrap();
+        let mut p = read(&TEST_REALM, &store, &range, &root, &rid5)
+            .await
+            .unwrap();
         // futz with the path
         p.key.0[0] = 2;
         assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
 
         // futz with the value (checks the hash)
-        let mut p = read(&store, &range, &root, &rid5).await.unwrap();
+        let mut p = read(&TEST_REALM, &store, &range, &root, &rid5)
+            .await
+            .unwrap();
         if let Some(ref mut l) = p.leaf {
             l.value[0] += 1;
         }
         assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
 
         // futz with a node (checks the hash)
-        let mut p = read(&store, &range, &root, &rid5).await.unwrap();
+        let mut p = read(&TEST_REALM, &store, &range, &root, &rid5)
+            .await
+            .unwrap();
         if let Some(ref mut b) = &mut p.path[0].left {
             b.prefix.pop();
         }
@@ -433,7 +445,7 @@ mod tests {
             false,
         )
         .await;
-        let rp_1 = read(&store, &range, &root, &rec_id(&[0b10000000]))
+        let rp_1 = read(&TEST_REALM, &store, &range, &root, &rec_id(&[0b10000000]))
             .await
             .unwrap();
         for i in 0..20 {

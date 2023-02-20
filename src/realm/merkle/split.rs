@@ -237,6 +237,7 @@ mod tests {
         agent::{read, read_tree_side},
         tests::{
             check_tree_invariants, new_empty_tree, rec_id, tree_insert, tree_size, TestHasher,
+            TEST_REALM,
         },
         {dot, Dir, KeySlice},
     };
@@ -339,7 +340,9 @@ mod tests {
         let pre_split_root_hash = root;
         let pre_split_store = store.clone();
 
-        let proof = read(&store, &range, &root, split).await.unwrap();
+        let proof = read(&TEST_REALM, &store, &range, &root, split)
+            .await
+            .unwrap();
         let s = tree.range_split(proof).unwrap();
         check_delta_invariants(s.right.root_hash, &s.delta);
         store.apply_store_delta(s.left.root_hash, s.delta);
@@ -386,40 +389,40 @@ mod tests {
         check_tree_invariants(&TestHasher {}, &s.right.range, root_r, &store_r).await;
 
         if root_l != s.left.root_hash {
-            dot::tree_to_dot(root_l, &store_l, "expected_left.dot")
+            dot::tree_to_dot(&TEST_REALM, &store_l, root_l, "expected_left.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(s.left.root_hash, &store, "actual_left.dot")
+            dot::tree_to_dot(&TEST_REALM, &store, s.left.root_hash, "actual_left.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(s.right.root_hash, &store, "actual_right.dot")
+            dot::tree_to_dot(&TEST_REALM, &store, s.right.root_hash, "actual_right.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(root, &pre_split_store, "before_split.dot")
+            dot::tree_to_dot(&TEST_REALM, &pre_split_store, root, "before_split.dot")
                 .await
                 .unwrap();
             panic!("left tree after split at {split:?} not as expected, see expected_left.dot & actual_left.dot for details");
         }
         if root_r != s.right.root_hash {
-            dot::tree_to_dot(root_r, &store_r, "expected_right.dot")
+            dot::tree_to_dot(&TEST_REALM, &store_r, root_r, "expected_right.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(s.left.root_hash, &store, "actual_left.dot")
+            dot::tree_to_dot(&TEST_REALM, &store, s.left.root_hash, "actual_left.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(s.right.root_hash, &store, "actual_right.dot")
+            dot::tree_to_dot(&TEST_REALM, &store, s.right.root_hash, "actual_right.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(root, &pre_split_store, "before_split.dot")
+            dot::tree_to_dot(&TEST_REALM, &pre_split_store, root, "before_split.dot")
                 .await
                 .unwrap();
             panic!("right tree after split at {split:?} not as expected, see expected_right.dot & actual_right.dot for details");
         }
 
-        let left_proof = read_tree_side(&store_l, &s.left.range, &root_l, Dir::Right)
+        let left_proof = read_tree_side(&TEST_REALM, &store_l, &s.left.range, &root_l, Dir::Right)
             .await
             .unwrap();
-        let right_proof = read_tree_side(&store_r, &s.right.range, &root_r, Dir::Left)
+        let right_proof = read_tree_side(&TEST_REALM, &store_r, &s.right.range, &root_r, Dir::Left)
             .await
             .unwrap();
 
@@ -427,10 +430,15 @@ mod tests {
         store_l.add_from_other_store(store_r);
         store_l.apply_store_delta(merged.root_hash, merged.delta);
         if pre_split_root_hash != merged.root_hash {
-            dot::tree_to_dot(pre_split_root_hash, &pre_split_store, "before_split.dot")
-                .await
-                .unwrap();
-            dot::tree_to_dot(merged.root_hash, &store_l, "after_merge.dot")
+            dot::tree_to_dot(
+                &TEST_REALM,
+                &pre_split_store,
+                pre_split_root_hash,
+                "before_split.dot",
+            )
+            .await
+            .unwrap();
+            dot::tree_to_dot(&TEST_REALM, &store_l, merged.root_hash, "after_merge.dot")
                 .await
                 .unwrap();
             assert_eq!(

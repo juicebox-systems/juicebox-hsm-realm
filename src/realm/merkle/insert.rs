@@ -145,7 +145,9 @@ mod tests {
     use super::super::super::hsm::types::OwnedRange;
     use super::super::agent::{read, Node};
     use super::super::{
-        tests::{check_tree_invariants, new_empty_tree, rec_id, tree_insert, tree_size},
+        tests::{
+            check_tree_invariants, new_empty_tree, rec_id, tree_insert, tree_size, TEST_REALM,
+        },
         KeySlice, KeyVec, NodeKey,
     };
 
@@ -153,7 +155,7 @@ mod tests {
     async fn first_insert() {
         let range = OwnedRange::full();
         let (mut tree, root, mut store) = new_empty_tree(&range).await;
-        let rp = read(&store, &range, &root, &rec_id(&[1, 2, 3]))
+        let rp = read(&TEST_REALM, &store, &range, &root, &rec_id(&[1, 2, 3]))
             .await
             .unwrap();
         let (new_root, d) = tree
@@ -175,7 +177,7 @@ mod tests {
         store.apply_store_delta(new_root, d);
         check_tree_invariants(&tree.hasher, &range, new_root, &store).await;
 
-        let p = read(&store, &range, &new_root, &rec_id(&[1, 2, 3]))
+        let p = read(&TEST_REALM, &store, &range, &new_root, &rec_id(&[1, 2, 3]))
             .await
             .unwrap();
         assert_eq!([42].to_vec(), p.leaf.as_ref().unwrap().value);
@@ -218,7 +220,7 @@ mod tests {
         )
         .await;
 
-        let p = read(&store, &range, &root, &rec_id(&[2, 6, 8]))
+        let p = read(&TEST_REALM, &store, &range, &root, &rec_id(&[2, 6, 8]))
             .await
             .unwrap();
         assert_eq!([42].to_vec(), p.leaf.unwrap().value);
@@ -270,7 +272,7 @@ mod tests {
         )
         .await;
 
-        let rp = read(&store, &range, &root, &rec_id(&[4, 4, 6]))
+        let rp = read(&TEST_REALM, &store, &range, &root, &rec_id(&[4, 4, 6]))
             .await
             .unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
@@ -287,7 +289,7 @@ mod tests {
             false,
         )
         .await;
-        let rp = read(&store, &range, &root, &rec_id(&[4, 4, 6]))
+        let rp = read(&TEST_REALM, &store, &range, &root, &rec_id(&[4, 4, 6]))
             .await
             .unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
@@ -324,7 +326,7 @@ mod tests {
 
             // verify we can read all the key/values we've stored.
             for (k, v) in expected.iter() {
-                let p = read(&store, &range, &root, k).await.unwrap();
+                let p = read(&TEST_REALM, &store, &range, &root, k).await.unwrap();
                 assert_eq!([*v].to_vec(), p.leaf.unwrap().value);
             }
             // if i == 16 {
@@ -355,9 +357,15 @@ mod tests {
             false,
         )
         .await;
-        let rp_1 = read(&store, &range, &root, &rid1).await.unwrap();
-        let rp_2 = read(&store, &range, &root, &rid2).await.unwrap();
-        let rp_3 = read(&store, &range, &root, &rid3).await.unwrap();
+        let rp_1 = read(&TEST_REALM, &store, &range, &root, &rid1)
+            .await
+            .unwrap();
+        let rp_2 = read(&TEST_REALM, &store, &range, &root, &rid2)
+            .await
+            .unwrap();
+        let rp_3 = read(&TEST_REALM, &store, &range, &root, &rid3)
+            .await
+            .unwrap();
         let (root1, d1) = tree
             .insert(tree.latest_proof(rp_1).unwrap(), [11].to_vec())
             .unwrap();
@@ -388,11 +396,17 @@ mod tests {
             store.len()
         );
 
-        let rp_1 = read(&store, &range, &root3, &rid1).await.unwrap();
+        let rp_1 = read(&TEST_REALM, &store, &range, &root3, &rid1)
+            .await
+            .unwrap();
         assert_eq!([11].to_vec(), rp_1.leaf.unwrap().value);
-        let rp_2 = read(&store, &range, &root3, &rid2).await.unwrap();
+        let rp_2 = read(&TEST_REALM, &store, &range, &root3, &rid2)
+            .await
+            .unwrap();
         assert_eq!([12].to_vec(), rp_2.leaf.unwrap().value);
-        let rp_3 = read(&store, &range, &root3, &rid3).await.unwrap();
+        let rp_3 = read(&TEST_REALM, &store, &range, &root3, &rid3)
+            .await
+            .unwrap();
         assert_eq!([13].to_vec(), rp_3.leaf.unwrap().value);
     }
 }
