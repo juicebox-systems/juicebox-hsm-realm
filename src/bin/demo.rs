@@ -60,9 +60,9 @@ mod hsm_gen {
                 let agent_port = self.port.next().unwrap();
                 let hsm_child = Command::new("target/debug/http_hsm")
                     .args([
-                        "-l",
+                        "--listen",
                         &SocketAddr::from(([127, 0, 0, 1], hsm_port)).to_string(),
-                        "-k",
+                        "--key",
                         &self.secret,
                     ])
                     .spawn()
