@@ -1,4 +1,6 @@
+use aes_gcm::aead::Aead;
 use digest::Digest;
+use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -296,6 +298,25 @@ impl NodeHasher<DataHash> for MerkleHasher {
     }
 }
 
+/// A private key used to encrypt/decrypt record values.
+struct RecordEncryptionKey([u8; 32]);
+
+impl RecordEncryptionKey {
+    fn from(realm_key: &RealmKey) -> Self {
+        // generated from /dev/random
+        let salt = [
+            0x61u8, 0x33, 0xcf, 0xf6, 0xf6, 0x70, 0x27, 0xd2, 0x0c, 0x3d, 0x8b, 0x42, 0x5a, 0x21,
+            0xeb, 0xb2, 0x6b, 0x91, 0x0a, 0x97, 0x5c, 0xee, 0xfa, 0x57, 0xf7, 0x76, 0x5d, 0x96,
+            0x49, 0xa4, 0xd3, 0xd6,
+        ];
+        let info = "record".as_bytes();
+        let hk = Hkdf::<Sha256>::new(Some(&salt), &realm_key.0);
+        let mut out = [0u8; 32];
+        hk.expand(info, &mut out).unwrap();
+        Self(out)
+    }
+}
+
 struct Hsm {
     name: String,
     persistent: PersistentState,
@@ -321,6 +342,7 @@ struct PersistentGroupState {
 
 struct VolatileState {
     leader: HashMap<GroupId, LeaderVolatileGroupState>,
+    record_key: RecordEncryptionKey,
 }
 
 struct LeaderVolatileGroupState {
@@ -345,6 +367,7 @@ enum HsmError {
 impl Hsm {
     fn new(name: String, realm_key: RealmKey) -> Self {
         let root_oprf_key = RootOprfKey::from(&realm_key);
+        let record_key = RecordEncryptionKey::from(&realm_key);
         Hsm {
             name,
             persistent: PersistentState {
@@ -355,6 +378,7 @@ impl Hsm {
             },
             volatile: VolatileState {
                 leader: HashMap::new(),
+                record_key,
             },
         }
     }
@@ -1303,7 +1327,13 @@ impl Hsm {
                                 root_oprf_key: &self.persistent.root_oprf_key,
                                 hsm_name,
                             };
-                            handle_app_request(&app_ctx, request, &self.persistent, leader)
+                            handle_app_request(
+                                &app_ctx,
+                                request,
+                                &self.volatile.record_key,
+                                &self.persistent,
+                                leader,
+                            )
                         } else {
                             Response::NotOwner
                         }
@@ -1326,10 +1356,12 @@ impl Hsm {
 fn handle_app_request(
     app_ctx: &app::AppContext,
     request: AppRequest,
+    leaf_key: &RecordEncryptionKey,
     persistent: &PersistentState,
     leader: &mut LeaderVolatileGroupState,
 ) -> AppResponse {
     type Response = AppResponse;
+    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 
     let tree = leader
         .tree
@@ -1351,17 +1383,48 @@ fn handle_app_request(
             return Response::InvalidProof;
         }
     };
-    let latest_value = tree_latest_proof.leaf.as_ref().map(|l| &l.value);
+    let latest_value = match &tree_latest_proof.leaf {
+        None => None,
+        Some(l) => {
+            let cipher = Aes256Gcm::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
+            let nonce = Nonce::from_slice(&tree_latest_proof.key.0[..12]);
+            let cipher_text: &[u8] = &l.value;
+            match cipher.decrypt(nonce, cipher_text) {
+                Ok(plain_text) => Some(plain_text),
+                Err(e) => {
+                    warn!(?e, "failed to decrypt leaf value");
+                    return Response::InvalidRecordData;
+                }
+            }
+        }
+    };
     let last_entry = leader.log.last().unwrap();
 
     let (client_response, change) = app::process(app_ctx, request.request, latest_value);
     let (root_hash, delta) = match change {
         Some(change) => match change {
-            RecordChange::Update(record) => match tree.insert(tree_latest_proof, record) {
-                Ok((root_hash, delta)) => (root_hash, delta),
-                Err(ProofError::Stale) => return Response::StaleProof,
-                Err(ProofError::Invalid) => return Response::InvalidProof,
-            },
+            RecordChange::Update(record) => {
+                let cipher =
+                    Aes256Gcm::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
+                // TODO: can we use this nonce to help generate unique leaf hashes?
+                // TODO: can we use or add the previous root hash into this? (this seems hard as you need the same nonce to decode it)
+                let nonce = Nonce::from_slice(&tree_latest_proof.key.0[..12]);
+                let plain_text: &[u8] = &record;
+
+                // TODO: An optimization we could do is to use the authentication tag as the leaf's hash. Right now this is checking
+                // the integrity of the record twice: once in the Merkle tree hash and once in the AES GCM tag.
+                // We may also want to use the AD part of AEAD. For example, the generation number in the user's record isn't necessarily
+                // private and could allow the agent to reply to some queries without the HSM getting involved.
+                let cipher_text = cipher
+                    .encrypt(nonce, plain_text)
+                    .expect("couldn't encrypt record");
+
+                match tree.insert(tree_latest_proof, cipher_text) {
+                    Ok((root_hash, delta)) => (root_hash, delta),
+                    Err(ProofError::Stale) => return Response::StaleProof,
+                    Err(ProofError::Invalid) => return Response::InvalidProof,
+                }
+            }
         },
         None => (*tree_latest_proof.root_hash(), None),
     };

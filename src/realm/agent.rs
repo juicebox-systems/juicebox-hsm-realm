@@ -1066,6 +1066,8 @@ async fn start_app_request(
             Ok(HsmResponse::StaleProof) => continue,
             Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => return Err(Response::NotLeader),
             Ok(HsmResponse::InvalidProof) => return Err(Response::InvalidProof),
+            // TODO, is this right? if we can't decrypt the leaf, then the proof is likely bogus.
+            Ok(HsmResponse::InvalidRecordData) => return Err(Response::InvalidProof),
 
             Ok(HsmResponse::Ok { entry, delta }) => {
                 trace!(
