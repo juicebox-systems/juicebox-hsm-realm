@@ -296,7 +296,7 @@ mod tests {
     use super::super::super::hsm::types::RecordId;
     use super::super::tests::TestHash;
     use super::super::{KeySlice, KeyVec};
-    use super::{all_store_key_starts, encode_prefix_into, NodeKey};
+    use super::{all_store_key_starts, encode_prefix_into, NodeKey, StoreKey};
     use bitvec::bitvec;
     use bitvec::prelude::Msb0;
 
@@ -358,5 +358,43 @@ mod tests {
         test(RecordId([0x80; 32]));
         test(RecordId([0xFE; 32]));
         test(RecordId([0xFF; 32]));
+    }
+
+    #[test]
+    fn test_store_key_parse() {
+        let prefix = bitvec![u8,Msb0; 1,0,1];
+        let hash = TestHash([1, 2, 3, 4, 5, 6, 7, 8]);
+        let sk = StoreKey::new(prefix, &hash);
+        assert_eq!(vec![0b01010000, 128 | 3, 1, 2, 3, 4, 5, 6, 7, 8], sk.0);
+        match StoreKey::parse::<TestHash>(&sk.0) {
+            None => panic!("should have decoded store key"),
+            Some((p, h)) => {
+                assert_eq!(h, hash);
+                assert_eq!(&[0b01010000, 128 | 3], p.0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_store_key_parse_empty_prefix() {
+        let prefix = bitvec![u8,Msb0; ];
+        let hash = TestHash([1, 2, 3, 4, 5, 6, 7, 8]);
+        let sk = StoreKey::new(prefix, &hash);
+        assert_eq!(vec![128, 1, 2, 3, 4, 5, 6, 7, 8], sk.0);
+        match StoreKey::parse::<TestHash>(&sk.0) {
+            None => panic!("should have decoded store key"),
+            Some((p, h)) => {
+                assert_eq!(h, hash);
+                assert_eq!(&[128], p.0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_store_key_parse_bad_input() {
+        assert!(StoreKey::parse::<TestHash>(&[0, 0, 128, 1, 2, 3, 4]).is_none());
+        assert!(StoreKey::parse::<TestHash>(&[]).is_none());
+        assert!(StoreKey::parse::<TestHash>(&[1, 2]).is_none());
+        assert!(StoreKey::parse::<TestHash>(&[1, 2, 128 | 1]).is_none());
     }
 }
