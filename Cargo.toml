@@ -13,6 +13,7 @@ aes-gcm = "0.10.1"
 async-trait = "0.1.64"
 bitvec = { version = "1.0.1", features = ["serde"] }
 bytes = "1.4.0"
+clap = { version = "4.1.6", features = ["derive"] }
 digest = "0.10.6"
 futures = "0.3.25"
 hkdf = "0.12.3"
@@ -20,7 +21,6 @@ hmac = "0.12.1"
 http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
-pico-args = { version = "0.5.0",  features = ["eq-separator", "short-space-opt"] }
 prost = "0.11.6"
 prost-types = "0.11.6"
 rand = "0.8.5"
