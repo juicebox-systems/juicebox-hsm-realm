@@ -69,6 +69,7 @@ jobs:
     - name: Run cargo test
       uses: actions-rs/cargo@v1
       with:
+        args: --lib
         command: test
       env:
         RUST_BACKTRACE: '1'
@@ -103,6 +104,6 @@ jobs:
           cbt -creds /dev/null -project prj -instance inst \
           createtable tab families=fam
         pid=$!
-        RUST_BACKTRACE=1 cargo run
+        RUST_BACKTRACE=1 cargo run --bin demo
         kill $pid
       shell: bash
