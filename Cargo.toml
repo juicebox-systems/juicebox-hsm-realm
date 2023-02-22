@@ -80,6 +80,9 @@ criterion = { workspace = true }
 hex-literal = { workspace = true }
 rand_chacha = { workspace = true }
 
+[lib]
+doctest = false
+
 [[bench]]
 name = "voprf_benchmark"
 harness = false
