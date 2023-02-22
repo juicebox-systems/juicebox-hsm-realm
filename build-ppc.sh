@@ -1,1 +1,1 @@
-cargo +nightly build --target powerpc-unknown-linux-gnu -Z build-std
+cargo +nightly build --target powerpc-unknown-linux-gnu -Z build-std "$@"
