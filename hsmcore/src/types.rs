@@ -1,9 +1,12 @@
 //! Data types shared between the client and server.
 
+extern crate alloc;
+
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::fmt::{self, Debug, Display};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
-
-use std::fmt::{self, Debug, Display};
 
 pub type OprfCipherSuite = voprf::Ristretto255;
 pub type OprfBlindedInput = voprf::BlindedElement<OprfCipherSuite>;

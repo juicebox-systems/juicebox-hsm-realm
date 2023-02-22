@@ -1,3 +1,7 @@
+extern crate alloc;
+
+use alloc::vec::Vec;
+
 use super::{
     agent::{DeltaBuilder, Node, NodeKey, StoreDelta},
     common_prefix,

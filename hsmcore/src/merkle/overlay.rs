@@ -1,4 +1,8 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+extern crate alloc;
+
+use alloc::collections::VecDeque;
+use alloc::vec::Vec;
+use hashbrown::{HashMap, HashSet}; // TODO: randomize hasher
 
 use super::{
     agent::{Node, NodeKey, StoreDelta},

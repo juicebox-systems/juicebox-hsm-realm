@@ -1,6 +1,9 @@
+extern crate alloc;
+
+use alloc::string::String;
+use alloc::vec::Vec;
+use hashbrown::HashSet; // TODO: randomize hasher
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::error::Error;
 
 use super::super::hsm::types::RecordId;
 use super::{base128, HashOutput, InteriorNode, KeyVec, LeafNode};
@@ -14,7 +17,7 @@ pub enum Node<HO> {
 #[derive(Debug)]
 pub enum TreeStoreError {
     MissingNode,
-    Network(Box<dyn Error + Send>),
+    Network(String),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

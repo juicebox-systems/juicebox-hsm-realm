@@ -527,7 +527,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
             },
         )
         .await
-        .map_err(|e| TreeStoreError::Network(Box::new(e)))?;
+        .map_err(|e| TreeStoreError::Network(e.to_string()))?;
 
         let nodes: HashMap<DataHash, Node<DataHash>> = rows
             .into_iter()
@@ -573,7 +573,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
             },
         )
         .await
-        .map_err(|e| TreeStoreError::Network(Box::new(e)))?;
+        .map_err(|e| TreeStoreError::Network(e.to_string()))?;
 
         let node = match rows.into_iter().next().and_then(|(_key, cells)| {
             cells

@@ -1,3 +1,7 @@
+extern crate alloc;
+
+use alloc::vec::Vec;
+
 // Returns the number of bytes required to store a base128 encoded version of an
 // input of 'num_bits' in length.
 pub fn encoded_len(num_bits: usize) -> usize {

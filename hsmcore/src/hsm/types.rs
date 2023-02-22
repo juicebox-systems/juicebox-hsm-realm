@@ -1,7 +1,10 @@
+extern crate alloc;
+
+use alloc::vec::Vec;
+use core::fmt;
 use hmac::Hmac;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::fmt;
 
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
 use super::super::types::{
@@ -164,7 +167,7 @@ pub struct OwnedRange {
     pub end: RecordId,   // inclusive
 }
 impl fmt::Debug for OwnedRange {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{:?}-{:?}]", &self.start, &self.end)
     }
 }

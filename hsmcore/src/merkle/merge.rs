@@ -1,3 +1,6 @@
+extern crate alloc;
+
+use alloc::vec::Vec;
 use tracing::{info, trace};
 
 use super::super::hsm::types::OwnedRange;
