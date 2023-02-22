@@ -13,7 +13,7 @@ Install pre-requisites
 
 ```sh
 rustup target add powerpc-unknown-linux-gnu
-rustup toolchain install nightly
+rustup toolchain install nightly --component rust-src
 sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
 ```
 
