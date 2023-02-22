@@ -38,7 +38,7 @@ struct Args {
 async fn main() {
     logging::configure();
     let args = Args::parse();
-    let name = args.name.unwrap_or_else(|| format!("lb{}", args.listen));
+    let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
 
     info!(bigtable = %args.bigtable, "Connecting to Bigtable");
     let instance = bigtable::Instance {
@@ -58,8 +58,8 @@ async fn main() {
         });
 
     let hsm = HsmHttpClient::new_client(args.hsm);
-    let lb = Agent::new(name, hsm, store, store_admin);
-    let (url, join_handle) = lb.listen(args.listen).await.expect("TODO");
+    let agent = Agent::new(name, hsm, store, store_admin);
+    let (url, join_handle) = agent.listen(args.listen).await.expect("TODO");
     info!(url = %url, "Agent started");
     join_handle.await.unwrap();
 }
