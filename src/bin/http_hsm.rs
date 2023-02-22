@@ -1,15 +1,20 @@
-use std::net::SocketAddr;
-
 use clap::Parser;
+use std::net::SocketAddr;
+use tracing::info;
+
 use loam_mvp::logging;
 use loam_mvp::realm::hsm::{http::host::HttpHsm, RealmKey};
-use tracing::info;
 
 #[derive(Parser)]
 #[command(about = "A software not-HSM accessible via HTTP")]
 struct Args {
-    /// The ip/port to listen on.
-    #[arg(short, long, default_value_t = SocketAddr::from(([127,0,0,1],8080)), value_parser=parse_listen)]
+    /// The IP/port to listen on.
+    #[arg(
+        short,
+        long,
+        default_value_t = SocketAddr::from(([127,0,0,1], 8080)),
+        value_parser=parse_listen,
+    )]
     listen: SocketAddr,
 
     /// Name of the hsm in logging [default: hsm{listen}]
@@ -28,7 +33,7 @@ async fn main() {
     let name = args.name.unwrap_or_else(|| format!("hsm{}", args.listen));
     let hsm = HttpHsm::new(name, args.key);
     let (url, join_handle) = hsm.listen(args.listen).await.unwrap();
-    info!("HSM started, available at {url}");
+    info!(url = %url, "HSM started");
     join_handle.await.unwrap();
 }
 

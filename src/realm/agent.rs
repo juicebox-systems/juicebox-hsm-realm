@@ -341,7 +341,7 @@ impl Agent {
         let store = &self.0.store;
 
         let hsm_id = match hsm.send(hsm_types::StatusRequest {}).await {
-            Err(_) => todo!(),
+            Err(e) => todo!("{e:?}"),
             Ok(hsm_types::StatusResponse { id, .. }) => id,
         };
         if let Err(e) = store.set_address(&hsm_id, &url).await {
