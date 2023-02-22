@@ -17,19 +17,10 @@ rustup toolchain install nightly
 sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
 ```
 
-build
-```sh
-cargo +nightly build --target powerpc-unknown-linux-gnu -Z build-std
-```
+The `build-ppc.sh` and `test-ppc.sh` scripts can be used to perform the build or tests for the PPC version.
 
-run unit tests (via QEMU)
-```sh
-CARGO_TARGET_POWERPC_UNKNOWN_LINUX_GNU_RUNNER='qemu-ppc -cpu e500mc' QEMU_LD_PREFIX="/usr/powerpc-linux-gnu/" cargo +nightly test --target powerpc-unknown-linux-gnu -Z build-std 
-```
 
-There are build-ppc.sh and test-ppc.sh scripts to wrap these commands for ease of use.
-
-In addition to these settings, the .cargo/config.toml file is used to set the linker and CPU target.
+In addition to the options set in the scripts the .cargo/config.toml file is used to set the linker and CPU target.
 
 
 ## Local Bigtable emulator
