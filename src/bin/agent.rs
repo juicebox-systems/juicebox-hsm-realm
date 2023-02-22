@@ -60,7 +60,7 @@ async fn main() {
     let hsm = HsmHttpClient::new_client(args.hsm);
     let lb = Agent::new(name, hsm, store, store_admin);
     let (url, join_handle) = lb.listen(args.listen).await.expect("TODO");
-    info!(url = %url, "Load balancer started");
+    info!(url = %url, "Agent started");
     join_handle.await.unwrap();
 }
 
