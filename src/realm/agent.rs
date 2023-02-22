@@ -347,10 +347,10 @@ impl Agent {
         for attempt in 1.. {
             match hsm.send(hsm_types::StatusRequest {}).await {
                 Err(e) => {
-                    if attempt >= 10 {
+                    if attempt >= 1000 {
                         panic!("failed to connect to HSM: {e:?}");
                     }
-                    tokio::time::sleep(Duration::from_millis(2)).await;
+                    sleep(Duration::from_millis(1)).await;
                 }
                 Ok(hsm_types::StatusResponse { id, .. }) => {
                     if let Err(e) = store.set_address(&id, &url).await {

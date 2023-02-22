@@ -12,6 +12,7 @@ use std::ops::RangeFrom;
 use std::process::{Child, Command, ExitStatus};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::time::sleep;
 use tracing::{info, warn};
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
@@ -92,10 +93,10 @@ mod hsm_gen {
                                 break;
                             }
                         }
-                        if attempt >= 10 {
+                        if attempt >= 1000 {
                             panic!("Failed to connect to agent/HSM at {agent_url}");
                         }
-                        tokio::time::sleep(Duration::from_millis(2)).await;
+                        sleep(Duration::from_millis(1)).await;
                     }
                     agent_url
                 }
