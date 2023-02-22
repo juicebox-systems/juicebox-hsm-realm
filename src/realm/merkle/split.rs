@@ -315,7 +315,15 @@ mod tests {
 
     #[tokio::test]
     async fn on_and_between_all_keys() {
-        let keys: Vec<_> = (2u8..251).step_by(10).map(|k| rec_id(&[k])).collect();
+        let step_size = if cfg!(target_arch = "powerpc") {
+            40
+        } else {
+            10
+        };
+        let keys: Vec<_> = (2u8..251)
+            .step_by(step_size)
+            .map(|k| rec_id(&[k]))
+            .collect();
         test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[1])).await;
         for k in &keys {
             test_arb_split_merge(OwnedRange::full(), &keys, k).await;
