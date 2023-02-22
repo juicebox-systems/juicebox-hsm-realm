@@ -1,4 +1,5 @@
 use futures::future::{join_all, try_join_all};
+use hsmcore::types::{AuthToken, Policy};
 use http::Uri;
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -13,14 +14,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{info, warn};
 
+use hsmcore::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use loam_mvp::http_client;
 use loam_mvp::logging;
 use loam_mvp::realm::agent::types::{AgentService, StatusRequest};
 use loam_mvp::realm::cluster;
-use loam_mvp::realm::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::realm::store::bigtable;
-use loam_mvp::types::{AuthToken, Policy};
 
 type AgentClient = http_client::Client<AgentService>;
 
@@ -28,7 +28,6 @@ type AgentClient = http_client::Client<AgentService>;
 ///
 /// This module exists to encapsulate the secret shared between the HSMs.
 mod hsm_gen {
-
     use super::*;
 
     pub struct HsmGenerator {

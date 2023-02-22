@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::{super::hsm::types::RealmId, agent::StoreKey};
-use super::{agent::Node, agent::TreeStoreReader, concat, Branch, Dir, HashOutput, KeyVec};
+use super::{agent::tests::TreeStoreReader, agent::Node, concat, Branch, Dir, HashOutput, KeyVec};
 use async_recursion::async_recursion;
 
 // Creates a dot file for a visualization of the tree starting

@@ -353,7 +353,7 @@ mod tests {
 
     use super::super::super::hsm::types::OwnedRange;
     use super::super::{
-        agent::read,
+        agent::tests::read,
         tests::{new_empty_tree, rec_id, tree_insert, TEST_REALM},
     };
     use super::ProofError;

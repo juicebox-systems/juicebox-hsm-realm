@@ -14,11 +14,11 @@ use super::agent::types::{
     TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
     TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
-use super::hsm::types as hsm_types;
 use super::store::bigtable::StoreClient;
 use hsm_types::{
     Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange, RealmId,
 };
+use hsmcore::hsm::types as hsm_types;
 
 #[derive(Debug)]
 pub enum NewRealmError {

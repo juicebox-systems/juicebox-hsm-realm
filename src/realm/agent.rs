@@ -22,10 +22,7 @@ pub mod types;
 
 use super::super::http_client::{Client, ClientError};
 use super::hsm::client::HsmClient;
-use super::hsm::types as hsm_types;
 use super::merkle;
-use super::merkle::agent::{StoreDelta, TreeStoreError};
-use super::merkle::Dir;
 use super::rpc::{handle_rpc, HandlerError, Rpc};
 use super::store::bigtable;
 use hsm_types::{
@@ -33,6 +30,9 @@ use hsm_types::{
     DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RealmId, SecretsResponse,
     TransferInProofs,
 };
+use hsmcore::hsm::types as hsm_types;
+use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
+use hsmcore::merkle::Dir;
 use types::{
     AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,

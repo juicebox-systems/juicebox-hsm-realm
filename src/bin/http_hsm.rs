@@ -2,8 +2,9 @@ use clap::Parser;
 use std::net::SocketAddr;
 use tracing::info;
 
+use hsmcore::hsm::RealmKey;
 use loam_mvp::logging;
-use loam_mvp::realm::hsm::{http::host::HttpHsm, RealmKey};
+use loam_mvp::realm::hsm::http::host::HttpHsm;
 
 #[derive(Parser)]
 #[command(about = "A software not-HSM accessible via HTTP")]

@@ -16,9 +16,9 @@ use std::ops::Deref;
 
 use super::http_client;
 use super::http_client::ClientError;
-use super::realm::hsm::types::{RealmId, SecretsRequest, SecretsResponse};
 use super::realm::load_balancer::types::{ClientRequest, ClientResponse, LoadBalancerService};
-use super::types::{
+use hsmcore::hsm::types::{RealmId, SecretsRequest, SecretsResponse};
+use hsmcore::types::{
     AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedPgkShare, OprfBlindedResult,
     OprfCipherSuite, Policy, Recover1Request, Recover1Response, Recover2Request, Recover2Response,
     Register1Request, Register1Response, Register2Request, Register2Response, UnlockPassword,
