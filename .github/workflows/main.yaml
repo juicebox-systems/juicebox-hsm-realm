@@ -69,6 +69,14 @@ jobs:
     - name: Run cargo test
       uses: actions-rs/cargo@v1
       with:
+        args: --lib -p hsmcore
+        command: test
+      env:
+        RUST_BACKTRACE: '1'
+
+    - name: Run cargo test
+      uses: actions-rs/cargo@v1
+      with:
         args: --lib
         command: test
       env:

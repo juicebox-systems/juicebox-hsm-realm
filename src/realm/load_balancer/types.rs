@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::realm::rpc::Service;
 
-use super::super::hsm::types::{RealmId, SecretsRequest, SecretsResponse};
 use super::super::rpc::Rpc;
+use hsmcore::hsm::types::{RealmId, SecretsRequest, SecretsResponse};
 
 #[derive(Clone, Debug)]
 pub struct LoadBalancerService();

@@ -11,7 +11,7 @@ use subtle::ConstantTimeEq;
 use tracing::info;
 use tracing::trace;
 
-use super::super::super::types::{
+use super::super::types::{
     AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedPgkShare, OprfBlindedInput,
     OprfBlindedResult, OprfCipherSuite, Policy, Recover1Request, Recover1Response, Recover2Request,
     Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,

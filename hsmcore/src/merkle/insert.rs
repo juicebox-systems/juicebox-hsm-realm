@@ -143,7 +143,7 @@ mod tests {
     use rand::{RngCore, SeedableRng};
 
     use super::super::super::hsm::types::OwnedRange;
-    use super::super::agent::{read, Node};
+    use super::super::agent::{tests::read, Node};
     use super::super::{
         tests::{
             check_tree_invariants, new_empty_tree, rec_id, tree_insert, tree_size, TEST_REALM,

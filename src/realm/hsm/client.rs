@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use super::{super::super::http_client::ClientError, rpc::HsmRpc};
+use super::super::super::http_client::ClientError;
+use hsmcore::hsm::rpc::HsmRpc;
 
 #[async_trait]
 pub trait Transport: std::fmt::Debug + Send + Sync {

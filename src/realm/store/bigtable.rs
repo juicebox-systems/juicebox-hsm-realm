@@ -19,10 +19,10 @@ use url::Url;
 mod mutate;
 mod read;
 
-use super::super::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordId};
-use super::super::merkle::agent::{
-    all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError, TreeStoreReader,
-};
+use super::super::merkle::agent::TreeStoreReader;
+use hsmcore::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordId};
+use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
+
 use mutate::{mutate_rows, MutateRowsError};
 use read::read_rows;
 

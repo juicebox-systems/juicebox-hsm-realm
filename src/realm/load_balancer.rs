@@ -23,9 +23,9 @@ use super::super::http_client::Client;
 use super::agent::types::{
     AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
 };
-use super::hsm::types as hsm_types;
 use super::store::bigtable::StoreClient;
 use hsm_types::{GroupId, OwnedRange, RealmId};
+use hsmcore::hsm::types as hsm_types;
 use types::{ClientRequest, ClientResponse};
 
 #[derive(Clone)]
@@ -179,7 +179,7 @@ async fn handle_client_request(
     tenant.extend(&BitVec::<u8, Msb0>::from_slice(token.signature.as_bytes()));
     let mut user = BitVec::new();
     user.extend(&BitVec::<u8, Msb0>::from_slice(token.user.as_bytes()));
-    let record_id = (TenantId(tenant), UserId(user)).into();
+    let record_id = super::agent::types::make_record_id(&TenantId(tenant), &UserId(user));
 
     for partition in partitions {
         if !partition.owned_range.contains(&record_id) {

@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::fmt;
 
-use super::super::super::types::{
+use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
+use super::super::types::{
     AuthToken, DeleteRequest, DeleteResponse, Recover1Request, Recover1Response, Recover2Request,
     Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,
 };
-use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
 
 #[derive(Copy, Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct RealmId(pub [u8; 16]);
