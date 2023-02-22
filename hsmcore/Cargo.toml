@@ -6,23 +6,21 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aes-gcm = "0.10.1"
-bitvec = { version = "1.0.1", features = ["serde"] }
-bytes = "1.4.0"
-digest = "0.10.6"
-hkdf = "0.12.3"
-hmac = "0.12.1"
-rand = "0.8.5"
-rmp = "0.8.11"
-rmp-serde = "1.1.1"
-serde = "1.0.152"
-sha2 = "0.10.6"
-sharks = "0.5.0"
-subtle = "2.4.1"
-tracing = "0.1.37"
-voprf = "0.4.0"
+aes-gcm = { workspace = true }
+bitvec = { workspace = true }
+bytes = { workspace = true }
+digest = { workspace = true }
+hkdf = { workspace = true }
+hmac = { workspace = true }
+rand = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace  = true }
+tracing = { workspace = true }
+voprf = { workspace = true }
 
 [dev-dependencies]
-async-recursion = "1.0.2"
-async-trait = "0.1.64"
-tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros"] }
+async-recursion = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }

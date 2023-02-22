@@ -7,14 +7,18 @@ version = "0.0.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+[workspace.dependencies]
+aes-gcm = "0.10.1"
+async-recursion = "1.0.2"
 async-trait = "0.1.64"
 bitvec = { version = "1.0.1", features = ["serde"] }
 bytes = "1.4.0"
 clap = { version = "4.1.6", features = ["derive"] }
+criterion = "0.4.0"
 digest = "0.10.6"
 futures = "0.3.25"
+hex-literal = "0.3.4"
+hkdf = "0.12.3"
 hmac = "0.12.1"
 http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
@@ -22,18 +26,46 @@ hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
 prost = "0.11.6"
 prost-types = "0.11.6"
 rand = "0.8.5"
+rand_chacha = "0.3.1"
 reqwest = { version = "0.11.14", default-features = false }
 rmp = "0.8.11"
 rmp-serde = "1.1.1"
 serde = "1.0.152"
 sha2 = "0.10.6"
 sharks = "0.5.0"
-tokio = { version = "1.25.0", features = ["rt-multi-thread"] }
+subtle = "2.4.1"
+tokio = { version = "1.25.0", features = ["rt-multi-thread","macros"] }
 tonic = { version = "0.8.3", features = ["channel"] }
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
 url = { version = "2.3.1", features = ["serde"] }
 voprf = "0.4.0"
+
+[dependencies]
+async-trait = { workspace = true }
+bitvec = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+digest = { workspace = true }
+futures = { workspace = true }
+hmac = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+sharks = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+voprf = { workspace = true }
 hsmcore = { path = "hsmcore" }
 
 
@@ -43,10 +75,10 @@ hsmcore = { path = "hsmcore" }
 bitvec = { git = 'https://github.com/superfell/bitvec', branch = 'vec_order' }
 
 [dev-dependencies]
-async-recursion = "1.0.2"
-criterion = "0.4.0"
-hex-literal = "0.3.4"
-rand_chacha = "0.3.1"
+async-recursion = { workspace = true }
+criterion = { workspace = true }
+hex-literal = { workspace = true }
+rand_chacha = { workspace = true }
 
 [[bench]]
 name = "voprf_benchmark"
