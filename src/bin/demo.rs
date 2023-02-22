@@ -1,4 +1,5 @@
 use futures::future::{join_all, try_join_all};
+use hsmcore::types::{AuthToken, Policy};
 use http::Uri;
 use reqwest::Url;
 use std::net::SocketAddr;
@@ -7,15 +8,14 @@ use std::process::{Child, ExitStatus};
 use std::{io, iter};
 use tracing::{info, warn};
 
+use hsmcore::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use loam_mvp::logging;
 use loam_mvp::realm;
 use loam_mvp::realm::agent::Agent;
 use loam_mvp::realm::hsm::http::client::HsmHttpClient;
-use loam_mvp::realm::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::realm::load_balancer::LoadBalancer;
 use loam_mvp::realm::store::bigtable;
-use loam_mvp::types::{AuthToken, Policy};
 
 /// Creates HSMs and their agents.
 ///
@@ -23,7 +23,7 @@ use loam_mvp::types::{AuthToken, Policy};
 mod hsm_gen {
     use std::{fmt::Write, process::Command, time::Duration};
 
-    use loam_mvp::realm::hsm::types::StatusRequest;
+    use hsmcore::hsm::types::StatusRequest;
     use rand::rngs::OsRng;
     use rand::RngCore;
     use reqwest::Url;

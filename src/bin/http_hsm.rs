@@ -1,8 +1,9 @@
 use std::net::SocketAddr;
 
 use clap::Parser;
+use hsmcore::hsm::RealmKey;
 use loam_mvp::logging;
-use loam_mvp::realm::hsm::{http::host::HttpHsm, RealmKey};
+use loam_mvp::realm::hsm::http::host::HttpHsm;
 use tracing::info;
 
 #[derive(Parser)]

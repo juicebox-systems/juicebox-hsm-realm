@@ -230,14 +230,12 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
 #[cfg(test)]
 mod tests {
-    use crate::realm::merkle::tests::check_delta_invariants;
-
     use super::super::super::hsm::types::{OwnedRange, RecordId};
     use super::super::{
-        agent::{read, read_tree_side},
+        agent::tests::{read, read_tree_side},
         tests::{
-            check_tree_invariants, new_empty_tree, rec_id, tree_insert, tree_size, TestHasher,
-            TEST_REALM,
+            check_delta_invariants, check_tree_invariants, new_empty_tree, rec_id, tree_insert,
+            tree_size, TestHasher, TEST_REALM,
         },
         {dot, Dir, KeySlice},
     };

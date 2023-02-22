@@ -1,6 +1,6 @@
-use super::super::{Hsm, HsmError, RealmKey};
 use bytes::Bytes;
 use futures::Future;
+use hsmcore::hsm::{Hsm, HsmError, RealmKey};
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;

@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
 
-use super::super::hsm::types as hsm_types;
 use super::super::rpc::{Rpc, Service};
 use hsm_types::{
     CapturedStatement, Configuration, EntryHmac, GroupConfigurationStatement, GroupId, HsmId,
     LogIndex, OwnedRange, Partition, RealmId, RecordId, SecretsRequest, SecretsResponse,
     TransferNonce, TransferStatement,
 };
+use hsmcore::hsm::types as hsm_types;
 
 #[derive(Clone, Debug)]
 pub struct AgentService();
@@ -346,24 +346,22 @@ impl fmt::Debug for TenantId {
     }
 }
 
-impl From<(TenantId, UserId)> for RecordId {
-    fn from(value: (TenantId, UserId)) -> Self {
-        let mut h = Sha256::new();
-        for bit in &value.0 .0 {
-            if *bit {
-                h.update([1]);
-            } else {
-                h.update([0]);
-            }
+pub fn make_record_id(t: &TenantId, u: &UserId) -> RecordId {
+    let mut h = Sha256::new();
+    for bit in &t.0 {
+        if *bit {
+            h.update([1]);
+        } else {
+            h.update([0]);
         }
-        h.update([b'|']);
-        for bit in &value.1 .0 {
-            if *bit {
-                h.update([1]);
-            } else {
-                h.update([0]);
-            }
-        }
-        RecordId(h.finalize().into())
     }
+    h.update([b'|']);
+    for bit in &u.0 {
+        if *bit {
+            h.update([1]);
+        } else {
+            h.update([0]);
+        }
+    }
+    RecordId(h.finalize().into())
 }
