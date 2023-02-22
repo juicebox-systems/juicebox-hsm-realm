@@ -308,7 +308,13 @@ mod tests {
         let mut rng: StdRng = SeedableRng::from_seed(seed);
         let mut random_key = [0u8; 4];
         let mut expected = BTreeMap::new();
-        for i in 0..150 {
+
+        const LOTS_COUNT: u8 = if cfg!(target_arch = "powerpc") {
+            20
+        } else {
+            150
+        };
+        for i in 0..LOTS_COUNT {
             rng.fill_bytes(&mut random_key);
             let key = rec_id(&random_key);
             // write our new key/value

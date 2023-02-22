@@ -3,6 +3,26 @@
 * `cargo test --lib` run the unit tests
 * `cargo run --bin demo` run the demo aka "integration test"
 
+### Cross Compile
+
+Cross compile to powerpc to run on Entrust HSM. The PowerPC CPU in the HSM doesn't support Altivec
+which the rust prebuilt libraries for powerPC assume is available. So we need to build std ourselves
+(or hopefully just core later on). This currently requires the nightly toolchain.
+
+Install pre-requisites
+
+```sh
+rustup target add powerpc-unknown-linux-gnu
+rustup toolchain install nightly
+sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
+```
+
+The `build-ppc.sh` and `test-ppc.sh` scripts can be used to perform the build or tests for the PPC version.
+
+
+In addition to the options set in the scripts the .cargo/config.toml file is used to set the linker and CPU target.
+
+
 ## Local Bigtable emulator
 
 You'll need the Bigtable emulator to run offline. You may also want the Cloud
