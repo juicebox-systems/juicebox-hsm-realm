@@ -340,12 +340,25 @@ impl Agent {
         let hsm = &self.0.hsm;
         let store = &self.0.store;
 
-        let hsm_id = match hsm.send(hsm_types::StatusRequest {}).await {
-            Err(e) => todo!("{e:?}"),
-            Ok(hsm_types::StatusResponse { id, .. }) => id,
-        };
-        if let Err(e) = store.set_address(&hsm_id, &url).await {
-            todo!("{e}")
+        // Wait for the HSM to be up and register it.
+        //
+        // TODO: we shouldn't wait here. Other code needs to handle failures,
+        // since HSMs can go down at any later point.
+        for attempt in 1.. {
+            match hsm.send(hsm_types::StatusRequest {}).await {
+                Err(e) => {
+                    if attempt >= 10 {
+                        panic!("failed to connect to HSM: {e:?}");
+                    }
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
+                Ok(hsm_types::StatusResponse { id, .. }) => {
+                    if let Err(e) = store.set_address(&id, &url).await {
+                        todo!("{e}")
+                    }
+                    break;
+                }
+            };
         }
 
         Ok((

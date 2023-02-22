@@ -79,7 +79,9 @@ mod hsm_gen {
                         .arg(hsm_url.to_string()),
                 );
 
-                // Wait for the HSM to be up.
+                // Wait for the agent to be up, which in turn waits for the HSM
+                // to be up.
+                //
                 // TODO: we shouldn't wait here. Other code needs to handle
                 // failures, since servers can go down at any later point.
                 let agents = AgentClient::new();
