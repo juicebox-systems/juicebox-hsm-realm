@@ -1,11 +1,15 @@
+extern crate alloc;
+
+use alloc::string::String;
+use alloc::vec::Vec;
 use bitvec::prelude::*;
-use serde::{Deserialize, Serialize};
-use std::{
+use core::{
     cmp::min,
-    fmt::{Debug, Display},
+    fmt::{self, Debug, Display},
     hash::Hash,
     iter::zip,
 };
+use serde::{Deserialize, Serialize};
 
 use self::{
     agent::{DeltaBuilder, Node, NodeKey, StoreDelta},
@@ -214,7 +218,7 @@ impl<HO: HashOutput> Branch<HO> {
     }
 }
 impl<HO: Debug> Debug for Branch<HO> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} -> {:?}",
@@ -244,7 +248,7 @@ impl Dir {
     }
 }
 impl Display for Dir {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Dir::Left => f.write_str("Left"),
             Dir::Right => f.write_str("Right"),
@@ -269,7 +273,7 @@ pub struct SplitRoot<HO> {
     pub range: OwnedRange,
 }
 impl<HO: Debug> Debug for SplitRoot<HO> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?} hash {:?}", self.range, self.root_hash)
     }
 }

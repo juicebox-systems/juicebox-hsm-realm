@@ -10,13 +10,14 @@ aes-gcm = { workspace = true }
 bitvec = { workspace = true }
 bytes = { workspace = true }
 digest = { workspace = true }
+hashbrown = { version = "0.13.2", features = ["serde"] }
 hkdf = { workspace = true }
 hmac = { workspace = true }
 rand = { workspace = true }
 rmp-serde = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
-subtle = { workspace  = true }
+subtle = { workspace = true }
 tracing = { workspace = true }
 voprf = { workspace = true }
 

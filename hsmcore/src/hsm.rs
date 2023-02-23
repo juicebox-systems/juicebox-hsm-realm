@@ -1,12 +1,17 @@
+extern crate alloc;
+
 use aes_gcm::aead::Aead;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::fmt;
 use digest::Digest;
+use hashbrown::{HashMap, HashSet}; // TODO: randomize hasher
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use sha2::Sha256;
-use std::collections::{HashMap, HashSet};
-use std::fmt;
 use tracing::{info, trace, warn};
 
 mod app;

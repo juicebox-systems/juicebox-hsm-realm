@@ -1,5 +1,9 @@
-use std::collections::HashMap;
+extern crate alloc;
 
+use alloc::vec;
+use alloc::vec::Vec;
+use core::mem;
+use hashbrown::HashMap; // TODO: randomize hasher
 use serde::{Deserialize, Serialize};
 
 use super::super::hsm::types::{OwnedRange, RecordId};
@@ -261,7 +265,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
         }
         let mut proof_nodes = HashMap::with_capacity(proof.path.len() + 1);
         let mut old_path = Vec::new();
-        std::mem::swap(&mut old_path, &mut proof.path);
+        mem::swap(&mut old_path, &mut proof.path);
         let old_path_len = old_path.len();
 
         if let Some(l) = proof.leaf {

@@ -1,12 +1,13 @@
-use super::types::{SecretsRequest, SecretsResponse};
-use super::RealmKey;
-use hkdf::Hkdf;
-use serde::{Deserialize, Serialize};
+extern crate alloc;
 
+use alloc::collections::BTreeMap;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::fmt::{self, Debug};
+use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::collections::BTreeMap;
-use std::fmt::{self, Debug};
 use subtle::ConstantTimeEq;
 use tracing::info;
 use tracing::trace;
@@ -17,6 +18,8 @@ use super::super::types::{
     Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,
     UnlockPassword, UserSecretShare,
 };
+use super::types::{SecretsRequest, SecretsResponse};
+use super::RealmKey;
 
 type OprfServer = voprf::OprfServer<OprfCipherSuite>;
 
