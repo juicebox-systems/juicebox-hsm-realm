@@ -12,6 +12,7 @@ use subtle::ConstantTimeEq;
 use tracing::info;
 use tracing::trace;
 
+use super::super::marshalling;
 use super::super::types::{
     AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedPgkShare, OprfBlindedInput,
     OprfBlindedResult, OprfCipherSuite, Policy, Recover1Request, Recover1Response, Recover2Request,
@@ -414,7 +415,7 @@ pub fn process(
 
     let user_record_in = match record_val {
         None => UserRecord::new(),
-        Some(data) => rmp_serde::from_slice(&data).unwrap(),
+        Some(data) => marshalling::from_slice(&data).unwrap(),
     };
     let (result, user_record_out) = match request {
         SecretsRequest::Register1(req) => {
@@ -438,6 +439,6 @@ pub fn process(
             (SecretsResponse::Delete(res.0), res.1)
         }
     };
-    let rc = user_record_out.map(|u| RecordChange::Update(rmp_serde::to_vec(&u).unwrap()));
+    let rc = user_record_out.map(|u| RecordChange::Update(marshalling::to_vec(&u).unwrap()));
     (result, rc)
 }

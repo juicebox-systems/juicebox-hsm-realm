@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use super::realm::rpc::{Rpc, Service};
+use hsmcore::marshalling;
 use reqwest::Url;
 
 #[allow(dead_code)]
@@ -36,8 +37,18 @@ pub struct Client<F: Service> {
 pub enum ClientError {
     Network(reqwest::Error),
     HttpStatus(reqwest::StatusCode),
-    Serialization(rmp_serde::encode::Error),
-    Deserialization(rmp_serde::decode::Error),
+    Serialization(marshalling::SerializationError),
+    Deserialization(marshalling::DeserializationError),
+}
+impl From<marshalling::SerializationError> for ClientError {
+    fn from(value: marshalling::SerializationError) -> Self {
+        ClientError::Serialization(value)
+    }
+}
+impl From<marshalling::DeserializationError> for ClientError {
+    fn from(value: marshalling::DeserializationError) -> Self {
+        ClientError::Deserialization(value)
+    }
 }
 
 impl<F: Service> Client<F> {
@@ -58,15 +69,14 @@ impl<F: Service> Client<F> {
         match self
             .http
             .post(url)
-            .body(rmp_serde::to_vec(&request).map_err(Error::Serialization)?)
+            .body(marshalling::to_vec(&request)?)
             .send()
             .await
         {
             Err(err) => Err(Error::Network(err)),
             Ok(response) if response.status().is_success() => {
                 let raw = response.bytes().await.map_err(Error::Network)?;
-                let response =
-                    rmp_serde::from_read(raw.as_ref()).map_err(Error::Deserialization)?;
+                let response = marshalling::from_slice(raw.as_ref())?;
                 Ok(response)
             }
             Ok(response) => Err(Error::HttpStatus(response.status())),

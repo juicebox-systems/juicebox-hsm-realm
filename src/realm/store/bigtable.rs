@@ -9,6 +9,7 @@ use google::bigtable::v2::{
     MutateRowRequest, MutateRowResponse, MutateRowsRequest, Mutation, ReadRowsRequest, RowFilter,
     RowRange, RowSet,
 };
+use hsmcore::marshalling;
 use http::Uri;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -280,7 +281,7 @@ impl StoreClient {
                                     // TODO: this unnecessarily includes the
                                     // node's hash and unnecessarily wraps the
                                     // leaf node values.
-                                    value: rmp_serde::to_vec(value).expect("TODO"),
+                                    value: marshalling::to_vec(value).expect("TODO"),
                                 })),
                             }],
                         })
@@ -322,7 +323,7 @@ impl StoreClient {
                         family_name: String::from("f"),
                         column_qualifier: b"e".to_vec(),
                         timestamp_micros: -1,
-                        value: rmp_serde::to_vec(entry).expect("TODO"),
+                        value: marshalling::to_vec(entry).expect("TODO"),
                     })),
                 }],
             })
@@ -392,7 +393,7 @@ impl StoreClient {
             cells
                 .into_iter()
                 .find(|cell| cell.family == "f" && cell.qualifier == b"e")
-                .map(|cell| rmp_serde::from_slice(&cell.value).expect("TODO"))
+                .map(|cell| marshalling::from_slice(&cell.value).expect("TODO"))
         });
 
         trace!(
@@ -533,7 +534,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
             .into_iter()
             .map(|(row_key, cells)| {
                 let (_, hash) = StoreKey::parse(&row_key.0).unwrap();
-                let node: Node<DataHash> = rmp_serde::from_slice(
+                let node: Node<DataHash> = marshalling::from_slice(
                     &cells
                         .into_iter()
                         .find(|cell| cell.family == "f" && cell.qualifier == b"n")
@@ -579,7 +580,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
             cells
                 .into_iter()
                 .find(|cell| cell.family == "f" && cell.qualifier == b"n")
-                .map(|cell| rmp_serde::from_slice(&cell.value).expect("TODO"))
+                .map(|cell| marshalling::from_slice(&cell.value).expect("TODO"))
                 .expect("every Merkle row should contain a node value")
         }) {
             Some(node) => Ok(node),

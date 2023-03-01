@@ -3,6 +3,7 @@ use bitvec::vec::BitVec;
 use bytes::Bytes;
 use futures::future::join_all;
 use futures::Future;
+use hsmcore::marshalling;
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -148,13 +149,13 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
 
         Box::pin(async move {
             let realms = refresh(&name, &store, &agent_client).await;
-            let request =
-                rmp_serde::from_slice(request.collect().await?.to_bytes().as_ref()).expect("TODO");
+            let request = marshalling::from_slice(request.collect().await?.to_bytes().as_ref())
+                .expect("TODO");
             let response = handle_client_request(request, &name, &realms, &agent_client).await;
             trace!(load_balancer = name, ?response);
             Ok(Response::builder()
                 .body(Full::new(Bytes::from(
-                    rmp_serde::to_vec(&response).expect("TODO"),
+                    marshalling::to_vec(&response).expect("TODO"),
                 )))
                 .expect("TODO"))
         })

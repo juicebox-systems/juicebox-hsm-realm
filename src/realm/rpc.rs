@@ -7,6 +7,8 @@ use serde::Serialize;
 use std::fmt;
 use tracing::{trace, warn};
 
+use hsmcore::marshalling;
+
 pub trait Service {}
 
 pub trait Rpc<S: Service>: fmt::Debug + DeserializeOwned + Serialize {
@@ -30,7 +32,7 @@ where
     O: Future<Output = Result<R::Response, HandlerError>>,
 {
     let request_bytes = incoming_request.collect().await?.to_bytes();
-    let request: R = match rmp_serde::from_slice(request_bytes.as_ref()) {
+    let request: R = match marshalling::from_slice(request_bytes.as_ref()) {
         Ok(request) => request,
         Err(e) => {
             warn!(error = ?e, "deserialization error");
@@ -56,7 +58,7 @@ where
     match response {
         Err(e) => match e { /* no possible errors */ },
         Ok(response) => {
-            let response_bytes = match rmp_serde::to_vec(&response) {
+            let response_bytes = match marshalling::to_vec(&response) {
                 Ok(response_bytes) => response_bytes,
                 Err(e) => {
                     warn!(error = ?e, ?response, "serialization error");
