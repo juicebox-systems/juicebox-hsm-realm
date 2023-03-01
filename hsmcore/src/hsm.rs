@@ -9,8 +9,6 @@ use digest::Digest;
 use hashbrown::{HashMap, HashSet}; // TODO: randomize hasher
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use rand::rngs::OsRng;
-use rand::RngCore;
 use sha2::Sha256;
 use tracing::{info, trace, warn};
 
@@ -22,6 +20,7 @@ use self::rpc::{HsmRequest, HsmRpc};
 use self::types::Partition;
 use super::marshalling;
 use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
+use super::rand::{GetRandom, Rng};
 use app::{RecordChange, RootOprfKey};
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
@@ -48,7 +47,7 @@ impl fmt::Debug for RealmKey {
 impl RealmKey {
     pub fn random() -> Self {
         let mut key = digest::Key::<Hmac<Sha256>>::default();
-        OsRng.fill_bytes(&mut key);
+        Rng.fill_bytes(&mut key);
         Self(key)
     }
     // derive a realmKey from the supplied input.
@@ -63,7 +62,7 @@ impl RealmKey {
 impl GroupId {
     fn random() -> Self {
         let mut id = [0u8; 16];
-        OsRng.fill_bytes(&mut id);
+        Rng.fill_bytes(&mut id);
         Self(id)
     }
 }
@@ -71,7 +70,7 @@ impl GroupId {
 impl HsmId {
     fn random() -> Self {
         let mut id = [0u8; 16];
-        OsRng.fill_bytes(&mut id);
+        Rng.fill_bytes(&mut id);
         Self(id)
     }
 }
@@ -79,7 +78,7 @@ impl HsmId {
 impl RealmId {
     fn random() -> Self {
         let mut id = [0u8; 16];
-        OsRng.fill_bytes(&mut id);
+        Rng.fill_bytes(&mut id);
         Self(id)
     }
 }
@@ -254,7 +253,7 @@ impl<'a> EntryHmacBuilder<'a> {
 impl TransferNonce {
     pub fn random() -> Self {
         let mut nonce = [0u8; 16];
-        OsRng.fill_bytes(&mut nonce);
+        Rng.fill_bytes(&mut nonce);
         Self(nonce)
     }
 }

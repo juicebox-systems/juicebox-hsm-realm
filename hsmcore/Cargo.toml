@@ -25,3 +25,4 @@ voprf = { workspace = true }
 async-recursion = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
+rand = { version = "0.8.5" }
