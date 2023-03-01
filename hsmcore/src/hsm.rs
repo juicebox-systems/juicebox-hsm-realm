@@ -429,7 +429,7 @@ impl Hsm {
         mut f: F,
     ) -> Result<Vec<u8>, HsmError> {
         let response = f(self, r);
-        marshalling::to_vec(&response).map_err(|e| HsmError::Serialization(e))
+        marshalling::to_vec(&response).map_err(HsmError::Serialization)
     }
 
     fn create_new_group(
