@@ -4,6 +4,7 @@
 use digest::Digest;
 use futures::future::{join_all, try_join_all};
 use hmac::{Hmac, Mac};
+use hsmcore::marshalling;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwest::Url;
@@ -317,8 +318,8 @@ pub struct Client {
 enum RequestError {
     HttpError(reqwest::Error),
     HttpStatus(reqwest::StatusCode),
-    DeserializationError(rmp_serde::decode::Error),
-    SerializationError(rmp_serde::encode::Error),
+    DeserializationError(marshalling::DeserializationError),
+    SerializationError(marshalling::SerializationError),
     Unavailable,
 }
 

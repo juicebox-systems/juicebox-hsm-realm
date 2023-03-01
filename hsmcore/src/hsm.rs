@@ -20,6 +20,7 @@ pub mod types;
 
 use self::rpc::{HsmRequest, HsmRpc};
 use self::types::Partition;
+use super::marshalling;
 use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
 use app::{RecordChange, RootOprfKey};
 use types::{
@@ -370,8 +371,8 @@ struct LeaderLogEntry {
 }
 
 pub enum HsmError {
-    Deserialization(rmp_serde::decode::Error),
-    Serialization(rmp_serde::encode::Error),
+    Deserialization(marshalling::DeserializationError),
+    Serialization(marshalling::SerializationError),
 }
 
 impl Hsm {
@@ -393,7 +394,7 @@ impl Hsm {
         }
     }
     pub fn handle_request(&mut self, request_bytes: bytes::Bytes) -> Result<Vec<u8>, HsmError> {
-        let request: HsmRequest = match rmp_serde::from_slice(request_bytes.as_ref()) {
+        let request: HsmRequest = match marshalling::from_slice(request_bytes.as_ref()) {
             Ok(request) => request,
             Err(e) => {
                 warn!(error = ?e, "deserialization error");
@@ -428,7 +429,7 @@ impl Hsm {
         mut f: F,
     ) -> Result<Vec<u8>, HsmError> {
         let response = f(self, r);
-        rmp_serde::encode::to_vec(&response).map_err(HsmError::Serialization)
+        marshalling::to_vec(&response).map_err(|e| HsmError::Serialization(e))
     }
 
     fn create_new_group(

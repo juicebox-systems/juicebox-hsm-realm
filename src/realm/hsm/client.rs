@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use super::super::super::http_client::ClientError;
-use hsmcore::hsm::rpc::HsmRpc;
+use hsmcore::{hsm::rpc::HsmRpc, marshalling};
 
 #[async_trait]
 pub trait Transport: std::fmt::Debug + Send + Sync {
@@ -21,9 +21,9 @@ impl HsmClient {
     }
     pub async fn send<RPC: HsmRpc + Send>(&self, r: RPC) -> Result<RPC::Response, ClientError> {
         let hsm_req = r.to_req();
-        let req_bytes = rmp_serde::to_vec(&hsm_req).map_err(ClientError::Serialization)?;
+        let req_bytes = marshalling::to_vec(&hsm_req)?;
         let res_bytes = self.transport.send_rpc_msg(req_bytes).await?;
-        let response = rmp_serde::from_slice(&res_bytes).map_err(ClientError::Deserialization)?;
+        let response = marshalling::from_slice(&res_bytes)?;
         Ok(response)
     }
 }
