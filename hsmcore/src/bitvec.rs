@@ -184,19 +184,6 @@ impl BitVec {
             self.push(b)
         }
     }
-    /// pops the last bit from the sequence returning it. Will return None
-    /// if the BitVec is empty.
-    pub fn pop(&mut self) -> Option<bool> {
-        if self.len == 0 {
-            None
-        } else {
-            self.len -= 1;
-            let (byte_index, bit_mask) = self.bit_pos(self.len);
-            let val = self.bits[byte_index] & bit_mask != 0;
-            self.bits[byte_index] &= !bit_mask;
-            Some(val)
-        }
-    }
 }
 impl<'a> Bits<'a> for BitVec {
     fn len(&self) -> usize {
@@ -474,18 +461,6 @@ mod test {
     }
 
     #[test]
-    fn vec_pop() {
-        let mut v = bitvec![1, 1, 0];
-        assert_eq!(Some(false), v.pop());
-        assert_eq!(128 | 64, v.bits[0]);
-        assert_eq!(Some(true), v.pop());
-        assert_eq!(128, v.bits[0]);
-        assert_eq!(Some(true), v.pop());
-        assert_eq!(0, v.bits[0]);
-        assert_eq!(None, v.pop());
-    }
-
-    #[test]
     fn test_index() {
         let v = bitvec![1, 1, 0, 0];
         assert!(v[0]);
@@ -613,9 +588,9 @@ mod test {
     #[test]
     fn eq() {
         let a = bitvec![1, 0, 0, 1, 0];
-        let mut b = bitvec![1, 0, 0, 1, 0, 1];
+        let b = bitvec![1, 0, 0, 1, 0, 1];
         assert!(a != b);
-        b.pop();
+        let b = bitvec![1, 0, 0, 1, 0];
         assert_eq!(a, b);
         assert_eq!(a.bits, b.bits);
         assert_eq!(a, b.as_ref());

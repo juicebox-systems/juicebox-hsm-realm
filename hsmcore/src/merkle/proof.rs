@@ -357,6 +357,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
 mod tests {
 
     use super::super::super::hsm::types::OwnedRange;
+    use super::super::Bits;
     use super::super::{
         agent::tests::read,
         tests::{new_empty_tree, rec_id, tree_insert, TEST_REALM},
@@ -431,7 +432,7 @@ mod tests {
             .await
             .unwrap();
         if let Some(ref mut b) = &mut p.path[0].left {
-            b.prefix.pop();
+            b.prefix = b.prefix.slice_to(b.prefix.len() - 1).to_bitvec()
         }
         assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
     }
