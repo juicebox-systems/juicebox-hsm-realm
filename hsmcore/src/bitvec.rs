@@ -1,3 +1,7 @@
+//! BitVec and BitSlice are types that have Vec<bool> and &[bool] like operations
+//! but have a more efficient representation.
+//!
+//! BitVec is fixed size and can handle a total of 256 bits.
 extern crate alloc;
 
 use core::{
@@ -8,8 +12,10 @@ use core::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{hsm::types::RecordId, merkle::KeyVec};
+use super::hsm::types::RecordId;
 
+/// The bitvec! macro is used to easily create new bitvecs. Its very similar to vec!
+/// let bits = bitvec![0,0,1]
 #[macro_export]
 macro_rules! bitvec {
     // borrowed from https://doc.rust-lang.org/book/ch19-06-macros.html
@@ -25,22 +31,28 @@ macro_rules! bitvec {
     };
 }
 
+/// the Bits trait exposes some common operations that work with both BitVecs and BitSlices.
 pub trait Bits<'a>: Sized {
-    fn len(&self) -> usize; // length in bits
+    /// The length in bits
+    fn len(&self) -> usize;
+    /// The bit at 'index' into the list of bits. panics if index is out of bounds.
     fn at(&self, index: usize) -> bool;
 
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+    /// Returns an Iterator<Item=bool> that iterates over all the bits.
     fn iter(&'a self) -> BitIter<'a, Self> {
         BitIter { src: self, pos: 0 }
     }
+    /// Returns true if self starts with the full sequence of bits in other.
     fn starts_with<'o, O: Bits<'o>>(&'a self, other: &'o O) -> bool {
         if other.len() > self.len() {
             return false;
         }
         !zip(self.iter(), other.iter()).any(|(x, y)| x != y)
     }
+    /// Create a new bitvec from the current sequence of bits.
     fn to_bitvec(&'a self) -> BitVec {
         let mut v = BitVec::new();
         for b in self.iter() {
@@ -49,9 +61,20 @@ pub trait Bits<'a>: Sized {
         v
     }
 }
+
+/// BitVec owns a sequence of bits with a maximum size of 256 bits. It is fixed
+/// sized, and unlike Vec does not use a heap allocation to store the bits.
+///
+/// TODO: Serialize writes out the full 256 bits even if only 3 are used. That
+/// can be made more efficient
 #[derive(Clone, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct BitVec {
     len: usize,
+    // The bits are stored 8 per byte in Msb order. i.e. the first bit
+    // is 0b1.......
+    // Invariants:
+    // * Unused bits are set to 0.
+    // * 0 <= len <= 256
     bits: [u8; 32],
 }
 impl BitVec {
@@ -68,6 +91,10 @@ impl BitVec {
         assert_eq!(self.len(), RecordId::num_bits());
         RecordId(self.bits)
     }
+    /// Creates a new Bitvec with a copy of the supplied bytes. The bytes
+    /// should represent bits the same way as BitVec does. (Msb is first)
+    /// Will panic if more then 256 bits (32 bytes) are provided. All the
+    /// bits from bytes are used, so len will be bytes.len() * 8
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let mut r = Self::new();
         assert!(bytes.len() <= r.bits.len());
@@ -75,6 +102,7 @@ impl BitVec {
         r.len = bytes.len() * 8;
         r
     }
+    /// Returns a slice that covers that full sequence.
     pub fn as_ref(&self) -> BitSlice {
         BitSlice {
             vec: self,
@@ -82,6 +110,7 @@ impl BitVec {
             len: self.len,
         }
     }
+    /// Returns a slice of some subset of the sequence.
     pub fn slice(&self, r: Range<usize>) -> BitSlice {
         assert!(r.end <= self.len);
         BitSlice {
@@ -90,6 +119,7 @@ impl BitVec {
             len: r.end - r.start,
         }
     }
+    /// Returns a slice starting from the provided index (inclusive) to the end.
     pub fn slice_from(&self, index: usize) -> BitSlice {
         assert!(index <= self.len);
         BitSlice {
@@ -98,6 +128,10 @@ impl BitVec {
             len: self.len - index,
         }
     }
+    /// Returns a slice from the start to the index (exclusive). e.g.
+    /// bits.slice_to(8), bits.slice_from(8) will split the sequence into 2
+    /// slices with the first containing 8 bits and the second containing the
+    /// remainder
     pub fn slice_to(&self, index: usize) -> BitSlice {
         assert!(index <= self.len);
         BitSlice {
@@ -106,6 +140,10 @@ impl BitVec {
             len: index,
         }
     }
+    /// Returns the current sequence as a slice of bytes. Bits are in Msb0 order
+    /// in the bytes, and any unused bits are always set to 0. The returned
+    /// slice is sized based on the number of bits, i.e. as_bytes() on a BitVec
+    /// with len 10 would return a 2 byte slice.
     pub fn as_bytes(&self) -> &[u8] {
         let last = if self.len % 8 == 0 {
             self.len / 8
@@ -114,6 +152,8 @@ impl BitVec {
         };
         &self.bits[..last]
     }
+    /// Adds a new bit to the end of the current sequence. Will panic if there
+    /// is no space left
     pub fn push(&mut self, bit: bool) {
         assert!(self.len < self.bits.len() * 8);
         let (byte_index, bit_mask) = self.bit_pos(self.len);
@@ -131,11 +171,14 @@ impl BitVec {
         let bit_mask: u8 = 1 << bit_index;
         (byte_index, bit_mask)
     }
+    /// Add the sequence of bits from other to the end of this sequence.
     pub fn extend<'b, B: Bits<'b>>(&mut self, other: &'b B) {
         for b in other.iter() {
             self.push(b)
         }
     }
+    /// pops the last bit from the sequence returning it. Will return None
+    /// if the BitVec is empty.
     pub fn pop(&mut self) -> Option<bool> {
         if self.len == 0 {
             None
@@ -163,12 +206,14 @@ impl<'a> Bits<'a> for BitVec {
     }
 }
 
+/// BitSlice is a readonly reference to a sequence of bits in a BitVec.
 pub struct BitSlice<'a> {
     vec: &'a BitVec,
     offset: usize,
     len: usize,
 }
 impl<'a> BitSlice<'a> {
+    /// Returns a new slice that is a subset of the current slice.
     pub fn slice(&self, r: Range<usize>) -> BitSlice<'a> {
         assert!(r.end <= self.len);
         BitSlice {
@@ -212,6 +257,8 @@ impl<'a, B: Bits<'a>> Iterator for BitIter<'a, B> {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // TODO: This could be optimized to track the byte index and mask here
+        // and increment them. With this impl they get recalculated every time.
         if self.pos < self.src.len() {
             let r = self.src.at(self.pos);
             self.pos += 1;
@@ -323,7 +370,7 @@ fn fmt_bits(
     f.write_char(']')
 }
 
-impl Index<usize> for KeyVec {
+impl Index<usize> for BitVec {
     type Output = bool;
     fn index(&self, index: usize) -> &Self::Output {
         if self.at(index) {
