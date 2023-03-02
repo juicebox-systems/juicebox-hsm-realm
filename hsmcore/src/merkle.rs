@@ -121,23 +121,23 @@ impl<HO: HashOutput> InteriorNode<HO> {
         left: &Option<Branch<HO>>,
         right: &Option<Branch<HO>>,
     ) -> HO {
-        let mut parts: [&[u8]; 6] = [&[], &[], &[], &[], &[], &[]];
+        let mut parts: [&[u8]; 8] = Default::default();
 
         if is_root {
             parts[0] = &key_range.start.0;
             parts[1] = &key_range.end.0;
         }
-        let left_p: Vec<u8>;
+        let left_prefix_len = left.as_ref().map(|b| b.prefix.len().to_be_bytes());
         if let Some(b) = left {
-            left_p = b.prefix.iter().map(|b| if b { 0xFF } else { 0 }).collect();
-            parts[2] = &left_p;
-            parts[3] = b.hash.as_u8();
+            parts[2] = left_prefix_len.as_ref().unwrap();
+            parts[3] = b.prefix.as_bytes();
+            parts[4] = b.hash.as_u8();
         }
-        let right_p: Vec<u8>;
+        let right_prefix_len = right.as_ref().map(|b| b.prefix.len().to_be_bytes());
         if let Some(b) = right {
-            right_p = b.prefix.iter().map(|b| if b { 0xFF } else { 0 }).collect();
-            parts[4] = &right_p;
-            parts[5] = b.hash.as_u8();
+            parts[5] = right_prefix_len.as_ref().unwrap();
+            parts[6] = b.prefix.as_bytes();
+            parts[7] = b.hash.as_u8();
         }
         h.calc_hash(&parts)
     }
