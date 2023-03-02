@@ -4,9 +4,7 @@ use std::{
 };
 
 use super::{super::hsm::types::RealmId, agent::StoreKey};
-use super::{
-    agent::tests::TreeStoreReader, agent::Node, concat, Bits, Branch, Dir, HashOutput, KeyVec,
-};
+use super::{agent::tests::TreeStoreReader, agent::Node, Bits, Branch, Dir, HashOutput, KeyVec};
 use async_recursion::async_recursion;
 
 // Creates a dot file for a visualization of the tree starting
@@ -41,11 +39,11 @@ async fn add_node_to_dot<W: Write + Send, HO: HashOutput>(
         Node::Interior(int) => {
             if let Some(ref b) = int.left {
                 write_branch(&h, b, Dir::Left, w)?;
-                add_node_to_dot(realm_id, concat(&prefix, &b.prefix), b.hash, reader, w).await?;
+                add_node_to_dot(realm_id, prefix.concat(&b.prefix), b.hash, reader, w).await?;
             }
             if let Some(ref b) = int.right {
                 write_branch(&h, b, Dir::Right, w)?;
-                add_node_to_dot(realm_id, concat(&prefix, &b.prefix), b.hash, reader, w).await?;
+                add_node_to_dot(realm_id, prefix.concat(&b.prefix), b.hash, reader, w).await?;
             }
             writeln!(
                 w,

@@ -3,10 +3,8 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::{
-    cmp::min,
     fmt::{self, Debug, Display},
     hash::Hash,
-    iter::zip,
 };
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +13,7 @@ use self::{
     overlay::TreeOverlay,
     proof::{ProofError, ReadProof, VerifiedProof},
 };
-use super::bitvec::{BitSlice, BitVec, Bits};
+use super::bitvec::{common_prefix_len, BitSlice, BitVec, Bits};
 use super::hsm::types::{OwnedRange, RecordId};
 
 pub mod agent;
@@ -294,21 +292,6 @@ pub trait NodeHasher<HO>: Sync {
     fn calc_hash(&self, parts: &[&[u8]]) -> HO;
 }
 
-fn concat<'a, 'b, A: Bits<'a>, B: Bits<'b>>(a: &'a A, b: &'b B) -> KeyVec {
-    let mut r = KeyVec::new();
-    r.extend(a);
-    r.extend(b);
-    r
-}
-
-fn common_prefix_len<'a, 'b, A: Bits<'a>, B: Bits<'b>>(a: &'a A, b: &'b B) -> usize {
-    let l = min(a.len(), b.len());
-    match zip(a.iter(), b.iter()).position(|(x, y)| x != y) {
-        None => l,
-        Some(p) => p,
-    }
-}
-
 pub fn compact_keyslice_str<'b, B: Bits<'b>>(k: &'b B, delim: &str) -> String {
     let mut s = String::with_capacity(k.len());
     for (i, b) in k.iter().enumerate() {
@@ -421,29 +404,6 @@ mod tests {
         assert_ne!(ha, hb);
     }
 
-    #[test]
-    fn test_common_prefix_with_prefix() {
-        let a = &BitVec::from_bytes(&[1, 64, 3]);
-        let b = &BitVec::from_bytes(&[1, 0, 0]);
-        assert_eq!(9, common_prefix_len(a, b));
-        assert_eq!(9, common_prefix_len(b, a));
-    }
-
-    #[test]
-    fn test_common_prefix_none() {
-        let a = &BitVec::from_bytes(&[0]);
-        let b = &BitVec::from_bytes(&[255u8]);
-        assert_eq!(0, common_prefix_len(a, b));
-    }
-
-    #[test]
-    fn test_common_prefix_same() {
-        let a = &BitVec::from_bytes(&[1]);
-        let b = &BitVec::from_bytes(&[1]);
-        let c = common_prefix_len(a, b);
-        assert_eq!(8, c);
-    }
-
     pub fn rec_id(bytes: &[u8]) -> RecordId {
         let mut r = RecordId([0u8; 32]);
         r.0[..bytes.len()].copy_from_slice(bytes);
@@ -503,11 +463,11 @@ mod tests {
             Node::Interior(int) => {
                 let lc = match &int.left {
                     None => 0,
-                    Some(b) => tree_size(concat(&prefix, &b.prefix), b.hash, store).await?,
+                    Some(b) => tree_size(prefix.concat(&b.prefix), b.hash, store).await?,
                 };
                 let rc = match &int.right {
                     None => 0,
-                    Some(b) => tree_size(concat(&prefix, &b.prefix), b.hash, store).await?,
+                    Some(b) => tree_size(prefix.concat(&b.prefix), b.hash, store).await?,
                 };
                 Ok(lc + rc + 1)
             }
@@ -551,7 +511,7 @@ mod tests {
                     Some(b) => {
                         assert!(!b.prefix.is_empty());
                         assert!(!b.prefix[0]);
-                        let new_path = concat(&path, &b.prefix);
+                        let new_path = path.concat(&b.prefix);
                         let exp_child_hash = check_tree_node_invariants(
                             hasher, range, false, b.hash, new_path, store,
                         )
@@ -564,7 +524,7 @@ mod tests {
                     Some(b) => {
                         assert!(!b.prefix.is_empty());
                         assert!(b.prefix[0]);
-                        let new_path = concat(&path, &b.prefix);
+                        let new_path = path.concat(&b.prefix);
                         let exp_child_hash = check_tree_node_invariants(
                             hasher, range, false, b.hash, new_path, store,
                         )
@@ -610,10 +570,10 @@ mod tests {
             match n.1 {
                 Node::Interior(int) => {
                     if let Some(b) = &int.left {
-                        verify_prefixes(add_by_hash, concat(&prefix, &b.prefix), &b.hash);
+                        verify_prefixes(add_by_hash, prefix.concat(&b.prefix), &b.hash);
                     }
                     if let Some(b) = &int.right {
-                        verify_prefixes(add_by_hash, concat(&prefix, &b.prefix), &b.hash);
+                        verify_prefixes(add_by_hash, prefix.concat(&b.prefix), &b.hash);
                     }
                 }
                 Node::Leaf(_l) => {

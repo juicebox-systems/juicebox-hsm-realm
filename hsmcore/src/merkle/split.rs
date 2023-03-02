@@ -4,7 +4,6 @@ use super::super::hsm::types::{OwnedRange, RecordId};
 use super::{
     super::bitvec::Bits,
     agent::{DeltaBuilder, Node, NodeKey},
-    concat,
     proof::{ProofError, ReadProof},
     Branch, Dir, HashOutput, InteriorNode, KeyVec, NodeHasher, SplitResult, SplitRoot, Tree,
 };
@@ -32,11 +31,11 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 .expect("path should always contain at least one node");
             let gt_left = match &last.node.left {
                 None => true,
-                Some(b) => key > concat(&last.prefix, &b.prefix),
+                Some(b) => key > last.prefix.concat(&b.prefix),
             };
             let lte_right = match &last.node.right {
                 None => true,
-                Some(b) => key <= concat(&last.prefix, &b.prefix),
+                Some(b) => key <= last.prefix.concat(&b.prefix),
             };
 
             if gt_left && lte_right {
@@ -168,7 +167,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                             path_idx == 0,
                             parent_d,
                             Branch::new(
-                                concat(&parent_b.prefix, &gets_new_node.prefix),
+                                parent_b.prefix.concat(&gets_new_node.prefix),
                                 gets_new_node.hash,
                             ),
                         );
@@ -178,7 +177,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                             Node::Interior(new_node),
                         );
                         let ext_prefix_res = Branch::new(
-                            concat(&parent_b.prefix, &extends_prefix.prefix),
+                            parent_b.prefix.concat(&extends_prefix.prefix),
                             extends_prefix.hash,
                         );
                         match parent_d {

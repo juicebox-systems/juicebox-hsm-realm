@@ -7,7 +7,6 @@ use super::super::hsm::types::OwnedRange;
 use super::{
     super::bitvec::Bits,
     agent::{DeltaBuilder, Node, NodeKey},
-    concat,
     proof::{PathStep, ReadProof},
     Branch, HashOutput, InteriorNode, KeyVec, MergeError, MergeResult, NodeHasher, Tree,
 };
@@ -58,13 +57,13 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             {
                 // We want the branch in the opposite direction of the walk.
                 if let Some(b) = n.node.branch(n.next_dir.opposite()) {
-                    let bp = concat(&n.prefix, &b.prefix);
+                    let bp = n.prefix.concat(&b.prefix);
                     branches.push(Branch::new(bp, b.hash));
                 }
                 if is_last {
                     // For the last interior node we always want both branches.
                     if let Some(b) = n.node.branch(n.next_dir) {
-                        let bp = concat(&n.prefix, &b.prefix);
+                        let bp = n.prefix.concat(&b.prefix);
                         branches.push(Branch::new(bp, b.hash));
                     }
                 }

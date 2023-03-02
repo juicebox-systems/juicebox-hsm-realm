@@ -60,6 +60,21 @@ pub trait Bits<'a>: Sized {
         }
         v
     }
+    /// Returns a new KeyVec consisting of our sequence followed by the bit sequence
+    /// from other.
+    fn concat<'o, O: Bits<'o>>(&'a self, other: &'o O) -> BitVec {
+        let mut r = self.to_bitvec();
+        r.extend(other);
+        r
+    }
+}
+
+/// Returns the length of the sequence that is at the start of a & b that matches.
+pub fn common_prefix_len<'a, 'b, A: Bits<'a>, B: Bits<'b>>(a: &'a A, b: &'b B) -> usize {
+    match zip(a.iter(), b.iter()).position(|(x, y)| x != y) {
+        None => core::cmp::min(a.len(), b.len()),
+        Some(p) => p,
+    }
 }
 
 /// BitVec owns a sequence of bits with a maximum size of 256 bits. It is fixed
@@ -191,7 +206,6 @@ impl BitVec {
         }
     }
 }
-
 impl<'a> Bits<'a> for BitVec {
     fn len(&self) -> usize {
         self.len
@@ -621,5 +635,39 @@ mod test {
         assert_eq!(k.cmp(&r), Ordering::Less);
         assert_eq!(r_slice.cmp(&k_slice), Ordering::Greater);
         assert_eq!(k_slice.cmp(&r_slice), Ordering::Less);
+    }
+
+    #[test]
+    fn concat() {
+        let k = bitvec![0, 1, 1, 0, 1];
+        let r = bitvec![0, 0, 0, 1];
+        assert_eq!(bitvec![0, 1, 1, 0, 1, 0, 0, 0, 1], k.concat(&r));
+        assert_eq!(bitvec![0, 0, 0, 1, 0, 1, 1, 0, 1], r.concat(&k));
+        let sk = k.slice_to(2);
+        assert_eq!(bitvec![0, 1, 0, 0], sk.concat(&r.slice_to(2)));
+        assert_eq!(bitvec![0, 1, 0, 0, 0, 1], sk.concat(&r));
+    }
+
+    #[test]
+    fn common_prefix_with_prefix() {
+        let a = &BitVec::from_bytes(&[1, 64, 3]);
+        let b = &BitVec::from_bytes(&[1, 0, 0]);
+        assert_eq!(9, common_prefix_len(a, b));
+        assert_eq!(9, common_prefix_len(b, a));
+    }
+
+    #[test]
+    fn common_prefix_none() {
+        let a = &BitVec::from_bytes(&[0]);
+        let b = &BitVec::from_bytes(&[255u8]);
+        assert_eq!(0, common_prefix_len(a, b));
+    }
+
+    #[test]
+    fn common_prefix_same() {
+        let a = &BitVec::from_bytes(&[1]);
+        let b = &BitVec::from_bytes(&[1]);
+        let c = common_prefix_len(a, b);
+        assert_eq!(8, c);
     }
 }
