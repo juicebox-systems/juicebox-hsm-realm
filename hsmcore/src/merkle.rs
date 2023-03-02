@@ -291,17 +291,6 @@ pub trait NodeHasher<HO>: Sync {
     fn calc_hash(&self, parts: &[&[u8]]) -> HO;
 }
 
-pub fn compact_keyslice_str<'b, B: Bits<'b>>(k: &'b B, delim: &str) -> String {
-    let mut s = String::with_capacity(k.len());
-    for (i, b) in k.iter().enumerate() {
-        if i > 0 && i % 8 == 0 {
-            s.push_str(delim);
-        }
-        s.push(if b { '1' } else { '0' });
-    }
-    s
-}
-
 #[cfg(test)]
 mod dot;
 

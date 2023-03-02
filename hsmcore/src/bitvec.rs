@@ -5,7 +5,7 @@
 extern crate alloc;
 
 use core::{
-    cmp::Ordering,
+    cmp::{min, Ordering},
     fmt::{Debug, Display, Write},
     iter::zip,
     ops::{Index, Range},
@@ -351,37 +351,47 @@ fn cmp_impl(mut a: impl Iterator<Item = bool>, mut b: impl Iterator<Item = bool>
 
 impl Display for BitVec {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        fmt_bits(self.iter(), " ", f)
+        // TODO: Display should compress the tail that's all 0 or 1
+        format_bits(self, " ", f)
     }
 }
 impl Debug for BitVec {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        fmt_bits(self.iter(), " ", f)
+        format_bits(self, " ", f)
     }
 }
 impl<'a> Display for BitSlice<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        fmt_bits(self.iter(), " ", f)
+        format_bits(self, " ", f)
     }
 }
 impl<'a> Debug for BitSlice<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        fmt_bits(self.iter(), " ", f)
+        format_bits(self, " ", f)
     }
 }
-fn fmt_bits(
-    bits: impl Iterator<Item = bool>,
+fn format_bits<'a>(
+    bits: &'a impl Bits<'a>,
     s: &str,
     f: &mut core::fmt::Formatter<'_>,
 ) -> core::fmt::Result {
     f.write_char('[')?;
-    for (i, b) in bits.enumerate() {
+    for (i, b) in bits.iter().enumerate() {
         if i > 0 && i % 8 == 0 {
             f.write_str(s)?;
         }
         f.write_char(if b { '1' } else { '0' })?;
     }
     f.write_char(']')
+}
+
+/// DisplayBits is a wrapper that allows for control of the separator string in
+/// the formatting of a sequence of bits.
+pub struct DisplayBits<'a, 'b, B: Bits<'b>>(pub &'a str, pub &'b B);
+impl<'a, 'b, B: Bits<'b>> Display for DisplayBits<'a, 'b, B> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        format_bits(self.1, self.0, f)
+    }
 }
 
 impl Index<usize> for BitVec {

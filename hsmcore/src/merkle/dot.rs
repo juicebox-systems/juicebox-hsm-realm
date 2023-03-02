@@ -3,6 +3,7 @@ use std::{
     io::{BufWriter, Write},
 };
 
+use super::super::bitvec::DisplayBits;
 use super::{super::hsm::types::RealmId, agent::StoreKey};
 use super::{agent::tests::TreeStoreReader, agent::Node, Bits, Branch, Dir, HashOutput, KeyVec};
 use async_recursion::async_recursion;
@@ -70,6 +71,6 @@ fn write_branch<HO: HashOutput>(
         b.hash,
         dir,
         lb,
-        super::compact_keyslice_str(&b.prefix, "\\n")
+        DisplayBits("\\n", &b.prefix),
     )
 }
