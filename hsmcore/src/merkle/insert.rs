@@ -5,7 +5,6 @@ use alloc::vec::Vec;
 use super::{
     super::bitvec::Bits,
     agent::{DeltaBuilder, Node, NodeKey, StoreDelta},
-    common_prefix_len,
     proof::{ProofError, VerifiedProof},
     Branch, HashOutput, InteriorNode, KeyVec, LeafNode, NodeHasher, Tree,
 };
@@ -83,8 +82,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 } else {
                     // This points somewhere else. Add a child node that contains(b.dest, new_leaf) and update n to point to it
                     let key_tail = key.slice_from(last.prefix.len());
-                    let comm_len = common_prefix_len(&key_tail, &b.prefix);
-                    let comm = key_tail.slice_to(comm_len);
+                    let comm = key_tail.common_prefix(&b.prefix);
                     assert!(!comm.is_empty());
                     let (child_hash, new_child) = InteriorNode::construct(
                         &self.hasher,

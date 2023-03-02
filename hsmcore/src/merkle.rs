@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::{
     fmt::{self, Debug, Display},
@@ -13,7 +12,7 @@ use self::{
     overlay::TreeOverlay,
     proof::{ProofError, ReadProof, VerifiedProof},
 };
-use super::bitvec::{common_prefix_len, BitSlice, BitVec, Bits};
+use super::bitvec::{BitSlice, BitVec, Bits};
 use super::hsm::types::{OwnedRange, RecordId};
 
 pub mod agent;
