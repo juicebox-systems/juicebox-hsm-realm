@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 aes-gcm = { workspace = true }
-bitvec = { workspace = true }
 bytes = { workspace = true }
 ciborium = { workspace = true }
 digest = { workspace = true }

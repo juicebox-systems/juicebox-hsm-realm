@@ -2,7 +2,6 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use bitvec::prelude::*;
 use core::{
     cmp::min,
     fmt::{self, Debug, Display},
@@ -16,6 +15,7 @@ use self::{
     overlay::TreeOverlay,
     proof::{ProofError, ReadProof, VerifiedProof},
 };
+use super::bitvec::{BitSlice, BitVec, Bits};
 use super::hsm::types::{OwnedRange, RecordId};
 
 pub mod agent;
@@ -26,8 +26,8 @@ mod overlay;
 pub mod proof;
 mod split;
 
-pub type KeyVec = BitVec<u8, Msb0>;
-pub type KeySlice = BitSlice<u8, Msb0>;
+pub type KeyVec = BitVec;
+pub type KeySlice<'a> = BitSlice<'a>;
 
 // TODO
 //  probably a bunch of stuff that should be pub but isn't
@@ -132,13 +132,13 @@ impl<HO: HashOutput> InteriorNode<HO> {
         }
         let left_p: Vec<u8>;
         if let Some(b) = left {
-            left_p = b.prefix.iter().map(|b| if *b { 0xFF } else { 0 }).collect();
+            left_p = b.prefix.iter().map(|b| if b { 0xFF } else { 0 }).collect();
             parts[2] = &left_p;
             parts[3] = b.hash.as_u8();
         }
         let right_p: Vec<u8>;
         if let Some(b) = right {
-            right_p = b.prefix.iter().map(|b| if *b { 0xFF } else { 0 }).collect();
+            right_p = b.prefix.iter().map(|b| if b { 0xFF } else { 0 }).collect();
             parts[4] = &right_p;
             parts[5] = b.hash.as_u8();
         }
@@ -219,12 +219,7 @@ impl<HO: HashOutput> Branch<HO> {
 }
 impl<HO: Debug> Debug for Branch<HO> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} -> {:?}",
-            compact_keyslice_str(&self.prefix, " "),
-            self.hash
-        )
+        write!(f, "{:?} -> {:?}", &self.prefix, self.hash)
     }
 }
 
@@ -299,31 +294,28 @@ pub trait NodeHasher<HO>: Sync {
     fn calc_hash(&self, parts: &[&[u8]]) -> HO;
 }
 
-fn concat(a: &KeySlice, b: &KeySlice) -> KeyVec {
-    let mut r = KeyVec::with_capacity(a.len() + b.len());
+fn concat<'a, 'b, A: Bits<'a>, B: Bits<'b>>(a: &'a A, b: &'b B) -> KeyVec {
+    let mut r = KeyVec::new();
     r.extend(a);
     r.extend(b);
     r
 }
 
-fn common_prefix<'a, U: BitStore, O: BitOrder>(
-    a: &'a BitSlice<U, O>,
-    b: &BitSlice<U, O>,
-) -> &'a BitSlice<U, O> {
+fn common_prefix_len<'a, 'b, A: Bits<'a>, B: Bits<'b>>(a: &'a A, b: &'b B) -> usize {
     let l = min(a.len(), b.len());
     match zip(a.iter(), b.iter()).position(|(x, y)| x != y) {
-        None => &a[..l],
-        Some(p) => &a[..p],
+        None => l,
+        Some(p) => p,
     }
 }
 
-pub fn compact_keyslice_str(k: &KeySlice, delim: &str) -> String {
+pub fn compact_keyslice_str<'b, B: Bits<'b>>(k: &'b B, delim: &str) -> String {
     let mut s = String::with_capacity(k.len());
     for (i, b) in k.iter().enumerate() {
         if i > 0 && i % 8 == 0 {
             s.push_str(delim);
         }
-        s.push(if *b { '1' } else { '0' });
+        s.push(if b { '1' } else { '0' });
     }
     s
 }
@@ -344,29 +336,13 @@ mod tests {
         },
         *,
     };
+    use crate::bitvec;
     use std::{
         collections::{BTreeMap, HashMap},
         hash::Hasher,
     };
 
     pub const TEST_REALM: RealmId = RealmId([42u8; 16]);
-
-    #[test]
-    fn test_bitvec_order() {
-        // sanity check that the patched version of bitvec is being used.
-        let k = bitvec![u8,Msb0;0, 1, 0, 1];
-        let r = bitvec![u8,Msb0;1, 0, 0, 0];
-        let k_slice = &k[..];
-        let r_slice = &r[..];
-        assert!(r > k);
-        assert!(k < r);
-        assert!(r_slice > k_slice);
-        assert!(k_slice < r_slice);
-        assert!(r_slice > k);
-        assert!(k < r_slice);
-        assert!(k_slice < r);
-        assert!(r > k_slice);
-    }
 
     #[tokio::test]
     async fn get_nothing() {
@@ -403,18 +379,18 @@ mod tests {
     fn test_branch_prefix_hash() {
         let p = OwnedRange::full();
         let h = TestHasher {};
-        let k1 = KeyVec::from_element(0b00110000);
-        let k2 = KeyVec::from_element(0b11010000);
+        let k1 = bitvec![0, 0, 1, 1, 0, 0, 0, 0];
+        let k2 = bitvec![1, 1, 0, 1, 0, 0, 0, 0];
         let a = InteriorNode::new(
             &h,
             &p,
             false,
             Some(Branch::new(
-                k1[..4].into(),
+                k1.slice_to(4).into(),
                 TestHash([1, 2, 3, 4, 5, 6, 7, 8]),
             )),
             Some(Branch::new(
-                k2[..5].into(),
+                k2.slice_to(5).into(),
                 TestHash([8, 7, 6, 5, 4, 3, 2, 1]),
             )),
         );
@@ -423,11 +399,11 @@ mod tests {
             &p,
             false,
             Some(Branch::new(
-                k1[..5].into(),
+                k1.slice_to(5).into(),
                 TestHash([1, 2, 3, 4, 5, 6, 7, 8]),
             )),
             Some(Branch::new(
-                k2[..6].into(),
+                k2.slice_to(6).into(),
                 TestHash([8, 7, 6, 5, 4, 3, 2, 1]),
             )),
         );
@@ -447,26 +423,25 @@ mod tests {
 
     #[test]
     fn test_common_prefix_with_prefix() {
-        let a: &BitSlice<u8> = BitSlice::from_slice(&[1, 2, 3]);
-        let b = BitSlice::from_slice(&[1, 0, 0]);
-        assert_eq!(a[..9], common_prefix(a, b));
-        assert_eq!(b[..9], common_prefix(a, b));
+        let a = &BitVec::from_bytes(&[1, 64, 3]);
+        let b = &BitVec::from_bytes(&[1, 0, 0]);
+        assert_eq!(9, common_prefix_len(a, b));
+        assert_eq!(9, common_prefix_len(b, a));
     }
 
     #[test]
     fn test_common_prefix_none() {
-        let a: &BitSlice<u8> = BitSlice::from_slice(&[0]);
-        let b = BitSlice::from_slice(&[255u8]);
-        assert!(common_prefix(a, b).is_empty());
+        let a = &BitVec::from_bytes(&[0]);
+        let b = &BitVec::from_bytes(&[255u8]);
+        assert_eq!(0, common_prefix_len(a, b));
     }
 
     #[test]
     fn test_common_prefix_same() {
-        let a: &BitSlice<u8> = BitSlice::from_slice(&[1]);
-        let b = BitSlice::from_slice(&[1]);
-        let c = common_prefix(a, b);
-        assert_eq!(c, b);
-        assert_eq!(8, c.len());
+        let a = &BitVec::from_bytes(&[1]);
+        let b = &BitVec::from_bytes(&[1]);
+        let c = common_prefix_len(a, b);
+        assert_eq!(8, c);
     }
 
     pub fn rec_id(bytes: &[u8]) -> RecordId {
@@ -517,7 +492,7 @@ mod tests {
 
     #[async_recursion]
     pub async fn tree_size<HO: HashOutput>(
-        prefix: &KeySlice,
+        prefix: KeyVec,
         root: HO,
         store: &impl TreeStoreReader<HO>,
     ) -> Result<usize, TreeStoreError> {
@@ -528,11 +503,11 @@ mod tests {
             Node::Interior(int) => {
                 let lc = match &int.left {
                     None => 0,
-                    Some(b) => tree_size(&concat(prefix, &b.prefix), b.hash, store).await?,
+                    Some(b) => tree_size(concat(&prefix, &b.prefix), b.hash, store).await?,
                 };
                 let rc = match &int.right {
                     None => 0,
-                    Some(b) => tree_size(&concat(prefix, &b.prefix), b.hash, store).await?,
+                    Some(b) => tree_size(concat(&prefix, &b.prefix), b.hash, store).await?,
                 };
                 Ok(lc + rc + 1)
             }
@@ -569,7 +544,7 @@ mod tests {
             .await
             .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
         {
-            Node::Leaf(l) => LeafNode::calc_hash(hasher, &rec_id(&path.into_vec()), &l.value),
+            Node::Leaf(l) => LeafNode::calc_hash(hasher, &path.to_record_id(), &l.value),
             Node::Interior(int) => {
                 match &int.left {
                     None => assert!(is_at_root),
@@ -622,7 +597,7 @@ mod tests {
         }
         fn verify_prefixes<HO: HashOutput>(
             add_by_hash: &HashMap<HO, (&NodeKey<HO>, &Node<HO>)>,
-            prefix: &KeySlice,
+            prefix: KeyVec,
             hash: &HO,
         ) {
             let n = match add_by_hash.get(hash) {
@@ -635,10 +610,10 @@ mod tests {
             match n.1 {
                 Node::Interior(int) => {
                     if let Some(b) = &int.left {
-                        verify_prefixes(add_by_hash, &concat(prefix, &b.prefix), &b.hash);
+                        verify_prefixes(add_by_hash, concat(&prefix, &b.prefix), &b.hash);
                     }
                     if let Some(b) = &int.right {
-                        verify_prefixes(add_by_hash, &concat(prefix, &b.prefix), &b.hash);
+                        verify_prefixes(add_by_hash, concat(&prefix, &b.prefix), &b.hash);
                     }
                 }
                 Node::Leaf(_l) => {
@@ -646,7 +621,7 @@ mod tests {
                 }
             }
         }
-        verify_prefixes(&add_by_hash, KeySlice::empty(), &root);
+        verify_prefixes(&add_by_hash, KeyVec::new(), &root);
     }
 
     #[derive(Clone)]

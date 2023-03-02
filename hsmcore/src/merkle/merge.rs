@@ -5,6 +5,7 @@ use tracing::{info, trace};
 
 use super::super::hsm::types::OwnedRange;
 use super::{
+    super::bitvec::Bits,
     agent::{DeltaBuilder, Node, NodeKey},
     concat,
     proof::{PathStep, ReadProof},
@@ -94,7 +95,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             assert!(!branches.is_empty());
             if branches.len() == 1 {
                 let b = &branches[0];
-                return Branch::new(b.prefix[bit_pos_start..].into(), b.hash);
+                return Branch::new(b.prefix.slice_from(bit_pos_start).into(), b.hash);
             }
             match branches.iter().position(|b| b.prefix[bit_pos]) {
                 // everything is 0
@@ -116,10 +117,13 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         Some(right),
                     );
                     delta.add(
-                        NodeKey::new(branches[0].prefix[..bit_pos].to_bitvec(), hash),
+                        NodeKey::new(branches[0].prefix.slice_to(bit_pos).into(), hash),
                         Node::Interior(n),
                     );
-                    Branch::new(branches[0].prefix[bit_pos_start..bit_pos].into(), hash)
+                    Branch::new(
+                        branches[0].prefix.slice(bit_pos_start..bit_pos).into(),
+                        hash,
+                    )
                 }
             }
         }

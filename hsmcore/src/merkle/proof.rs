@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::super::hsm::types::{OwnedRange, RecordId};
 use super::agent::Node;
 use super::overlay::TreeOverlay;
+use super::Bits;
 use super::{Dir, HashOutput, InteriorNode, KeySlice, KeyVec, LeafNode, NodeHasher};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -77,7 +78,7 @@ impl<HO: HashOutput> ReadProof<HO> {
         }
         self.verify_path(
             hasher,
-            KeySlice::from_slice(&self.key.0),
+            KeyVec::from_record_id(&self.key).as_ref(),
             true,
             self.root_hash,
             &self.path[0],
@@ -96,7 +97,7 @@ impl<HO: HashOutput> ReadProof<HO> {
     fn verify_path<H: NodeHasher<HO>>(
         &self,
         h: &H,
-        key_tail: &KeySlice,
+        key_tail: KeySlice,
         is_root: bool,
         hash: HO,
         node: &InteriorNode<HO>,
@@ -170,12 +171,12 @@ impl<HO: HashOutput> ReadProof<HO> {
                     }
                 } else {
                     // keep going down
-                    if key_tail[..b.prefix.len()] != b.prefix {
+                    if key_tail.slice_to(b.prefix.len()) != b.prefix {
                         return Err(ProofError::Invalid);
                     }
                     let (child_h, leaf_h) = self.verify_path(
                         h,
-                        &key_tail[b.prefix.len()..],
+                        key_tail.slice_from(b.prefix.len()),
                         false,
                         b.hash,
                         &path_tail[0],
@@ -223,7 +224,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
             key: proof.key,
             range: proof.range,
         };
-        let key = KeySlice::from_slice(&vp.key.0);
+        let key = KeyVec::from_record_id(&vp.key);
         let mut key_pos = 0;
         let mut current_hash = proof.root_hash;
         for n in proof.path {
@@ -231,7 +232,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
             vp.path.push(PathStep {
                 node: n,
                 hash: current_hash,
-                prefix: key[..key_pos].to_bitvec(),
+                prefix: key.slice_to(key_pos).to_bitvec(),
                 next_dir: d,
             });
             match vp.path.last().unwrap().node.branch(d) {
@@ -239,7 +240,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
                     break;
                 }
                 Some(b) => {
-                    if key[key_pos..].starts_with(&b.prefix) {
+                    if key.slice_from(key_pos).starts_with(&b.prefix) {
                         key_pos += b.prefix.len();
                         current_hash = b.hash;
                     } else {
@@ -274,12 +275,13 @@ impl<HO: HashOutput> VerifiedProof<HO> {
                 Node::Leaf(l),
             );
         }
-        let mut key = KeySlice::from_slice(&proof.key.0);
+        let full_key = KeyVec::from_record_id(&proof.key);
+        let mut key = full_key.as_ref();
         let mut current_hash = proof.root_hash;
         for n in old_path {
-            let next_hash = match n.branch(Dir::from(key[0])) {
+            let next_hash = match n.branch(Dir::from(full_key[0])) {
                 Some(b) => {
-                    key = &key[b.prefix.len()..];
+                    key = key.slice_from(b.prefix.len());
                     Some(b.hash)
                 }
                 None => None,
@@ -305,14 +307,13 @@ impl<HO: HashOutput> VerifiedProof<HO> {
             key: proof.key,
             range: proof.range,
         };
-        let full_key = KeySlice::from_slice(&vp.key.0);
         let mut key_pos = 0;
         let mut current_hash = overlay.latest_root;
         loop {
             match fetch(current_hash) {
                 Node::Interior(int) => {
-                    let prefix = &full_key[..key_pos];
-                    let key_tail = &full_key[key_pos..];
+                    let prefix = full_key.slice_to(key_pos);
+                    let key_tail = full_key.slice_from(key_pos);
                     let d = Dir::from(key_tail[0]);
                     let int_hash = current_hash;
                     let done = match int.branch(d) {
@@ -338,7 +339,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
                     };
                 }
                 Node::Leaf(leaf) => {
-                    assert!(full_key[key_pos..].is_empty());
+                    assert_eq!(key_pos, full_key.len());
                     vp.leaf = Some(leaf);
                     break;
                 }

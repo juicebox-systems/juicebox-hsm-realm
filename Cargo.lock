@@ -889,7 +889,6 @@ dependencies = [
  "aes-gcm",
  "async-recursion",
  "async-trait",
- "bitvec",
  "bytes",
  "ciborium",
  "digest 0.10.6",

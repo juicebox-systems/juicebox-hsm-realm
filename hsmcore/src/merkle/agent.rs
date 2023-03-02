@@ -6,6 +6,7 @@ use hashbrown::HashSet; // TODO: randomize hasher
 use serde::{Deserialize, Serialize};
 
 use super::super::hsm::types::RecordId;
+use super::Bits;
 use super::{base128, HashOutput, InteriorNode, KeyVec, LeafNode};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -98,7 +99,7 @@ impl StoreKey {
         //   the hash
         let prefix_len_bytes = base128::encoded_len(prefix.len());
         let mut out: Vec<u8> = Vec::with_capacity(prefix_len_bytes + hash.as_u8().len());
-        encode_prefix_into(prefix, &mut out);
+        encode_prefix_into(&prefix, &mut out);
         out.extend(hash.as_u8());
         StoreKey(out)
     }
@@ -144,11 +145,8 @@ impl StoreKeyStart {
     }
 }
 // Encode the prefix and delimiter into the supplied buffer.
-fn encode_prefix_into(mut prefix: KeyVec, dest: &mut Vec<u8>) {
-    prefix.set_uninitialized(false);
-    let prefix_bits_len = prefix.len();
-    let v = prefix.into_vec();
-    base128::encode(&v, prefix_bits_len, dest);
+fn encode_prefix_into(prefix: &KeyVec, dest: &mut Vec<u8>) {
+    base128::encode(prefix.as_bytes(), prefix.len(), dest);
 }
 
 // Generates the encoded version of each prefix for this recordId. starts at
@@ -166,15 +164,16 @@ pub fn all_store_key_starts(k: &RecordId) -> Vec<StoreKeyStart> {
 pub mod tests {
     use std::collections::HashMap;
 
+    use crate::bitvec;
+
     use super::super::super::hsm::types::{OwnedRange, RealmId, RecordId};
     use super::super::tests::TestHash;
-    use super::super::{Dir, HashOutput, KeySlice, KeyVec, ReadProof};
+    use super::super::{Dir, HashOutput, KeyVec, ReadProof};
+    use super::Bits;
     use super::{
         all_store_key_starts, encode_prefix_into, Node, NodeKey, StoreKey, TreeStoreError,
     };
     use async_trait::async_trait;
-    use bitvec::bitvec;
-    use bitvec::prelude::Msb0;
 
     #[async_trait]
     pub trait TreeStoreReader<HO: HashOutput>: Sync {
@@ -205,7 +204,8 @@ pub mod tests {
             Some(Node::Interior(int)) => int,
         };
         let mut res = ReadProof::new(k.clone(), range.clone(), *root_hash, root);
-        let mut key = KeySlice::from_slice(&k.0);
+        let keyv = KeyVec::from_record_id(&k);
+        let mut key = keyv.as_ref();
         loop {
             let n = res.path.last().unwrap();
             let d = Dir::from(key[0]);
@@ -215,7 +215,7 @@ pub mod tests {
                     if !key.starts_with(&b.prefix) {
                         return Ok(res);
                     }
-                    key = &key[b.prefix.len()..];
+                    key = key.slice_from(b.prefix.len());
                     match nodes.remove(&b.hash) {
                         None => return Err(TreeStoreError::MissingNode),
                         Some(Node::Interior(int)) => {
@@ -243,7 +243,7 @@ pub mod tests {
         side: Dir,
     ) -> Result<ReadProof<HO>, TreeStoreError> {
         let mut path = Vec::new();
-        let mut key = KeyVec::with_capacity(RecordId::num_bits());
+        let mut key = KeyVec::new();
         let mut current = *root_hash;
         loop {
             match store
@@ -286,7 +286,7 @@ pub mod tests {
                 },
                 Node::Leaf(l) => {
                     return Ok(ReadProof {
-                        key: keyvec_to_rec_id(key),
+                        key: key.to_record_id(),
                         range: range.clone(),
                         root_hash: *root_hash,
                         leaf: Some(l),
@@ -297,44 +297,36 @@ pub mod tests {
         }
     }
 
-    fn keyvec_to_rec_id(k: KeyVec) -> RecordId {
-        assert!(k.len() == RecordId::num_bits());
-        let b = k.into_vec();
-        let mut r = RecordId([0; 32]);
-        r.0.copy_from_slice(&b);
-        r
-    }
-
     #[test]
     fn store_key_encoding() {
         let k = NodeKey::new(KeyVec::new(), TestHash([1u8; 8]));
         assert_eq!([128u8, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(), k.store_key().0);
 
-        let k = NodeKey::new(bitvec![u8,Msb0; 0], TestHash([1u8; 8]));
+        let k = NodeKey::new(bitvec![0], TestHash([1u8; 8]));
         assert_eq!([0u8, 129, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(), k.store_key().0);
-        let k = NodeKey::new(bitvec![u8,Msb0; 1], TestHash([4u8; 8]));
+        let k = NodeKey::new(bitvec![1], TestHash([4u8; 8]));
         assert_eq!(
             [64u8, 129, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
             k.store_key().0
         );
 
-        let k = NodeKey::new(bitvec![u8,Msb0; 0,1], TestHash([4u8; 8]));
+        let k = NodeKey::new(bitvec![0, 1], TestHash([4u8; 8]));
         assert_eq!(
             [32u8, 130, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
             k.store_key().0
         );
 
-        let k = NodeKey::new(bitvec![u8,Msb0; 1,1,1,1,1,1,1], TestHash([4u8; 8]));
+        let k = NodeKey::new(bitvec![1, 1, 1, 1, 1, 1, 1], TestHash([4u8; 8]));
         assert_eq!(
             [127u8, 135, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
             k.store_key().0
         );
-        let k = NodeKey::new(bitvec![u8,Msb0; 1,1,1,1,1,1,1,1], TestHash([4u8; 8]));
+        let k = NodeKey::new(bitvec![1, 1, 1, 1, 1, 1, 1, 1], TestHash([4u8; 8]));
         assert_eq!(
             [127u8, 64, 129, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
             k.store_key().0
         );
-        let k = NodeKey::new(bitvec![u8,Msb0; 1,1,1,1,1,1,1,1,1], TestHash([4u8; 8]));
+        let k = NodeKey::new(bitvec![1, 1, 1, 1, 1, 1, 1, 1, 1], TestHash([4u8; 8]));
         assert_eq!(
             [127u8, 96, 130, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
             k.store_key().0
@@ -347,11 +339,11 @@ pub mod tests {
         let test = |r| {
             let prefixes = all_store_key_starts(&r);
             assert_eq!(257, prefixes.len());
-            let k = KeySlice::from_slice(&r.0);
+            let k = KeyVec::from_record_id(&r);
             let mut buff = Vec::with_capacity(64);
             for (i, prefix) in prefixes.iter().enumerate() {
                 buff.clear();
-                encode_prefix_into(k[..i].to_bitvec(), &mut buff);
+                encode_prefix_into(&k.slice_to(i).to_bitvec(), &mut buff);
                 assert_eq!(buff, prefix.0, "with prefix len {i}");
             }
         };
@@ -367,7 +359,7 @@ pub mod tests {
 
     #[test]
     fn test_store_key_parse() {
-        let prefix = bitvec![u8,Msb0; 1,0,1];
+        let prefix = bitvec![1, 0, 1];
         let hash = TestHash([1, 2, 3, 4, 5, 6, 7, 8]);
         let sk = StoreKey::new(prefix, &hash);
         assert_eq!(vec![0b01010000, 128 | 3, 1, 2, 3, 4, 5, 6, 7, 8], sk.0);
@@ -382,7 +374,7 @@ pub mod tests {
 
     #[test]
     fn test_store_key_parse_empty_prefix() {
-        let prefix = bitvec![u8,Msb0; ];
+        let prefix = bitvec![];
         let hash = TestHash([1, 2, 3, 4, 5, 6, 7, 8]);
         let sk = StoreKey::new(prefix, &hash);
         assert_eq!(vec![128, 1, 2, 3, 4, 5, 6, 7, 8], sk.0);

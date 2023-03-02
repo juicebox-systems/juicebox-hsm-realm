@@ -1479,15 +1479,15 @@ fn handle_app_request(
 #[cfg(test)]
 mod test {
     use super::{
+        super::bitvec,
         super::merkle::{agent::StoreKey, NodeHasher},
         types::DataHash,
         MerkleHasher,
     };
-    use bitvec::{bitvec, prelude::Msb0};
 
     #[test]
     fn test_store_key_parse_datahash() {
-        let prefix = bitvec![u8,Msb0; 0,1,1,1];
+        let prefix = bitvec![0, 1, 1, 1];
         let mh = MerkleHasher();
         let hash = mh.calc_hash(&[&[1, 2, 3, 4]]);
 
