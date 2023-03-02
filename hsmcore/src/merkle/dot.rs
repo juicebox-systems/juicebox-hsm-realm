@@ -33,7 +33,7 @@ async fn add_node_to_dot<W: Write + Send, HO: HashOutput>(
     w: &mut W,
 ) -> std::io::Result<()> {
     match reader
-        .read_node(realm_id, StoreKey::new(prefix.clone(), &h))
+        .read_node(realm_id, StoreKey::new(&prefix, &h))
         .await
         .unwrap_or_else(|_| panic!("node with hash {h:?} should exist"))
     {

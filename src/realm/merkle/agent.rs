@@ -79,7 +79,7 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     let mut current = *root_hash;
     loop {
         match store
-            .read_node(realm_id, StoreKey::new(key.clone(), &current))
+            .read_node(realm_id, StoreKey::new(&key, &current))
             .await?
         {
             Node::Interior(int) => match int.branch(side) {

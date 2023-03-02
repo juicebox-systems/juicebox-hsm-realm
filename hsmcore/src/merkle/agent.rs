@@ -81,7 +81,7 @@ impl<HO: HashOutput> NodeKey<HO> {
     // Returns a lexicographically ordered encoding of this prefix & hash
     // that leads with prefix.
     pub fn store_key(&self) -> StoreKey {
-        StoreKey::new(self.prefix.clone(), &self.hash)
+        StoreKey::new(&self.prefix, &self.hash)
     }
 }
 
@@ -90,7 +90,7 @@ impl<HO: HashOutput> NodeKey<HO> {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct StoreKey(Vec<u8>);
 impl StoreKey {
-    pub fn new<HO: HashOutput>(prefix: KeyVec, hash: &HO) -> StoreKey {
+    pub fn new<HO: HashOutput>(prefix: &KeyVec, hash: &HO) -> StoreKey {
         // encoded key consists of
         //   the prefix base128 encoded
         //   a delimiter which has Msb set and the lower 4 bits indicate the
@@ -99,7 +99,7 @@ impl StoreKey {
         //   the hash
         let prefix_len_bytes = base128::encoded_len(prefix.len());
         let mut out: Vec<u8> = Vec::with_capacity(prefix_len_bytes + hash.as_u8().len());
-        encode_prefix_into(&prefix, &mut out);
+        encode_prefix_into(prefix, &mut out);
         out.extend(hash.as_u8());
         StoreKey(out)
     }
@@ -150,7 +150,7 @@ fn encode_prefix_into(prefix: &KeyVec, dest: &mut Vec<u8>) {
 }
 
 // Generates the encoded version of each prefix for this recordId. starts at
-// prefix[..0] and end with at prefix[..recordId::num_bits()]
+// prefix[..0] and end with at prefix[..=recordId::num_bits()]
 pub fn all_store_key_starts(k: &RecordId) -> Vec<StoreKeyStart> {
     let mut out = Vec::with_capacity(RecordId::num_bits() + 1);
     for i in 0..=RecordId::num_bits() {
@@ -247,7 +247,7 @@ pub mod tests {
         let mut current = *root_hash;
         loop {
             match store
-                .read_node(realm_id, StoreKey::new(key.clone(), &current))
+                .read_node(realm_id, StoreKey::new(&key, &current))
                 .await?
             {
                 Node::Interior(int) => match int.branch(side) {
@@ -361,7 +361,7 @@ pub mod tests {
     fn test_store_key_parse() {
         let prefix = bitvec![1, 0, 1];
         let hash = TestHash([1, 2, 3, 4, 5, 6, 7, 8]);
-        let sk = StoreKey::new(prefix, &hash);
+        let sk = StoreKey::new(&prefix, &hash);
         assert_eq!(vec![0b01010000, 128 | 3, 1, 2, 3, 4, 5, 6, 7, 8], sk.0);
         match StoreKey::parse::<TestHash>(&sk.0) {
             None => panic!("should have decoded store key"),
@@ -376,7 +376,7 @@ pub mod tests {
     fn test_store_key_parse_empty_prefix() {
         let prefix = bitvec![];
         let hash = TestHash([1, 2, 3, 4, 5, 6, 7, 8]);
-        let sk = StoreKey::new(prefix, &hash);
+        let sk = StoreKey::new(&prefix, &hash);
         assert_eq!(vec![128, 1, 2, 3, 4, 5, 6, 7, 8], sk.0);
         match StoreKey::parse::<TestHash>(&sk.0) {
             None => panic!("should have decoded store key"),

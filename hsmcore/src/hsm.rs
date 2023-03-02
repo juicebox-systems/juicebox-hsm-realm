@@ -1491,7 +1491,7 @@ mod test {
         let mh = MerkleHasher();
         let hash = mh.calc_hash(&[&[1, 2, 3, 4]]);
 
-        let sk = StoreKey::new(prefix, &hash);
+        let sk = StoreKey::new(&prefix, &hash);
         match StoreKey::parse::<DataHash>(&sk.into_bytes()) {
             None => panic!("should have decoded store key"),
             Some((_p, h)) => {

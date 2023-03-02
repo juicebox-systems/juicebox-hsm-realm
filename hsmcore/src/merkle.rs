@@ -27,11 +27,7 @@ pub type KeyVec = BitVec;
 pub type KeySlice<'a> = BitSlice<'a>;
 
 // TODO
-//  probably a bunch of stuff that should be pub but isn't
 //  blake hasher
-//
-//  compact_keyslice_str should be a wrapper type?
-//  remove hash from nodes rely on hash being in parent?
 //  docs
 //  more tests
 
@@ -445,7 +441,7 @@ mod tests {
         store: &impl TreeStoreReader<HO>,
     ) -> Result<usize, TreeStoreError> {
         match store
-            .read_node(&TEST_REALM, StoreKey::new(prefix.to_bitvec(), &root))
+            .read_node(&TEST_REALM, StoreKey::new(&prefix, &root))
             .await?
         {
             Node::Interior(int) => {
@@ -488,7 +484,7 @@ mod tests {
         store: &impl TreeStoreReader<HO>,
     ) -> HO {
         match store
-            .read_node(&TEST_REALM, StoreKey::new(path.clone(), &node))
+            .read_node(&TEST_REALM, StoreKey::new(&path, &node))
             .await
             .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
         {
