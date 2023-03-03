@@ -50,7 +50,7 @@ pub trait Bits<'a>: Sized {
         if other.len() > self.len() {
             return false;
         }
-        !zip(self.iter(), other.iter()).any(|(x, y)| x != y)
+        zip(self.iter(), other.iter()).all(|(x, y)| x == y)
     }
     /// Create a new bitvec from the current sequence of bits.
     fn to_bitvec(&'a self) -> BitVec {
