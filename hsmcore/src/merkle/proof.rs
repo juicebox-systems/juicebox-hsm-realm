@@ -78,7 +78,7 @@ impl<HO: HashOutput> ReadProof<HO> {
         }
         self.verify_path(
             hasher,
-            KeyVec::from_record_id(&self.key).as_ref(),
+            self.key.to_bitvec().as_ref(),
             true,
             self.root_hash,
             &self.path[0],
@@ -224,7 +224,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
             key: proof.key,
             range: proof.range,
         };
-        let key = KeyVec::from_record_id(&vp.key);
+        let key = vp.key.to_bitvec();
         let mut key_pos = 0;
         let mut current_hash = proof.root_hash;
         for n in proof.path {
@@ -275,7 +275,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
                 Node::Leaf(l),
             );
         }
-        let full_key = KeyVec::from_record_id(&proof.key);
+        let full_key = proof.key.to_bitvec();
         let mut key = full_key.as_ref();
         let mut current_hash = proof.root_hash;
         for n in old_path {

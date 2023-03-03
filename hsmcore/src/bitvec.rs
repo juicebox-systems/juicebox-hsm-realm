@@ -10,8 +10,6 @@ use core::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::hsm::types::RecordId;
-
 /// The bitvec! macro is used to easily create new bitvecs. Its very similar to vec!
 /// let bits = bitvec![0,0,1]
 #[macro_export]
@@ -84,18 +82,6 @@ pub struct BitVec {
 impl BitVec {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn from_record_id(rec_id: &RecordId) -> Self {
-        BitVec {
-            len: RecordId::num_bits(),
-            bits: rec_id.0,
-        }
-    }
-
-    pub fn to_record_id(&self) -> RecordId {
-        assert_eq!(self.len(), RecordId::num_bits());
-        RecordId(self.bits)
     }
 
     /// Creates a new Bitvec with a copy of the supplied bytes. The bytes
@@ -520,11 +506,6 @@ mod test {
         assert_eq!(&[0b11000011, 0b01010101], v.as_bytes());
         v.push(true);
         assert_eq!(&[0b11000011, 0b01010101, 0b10000000], v.as_bytes());
-
-        let rec = RecordId([42u8; 32]);
-        let v = BitVec::from_record_id(&rec);
-        assert_eq!(256, v.len());
-        assert_eq!(&rec.0, v.as_bytes());
     }
 
     #[test]

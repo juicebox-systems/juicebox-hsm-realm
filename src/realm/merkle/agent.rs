@@ -36,7 +36,7 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
         Some(Node::Interior(int)) => int,
     };
     let mut res = ReadProof::new(k.clone(), range.clone(), *root_hash, root);
-    let full_key = KeyVec::from_record_id(k);
+    let full_key = k.to_bitvec();
     let mut key = full_key.as_ref();
     loop {
         let n = res.path.last().unwrap();
@@ -118,7 +118,7 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
             },
             Node::Leaf(l) => {
                 return Ok(ReadProof {
-                    key: key.to_record_id(),
+                    key: RecordId::from_bitvec(&key),
                     range: range.clone(),
                     root_hash: *root_hash,
                     leaf: Some(l),

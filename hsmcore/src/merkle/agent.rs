@@ -204,7 +204,7 @@ pub mod tests {
             Some(Node::Interior(int)) => int,
         };
         let mut res = ReadProof::new(k.clone(), range.clone(), *root_hash, root);
-        let keyv = KeyVec::from_record_id(&k);
+        let keyv = k.to_bitvec();
         let mut key = keyv.as_ref();
         loop {
             let n = res.path.last().unwrap();
@@ -286,7 +286,7 @@ pub mod tests {
                 },
                 Node::Leaf(l) => {
                     return Ok(ReadProof {
-                        key: key.to_record_id(),
+                        key: RecordId::from_bitvec(&key),
                         range: range.clone(),
                         root_hash: *root_hash,
                         leaf: Some(l),
@@ -339,7 +339,7 @@ pub mod tests {
         let test = |r| {
             let prefixes = all_store_key_starts(&r);
             assert_eq!(257, prefixes.len());
-            let k = KeyVec::from_record_id(&r);
+            let k = r.to_bitvec();
             let mut buff = Vec::with_capacity(64);
             for (i, prefix) in prefixes.iter().enumerate() {
                 buff.clear();

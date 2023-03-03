@@ -488,7 +488,7 @@ mod tests {
             .await
             .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
         {
-            Node::Leaf(l) => LeafNode::calc_hash(hasher, &path.to_record_id(), &l.value),
+            Node::Leaf(l) => LeafNode::calc_hash(hasher, &RecordId::from_bitvec(&path), &l.value),
             Node::Interior(int) => {
                 match &int.left {
                     None => assert!(is_at_root),

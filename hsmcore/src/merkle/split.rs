@@ -19,7 +19,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         // Find the split node. We start at the bottom of the path. If the key is greater than the
         // left branch and smaller or equal to the right branch then this is the split node. If its
         // not, we have to walk back up the path to find the split node.
-        let key = KeyVec::from_record_id(&proof.key);
+        let key = proof.key.to_bitvec();
         enum SplitLocation {
             PathIndex(usize),
             SideOfRoot(Dir),

@@ -6,7 +6,7 @@ use super::{
     super::bitvec::Bits,
     agent::{DeltaBuilder, Node, NodeKey, StoreDelta},
     proof::{ProofError, VerifiedProof},
-    Branch, HashOutput, InteriorNode, KeyVec, LeafNode, NodeHasher, Tree,
+    Branch, HashOutput, InteriorNode, LeafNode, NodeHasher, Tree,
 };
 
 impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
@@ -36,14 +36,14 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 .as_ref()
                 .unwrap()
                 .hash;
-            delta.remove(NodeKey::new(KeyVec::from_record_id(&proof.key), leaf_hash));
+            delta.remove(NodeKey::new(proof.key.to_bitvec(), leaf_hash));
         }
         let (leaf_hash, leaf) = LeafNode::new(&self.hasher, &proof.key, v);
         delta.add(
-            NodeKey::new(KeyVec::from_record_id(&proof.key), leaf_hash),
+            NodeKey::new(proof.key.to_bitvec(), leaf_hash),
             Node::Leaf(leaf),
         );
-        let key = KeyVec::from_record_id(&proof.key);
+        let key = proof.key.to_bitvec();
 
         let last = proof
             .path
@@ -177,7 +177,7 @@ mod tests {
         if let Node::Leaf(leaf) = leaf_node {
             assert_eq!([42].to_vec(), leaf.value);
         }
-        assert_eq!(leaf_key.prefix, KeyVec::from_record_id(&rec_id(&[1, 2, 3])));
+        assert_eq!(leaf_key.prefix, rec_id(&[1, 2, 3]).to_bitvec());
         assert!(d.remove.contains(&NodeKey::new(KeyVec::new(), root)));
         store.apply_store_delta(new_root, d);
         check_tree_invariants(&tree.hasher, &range, new_root, &store).await;
