@@ -235,21 +235,26 @@ impl<'a, B: Bits<'a>> Iterator for BitIter<'a, B> {
 
 /// Normalizes RangeBounds to an inclusive start and length.
 fn bounds_to_start_len(r: impl RangeBounds<usize>, len: usize) -> (usize, usize) {
-    match r.end_bound() {
-        Bound::Unbounded => {}
-        Bound::Included(p) => assert!(*p < len),
-        Bound::Excluded(p) => assert!(*p <= len),
-    }
     let start = match r.start_bound() {
         Bound::Unbounded => 0,
         Bound::Included(p) => *p,
         Bound::Excluded(p) => *p + 1,
     };
+    assert!(start <= len);
+    // 200..100 is a perfectly valid RangeBounds instance. We need to protect
+    // against that.
     let bound_len = match r.end_bound() {
         Bound::Unbounded => len - start,
-        Bound::Included(p) => *p - start + 1,
-        Bound::Excluded(p) => *p - start,
+        Bound::Included(p) => {
+            assert!(*p >= start);
+            *p - start + 1
+        }
+        Bound::Excluded(p) => {
+            assert!(*p >= start);
+            *p - start
+        }
     };
+    assert!(start + bound_len <= len);
     (start, bound_len)
 }
 
@@ -441,6 +446,7 @@ mod test {
         let v = bitvec![];
         v.at(0);
     }
+
     #[test]
     #[should_panic]
     fn at_oob() {
@@ -449,6 +455,41 @@ mod test {
         assert!(v.at(1));
         assert!(v.at(2));
         v.at(3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn range_oob_end() {
+        let v = BitVec::from_bytes(&[0; 32]);
+        v.slice(100..=260);
+    }
+
+    #[test]
+    #[should_panic]
+    fn range_oob_start() {
+        let v = BitVec::from_bytes(&[0; 32]);
+        v.slice(256..257);
+    }
+
+    #[test]
+    #[should_panic]
+    fn range_oob_small() {
+        let v = bitvec![1, 1, 1, 1];
+        v.slice(4..5);
+    }
+
+    #[test]
+    #[should_panic]
+    fn range_backwards() {
+        let v = BitVec::from_bytes(&[0; 32]);
+        v.slice(200..100);
+    }
+
+    #[test]
+    fn slice_ends() {
+        let v = bitvec![1, 1, 1, 1];
+        assert!(v.slice(4..4).is_empty());
+        assert!(v.slice(0..0).is_empty());
     }
 
     #[test]
