@@ -52,7 +52,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         let mut child_hash = match last.node.branch(last.next_dir) {
             None => {
                 // update node to have empty branch point to the new leaf.
-                let b = Branch::new(key.slice_from(last.prefix.len()).into(), leaf_hash);
+                let b = Branch::new(key.slice(last.prefix.len()..).into(), leaf_hash);
                 let (hash, updated_n) =
                     last.node
                         .with_new_child(&self.hasher, &proof.range, true, last.next_dir, b);
@@ -64,7 +64,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 hash
             }
             Some(b) => {
-                if key.slice_from(last.prefix.len()) == b.prefix {
+                if key.slice(last.prefix.len()..) == b.prefix {
                     // this points to the existing leaf, just need to update it.
                     let (new_hash, updated_n) = last.node.with_new_child_hash(
                         &self.hasher,
@@ -81,7 +81,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     new_hash
                 } else {
                     // This points somewhere else. Add a child node that contains(b.dest, new_leaf) and update n to point to it
-                    let key_tail = key.slice_from(last.prefix.len());
+                    let key_tail = key.slice(last.prefix.len()..);
                     let comm = key_tail.common_prefix(&b.prefix);
                     assert!(!comm.is_empty());
                     let (child_hash, new_child) = InteriorNode::construct(
@@ -89,10 +89,10 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         &proof.range,
                         false,
                         Some(Branch::new(
-                            key.slice_from(last.prefix.len() + comm.len()).into(),
+                            key.slice(last.prefix.len() + comm.len()..).into(),
                             leaf_hash,
                         )),
-                        Some(Branch::new(b.prefix.slice_from(comm.len()).into(), b.hash)),
+                        Some(Branch::new(b.prefix.slice(comm.len()..).into(), b.hash)),
                     );
                     let (new_hash, updated_n) = last.node.with_new_child(
                         &self.hasher,
@@ -103,7 +103,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     );
                     delta.add(
                         NodeKey::new(
-                            key.slice_to(last.prefix.len() + comm.len()).to_bitvec(),
+                            key.slice(..last.prefix.len() + comm.len()).to_bitvec(),
                             child_hash,
                         ),
                         Node::Interior(new_child),

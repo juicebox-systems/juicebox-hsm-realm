@@ -47,7 +47,7 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
                 if !key.starts_with(&b.prefix) {
                     return Ok(res);
                 }
-                key = key.slice_from(b.prefix.len());
+                key = key.slice(b.prefix.len()..);
                 match nodes.remove(&b.hash) {
                     None => return Err(TreeStoreError::MissingNode),
                     Some(Node::Interior(int)) => {

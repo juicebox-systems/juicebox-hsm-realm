@@ -353,11 +353,11 @@ mod tests {
             &p,
             false,
             Some(Branch::new(
-                k1.slice_to(4).into(),
+                k1.slice(..4).into(),
                 TestHash([1, 2, 3, 4, 5, 6, 7, 8]),
             )),
             Some(Branch::new(
-                k2.slice_to(5).into(),
+                k2.slice(..5).into(),
                 TestHash([8, 7, 6, 5, 4, 3, 2, 1]),
             )),
         );
@@ -366,11 +366,11 @@ mod tests {
             &p,
             false,
             Some(Branch::new(
-                k1.slice_to(5).into(),
+                k1.slice(..5).into(),
                 TestHash([1, 2, 3, 4, 5, 6, 7, 8]),
             )),
             Some(Branch::new(
-                k2.slice_to(6).into(),
+                k2.slice(..6).into(),
                 TestHash([8, 7, 6, 5, 4, 3, 2, 1]),
             )),
         );

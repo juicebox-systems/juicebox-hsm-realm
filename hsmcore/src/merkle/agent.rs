@@ -215,7 +215,7 @@ pub mod tests {
                     if !key.starts_with(&b.prefix) {
                         return Ok(res);
                     }
-                    key = key.slice_from(b.prefix.len());
+                    key = key.slice(b.prefix.len()..);
                     match nodes.remove(&b.hash) {
                         None => return Err(TreeStoreError::MissingNode),
                         Some(Node::Interior(int)) => {
@@ -343,7 +343,7 @@ pub mod tests {
             let mut buff = Vec::with_capacity(64);
             for (i, prefix) in prefixes.iter().enumerate() {
                 buff.clear();
-                encode_prefix_into(&k.slice_to(i).to_bitvec(), &mut buff);
+                encode_prefix_into(&k.slice(..i).to_bitvec(), &mut buff);
                 assert_eq!(buff, prefix.0, "with prefix len {i}");
             }
         };

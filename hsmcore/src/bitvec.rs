@@ -6,7 +6,7 @@ use core::{
     cmp::{min, Ordering},
     fmt::{Debug, Display, Write},
     iter::zip,
-    ops::{Index, Range},
+    ops::{Bound, Index, RangeBounds},
 };
 use serde::{Deserialize, Serialize};
 
@@ -120,35 +120,12 @@ impl BitVec {
     }
 
     /// Returns a slice of some subset of the sequence.
-    pub fn slice(&self, r: Range<usize>) -> BitSlice {
-        assert!(r.end <= self.len);
+    pub fn slice(&self, r: impl RangeBounds<usize>) -> BitSlice {
+        let (start, len) = bounds_to_start_len(r, self.len);
         BitSlice {
             vec: self,
-            offset: r.start,
-            len: r.end - r.start,
-        }
-    }
-
-    /// Returns a slice starting from the provided index (inclusive) to the end.
-    pub fn slice_from(&self, index: usize) -> BitSlice {
-        assert!(index <= self.len);
-        BitSlice {
-            vec: self,
-            offset: index,
-            len: self.len - index,
-        }
-    }
-
-    /// Returns a slice from the start to the index (exclusive). e.g.
-    /// bits.slice_to(8), bits.slice_from(8) will split the sequence into 2
-    /// slices with the first containing 8 bits and the second containing the
-    /// remainder
-    pub fn slice_to(&self, index: usize) -> BitSlice {
-        assert!(index <= self.len);
-        BitSlice {
-            vec: self,
-            offset: 0,
-            len: index,
+            offset: start,
+            len,
         }
     }
 
@@ -219,30 +196,12 @@ pub struct BitSlice<'a> {
 
 impl<'a> BitSlice<'a> {
     /// Returns a new slice that is a subset of the current slice.
-    pub fn slice(&self, r: Range<usize>) -> BitSlice<'a> {
-        assert!(r.end <= self.len);
+    pub fn slice(&self, r: impl RangeBounds<usize>) -> BitSlice<'a> {
+        let (start, len) = bounds_to_start_len(r, self.len);
         BitSlice {
             vec: self.vec,
-            offset: r.start + self.offset,
-            len: r.end - r.start,
-        }
-    }
-
-    pub fn slice_to(&self, index: usize) -> BitSlice<'a> {
-        assert!(index <= self.len);
-        BitSlice {
-            vec: self.vec,
-            offset: self.offset,
-            len: index,
-        }
-    }
-
-    pub fn slice_from(&self, index: usize) -> BitSlice<'a> {
-        assert!(index <= self.len);
-        BitSlice {
-            vec: self.vec,
-            offset: self.offset + index,
-            len: self.len - index,
+            offset: start + self.offset,
+            len,
         }
     }
 
@@ -250,8 +209,8 @@ impl<'a> BitSlice<'a> {
     /// of self & other that is the same.
     pub fn common_prefix<'o, O: Bits<'o>>(&'a self, other: &'o O) -> BitSlice<'a> {
         match zip(self.iter(), other.iter()).position(|(x, y)| x != y) {
-            None => self.slice_to(min(self.len(), other.len())),
-            Some(p) => self.slice_to(p),
+            None => self.slice(..min(self.len(), other.len())),
+            Some(p) => self.slice(..p),
         }
     }
 }
@@ -286,6 +245,26 @@ impl<'a, B: Bits<'a>> Iterator for BitIter<'a, B> {
             None
         }
     }
+}
+
+/// Normalizes RangeBounds to an inclusive start and length.
+fn bounds_to_start_len(r: impl RangeBounds<usize>, len: usize) -> (usize, usize) {
+    match r.end_bound() {
+        Bound::Unbounded => {}
+        Bound::Included(p) => assert!(*p < len),
+        Bound::Excluded(p) => assert!(*p <= len),
+    }
+    let start = match r.start_bound() {
+        Bound::Unbounded => 0,
+        Bound::Included(p) => *p,
+        Bound::Excluded(p) => *p + 1,
+    };
+    let bound_len = match r.end_bound() {
+        Bound::Unbounded => len - start,
+        Bound::Included(p) => *p - start + 1,
+        Bound::Excluded(p) => *p - start,
+    };
+    (start, bound_len)
 }
 
 // Eq & PartialEq for BitVec are derived.
@@ -571,26 +550,35 @@ mod test {
     }
 
     #[test]
-    fn vec_slice_to_from() {
+    fn vec_slice_range_types() {
         let v = bitvec![1, 1, 1, 1, 0, 0, 0, 0];
-        assert_eq!(bitvec![1, 1, 1, 1], v.slice_to(4).to_bitvec());
-        assert_eq!(bitvec![0, 0, 0, 0], v.slice_from(4).to_bitvec());
+        assert_eq!(bitvec![1, 1, 1, 1], v.slice(..4));
+        assert_eq!(bitvec![1, 1, 1, 1], v.slice(..=3));
+        assert_eq!(bitvec![1, 1, 1, 1], v.slice(0..=3));
+        assert_eq!(bitvec![1, 1, 0], v.slice(2..=4));
+        assert_eq!(bitvec![1, 1, 0], v.slice(2..5));
+        assert_eq!(bitvec![0, 0, 0, 0], v.slice(4..));
         assert_eq!(bitvec![1, 1, 1, 1], v.slice(0..4));
         assert_eq!(bitvec![0, 0, 0, 0], v.slice(4..8));
-        assert_eq!(v, v.as_ref().to_bitvec());
-        assert_eq!(v, v.slice(0..8).to_bitvec());
-        assert_eq!(v, v.slice_from(0).to_bitvec());
-        assert_eq!(v, v.slice_to(8).to_bitvec());
+        assert_eq!(v, v.as_ref());
+        assert_eq!(v, v.slice(..));
+        assert_eq!(v, v.slice(0..8));
+        assert_eq!(v, v.slice(0..));
+        assert_eq!(v, v.slice(..8));
     }
     #[test]
-    fn slice_slice_to_from() {
+    fn slice_slice_range_types() {
         let v = bitvec![1, 1, 1, 1, 0, 0, 0, 0];
         let s = v.slice(1..7);
-        assert_eq!(bitvec![1, 1, 1, 0, 0, 0], s.to_bitvec());
-        assert_eq!(bitvec![1, 1, 1], s.slice_to(3).to_bitvec());
-        assert_eq!(bitvec![0, 0, 0], s.slice_from(3).to_bitvec());
+        assert_eq!(bitvec![1, 1, 1, 0, 0, 0], s);
+        assert_eq!(bitvec![1, 1, 1, 0], s.slice(..4));
+        assert_eq!(bitvec![1, 1, 1, 0], s.slice(..=3));
+        assert_eq!(bitvec![1, 0], s.slice(2..4));
+        assert_eq!(bitvec![1, 0], s.slice(2..=3));
+        assert_eq!(bitvec![0, 0, 0], s.slice(3..));
         assert_eq!(bitvec![1, 1, 1], s.slice(0..3));
         assert_eq!(bitvec![0, 0, 0], s.slice(3..6));
+        assert_eq!(s, s.slice(..));
     }
 
     #[test]
@@ -603,22 +591,6 @@ mod test {
         let s = v.slice(2..3);
         assert!(!s.at(0));
         assert_eq!(1, s.len());
-    }
-
-    #[test]
-    fn slice_to_from() {
-        let v = bitvec![1, 1, 1, 0, 0, 0, 1, 1];
-        let s = v.slice_to(2);
-        assert_eq!(vec![true, true], s.iter().collect::<Vec<_>>());
-        let s = v.slice_to(4);
-        assert_eq!(vec![true, true, true, false], s.iter().collect::<Vec<_>>());
-        let s = v.slice_to(v.len());
-        assert_eq!(s, v.as_ref());
-        let s = v.slice_from(4);
-        assert_eq!(4, s.len());
-        assert_eq!(bitvec![0, 0, 1, 1], s.to_bitvec());
-        let s = s.slice_to(2);
-        assert_eq!(bitvec![0, 0], s.to_bitvec());
     }
 
     #[test]
@@ -664,8 +636,8 @@ mod test {
         let r = bitvec![0, 0, 0, 1];
         assert_eq!(bitvec![0, 1, 1, 0, 1, 0, 0, 0, 1], k.concat(&r));
         assert_eq!(bitvec![0, 0, 0, 1, 0, 1, 1, 0, 1], r.concat(&k));
-        let sk = k.slice_to(2);
-        assert_eq!(bitvec![0, 1, 0, 0], sk.concat(&r.slice_to(2)));
+        let sk = k.slice(..2);
+        assert_eq!(bitvec![0, 1, 0, 0], sk.concat(&r.slice(..2)));
         assert_eq!(bitvec![0, 1, 0, 0, 0, 1], sk.concat(&r));
     }
 
@@ -673,16 +645,16 @@ mod test {
     fn common_prefix_with_prefix() {
         let a = bitvec![1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1];
         let b = bitvec![1, 1, 1, 1, 0, 0, 0, 0, 1, 0];
-        assert_eq!(a.slice_to(9), a.as_ref().common_prefix(&b));
-        assert_eq!(a.slice_to(9), b.as_ref().common_prefix(&a));
+        assert_eq!(a.slice(..9), a.as_ref().common_prefix(&b));
+        assert_eq!(a.slice(..9), b.as_ref().common_prefix(&a));
     }
 
     #[test]
     fn common_prefix_entire_len() {
         let a = bitvec![1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1];
         let b = bitvec![1, 1, 1, 1, 0, 0, 0];
-        assert_eq!(a.slice_to(7), a.as_ref().common_prefix(&b));
-        assert_eq!(a.slice_to(7), b.as_ref().common_prefix(&a));
+        assert_eq!(a.slice(..7), a.as_ref().common_prefix(&b));
+        assert_eq!(a.slice(..7), b.as_ref().common_prefix(&a));
     }
 
     #[test]

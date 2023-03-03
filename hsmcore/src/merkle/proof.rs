@@ -171,12 +171,12 @@ impl<HO: HashOutput> ReadProof<HO> {
                     }
                 } else {
                     // keep going down
-                    if key_tail.slice_to(b.prefix.len()) != b.prefix {
+                    if key_tail.slice(..b.prefix.len()) != b.prefix {
                         return Err(ProofError::Invalid);
                     }
                     let (child_h, leaf_h) = self.verify_path(
                         h,
-                        key_tail.slice_from(b.prefix.len()),
+                        key_tail.slice(b.prefix.len()..),
                         false,
                         b.hash,
                         &path_tail[0],
@@ -232,7 +232,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
             vp.path.push(PathStep {
                 node: n,
                 hash: current_hash,
-                prefix: key.slice_to(key_pos).to_bitvec(),
+                prefix: key.slice(..key_pos).to_bitvec(),
                 next_dir: d,
             });
             match vp.path.last().unwrap().node.branch(d) {
@@ -240,7 +240,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
                     break;
                 }
                 Some(b) => {
-                    if key.slice_from(key_pos).starts_with(&b.prefix) {
+                    if key.slice(key_pos..).starts_with(&b.prefix) {
                         key_pos += b.prefix.len();
                         current_hash = b.hash;
                     } else {
@@ -281,7 +281,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
         for n in old_path {
             let next_hash = match n.branch(Dir::from(full_key[0])) {
                 Some(b) => {
-                    key = key.slice_from(b.prefix.len());
+                    key = key.slice(b.prefix.len()..);
                     Some(b.hash)
                 }
                 None => None,
@@ -312,8 +312,8 @@ impl<HO: HashOutput> VerifiedProof<HO> {
         loop {
             match fetch(current_hash) {
                 Node::Interior(int) => {
-                    let prefix = full_key.slice_to(key_pos);
-                    let key_tail = full_key.slice_from(key_pos);
+                    let prefix = full_key.slice(..key_pos);
+                    let key_tail = full_key.slice(key_pos..);
                     let d = Dir::from(key_tail[0]);
                     let int_hash = current_hash;
                     let done = match int.branch(d) {
@@ -432,7 +432,7 @@ mod tests {
             .await
             .unwrap();
         if let Some(ref mut b) = &mut p.path[0].left {
-            b.prefix = b.prefix.slice_to(b.prefix.len() - 1).to_bitvec()
+            b.prefix = b.prefix.slice(..b.prefix.len() - 1).to_bitvec()
         }
         assert!(p.verify(&tree.hasher, &tree.overlay).is_err());
     }
