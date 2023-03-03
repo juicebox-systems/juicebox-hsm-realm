@@ -1,7 +1,5 @@
 //! BitVec and BitSlice are types that have Vec<bool> and &[bool] like operations
 //! but have a more efficient representation.
-//!
-//! BitVec is fixed size and can handle a total of 256 bits.
 extern crate alloc;
 
 use core::{
@@ -82,20 +80,24 @@ pub struct BitVec {
     // * 0 <= len <= 256
     bits: [u8; 32],
 }
+
 impl BitVec {
     pub fn new() -> Self {
         Self::default()
     }
+
     pub fn from_record_id(rec_id: &RecordId) -> Self {
         BitVec {
             len: RecordId::num_bits(),
             bits: rec_id.0,
         }
     }
+
     pub fn to_record_id(&self) -> RecordId {
         assert_eq!(self.len(), RecordId::num_bits());
         RecordId(self.bits)
     }
+
     /// Creates a new Bitvec with a copy of the supplied bytes. The bytes
     /// should represent bits the same way as BitVec does. (Msb is first)
     /// Will panic if more then 256 bits (32 bytes) are provided. All the
@@ -107,6 +109,7 @@ impl BitVec {
         r.len = bytes.len() * 8;
         r
     }
+
     /// Returns a slice that covers that full sequence.
     pub fn as_ref(&self) -> BitSlice {
         BitSlice {
@@ -115,6 +118,7 @@ impl BitVec {
             len: self.len,
         }
     }
+
     /// Returns a slice of some subset of the sequence.
     pub fn slice(&self, r: Range<usize>) -> BitSlice {
         assert!(r.end <= self.len);
@@ -124,6 +128,7 @@ impl BitVec {
             len: r.end - r.start,
         }
     }
+
     /// Returns a slice starting from the provided index (inclusive) to the end.
     pub fn slice_from(&self, index: usize) -> BitSlice {
         assert!(index <= self.len);
@@ -133,6 +138,7 @@ impl BitVec {
             len: self.len - index,
         }
     }
+
     /// Returns a slice from the start to the index (exclusive). e.g.
     /// bits.slice_to(8), bits.slice_from(8) will split the sequence into 2
     /// slices with the first containing 8 bits and the second containing the
@@ -145,6 +151,7 @@ impl BitVec {
             len: index,
         }
     }
+
     /// Returns the current sequence as a slice of bytes. Bits are in Msb0 order
     /// in the bytes, and any unused bits are always set to 0. The returned
     /// slice is sized based on the number of bits, i.e. as_bytes() on a BitVec
@@ -157,6 +164,7 @@ impl BitVec {
         };
         &self.bits[..last]
     }
+
     /// Adds a new bit to the end of the current sequence. Will panic if there
     /// is no space left
     pub fn push(&mut self, bit: bool) {
@@ -169,6 +177,7 @@ impl BitVec {
         }
         self.len += 1;
     }
+
     #[inline]
     fn bit_pos(&self, bit_num: usize) -> (usize, u8) {
         let byte_index = bit_num / 8;
@@ -176,6 +185,7 @@ impl BitVec {
         let bit_mask: u8 = 1 << bit_index;
         (byte_index, bit_mask)
     }
+
     /// Add the sequence of bits from other to the end of this sequence.
     pub fn extend<'b, B: Bits<'b>>(&mut self, other: &'b B) {
         for b in other.iter() {
@@ -183,15 +193,18 @@ impl BitVec {
         }
     }
 }
+
 impl<'a> Bits<'a> for BitVec {
     fn len(&self) -> usize {
         self.len
     }
+
     fn at(&self, bit_num: usize) -> bool {
         assert!(bit_num < self.len);
         let (byte_index, bit_mask) = self.bit_pos(bit_num);
         self.bits[byte_index] & bit_mask != 0
     }
+
     fn to_bitvec(&self) -> BitVec {
         self.clone()
     }
@@ -203,6 +216,7 @@ pub struct BitSlice<'a> {
     offset: usize,
     len: usize,
 }
+
 impl<'a> BitSlice<'a> {
     /// Returns a new slice that is a subset of the current slice.
     pub fn slice(&self, r: Range<usize>) -> BitSlice<'a> {
@@ -213,6 +227,7 @@ impl<'a> BitSlice<'a> {
             len: r.end - r.start,
         }
     }
+
     pub fn slice_to(&self, index: usize) -> BitSlice<'a> {
         assert!(index <= self.len);
         BitSlice {
@@ -221,6 +236,7 @@ impl<'a> BitSlice<'a> {
             len: index,
         }
     }
+
     pub fn slice_from(&self, index: usize) -> BitSlice<'a> {
         assert!(index <= self.len);
         BitSlice {
@@ -229,6 +245,7 @@ impl<'a> BitSlice<'a> {
             len: self.len - index,
         }
     }
+
     /// Returns a slice that contains the sequence of bits that is at the start
     /// of self & other that is the same.
     pub fn common_prefix<'o, O: Bits<'o>>(&'a self, other: &'o O) -> BitSlice<'a> {
@@ -238,10 +255,12 @@ impl<'a> BitSlice<'a> {
         }
     }
 }
+
 impl<'a> Bits<'a> for BitSlice<'a> {
     fn len(&self) -> usize {
         self.len
     }
+
     fn at(&self, bit: usize) -> bool {
         assert!(bit < self.len);
         self.vec.at(bit + self.offset)
@@ -252,6 +271,7 @@ pub struct BitIter<'a, B: Bits<'a>> {
     src: &'a B,
     pos: usize,
 }
+
 impl<'a, B: Bits<'a>> Iterator for BitIter<'a, B> {
     type Item = bool;
 
@@ -270,56 +290,67 @@ impl<'a, B: Bits<'a>> Iterator for BitIter<'a, B> {
 
 // Eq & PartialEq for BitVec are derived.
 impl<'a> Eq for BitSlice<'a> {}
+
 impl<'a> PartialEq for BitSlice<'a> {
     fn eq(&self, other: &Self) -> bool {
         cmp_impl(self.iter(), other.iter()).is_eq()
     }
 }
+
 impl<'a> PartialEq<BitSlice<'a>> for BitVec {
     fn eq(&self, other: &BitSlice) -> bool {
         cmp_impl(self.iter(), other.iter()).is_eq()
     }
 }
+
 impl<'a> PartialEq<BitVec> for BitSlice<'a> {
     fn eq(&self, other: &BitVec) -> bool {
         cmp_impl(self.iter(), other.iter()).is_eq()
     }
 }
+
 impl<'a> PartialEq<BitVec> for &BitSlice<'a> {
     fn eq(&self, other: &BitVec) -> bool {
         cmp_impl(self.iter(), other.iter()).is_eq()
     }
 }
+
 impl Ord for BitVec {
     fn cmp(&self, other: &Self) -> Ordering {
         cmp_impl(self.iter(), other.iter())
     }
 }
+
 impl<'a> Ord for BitSlice<'a> {
     fn cmp(&self, other: &Self) -> Ordering {
         cmp_impl(self.iter(), other.iter())
     }
 }
+
 impl PartialOrd for BitVec {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(cmp_impl(self.iter(), other.iter()))
     }
 }
+
 impl<'a> PartialOrd for BitSlice<'a> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(cmp_impl(self.iter(), other.iter()))
     }
 }
+
 impl<'a> PartialOrd<BitSlice<'a>> for BitVec {
     fn partial_cmp(&self, other: &BitSlice<'a>) -> Option<Ordering> {
         Some(cmp_impl(self.iter(), other.iter()))
     }
 }
+
 impl<'a> PartialOrd<BitVec> for BitSlice<'a> {
     fn partial_cmp(&self, other: &BitVec) -> Option<Ordering> {
         Some(cmp_impl(self.iter(), other.iter()))
     }
 }
+
 fn cmp_impl(mut a: impl Iterator<Item = bool>, mut b: impl Iterator<Item = bool>) -> Ordering {
     loop {
         match (a.next(), b.next()) {
@@ -340,21 +371,25 @@ impl Display for BitVec {
         format_bits(self, " ", f)
     }
 }
+
 impl Debug for BitVec {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         format_bits(self, " ", f)
     }
 }
+
 impl<'a> Display for BitSlice<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         format_bits(self, " ", f)
     }
 }
+
 impl<'a> Debug for BitSlice<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         format_bits(self, " ", f)
     }
 }
+
 fn format_bits<'a>(
     bits: &'a impl Bits<'a>,
     s: &str,
@@ -389,6 +424,7 @@ impl Index<usize> for BitVec {
         }
     }
 }
+
 impl<'a> Index<usize> for BitSlice<'a> {
     type Output = bool;
     fn index(&self, index: usize) -> &Self::Output {
@@ -405,11 +441,13 @@ impl<'a> From<&'a BitVec> for BitSlice<'a> {
         value.as_ref()
     }
 }
+
 impl<'a> From<&'a BitSlice<'a>> for BitVec {
     fn from(value: &'a BitSlice<'a>) -> Self {
         value.to_bitvec()
     }
 }
+
 impl<'a> From<BitSlice<'a>> for BitVec {
     fn from(value: BitSlice<'a>) -> Self {
         value.to_bitvec()
