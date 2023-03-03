@@ -55,9 +55,7 @@ pub trait Bits<'a>: Sized {
     /// Create a new bitvec from the current sequence of bits.
     fn to_bitvec(&'a self) -> BitVec {
         let mut v = BitVec::new();
-        for b in self.iter() {
-            v.push(b);
-        }
+        v.extend(self);
         v
     }
     /// Returns a new KeyVec consisting of our sequence followed by the bit sequence
