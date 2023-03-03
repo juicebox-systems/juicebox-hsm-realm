@@ -1,6 +1,6 @@
 ## Builds
 
-* `cargo test --lib` run the unit tests
+* `cargo test --all` run the unit tests
 * `cargo run --bin demo` run the demo aka "integration test"
 
 ### Cross Compile

@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 
+use hsmcore::bitvec::Bits;
 use hsmcore::hsm::types::{OwnedRange, RealmId, RecordId};
 use hsmcore::merkle::{
-    agent::Node, agent::StoreKey, agent::TreeStoreError, proof::ReadProof, Dir, HashOutput,
-    KeySlice, KeyVec,
+    agent::Node, agent::StoreKey, agent::TreeStoreError, proof::ReadProof, Dir, HashOutput, KeyVec,
 };
 
 #[async_trait]
@@ -36,7 +36,8 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
         Some(Node::Interior(int)) => int,
     };
     let mut res = ReadProof::new(k.clone(), range.clone(), *root_hash, root);
-    let mut key = KeySlice::from_slice(&k.0);
+    let full_key = k.to_bitvec();
+    let mut key = full_key.as_ref();
     loop {
         let n = res.path.last().unwrap();
         let d = Dir::from(key[0]);
@@ -46,7 +47,7 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
                 if !key.starts_with(&b.prefix) {
                     return Ok(res);
                 }
-                key = &key[b.prefix.len()..];
+                key = key.slice(b.prefix.len()..);
                 match nodes.remove(&b.hash) {
                     None => return Err(TreeStoreError::MissingNode),
                     Some(Node::Interior(int)) => {
@@ -74,11 +75,11 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     side: Dir,
 ) -> Result<ReadProof<HO>, TreeStoreError> {
     let mut path = Vec::new();
-    let mut key = KeyVec::with_capacity(RecordId::num_bits());
+    let mut key = KeyVec::new();
     let mut current = *root_hash;
     loop {
         match store
-            .read_node(realm_id, StoreKey::new(key.clone(), &current))
+            .read_node(realm_id, StoreKey::new(&key, &current))
             .await?
         {
             Node::Interior(int) => match int.branch(side) {
@@ -117,7 +118,7 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
             },
             Node::Leaf(l) => {
                 return Ok(ReadProof {
-                    key: keyvec_to_rec_id(key),
+                    key: RecordId::from_bitvec(&key),
                     range: range.clone(),
                     root_hash: *root_hash,
                     leaf: Some(l),
@@ -126,12 +127,4 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
             }
         }
     }
-}
-
-fn keyvec_to_rec_id(k: KeyVec) -> RecordId {
-    assert!(k.len() == RecordId::num_bits());
-    let b = k.into_vec();
-    let mut r = RecordId([0; 32]);
-    r.0.copy_from_slice(&b);
-    r
 }

@@ -6,6 +6,7 @@ use hmac::Hmac;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
+use super::super::bitvec::{BitVec, Bits};
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
 use super::super::types::{
     AuthToken, DeleteRequest, DeleteResponse, Recover1Request, Recover1Response, Recover2Request,
@@ -84,7 +85,19 @@ impl RecordId {
         }
         None
     }
+
+    pub fn to_bitvec(&self) -> BitVec {
+        BitVec::from_bytes(&self.0)
+    }
+
+    pub fn from_bitvec(bits: &BitVec) -> RecordId {
+        assert_eq!(bits.len(), RecordId::num_bits());
+        let mut r = RecordId([0; 32]);
+        r.0.copy_from_slice(bits.as_bytes());
+        r
+    }
 }
+
 impl fmt::Debug for RecordId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "0x")?;
@@ -630,4 +643,20 @@ pub enum SecretsResponse {
     Recover1(Recover1Response),
     Recover2(Recover2Response),
     Delete(DeleteResponse),
+}
+
+#[cfg(test)]
+mod test {
+    use super::super::super::bitvec::Bits;
+    use super::RecordId;
+
+    #[test]
+    fn record_id_bitvec() {
+        let rec = RecordId([42u8; 32]);
+        let v = rec.to_bitvec();
+        assert_eq!(256, v.len());
+        assert_eq!(&rec.0, v.as_bytes());
+        let rec2 = RecordId::from_bitvec(&v);
+        assert_eq!(rec, rec2);
+    }
 }

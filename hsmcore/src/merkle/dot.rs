@@ -3,8 +3,9 @@ use std::{
     io::{BufWriter, Write},
 };
 
+use super::super::bitvec::DisplayBits;
 use super::{super::hsm::types::RealmId, agent::StoreKey};
-use super::{agent::tests::TreeStoreReader, agent::Node, concat, Branch, Dir, HashOutput, KeyVec};
+use super::{agent::tests::TreeStoreReader, agent::Node, Bits, Branch, Dir, HashOutput, KeyVec};
 use async_recursion::async_recursion;
 
 // Creates a dot file for a visualization of the tree starting
@@ -32,18 +33,18 @@ async fn add_node_to_dot<W: Write + Send, HO: HashOutput>(
     w: &mut W,
 ) -> std::io::Result<()> {
     match reader
-        .read_node(realm_id, StoreKey::new(prefix.clone(), &h))
+        .read_node(realm_id, StoreKey::new(&prefix, &h))
         .await
         .unwrap_or_else(|_| panic!("node with hash {h:?} should exist"))
     {
         Node::Interior(int) => {
             if let Some(ref b) = int.left {
                 write_branch(&h, b, Dir::Left, w)?;
-                add_node_to_dot(realm_id, concat(&prefix, &b.prefix), b.hash, reader, w).await?;
+                add_node_to_dot(realm_id, prefix.concat(&b.prefix), b.hash, reader, w).await?;
             }
             if let Some(ref b) = int.right {
                 write_branch(&h, b, Dir::Right, w)?;
-                add_node_to_dot(realm_id, concat(&prefix, &b.prefix), b.hash, reader, w).await?;
+                add_node_to_dot(realm_id, prefix.concat(&b.prefix), b.hash, reader, w).await?;
             }
             writeln!(
                 w,
@@ -70,6 +71,6 @@ fn write_branch<HO: HashOutput>(
         b.hash,
         dir,
         lb,
-        super::compact_keyslice_str(&b.prefix, "\\n")
+        DisplayBits("\\n", &b.prefix),
     )
 }

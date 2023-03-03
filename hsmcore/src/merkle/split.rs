@@ -2,11 +2,10 @@ use tracing::info;
 
 use super::super::hsm::types::{OwnedRange, RecordId};
 use super::{
+    super::bitvec::Bits,
     agent::{DeltaBuilder, Node, NodeKey},
-    concat,
     proof::{ProofError, ReadProof},
-    Branch, Dir, HashOutput, InteriorNode, KeySlice, KeyVec, NodeHasher, SplitResult, SplitRoot,
-    Tree,
+    Branch, Dir, HashOutput, InteriorNode, KeyVec, NodeHasher, SplitResult, SplitRoot, Tree,
 };
 
 impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
@@ -20,7 +19,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         // Find the split node. We start at the bottom of the path. If the key is greater than the
         // left branch and smaller or equal to the right branch then this is the split node. If its
         // not, we have to walk back up the path to find the split node.
-        let key = KeySlice::from_slice(&proof.key.0);
+        let key = proof.key.to_bitvec();
         enum SplitLocation {
             PathIndex(usize),
             SideOfRoot(Dir),
@@ -32,11 +31,11 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 .expect("path should always contain at least one node");
             let gt_left = match &last.node.left {
                 None => true,
-                Some(b) => key > concat(&last.prefix, &b.prefix),
+                Some(b) => key > last.prefix.concat(&b.prefix),
             };
             let lte_right = match &last.node.right {
                 None => true,
-                Some(b) => key <= concat(&last.prefix, &b.prefix),
+                Some(b) => key <= last.prefix.concat(&b.prefix),
             };
 
             if gt_left && lte_right {
@@ -168,7 +167,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                             path_idx == 0,
                             parent_d,
                             Branch::new(
-                                concat(&parent_b.prefix, &gets_new_node.prefix),
+                                parent_b.prefix.concat(&gets_new_node.prefix),
                                 gets_new_node.hash,
                             ),
                         );
@@ -178,7 +177,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                             Node::Interior(new_node),
                         );
                         let ext_prefix_res = Branch::new(
-                            concat(&parent_b.prefix, &extends_prefix.prefix),
+                            parent_b.prefix.concat(&extends_prefix.prefix),
                             extends_prefix.hash,
                         );
                         match parent_d {
@@ -237,7 +236,7 @@ mod tests {
             check_delta_invariants, check_tree_invariants, new_empty_tree, rec_id, tree_insert,
             tree_size, TestHasher, TEST_REALM,
         },
-        {dot, Dir, KeySlice},
+        {dot, Dir, KeyVec},
     };
 
     #[tokio::test]
@@ -340,7 +339,7 @@ mod tests {
         }
         check_tree_invariants(&tree.hasher, &range, root, &store).await;
         assert_eq!(
-            tree_size(KeySlice::empty(), root, &store).await.unwrap(),
+            tree_size(KeyVec::new(), root, &store).await.unwrap(),
             store.len()
         );
         let pre_split_root_hash = root;
@@ -355,10 +354,10 @@ mod tests {
         check_tree_invariants(&TestHasher {}, &s.left.range, s.left.root_hash, &store).await;
         check_tree_invariants(&TestHasher {}, &s.right.range, s.right.root_hash, &store).await;
         assert_eq!(
-            tree_size(KeySlice::empty(), s.left.root_hash, &store)
+            tree_size(KeyVec::new(), s.left.root_hash, &store)
                 .await
                 .unwrap()
-                + tree_size(KeySlice::empty(), s.right.root_hash, &store)
+                + tree_size(KeyVec::new(), s.right.root_hash, &store)
                     .await
                     .unwrap(),
             store.len()
@@ -454,7 +453,7 @@ mod tests {
         }
         check_tree_invariants(&tree_r.hasher, &merged.range, merged.root_hash, &store_l).await;
         assert_eq!(
-            tree_size(KeySlice::empty(), merged.root_hash, &store_l)
+            tree_size(KeyVec::new(), merged.root_hash, &store_l)
                 .await
                 .unwrap(),
             store_l.len()
