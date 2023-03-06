@@ -21,7 +21,7 @@ use tracing::{info, trace, warn};
 pub mod types;
 
 use super::super::http_client::{Client, ClientError};
-use super::hsm::client::HsmClient;
+use super::hsm::client::{HsmClient, Transport};
 use super::merkle;
 use super::rpc::{handle_rpc, HandlerError, Rpc};
 use super::store::bigtable;
@@ -42,13 +42,13 @@ use types::{
     TransferOutRequest, TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 
-#[derive(Clone, Debug)]
-pub struct Agent(Arc<AgentInner>);
+#[derive(Debug)]
+pub struct Agent<T>(Arc<AgentInner<T>>);
 
 #[derive(Debug)]
-struct AgentInner {
+struct AgentInner<T> {
     name: String,
-    hsm: HsmClient,
+    hsm: HsmClient<T>,
     store: bigtable::StoreClient,
     store_admin: bigtable::StoreAdminClient,
     peer_client: Client<AgentService>,
@@ -84,10 +84,16 @@ enum AppendingState {
 }
 use AppendingState::{Appending, NotAppending};
 
-impl Agent {
+impl<T> Clone for Agent<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T: Transport + 'static> Agent<T> {
     pub fn new(
         name: String,
-        hsm: HsmClient,
+        hsm: HsmClient<T>,
         store: bigtable::StoreClient,
         store_admin: bigtable::StoreAdminClient,
     ) -> Self {
@@ -385,7 +391,7 @@ impl Agent {
     }
 }
 
-impl Service<Request<IncomingBody>> for Agent {
+impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
     type Response = Response<Full<Bytes>>;
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -440,7 +446,7 @@ impl Service<Request<IncomingBody>> for Agent {
     }
 }
 
-impl Agent {
+impl<T: Transport + 'static> Agent<T> {
     async fn handle_status(&self, _request: StatusRequest) -> Result<StatusResponse, HandlerError> {
         let hsm_status = self.0.hsm.send(hsm_types::StatusRequest {}).await;
         Ok(StatusResponse {
@@ -1025,10 +1031,10 @@ impl Agent {
     }
 }
 
-async fn start_app_request(
+async fn start_app_request<T: Transport>(
     request: AppRequest,
     name: String,
-    hsm: &HsmClient,
+    hsm: &HsmClient<T>,
     store: &bigtable::StoreClient,
 ) -> Result<Append, AppResponse> {
     type HsmResponse = hsm_types::AppResponse;
@@ -1098,7 +1104,7 @@ async fn start_app_request(
     }
 }
 
-impl Agent {
+impl<T: Transport + 'static> Agent<T> {
     /// Precondition: agent is leader.
     fn append(&self, realm: RealmId, group: GroupId, append_request: Append) {
         let appending = {
