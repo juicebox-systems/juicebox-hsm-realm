@@ -1,4 +1,5 @@
 use clap::Parser;
+use hsmcore::rand::OsRng;
 use std::net::SocketAddr;
 use tracing::info;
 
@@ -32,7 +33,7 @@ async fn main() {
     logging::configure();
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("hsm{}", args.listen));
-    let hsm = HttpHsm::new(name, args.key);
+    let hsm = HttpHsm::new(name, args.key, Box::new(OsRng));
     let (url, join_handle) = hsm.listen(args.listen).await.unwrap();
     info!(url = %url, "HSM started");
     join_handle.await.unwrap();
