@@ -12,16 +12,18 @@ pub struct HsmHttpClient {
     http: reqwest::Client,
 }
 impl HsmHttpClient {
-    pub fn new_client(url: Url) -> HsmClient {
-        HsmClient::new(Box::new(Self {
+    pub fn new_client(url: Url) -> HsmClient<HsmHttpClient> {
+        HsmClient::new(Self {
             hsm: url.join("/req").unwrap(),
             http: reqwest::Client::builder().build().expect("TODO"),
-        }))
+        })
     }
 }
 #[async_trait]
 impl Transport for HsmHttpClient {
-    async fn send_rpc_msg(&self, msg: Vec<u8>) -> Result<Vec<u8>, ClientError> {
+    type Error = ClientError;
+
+    async fn send_rpc_msg(&self, msg: Vec<u8>) -> Result<Vec<u8>, Self::Error> {
         match self.http.post(self.hsm.clone()).body(msg).send().await {
             Err(err) => Err(ClientError::Network(err)),
             Ok(response) if response.status().is_success() => {

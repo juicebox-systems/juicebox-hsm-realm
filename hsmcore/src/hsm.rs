@@ -1,6 +1,7 @@
 extern crate alloc;
 
 use aes_gcm::aead::Aead;
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -20,7 +21,7 @@ use self::rpc::{HsmRequest, HsmRpc};
 use self::types::Partition;
 use super::marshalling;
 use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
-use super::rand::{GetRandom, Rng};
+use super::rand::GetRandom;
 use app::{RecordChange, RootOprfKey};
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
@@ -45,9 +46,9 @@ impl fmt::Debug for RealmKey {
 }
 
 impl RealmKey {
-    pub fn random() -> Self {
+    pub fn random(rng: &mut impl GetRandom) -> Self {
         let mut key = digest::Key::<Hmac<Sha256>>::default();
-        Rng.fill_bytes(&mut key);
+        rng.fill_bytes(&mut key);
         Self(key)
     }
     // derive a realmKey from the supplied input.
@@ -60,25 +61,25 @@ impl RealmKey {
 }
 
 impl GroupId {
-    fn random() -> Self {
+    fn random(rng: &mut Box<dyn GetRandom>) -> Self {
         let mut id = [0u8; 16];
-        Rng.fill_bytes(&mut id);
+        rng.fill_bytes(&mut id);
         Self(id)
     }
 }
 
 impl HsmId {
-    fn random() -> Self {
+    fn random(rng: &mut Box<dyn GetRandom>) -> Self {
         let mut id = [0u8; 16];
-        Rng.fill_bytes(&mut id);
+        rng.fill_bytes(&mut id);
         Self(id)
     }
 }
 
 impl RealmId {
-    fn random() -> Self {
+    fn random(rng: &mut Box<dyn GetRandom>) -> Self {
         let mut id = [0u8; 16];
-        Rng.fill_bytes(&mut id);
+        rng.fill_bytes(&mut id);
         Self(id)
     }
 }
@@ -251,9 +252,9 @@ impl<'a> EntryHmacBuilder<'a> {
 }
 
 impl TransferNonce {
-    pub fn random() -> Self {
+    pub fn random(rng: &mut Box<dyn GetRandom>) -> Self {
         let mut nonce = [0u8; 16];
-        Rng.fill_bytes(&mut nonce);
+        rng.fill_bytes(&mut nonce);
         Self(nonce)
     }
 }
@@ -331,6 +332,7 @@ pub struct Hsm {
     name: String,
     persistent: PersistentState,
     volatile: VolatileState,
+    rng: Box<dyn GetRandom>,
 }
 
 struct PersistentState {
@@ -375,13 +377,15 @@ pub enum HsmError {
 }
 
 impl Hsm {
-    pub fn new(name: String, realm_key: RealmKey) -> Self {
+    pub fn new(name: String, realm_key: RealmKey, mut rng: Box<dyn GetRandom>) -> Self {
         let root_oprf_key = RootOprfKey::from(&realm_key);
         let record_key = RecordEncryptionKey::from(&realm_key);
+        let hsm_id = HsmId::random(&mut rng);
         Hsm {
+            rng,
             name,
             persistent: PersistentState {
-                id: HsmId::random(),
+                id: hsm_id,
                 realm_key,
                 realm: None,
                 root_oprf_key,
@@ -437,7 +441,7 @@ impl Hsm {
         configuration: Configuration,
         owned_range: Option<OwnedRange>,
     ) -> NewGroupInfo {
-        let group = GroupId::random();
+        let group = GroupId::random(&mut self.rng);
         let statement = GroupConfigurationStatementBuilder {
             realm,
             group,
@@ -563,7 +567,7 @@ impl Hsm {
         {
             Response::InvalidConfiguration
         } else {
-            let realm_id = RealmId::random();
+            let realm_id = RealmId::random(&mut self.rng);
             self.persistent.realm = Some(PersistentRealmState {
                 id: realm_id,
                 groups: HashMap::new(),
@@ -1073,7 +1077,7 @@ impl Hsm {
                 return Response::NotLeader;
             };
 
-            let nonce = TransferNonce::random();
+            let nonce = TransferNonce::random(&mut self.rng);
             leader.incoming = Some(nonce);
             Response::Ok(nonce)
         })();
