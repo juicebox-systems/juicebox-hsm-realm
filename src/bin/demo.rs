@@ -1,112 +1,20 @@
 use futures::future::{join_all, try_join_all};
 use hsmcore::types::{AuthToken, Policy};
 use http::Uri;
-use rand::rngs::OsRng;
-use rand::RngCore;
 use reqwest::Url;
-use std::fmt::Write;
-use std::io;
-use std::iter;
 use std::net::SocketAddr;
-use std::ops::RangeFrom;
-use std::process::{Child, Command, ExitStatus};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio::time::sleep;
-use tracing::{info, warn};
+use std::process::Command;
+use tracing::info;
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
-use loam_mvp::http_client;
 use loam_mvp::logging;
-use loam_mvp::realm::agent::types::{AgentService, StatusRequest};
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable;
 
-type AgentClient = http_client::Client<AgentService>;
-
-/// Creates HSMs and their agents.
-///
-/// This module exists to encapsulate the secret shared between the HSMs.
-mod hsm_gen {
-    use super::*;
-
-    pub struct HsmGenerator {
-        secret: String,
-        port: RangeFrom<u16>,
-    }
-
-    impl HsmGenerator {
-        pub(super) fn new(start_port: u16) -> Self {
-            let mut v = vec![0; 32];
-            OsRng.fill_bytes(&mut v);
-            let mut buf = String::new();
-            for byte in v {
-                write!(buf, "{byte:02x}").unwrap();
-            }
-            Self {
-                secret: buf,
-                port: start_port..,
-            }
-        }
-
-        pub(super) async fn create_hsms(
-            &mut self,
-            count: usize,
-            process_group: &mut ProcessGroup,
-            bigtable: &Uri,
-        ) -> Vec<Url> {
-            let waits = iter::repeat_with(|| {
-                let hsm_port = self.port.next().unwrap();
-                let agent_port = self.port.next().unwrap();
-                let hsm_address = SocketAddr::from(([127, 0, 0, 1], hsm_port));
-                let hsm_url = Url::parse(&format!("http://{hsm_address}")).unwrap();
-                process_group.spawn(
-                    Command::new("target/debug/http_hsm")
-                        .arg("--listen")
-                        .arg(hsm_address.to_string())
-                        .arg("--key")
-                        .arg(&self.secret),
-                );
-                let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
-                let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
-                process_group.spawn(
-                    Command::new("target/debug/agent")
-                        .arg("--listen")
-                        .arg(agent_address)
-                        .arg("--bigtable")
-                        .arg(bigtable.to_string())
-                        .arg("--hsm")
-                        .arg(hsm_url.to_string()),
-                );
-
-                // Wait for the agent to be up, which in turn waits for the HSM
-                // to be up.
-                //
-                // TODO: we shouldn't wait here. Other code needs to handle
-                // failures, since servers can go down at any later point.
-                let agents = AgentClient::new();
-                async move {
-                    for attempt in 1.. {
-                        if let Ok(response) = agents.send(&agent_url, StatusRequest {}).await {
-                            if response.hsm.is_some() {
-                                break;
-                            }
-                        }
-                        if attempt >= 1000 {
-                            panic!("Failed to connect to agent/HSM at {agent_url}");
-                        }
-                        sleep(Duration::from_millis(1)).await;
-                    }
-                    agent_url
-                }
-            })
-            .take(count);
-            join_all(waits).await
-        }
-    }
-}
-use hsm_gen::HsmGenerator;
+mod common;
+use common::hsm_gen::HsmGenerator;
+use common::process_group::ProcessGroup;
 
 #[tokio::main]
 async fn main() {
@@ -136,11 +44,18 @@ async fn main() {
         .map(|i| {
             let address = SocketAddr::from(([127, 0, 0, 1], 3000 + i));
             process_group.spawn(
-                Command::new("target/debug/load_balancer")
-                    .arg("--listen")
-                    .arg(address.to_string())
-                    .arg("--bigtable")
-                    .arg(bigtable.to_string()),
+                Command::new(format!(
+                    "target/{}/load_balancer",
+                    if cfg!(debug_assertions) {
+                        "debug"
+                    } else {
+                        "release"
+                    }
+                ))
+                .arg("--listen")
+                .arg(address.to_string())
+                .arg("--bigtable")
+                .arg(bigtable.to_string()),
             );
             Url::parse(&format!("http://{address}")).unwrap()
         })
@@ -372,46 +287,4 @@ async fn main() {
 
     process_group.kill();
     println!("main: exiting");
-}
-
-#[derive(Clone)]
-struct ProcessGroup(Arc<Mutex<Vec<ProcessKiller>>>);
-
-impl ProcessGroup {
-    fn new() -> Self {
-        Self(Arc::new(Mutex::new(Vec::new())))
-    }
-
-    fn spawn(&mut self, command: &mut Command) {
-        match command.spawn() {
-            Ok(child) => self.0.lock().unwrap().push(ProcessKiller(child)),
-            Err(e) => panic!("failed to spawn command: {e}"),
-        }
-    }
-
-    fn kill(&mut self) {
-        let children = self.0.lock().unwrap().split_off(0);
-        info!("waiting for {} child processes to exit", children.len());
-        for mut child in children {
-            if let Err(e) = child.kill() {
-                warn!(?e, "failed to kill child process");
-            }
-        }
-    }
-}
-
-struct ProcessKiller(Child);
-
-impl ProcessKiller {
-    fn kill(&mut self) -> io::Result<ExitStatus> {
-        self.0.kill()?;
-        self.0.wait()
-    }
-}
-
-impl Drop for ProcessKiller {
-    fn drop(&mut self) {
-        // Err is deliberately ignored.
-        if self.kill().is_err() {};
-    }
 }

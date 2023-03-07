@@ -482,6 +482,7 @@ mod test {
     #[should_panic]
     fn range_backwards() {
         let v = BitVec::from_bytes(&[0; 32]);
+        #[allow(clippy::reversed_empty_ranges)]
         v.slice(200..100);
     }
 
@@ -648,8 +649,8 @@ mod test {
         // check Ord as well. (only between same types)
         assert_eq!(r.cmp(&k), Ordering::Greater);
         assert_eq!(k.cmp(&r), Ordering::Less);
-        assert_eq!(r_slice.cmp(&k_slice), Ordering::Greater);
-        assert_eq!(k_slice.cmp(&r_slice), Ordering::Less);
+        assert_eq!(r_slice.cmp(k_slice), Ordering::Greater);
+        assert_eq!(k_slice.cmp(r_slice), Ordering::Less);
     }
 
     #[test]
