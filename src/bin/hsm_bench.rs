@@ -64,11 +64,18 @@ async fn main() {
     let load_balancer: Url = {
         let address = SocketAddr::from(([127, 0, 0, 1], 3000));
         process_group.spawn(
-            Command::new("target/debug/load_balancer")
-                .arg("--listen")
-                .arg(address.to_string())
-                .arg("--bigtable")
-                .arg(args.bigtable.to_string()),
+            Command::new(format!(
+                "target/{}/load_balancer",
+                if cfg!(debug_assertions) {
+                    "debug"
+                } else {
+                    "release"
+                }
+            ))
+            .arg("--listen")
+            .arg(address.to_string())
+            .arg("--bigtable")
+            .arg(args.bigtable.to_string()),
         );
         Url::parse(&format!("http://{address}")).unwrap()
     };

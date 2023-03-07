@@ -52,22 +52,36 @@ impl HsmGenerator {
             let hsm_address = SocketAddr::from(([127, 0, 0, 1], hsm_port));
             let hsm_url = Url::parse(&format!("http://{hsm_address}")).unwrap();
             process_group.spawn(
-                Command::new("target/debug/http_hsm")
-                    .arg("--listen")
-                    .arg(hsm_address.to_string())
-                    .arg("--key")
-                    .arg(&self.secret),
+                Command::new(format!(
+                    "target/{}/http_hsm",
+                    if cfg!(debug_assertions) {
+                        "debug"
+                    } else {
+                        "release"
+                    }
+                ))
+                .arg("--listen")
+                .arg(hsm_address.to_string())
+                .arg("--key")
+                .arg(&self.secret),
             );
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
             process_group.spawn(
-                Command::new("target/debug/agent")
-                    .arg("--listen")
-                    .arg(agent_address)
-                    .arg("--bigtable")
-                    .arg(bigtable.to_string())
-                    .arg("--hsm")
-                    .arg(hsm_url.to_string()),
+                Command::new(format!(
+                    "target/{}/agent",
+                    if cfg!(debug_assertions) {
+                        "debug"
+                    } else {
+                        "release"
+                    }
+                ))
+                .arg("--listen")
+                .arg(agent_address)
+                .arg("--bigtable")
+                .arg(bigtable.to_string())
+                .arg("--hsm")
+                .arg(hsm_url.to_string()),
             );
 
             // Wait for the agent to be up, which in turn waits for the HSM
