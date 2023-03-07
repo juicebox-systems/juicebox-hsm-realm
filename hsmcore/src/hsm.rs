@@ -1414,15 +1414,32 @@ fn handle_app_request(
     };
     let last_entry = leader.log.last().unwrap();
 
-    let (client_response, change) = app::process(app_ctx, request.request, latest_value);
+    // The last 8 bytes of the value are a sequential update number to stop leaf
+    // hashes repeating.
+    let (update_num, value) = match &latest_value {
+        Some(v) => {
+            let (record, update_num) = v.split_at(
+                v.len()
+                    .checked_sub(8)
+                    .expect("node should be at least 8 bytes"),
+            );
+            (
+                u64::from_be_bytes(update_num.try_into().unwrap()),
+                Some(record),
+            )
+        }
+        None => (0, None),
+    };
+    let (client_response, change) = app::process(app_ctx, request.request, value);
     let (root_hash, delta) = match change {
         Some(change) => match change {
-            RecordChange::Update(record) => {
+            RecordChange::Update(mut record) => {
                 let cipher =
                     Aes256Gcm::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
                 // TODO: can we use this nonce to help generate unique leaf hashes?
                 // TODO: can we use or add the previous root hash into this? (this seems hard as you need the same nonce to decode it)
                 let nonce = Nonce::from_slice(&tree_latest_proof.key.0[..12]);
+                record.extend_from_slice(&update_num.checked_add(1).unwrap().to_be_bytes());
                 let plain_text: &[u8] = &record;
 
                 // TODO: An optimization we could do is to use the authentication tag as the leaf's hash. Right now this is checking
