@@ -279,7 +279,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
         let mut key = full_key.as_ref();
         let mut current_hash = proof.root_hash;
         for n in old_path {
-            let next_hash = match n.branch(Dir::from(full_key[0])) {
+            let next_hash = match n.branch(Dir::from(key[0])) {
                 Some(b) => {
                     key = key.slice(b.prefix.len()..);
                     Some(b.hash)

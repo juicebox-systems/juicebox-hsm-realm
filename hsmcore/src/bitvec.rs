@@ -240,7 +240,7 @@ fn bounds_to_start_len(r: impl RangeBounds<usize>, len: usize) -> (usize, usize)
         Bound::Included(p) => *p,
         Bound::Excluded(p) => *p + 1,
     };
-    assert!(start <= len);
+    assert!(start <= len, "start={start:} len={len:}");
     // 200..100 is a perfectly valid RangeBounds instance. We need to protect
     // against that.
     let bound_len = match r.end_bound() {
