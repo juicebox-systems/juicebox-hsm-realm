@@ -408,14 +408,14 @@ pub struct AppContext<'a> {
 pub fn process(
     ctx: &AppContext,
     request: SecretsRequest,
-    record_val: Option<Vec<u8>>,
+    record_val: Option<&[u8]>,
 ) -> (SecretsResponse, Option<RecordChange>) {
     // TODO: how de we want to handle serialization/deserialization errors
     // TODO: value should be encrypted/decrypted somewhere
 
     let user_record_in = match record_val {
         None => UserRecord::new(),
-        Some(data) => marshalling::from_slice(&data).unwrap(),
+        Some(data) => marshalling::from_slice(data).unwrap(),
     };
     let (result, user_record_out) = match request {
         SecretsRequest::Register1(req) => {
