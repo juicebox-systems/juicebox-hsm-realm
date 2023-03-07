@@ -1040,7 +1040,7 @@ async fn start_app_request<T: Transport>(
     type HsmResponse = hsm_types::AppResponse;
     type Response = AppResponse;
 
-    loop {
+    for attempt in 0..100 {
         let entry = match store
             .read_last_log_entry(&request.realm, &request.group)
             .await
@@ -1064,7 +1064,15 @@ async fn start_app_request<T: Transport>(
         .await
         {
             Ok(proof) => proof,
-            Err(TreeStoreError::MissingNode) => todo!(),
+            Err(TreeStoreError::MissingNode) => {
+                warn!(
+                    agent = name,
+                    attempt,
+                    index = ?entry.index,
+                    "missing node, retrying"
+                );
+                continue;
+            }
             Err(TreeStoreError::Network(e)) => {
                 warn!(error = ?e, "start_app_request: error reading proof");
                 return Err(Response::NoStore);
@@ -1085,7 +1093,14 @@ async fn start_app_request<T: Transport>(
             Err(_) => return Err(Response::NoHsm),
             Ok(HsmResponse::InvalidRealm) => return Err(Response::InvalidRealm),
             Ok(HsmResponse::InvalidGroup) => return Err(Response::InvalidGroup),
-            Ok(HsmResponse::StaleProof) => continue,
+            Ok(HsmResponse::StaleProof) => {
+                warn!(
+                    agent = name,
+                    attempt, index = ?entry.index,
+                    "stale proof, retrying"
+                );
+                continue;
+            }
             Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => return Err(Response::NotLeader),
             Ok(HsmResponse::InvalidProof) => return Err(Response::InvalidProof),
             // TODO, is this right? if we can't decrypt the leaf, then the proof is likely bogus.
@@ -1102,6 +1117,7 @@ async fn start_app_request<T: Transport>(
             }
         };
     }
+    panic!("too slow to make progress");
 }
 
 impl<T: Transport + 'static> Agent<T> {

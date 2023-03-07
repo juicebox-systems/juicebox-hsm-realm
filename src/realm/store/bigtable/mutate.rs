@@ -3,6 +3,7 @@ use google::bigtable::v2::MutateRowsRequest;
 
 use super::BigtableClient;
 
+#[derive(Debug)]
 pub enum MutateRowsError {
     Tonic(tonic::Status),
     Mutation(google::rpc::Status),
