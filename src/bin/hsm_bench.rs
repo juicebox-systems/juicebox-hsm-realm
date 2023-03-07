@@ -22,6 +22,10 @@ use common::process_group::ProcessGroup;
 #[derive(Debug, Parser)]
 #[command(about = "An end-to-end benchmark to stress an HSM")]
 struct Args {
+    /// Address of Bigtable storage system.
+    #[arg(long, default_value = "http://localhost:9000")]
+    bigtable: Uri,
+
     /// Number of secret registrations to do at a time.
     #[arg(long, value_name = "N", default_value_t = 3)]
     concurrency: usize,
@@ -39,15 +43,19 @@ async fn main() {
 
     let mut process_group = ProcessGroup::new();
 
-    let bigtable = Uri::from_static("http://localhost:9000");
-    info!(url = %bigtable, "connecting to Bigtable");
+    info!(url = %args.bigtable, "connecting to Bigtable");
     let instance = bigtable::Instance {
         project: String::from("prj"),
         instance: String::from("inst"),
     };
-    let store_admin = bigtable::StoreAdminClient::new(bigtable.clone(), instance.clone())
+    let store_admin = bigtable::StoreAdminClient::new(args.bigtable.clone(), instance.clone())
         .await
-        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable admin at `{bigtable}`: {e}"));
+        .unwrap_or_else(|e| {
+            panic!(
+                "Unable to connect to Bigtable admin at `{}`: {e}",
+                args.bigtable
+            )
+        });
 
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
@@ -60,7 +68,7 @@ async fn main() {
                 .arg("--listen")
                 .arg(address.to_string())
                 .arg("--bigtable")
-                .arg(bigtable.to_string()),
+                .arg(args.bigtable.to_string()),
         );
         Url::parse(&format!("http://{address}")).unwrap()
     };
@@ -70,7 +78,7 @@ async fn main() {
     let num_hsms = 5;
     info!(count = num_hsms, "creating HSMs and agents");
     let group = hsm_generator
-        .create_hsms(num_hsms, &mut process_group, &bigtable)
+        .create_hsms(num_hsms, &mut process_group, &args.bigtable)
         .await;
     let (realm_id, group_id) = cluster::new_realm(&group).await.unwrap();
     info!(?realm_id, ?group_id, "initialized cluster");
