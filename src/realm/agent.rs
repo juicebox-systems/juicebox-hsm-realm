@@ -1040,7 +1040,7 @@ async fn start_app_request<T: Transport>(
     type HsmResponse = hsm_types::AppResponse;
     type Response = AppResponse;
 
-    loop {
+    for attempt in 0..100 {
         let entry = match store
             .read_last_log_entry(&request.realm, &request.group)
             .await
@@ -1065,7 +1065,12 @@ async fn start_app_request<T: Transport>(
         {
             Ok(proof) => proof,
             Err(TreeStoreError::MissingNode) => {
-                warn!(agent = name, "missing node, retrying");
+                warn!(
+                    agent = name,
+                    attempt,
+                    index = ?entry.index,
+                    "missing node, retrying"
+                );
                 continue;
             }
             Err(TreeStoreError::Network(e)) => {
@@ -1089,7 +1094,11 @@ async fn start_app_request<T: Transport>(
             Ok(HsmResponse::InvalidRealm) => return Err(Response::InvalidRealm),
             Ok(HsmResponse::InvalidGroup) => return Err(Response::InvalidGroup),
             Ok(HsmResponse::StaleProof) => {
-                warn!(agent = name, "stale proof, retrying");
+                warn!(
+                    agent = name,
+                    attempt, index = ?entry.index,
+                    "stale proof, retrying"
+                );
                 continue;
             }
             Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => return Err(Response::NotLeader),
@@ -1108,6 +1117,7 @@ async fn start_app_request<T: Transport>(
             }
         };
     }
+    panic!("too slow to make progress");
 }
 
 impl<T: Transport + 'static> Agent<T> {
