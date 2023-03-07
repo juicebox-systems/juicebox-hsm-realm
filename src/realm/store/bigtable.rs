@@ -13,6 +13,8 @@ use hsmcore::marshalling;
 use http::Uri;
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::time::Duration;
+use tokio::time::sleep;
 use tonic::transport::{Channel, Endpoint};
 use tracing::trace;
 use url::Url;
@@ -334,37 +336,51 @@ impl StoreClient {
             return Err(AppendError::LogPrecondition);
         }
 
-        // Delete obsolete Merkle nodes.
-        // TODO: defer these deletes so slow concurrent readers can read this
+        // Delete obsolete Merkle nodes. These deletes are deferred a bit so
+        // that slow concurrent readers can still access them.
         if !delta.remove.is_empty() {
-            mutate_rows(
-                &mut bigtable,
-                MutateRowsRequest {
-                    table_name: merkle_table(&self.instance, realm),
-                    app_profile_id: String::new(),
-                    entries: delta
-                        .remove
-                        .iter()
-                        .map(|key| mutate_rows_request::Entry {
-                            row_key: key.store_key().into_bytes(),
-                            mutations: vec![Mutation {
-                                mutation: Some(mutation::Mutation::DeleteFromRow(
-                                    mutation::DeleteFromRow {},
-                                )),
-                            }],
-                        })
-                        .collect(),
-                },
-            )
-            .await
-            .map_err(|e| match e {
-                MutateRowsError::Tonic(e) => AppendError::Grpc(e),
-                MutateRowsError::Mutation(e) => AppendError::MerkleDeletes(e),
-            })?;
+            let store = self.clone();
+            let realm = *realm;
+            let to_remove = delta
+                .remove
+                .iter()
+                .map(|key| key.store_key())
+                .collect::<Vec<_>>();
+            tokio::spawn(async move {
+                sleep(Duration::from_secs(5)).await;
+                store.remove(&realm, to_remove).await.expect("TODO");
+            });
         }
 
         trace!("append succeeded");
         Ok(())
+    }
+
+    async fn remove(
+        &self,
+        realm: &RealmId,
+        to_remove: Vec<StoreKey>,
+    ) -> Result<(), MutateRowsError> {
+        let mut bigtable = self.bigtable.clone();
+        mutate_rows(
+            &mut bigtable,
+            MutateRowsRequest {
+                table_name: merkle_table(&self.instance, realm),
+                app_profile_id: String::new(),
+                entries: to_remove
+                    .into_iter()
+                    .map(|key| mutate_rows_request::Entry {
+                        row_key: key.into_bytes(),
+                        mutations: vec![Mutation {
+                            mutation: Some(mutation::Mutation::DeleteFromRow(
+                                mutation::DeleteFromRow {},
+                            )),
+                        }],
+                    })
+                    .collect(),
+            },
+        )
+        .await
     }
 
     pub async fn read_log_entry(
