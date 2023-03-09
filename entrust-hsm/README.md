@@ -16,7 +16,8 @@ This then needs packing and loading into the HSM.
 `/opt/nfast/bin/loadmache hsm.sar`
 
 Once loaded, the entrust-agent host process can be run. This will use the APIs to have
-the HSM start the process, and start handling requests.
+the HSM start the process, and start handling requests. Alternatively the entrust-agent
+can be started with the `--image` flag to have it load the SEEMachine automatically.
 
 ## Rust bindings to the seelib library
 
@@ -36,20 +37,22 @@ scripts build their own versions or core and/or std.
 
 ## ncipherxc target
 
-The HSM runs a stripped down version of Linux. It has a whitelist of syscalls that the
+The HSM runs a stripped down version of Linux. It has an allow list of syscalls that the
 seemachine can make. If it makes a syscall not on the whitelist the process is terminated.
 The ncipherxc target exists to stop dependencies that think it's running on Linux and make
 a syscall thats not allowed. (The [getrandom](https://crates.io/crates/getrandom) crate
 is an example of how this can happen).
 
-The ncipherxc target is still very much a work in progress.
+The ncipherxc target is still very much a work in progress. For example it'd be nice if
+it could get data into the tracebuffer for debugging. The code can still be built for a linux
+target using `compile_linux.sh` which is handy for debugging.
 
 
 ## Debugging
 
 The entrust-agent supports a --trace flag which'll collect and print logging
 written to the trace buffer on the HSM. This requires that the security world
-was created with the 'dseeall' feature enabled. On the HSM side, stdout is
+was created with the 'dseeall' feature enabled. On the HSM side, stdout and stderr are
 routed to the trace buffer. The linux target includes the rust std library so
 can support having `println!()` in the HSM code. In a future version the ncipherxc
 target should also support this.
