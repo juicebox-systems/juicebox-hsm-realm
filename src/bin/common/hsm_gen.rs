@@ -21,15 +21,17 @@ use loam_mvp::realm::agent::types::{AgentService, StatusRequest};
 
 type AgentClient = http_client::Client<AgentService>;
 
+pub struct Entrust(pub bool);
+
 pub struct HsmGenerator {
     secret: String,
     port: RangeFrom<u16>,
-    entrust: bool,
+    entrust: Entrust,
 }
 
 impl HsmGenerator {
-    pub fn new(entrust: bool, start_port: u16) -> Self {
-        let buf = if entrust {
+    pub fn new(entrust: Entrust, start_port: u16) -> Self {
+        let buf = if entrust.0 {
             "010203".to_string()
         } else {
             let mut v = vec![0; 32];
@@ -54,7 +56,7 @@ impl HsmGenerator {
         bigtable: &Uri,
     ) -> Vec<Url> {
         let mut agent_urls = Vec::with_capacity(count);
-        if self.entrust {
+        if self.entrust.0 {
             let agent_port = self.port.next().unwrap();
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();

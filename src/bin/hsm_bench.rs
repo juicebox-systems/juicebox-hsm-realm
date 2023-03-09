@@ -16,7 +16,7 @@ use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable;
 
 mod common;
-use common::hsm_gen::HsmGenerator;
+use common::hsm_gen::{Entrust, HsmGenerator};
 use common::process_group::ProcessGroup;
 
 #[derive(Debug, Parser)]
@@ -84,7 +84,7 @@ async fn main() {
         Url::parse(&format!("http://{address}")).unwrap()
     };
 
-    let mut hsm_generator = HsmGenerator::new(args.entrust, 4000);
+    let mut hsm_generator = HsmGenerator::new(Entrust(args.entrust), 4000);
 
     let num_hsms = 5;
     info!(count = num_hsms, "creating HSMs and agents");
