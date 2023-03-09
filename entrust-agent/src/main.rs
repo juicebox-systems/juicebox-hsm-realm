@@ -380,7 +380,7 @@ impl TransportInner {
                     return;
                 }
             }
-            warn!("Failed to restart SEEWorld, trying harding");
+            warn!("Failed to restart SEEWorld, trying harder");
         }
         self.try_clear();
     }
