@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::types::{
@@ -10,8 +12,8 @@ use super::types::{
     TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 
-pub trait HsmRpc: DeserializeOwned + Serialize {
-    type Response: DeserializeOwned + Serialize;
+pub trait HsmRpc: DeserializeOwned + Serialize + Debug {
+    type Response: DeserializeOwned + Serialize + Debug;
     fn to_req(self) -> HsmRequest;
 }
 

@@ -1,5 +1,7 @@
 use std::marker::PhantomData;
 
+use crate::realm::hsm::client::HsmRpcError;
+
 use super::realm::rpc::{Rpc, Service};
 use hsmcore::marshalling;
 use reqwest::Url;
@@ -39,15 +41,24 @@ pub enum ClientError {
     HttpStatus(reqwest::StatusCode),
     Serialization(marshalling::SerializationError),
     Deserialization(marshalling::DeserializationError),
+    HsmRpcError,
 }
+
 impl From<marshalling::SerializationError> for ClientError {
     fn from(value: marshalling::SerializationError) -> Self {
         ClientError::Serialization(value)
     }
 }
+
 impl From<marshalling::DeserializationError> for ClientError {
     fn from(value: marshalling::DeserializationError) -> Self {
         ClientError::Deserialization(value)
+    }
+}
+
+impl From<HsmRpcError> for ClientError {
+    fn from(_v: HsmRpcError) -> Self {
+        ClientError::HsmRpcError
     }
 }
 

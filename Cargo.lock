@@ -580,6 +580,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "entrust-agent"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "clap 4.1.8",
+ "hsmcore",
+ "http",
+ "loam-mvp",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "entrust-hsm"
+version = "0.1.0"
+dependencies = [
+ "hsmcore",
+]
+
+[[package]]
 name = "errno"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,17 @@
+[package]
+name = "entrust-agent"
+version = "0.1.0"
+edition = "2021"
+links = "seelib"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = { workspace = true }
+clap = { workspace = true }
+http = { workspace = true }
+hsmcore = { path = "../hsmcore" }
+loam-mvp = { path=".." }
+tokio = { workspace = true }
+tracing = { workspace = true }

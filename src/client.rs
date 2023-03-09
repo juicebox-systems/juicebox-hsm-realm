@@ -360,6 +360,7 @@ impl Client {
             Err(ClientError::HttpStatus(sc)) => Err(RequestError::HttpStatus(sc)),
             Err(ClientError::Serialization(e)) => Err(RequestError::SerializationError(e)),
             Err(ClientError::Deserialization(e)) => Err(RequestError::DeserializationError(e)),
+            Err(ClientError::HsmRpcError) => Err(RequestError::Unavailable),
         }
     }
 
