@@ -371,6 +371,7 @@ struct LeaderLogEntry {
     response: Option<SecretsResponse>,
 }
 
+#[derive(Debug)]
 pub enum HsmError {
     Deserialization(marshalling::DeserializationError),
     Serialization(marshalling::SerializationError),
@@ -396,8 +397,8 @@ impl Hsm {
             },
         }
     }
-    pub fn handle_request(&mut self, request_bytes: bytes::Bytes) -> Result<Vec<u8>, HsmError> {
-        let request: HsmRequest = match marshalling::from_slice(request_bytes.as_ref()) {
+    pub fn handle_request(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, HsmError> {
+        let request: HsmRequest = match marshalling::from_slice(request_bytes) {
             Ok(request) => request,
             Err(e) => {
                 warn!(error = ?e, "deserialization error");

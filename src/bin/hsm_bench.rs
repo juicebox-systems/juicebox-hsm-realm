@@ -33,6 +33,10 @@ struct Args {
     /// Total number of secret registrations.
     #[arg(long, value_name = "N", default_value_t = 100)]
     count: usize,
+
+    /// Use an entrust HSM/Agent for one of the HSMs and make it the leader.
+    #[arg(long, default_value_t = false)]
+    entrust: bool,
 }
 
 #[tokio::main]
@@ -80,7 +84,7 @@ async fn main() {
         Url::parse(&format!("http://{address}")).unwrap()
     };
 
-    let mut hsm_generator = HsmGenerator::new(4000);
+    let mut hsm_generator = HsmGenerator::new(args.entrust, 4000);
 
     let num_hsms = 5;
     info!(count = num_hsms, "creating HSMs and agents");

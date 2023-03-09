@@ -1,10 +1,11 @@
 [workspace]
-members = ["codegen","hsmcore"]
+members = ["codegen", "entrust-agent", "entrust-hsm", "hsmcore"]
 
 [package]
 name = "loam-mvp"
 version = "0.0.0"
 edition = "2021"
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
@@ -24,6 +25,7 @@ hmac = "0.12.1"
 http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
+libc = { version = "0.2.139", default-features = false }
 prost = "0.11.6"
 prost-types = "0.11.6"
 rand = { version = "0.8.5", default-features = false, features = ["alloc"] }
@@ -38,7 +40,7 @@ tonic = { version = "0.8.3", features = ["channel"] }
 tracing = { version = "0.1.37", default-features = false }
 tracing-subscriber = "0.3.16"
 url = { version = "2.3.1", features = ["serde"] }
-voprf = "0.4.0"
+voprf = { version="0.4.0" }
 
 [dependencies]
 async-trait = { workspace = true }

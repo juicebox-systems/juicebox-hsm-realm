@@ -61,7 +61,7 @@ async fn main() {
         })
         .collect();
 
-    let mut hsm_generator = HsmGenerator::new(4000);
+    let mut hsm_generator = HsmGenerator::new(false, 4000);
 
     let num_hsms = 5;
     info!(count = num_hsms, "creating initial HSMs and agents");
@@ -154,7 +154,7 @@ async fn main() {
 
     info!("creating additional realms");
     let mut realm_ids = join_all([5000, 6000, 7000].map(|start_port| {
-        let mut hsm_generator = HsmGenerator::new(start_port);
+        let mut hsm_generator = HsmGenerator::new(false, start_port);
         let mut process_group = process_group.clone();
         let bigtable = bigtable.clone();
         async move {

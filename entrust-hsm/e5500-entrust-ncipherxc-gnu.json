@@ -1,0 +1,62 @@
+{
+  "arch": "powerpc",
+  "crt-static-respected": true,
+  "data-layout": "E-m:e-p:32:32-i64:64-n32",
+  "dynamic-linking": true,
+  "env": "gnu",
+  "has-rpath": true,
+  "has-thread-local": true,
+  "llvm-target": "powerpc-unknown-linux-gnu",
+  "max-atomic-width": 32,
+  "os": "ncipherxc",
+  "no-default-libraries": false,
+  "position-independent-executables": false,
+  "pre-link-args": {
+    "gcc": [
+      "-O2",
+      "-g",
+      "-Wall",
+      "-Wpointer-arith",
+      "-Wwrite-strings",
+      "-Wstrict-prototypes",
+      "-Wmissing-prototypes",
+      "-mpowerpc",
+      "-mcpu=e5500",
+      "-mno-toc",
+      "-mbig-endian",
+      "-mhard-float",
+      "-mno-multiple",
+      "-mno-string",
+      "-meabi",
+      "-mprototype",
+      "-memb",
+      "-mstrict-align",
+      "-mno-builtin",
+      "-Werror",
+      "-DNF_CROSSCC_PPC_GCC=1"
+    ]
+  },
+  "post-link-args": {
+    "gcc": [
+      "/opt/nfast/c/csd/lib-ppc-linux-gcc/seelib.a",
+      "/opt/nfast/c/csd/lib-ppc-linux-gcc/rtlib/librtusr.a"
+    ]
+  },
+  "relro-level": "full",
+  "stack-probes": {
+    "kind": "inline"
+  },
+  "supported-split-debuginfo": [
+    "packed",
+    "unpacked",
+    "off"
+  ],
+  "target-endian": "big",
+  "target-family": [
+    "notunix"
+  ],
+  "target-mcount": "_mcount",
+  "target-pointer-width": "32",
+  "vendor": "entrust",
+  "linker": "/opt/nfast/gcc/bin/powerpc-codesafe-linux-gnu-gcc"
+}

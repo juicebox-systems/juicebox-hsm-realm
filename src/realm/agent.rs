@@ -353,12 +353,14 @@ impl<T: Transport + 'static> Agent<T> {
         for attempt in 1.. {
             match hsm.send(hsm_types::StatusRequest {}).await {
                 Err(e) => {
+                    warn!(?e, "failed to connect to HSM");
                     if attempt >= 1000 {
                         panic!("failed to connect to HSM: {e:?}");
                     }
                     sleep(Duration::from_millis(1)).await;
                 }
                 Ok(hsm_types::StatusResponse { id, .. }) => {
+                    info!(?id, ?url, "hsm id");
                     if let Err(e) = store.set_address(&id, &url).await {
                         todo!("{e}")
                     }
