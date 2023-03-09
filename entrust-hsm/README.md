@@ -38,7 +38,7 @@ scripts build their own versions or core and/or std.
 ## ncipherxc target
 
 The HSM runs a stripped down version of Linux. It has an allow list of syscalls that the
-seemachine can make. If it makes a syscall not on the whitelist the process is terminated.
+seemachine can make. If it makes a syscall not on the allow list the process is terminated.
 The ncipherxc target exists to stop dependencies that think it's running on Linux and make
 a syscall thats not allowed. (The [getrandom](https://crates.io/crates/getrandom) crate
 is an example of how this can happen).
