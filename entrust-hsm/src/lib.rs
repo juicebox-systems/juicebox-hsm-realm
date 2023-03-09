@@ -47,20 +47,18 @@ pub extern "C" fn rust_main() -> isize {
         }
         if rc == Status_OK {
             let result = hsm.handle_request(&buf[..len as usize]);
-            unsafe {
-                match result {
-                    Ok(data) => {
-                        //println!("success, returning {} bytes", data.len());
-                        SEElib_ReturnJob(tag, data.as_ptr(), data.len() as u32)
-                    }
-                    Err(_e) => {
-                        // There are no valid responses that are empty. We use an empty response to signal
-                        // a marshalling failure.
-                        //println!("failed with marshalling error {:?}", _e);
-                        SEElib_ReturnJob(tag, buf.as_ptr(), 0)
-                    }
-                };
-            }
+            match result {
+                Ok(data) => {
+                    //println!("success, returning {} bytes", data.len());
+                    unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as u32) }
+                }
+                Err(_e) => {
+                    // There are no valid responses that are empty. We use an empty response to signal
+                    // a marshalling failure.
+                    //println!("failed with marshalling error {:?}", _e);
+                    unsafe { SEElib_ReturnJob(tag, buf.as_ptr(), 0) }
+                }
+            };
         } else {
             // println!("AwaitJobEx returned unexpected error {}", rc);
         }
@@ -76,8 +74,8 @@ impl GetRandom for NFastRng {
         cmd.args.generaterandom = M_Cmd_GenerateRandom_Args {
             lenbytes: dest.len() as M_Word,
         };
-        let mut reply = M_Reply::default();
         unsafe {
+            let mut reply = M_Reply::default();
             let rc = SEElib_Transact(&mut cmd, &mut reply);
             assert_eq!(0, rc);
             assert_eq!(cmd.cmd, reply.cmd);

@@ -388,42 +388,42 @@ impl TransportInner {
             if rc != Status_OK {
                 panic!("Connect for privileged connection failed with code {rc}. Unable to recover crashed SEEWorld.");
             }
-            // issue the clear command
-            let mut cmd = M_Command::new(Cmd_ClearUnitEx);
-            cmd.args.clearunitex = M_Cmd_ClearUnitEx_Args {
-                flags: 0,
-                module: self.module as M_Word,
-                mode: ModuleMode_Default,
-            };
-            let reply = self.transact_on_conn(priv_conn, &mut cmd);
-            match reply {
-                Err(e) => {
-                    panic!("The SEEWorld crashed, and the attempt the clear the HSM so it can be restarted failed with error {e:?}");
-                }
-                Ok(_r) => {
-                    info!("Clear successfully issued, waiting on it to finish.");
-                    // Clear takes a while we'll wait on a no-op for it to finish.
-                    let mut cmd = M_Command::new(Cmd_NoOp);
-                    cmd.args.noop = M_Cmd_NoOp_Args {
-                        module: self.module as M_Word,
-                    };
-                    match self.transact_on_conn(priv_conn, &mut cmd) {
-                        Err(e) => {
-                            panic!(
+        }
+        // issue the clear command
+        let mut cmd = M_Command::new(Cmd_ClearUnitEx);
+        cmd.args.clearunitex = M_Cmd_ClearUnitEx_Args {
+            flags: 0,
+            module: self.module as M_Word,
+            mode: ModuleMode_Default,
+        };
+        let reply = self.transact_on_conn(priv_conn, &mut cmd);
+        match reply {
+            Err(e) => {
+                panic!("The SEEWorld crashed, and the attempt the clear the HSM so it can be restarted failed with error {e:?}");
+            }
+            Ok(_r) => {
+                info!("Clear successfully issued, waiting on it to finish.");
+                // Clear takes a while we'll wait on a no-op for it to finish.
+                let mut cmd = M_Command::new(Cmd_NoOp);
+                cmd.args.noop = M_Cmd_NoOp_Args {
+                    module: self.module as M_Word,
+                };
+                match self.transact_on_conn(priv_conn, &mut cmd) {
+                    Err(e) => {
+                        panic!(
                                 "The SEEWorld crashed, and a No-op after performing a clear failed with error {e:?}"
                             );
-                        }
-                        Ok(_reply) => {
-                            info!("Clear successfully completed. Attempting to restart SEEWorld");
-                            if let Err(e) = self.connect() {
-                                panic!(
-                                    "Restarting SEEWorld after previous crash has failed: {e:?}"
-                                );
-                            }
+                    }
+                    Ok(_reply) => {
+                        info!("Clear successfully completed. Attempting to restart SEEWorld");
+                        if let Err(e) = unsafe { self.connect() } {
+                            panic!("Restarting SEEWorld after previous crash has failed: {e:?}");
                         }
                     }
                 }
             }
+        }
+        unsafe {
             NFastApp_Disconnect(priv_conn, null_mut());
         }
     }
