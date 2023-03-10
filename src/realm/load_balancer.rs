@@ -13,9 +13,11 @@ use std::collections::HashMap;
 use std::iter::zip;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+use tokio::time;
 use tracing::{trace, warn};
 
 pub mod types;
@@ -36,6 +38,7 @@ struct State {
     name: String,
     store: StoreClient,
     agent_client: Client<AgentService>,
+    realms: Mutex<Arc<HashMap<RealmId, Vec<Partition>>>>,
 }
 
 impl LoadBalancer {
@@ -44,6 +47,7 @@ impl LoadBalancer {
             name,
             store,
             agent_client: Client::new(),
+            realms: Mutex::new(Arc::new(HashMap::new())),
         }))
     }
 
@@ -53,6 +57,7 @@ impl LoadBalancer {
     ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
         let listener = TcpListener::bind(address).await?;
         let url = Url::parse(&format!("http://{address}")).unwrap();
+        self.start_refresher().await;
         Ok((
             url,
             tokio::spawn(async move {
@@ -73,6 +78,17 @@ impl LoadBalancer {
                 }
             }),
         ))
+    }
+
+    async fn start_refresher(&self) {
+        let state = self.0.clone();
+        tokio::spawn(async move {
+            loop {
+                let updated = refresh(&state.name, &state.store, &state.agent_client).await;
+                *state.realms.lock().unwrap() = Arc::new(updated);
+                time::sleep(Duration::from_millis(100)).await;
+            }
+        });
     }
 }
 
@@ -142,17 +158,31 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
-        let name = self.0.name.clone();
-        trace!(load_balancer = name, ?request);
-        let store = self.0.store.clone();
-        let agent_client = self.0.agent_client.clone();
+        trace!(load_balancer = self.0.name, ?request);
+        let state = self.0.clone();
 
         Box::pin(async move {
-            let realms = refresh(&name, &store, &agent_client).await;
             let request = marshalling::from_slice(request.collect().await?.to_bytes().as_ref())
                 .expect("TODO");
-            let response = handle_client_request(request, &name, &realms, &agent_client).await;
-            trace!(load_balancer = name, ?response);
+            let realms = state.realms.lock().unwrap().clone();
+            let mut response =
+                handle_client_request(&request, &state.name, &realms, &state.agent_client).await;
+
+            if matches!(response, ClientResponse::Unavailable) {
+                // retry with refreshed info about realm endpoints
+                let refreshed_realms =
+                    Arc::new(refresh(&state.name, &state.store, &state.agent_client).await);
+                *state.realms.lock().unwrap() = refreshed_realms.clone();
+
+                response = handle_client_request(
+                    &request,
+                    &state.name,
+                    &refreshed_realms,
+                    &state.agent_client,
+                )
+                .await;
+            }
+            trace!(load_balancer = state.name, ?response);
             Ok(Response::builder()
                 .body(Full::new(Bytes::from(
                     marshalling::to_vec(&response).expect("TODO"),
@@ -163,7 +193,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
 }
 
 async fn handle_client_request(
-    request: ClientRequest,
+    request: &ClientRequest,
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
     agent_client: &Client<AgentService>,
