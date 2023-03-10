@@ -64,7 +64,6 @@ jobs:
         path: |
           ~/.cargo/registry
           ~/.cargo/git/
-          target/
         restore-keys: cargo-ubuntu-20.04-stable-
 
     - name: Run cargo build
