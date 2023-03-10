@@ -29,7 +29,6 @@ jobs:
       # see https://github.com/actions/runner-images/issues/2840
       run: |
         sudo rm -rf /usr/share/dotnet
-        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       shell: bash
 
     - name: Install Rust stable toolchain
