@@ -25,6 +25,13 @@ jobs:
     - name: Check out sources
       uses: actions/checkout@v2
 
+    - name: Free up some space on image
+      # see https://github.com/actions/runner-images/issues/2840
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+      shell: bash
+
     - name: Install Rust stable toolchain
       uses: actions-rs/toolchain@v1
       with:
