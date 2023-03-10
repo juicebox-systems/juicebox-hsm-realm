@@ -5,7 +5,7 @@ use hsmcore::marshalling::{DeserializationError, SerializationError};
 use http::Uri;
 use nfastapp::{
     Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
-    Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_ErrorReturn, Cmd_LoadBuffer,
+    Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_ErrorReturn, Cmd_LoadBuffer,
     Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine, Cmd_TraceSEEWorld,
     M_ByteBlock, M_Cmd, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args, M_Cmd_CreateSEEWorld_Args,
     M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args, M_Cmd_SEEJob_Args, M_Cmd_SetSEEMachine_Args,
@@ -353,8 +353,8 @@ impl TransportInner {
                 self.collect_trace_buffer();
             }
             if rep.status == Status_SEEWorldFailed || rep.status == Status_ObjectInUse {
-                // try clearing and restarting the SEE world
-                self.try_clear();
+                // try restarting the SEE world
+                self.restart_world();
                 return Err(SeeError::SeeWorldFailed);
             }
             return Err(SeeError::CmdErrorReturn(rep.status));
@@ -366,7 +366,27 @@ impl TransportInner {
         })
     }
 
+    /// Restarts the SEEWorld after its failed. We first attempt a restart by destroying the current one
+    /// and then starting it again. If that fails, we do a more extensive reset using a clear command
+    /// which should work but takes a lot of time.
+    fn restart_world(&mut self) {
+        if self.world_id.is_some() {
+            warn!("SEEWorld failed, attempting restart");
+            let mut cmd = M_Command::new(Cmd_Destroy);
+            cmd.args.destroy.key = self.world_id.unwrap();
+            if let Ok(_) = self.transact(&mut cmd) {
+                self.world_id = None;
+                if let Ok(_) = unsafe { self.connect() } {
+                    return;
+                }
+            }
+            warn!("Failed to restart SEEWorld, trying harder");
+        }
+        self.try_clear();
+    }
+
     /// If the SEEWorld crashes or is terminated by the HSM, transact will return Status_SEEWorldFailed.
+    /// If a graceful recovery doesn't work, then this more aggressive one should do it.
     /// Recovering from this involves
     ///     * Getting a privileged connection.
     ///     * Issuing a clear command (equiv to noopclearfail -c)
@@ -374,9 +394,7 @@ impl TransportInner {
     ///     * Finally creating a new SEEWorld.
     fn try_clear(&mut self) {
         self.world_id = None;
-        warn!(
-            "SEEWorld crashed or otherwise was terminated. Attempting to clear & restart SEEWorld"
-        );
+        warn!("Attempting to clear & restart SEEWorld");
         let mut priv_conn: NFastApp_Connection = null_mut();
         unsafe {
             let rc = NFastApp_Connect(
