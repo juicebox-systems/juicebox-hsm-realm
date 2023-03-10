@@ -38,7 +38,7 @@ struct State {
     name: String,
     store: StoreClient,
     agent_client: Client<AgentService>,
-    realms: Mutex<HashMap<RealmId, Vec<Partition>>>,
+    realms: Mutex<Arc<HashMap<RealmId, Vec<Partition>>>>,
 }
 
 impl LoadBalancer {
@@ -47,7 +47,7 @@ impl LoadBalancer {
             name,
             store,
             agent_client: Client::new(),
-            realms: Mutex::new(HashMap::new()),
+            realms: Mutex::new(Arc::new(HashMap::new())),
         }))
     }
 
@@ -85,14 +85,14 @@ impl LoadBalancer {
         tokio::spawn(async move {
             loop {
                 let updated = refresh(&state.name, &state.store, &state.agent_client).await;
-                *state.realms.lock().unwrap() = updated;
+                *state.realms.lock().unwrap() = Arc::new(updated);
                 time::sleep(Duration::from_millis(100)).await;
             }
         });
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct Partition {
     group: GroupId,
     owned_range: OwnedRange,
@@ -171,9 +171,8 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
             if matches!(response, ClientResponse::Unavailable) {
                 // retry with refreshed info about realm endpoints
                 let refreshed_realms =
-                    refresh(&state.name, &state.store, &state.agent_client).await;
-                let refreshed_realms_clone = refreshed_realms.clone();
-                *state.realms.lock().unwrap() = refreshed_realms_clone;
+                    Arc::new(refresh(&state.name, &state.store, &state.agent_client).await);
+                *state.realms.lock().unwrap() = refreshed_realms.clone();
 
                 response = handle_client_request(
                     &request,
