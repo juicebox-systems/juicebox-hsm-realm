@@ -11,7 +11,7 @@ extern crate alloc;
 use alloc::{boxed::Box, string::String, vec};
 use core::slice;
 use hsmcore::{
-    hsm::{Hsm, RealmKey},
+    hsm::{Hsm, HsmOptions, RealmKey},
     rand::GetRandom,
 };
 use seelib::{
@@ -23,9 +23,12 @@ use seelib::{
 #[no_mangle]
 pub extern "C" fn rust_main() -> isize {
     let mut hsm = Hsm::new(
-        String::from("entrust"),
+        HsmOptions {
+            name: String::from("entrust"),
+            rng: Box::new(NFastRng),
+            tree_overlay_size: 511,
+        },
         RealmKey::derive_from("010203".as_bytes()),
-        Box::new(NFastRng),
     );
     let mut buf = vec![0; 32 * 1024];
     let mut tag: M_Word = 0;

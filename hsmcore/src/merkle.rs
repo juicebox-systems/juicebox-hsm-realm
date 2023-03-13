@@ -55,10 +55,10 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
     // Create a new Tree instance for a previously constructed tree given the root hash
     // of the tree's content.
-    pub fn with_existing_root(hasher: H, root: HO) -> Self {
+    pub fn with_existing_root(hasher: H, root: HO, overlay_size: u16) -> Self {
         Tree {
             hasher,
-            overlay: TreeOverlay::new(root, 15),
+            overlay: TreeOverlay::new(root, overlay_size),
         }
     }
 
@@ -403,7 +403,7 @@ mod tests {
         store.apply_store_delta(root_hash, delta);
         assert_eq!(1, store.nodes.len());
         check_tree_invariants(&h, range, root_hash, &store).await;
-        let t = Tree::with_existing_root(h, root_hash);
+        let t = Tree::with_existing_root(h, root_hash, 15);
         (t, root_hash, store)
     }
 

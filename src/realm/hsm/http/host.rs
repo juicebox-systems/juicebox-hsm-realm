@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use futures::Future;
-use hsmcore::hsm::{Hsm, HsmError, RealmKey};
+use hsmcore::hsm::{Hsm, HsmError, HsmOptions, RealmKey};
 use hsmcore::rand::GetRandom;
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
@@ -19,7 +19,14 @@ pub struct HttpHsm(Arc<Mutex<Hsm>>);
 
 impl HttpHsm {
     pub fn new(name: String, realm_key: RealmKey, rng: Box<dyn GetRandom>) -> Self {
-        HttpHsm(Arc::new(Mutex::new(Hsm::new(name, realm_key, rng))))
+        HttpHsm(Arc::new(Mutex::new(Hsm::new(
+            HsmOptions {
+                name,
+                rng,
+                tree_overlay_size: 511,
+            },
+            realm_key,
+        ))))
     }
 
     pub async fn listen(
