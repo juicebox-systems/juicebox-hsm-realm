@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use std::{fmt, fmt::Debug, sync::Arc};
+use tokio::time::Instant;
 use tracing::{trace, warn};
 
 use hsmcore::{
@@ -20,7 +21,7 @@ pub trait Transport: fmt::Debug + Send + Sync {
         + From<HsmRpcError>
         + Send;
 
-    async fn send_rpc_msg(&self, msg: Vec<u8>) -> Result<Vec<u8>, Self::Error>;
+    async fn send_rpc_msg(&self, msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, Self::Error>;
 }
 
 #[derive(Debug)]
@@ -45,14 +46,28 @@ impl<T: Transport> HsmClient<T> {
         let hsm_req = r.to_req();
         let req_bytes = marshalling::to_vec(&hsm_req)?;
 
-        trace!(num_bytes = req_bytes.len(), "sending HSM RPC request");
-        let res_bytes = self.transport.send_rpc_msg(req_bytes).await?;
+        trace!(
+            num_bytes = req_bytes.len(),
+            req = hsm_req.as_ref(),
+            "sending HSM RPC request"
+        );
+        let start = Instant::now();
+        let res_bytes = self
+            .transport
+            .send_rpc_msg(hsm_req.as_ref(), req_bytes)
+            .await?;
 
+        let dur = start.elapsed();
         if res_bytes.is_empty() {
-            warn!("HSM failed to process RPC request");
+            warn!(req = hsm_req.as_ref(), "HSM failed to process RPC request");
             return Err(HsmRpcError.into());
         }
-        trace!(num_bytes = res_bytes.len(), "received HSM RPC response");
+        trace!(
+            num_bytes = res_bytes.len(),
+            req = hsm_req.as_ref(),
+            ?dur,
+            "received HSM RPC response"
+        );
         let response = marshalling::from_slice(&res_bytes)?;
         Ok(response)
     }

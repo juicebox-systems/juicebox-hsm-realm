@@ -1,6 +1,7 @@
 use core::fmt::Debug;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use strum::AsRefStr;
 
 use super::types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
@@ -18,7 +19,7 @@ pub trait HsmRpc: DeserializeOwned + Serialize + Debug {
 }
 
 // HsmRequest is what is sent over the "wire" to the HSM itself.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, AsRefStr)]
 pub enum HsmRequest {
     Status(StatusRequest),
     NewRealm(NewRealmRequest),

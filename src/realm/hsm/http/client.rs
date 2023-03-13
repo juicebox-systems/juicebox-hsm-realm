@@ -23,7 +23,7 @@ impl HsmHttpClient {
 impl Transport for HsmHttpClient {
     type Error = ClientError;
 
-    async fn send_rpc_msg(&self, msg: Vec<u8>) -> Result<Vec<u8>, Self::Error> {
+    async fn send_rpc_msg(&self, _msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, Self::Error> {
         match self.http.post(self.hsm.clone()).body(msg).send().await {
             Err(err) => Err(ClientError::Network(err)),
             Ok(response) if response.status().is_success() => {
