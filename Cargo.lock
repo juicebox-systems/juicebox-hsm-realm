@@ -608,6 +608,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "clap 4.1.8",
+ "ctrlc",
  "hsmcore",
  "http",
  "loam-mvp",
