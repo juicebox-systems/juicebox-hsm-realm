@@ -21,7 +21,7 @@ use std::ops::Deref;
 use std::ptr::null_mut;
 use std::sync::{Arc, Mutex};
 use tokio::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 
 use loam_mvp::logging;
 use loam_mvp::realm::agent::Agent;
@@ -184,6 +184,7 @@ impl Transport for EntrustSeeTransport {
 }
 
 impl TransportInner {
+    #[instrument(level = "trace", skip(self, msg))]
     fn send_rpc_msg(&mut self, msg_name: &str, mut msg: Vec<u8>) -> Result<Vec<u8>, SeeError> {
         unsafe {
             self.connect()?;
