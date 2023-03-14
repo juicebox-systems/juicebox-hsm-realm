@@ -72,8 +72,10 @@ struct NFastRng;
 
 impl GetRandom for NFastRng {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        let mut cmd = M_Command::default();
-        cmd.cmd = Cmd_GenerateRandom;
+        let mut cmd = M_Command {
+            cmd: Cmd_GenerateRandom,
+            ..M_Command::default()
+        };
         cmd.args.generaterandom = M_Cmd_GenerateRandom_Args {
             lenbytes: dest.len() as M_Word,
         };

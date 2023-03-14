@@ -221,7 +221,7 @@ impl TransportInner {
     unsafe fn start_seeworld(&mut self) -> Result<M_KeyID, SeeError> {
         if let Some(image) = &self.see_machine {
             // Load the SEEMachine image if one was specified
-            let data = fs::read(&image).expect("TODO");
+            let data = fs::read(image).expect("TODO");
             let buffer_id = self.load_buffer(data)?;
             let mut cmd = M_Command::new(Cmd_SetSEEMachine);
             cmd.args.setseemachine = M_Cmd_SetSEEMachine_Args {
@@ -376,9 +376,9 @@ impl TransportInner {
             warn!("SEEWorld failed, attempting restart");
             let mut cmd = M_Command::new(Cmd_Destroy);
             cmd.args.destroy.key = self.world_id.unwrap();
-            if let Ok(_) = self.transact(&mut cmd) {
+            if self.transact(&mut cmd).is_ok() {
                 self.world_id = None;
-                if let Ok(_) = unsafe { self.connect() } {
+                if unsafe { self.connect() }.is_ok() {
                     return;
                 }
             }
@@ -479,8 +479,9 @@ impl M_ByteBlock {
 
 impl M_Command {
     pub fn new(cmd: M_Cmd) -> Self {
-        let mut c = M_Command::default();
-        c.cmd = cmd;
-        c
+        Self {
+            cmd,
+            ..Self::default()
+        }
     }
 }
