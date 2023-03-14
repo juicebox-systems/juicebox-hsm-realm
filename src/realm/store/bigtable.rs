@@ -429,19 +429,34 @@ impl StoreClient {
     ) -> Result<Option<LogEntry>, tonic::Status> {
         trace!(?realm, ?group, "read_last_log_entry starting");
 
-        // This is an inefficient placeholder to avoid copy-pasting the
-        // `read_log_entry` code.
-        //
-        // TODO: do a single range read instead to find the last log entry.
-        let mut index = LogIndex::FIRST;
-        let mut last = None;
-        while let Some(entry) = self.read_log_entry(realm, group, index).await? {
-            last = Some(entry);
-            index = index.next();
-        }
+        let rows = read_rows(
+            &mut self.bigtable.clone(),
+            ReadRowsRequest {
+                table_name: log_table(&self.instance, realm),
+                app_profile_id: String::new(),
+                rows: Some(RowSet {
+                    row_keys: Vec::new(),
+                    row_ranges: vec![RowRange {
+                        start_key: Some(StartKeyClosed(log_key(group, LogIndex(u64::MAX)))),
+                        end_key: None,
+                    }],
+                }),
+                filter: None,
+                rows_limit: 1,
+                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+            },
+        )
+        .await?;
 
-        trace!(?realm, ?group, ?last, "read_last_log_entry completed");
-        Ok(last)
+        let entry = rows.into_iter().next().and_then(|(_key, cells)| {
+            cells
+                .into_iter()
+                .find(|cell| cell.family == "f" && cell.qualifier == b"e")
+                .map(|cell| marshalling::from_slice(&cell.value).expect("TODO"))
+        });
+
+        trace!(?realm, ?group, ?entry, "read_last_log_entry completed");
+        Ok(entry)
     }
 
     pub async fn get_addresses(&self) -> Result<Vec<(HsmId, Url)>, tonic::Status> {
