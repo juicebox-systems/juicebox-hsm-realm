@@ -329,10 +329,15 @@ impl RecordEncryptionKey {
 }
 
 pub struct Hsm {
-    name: String,
+    options: HsmOptions,
     persistent: PersistentState,
     volatile: VolatileState,
-    rng: Box<dyn GetRandom>,
+}
+
+pub struct HsmOptions {
+    pub name: String,
+    pub rng: Box<dyn GetRandom>,
+    pub tree_overlay_size: u16,
 }
 
 struct PersistentState {
@@ -378,13 +383,12 @@ pub enum HsmError {
 }
 
 impl Hsm {
-    pub fn new(name: String, realm_key: RealmKey, mut rng: Box<dyn GetRandom>) -> Self {
+    pub fn new(mut options: HsmOptions, realm_key: RealmKey) -> Self {
         let root_oprf_key = RootOprfKey::from(&realm_key);
         let record_key = RecordEncryptionKey::from(&realm_key);
-        let hsm_id = HsmId::random(&mut rng);
+        let hsm_id = HsmId::random(&mut options.rng);
         Hsm {
-            rng,
-            name,
+            options,
             persistent: PersistentState {
                 id: hsm_id,
                 realm_key,
@@ -442,7 +446,7 @@ impl Hsm {
         configuration: Configuration,
         owned_range: Option<OwnedRange>,
     ) -> NewGroupInfo {
-        let group = GroupId::random(&mut self.rng);
+        let group = GroupId::random(&mut self.options.rng);
         let statement = GroupConfigurationStatementBuilder {
             realm,
             group,
@@ -504,9 +508,13 @@ impl Hsm {
                 }],
                 committed: None,
                 incoming: None,
-                tree: partition
-                    .as_ref()
-                    .map(|p| Tree::with_existing_root(MerkleHasher(), p.root_hash)),
+                tree: partition.as_ref().map(|p| {
+                    Tree::with_existing_root(
+                        MerkleHasher(),
+                        p.root_hash,
+                        self.options.tree_overlay_size,
+                    )
+                }),
             },
         );
 
@@ -520,7 +528,7 @@ impl Hsm {
     }
 
     fn handle_status_request(&mut self, request: StatusRequest) -> StatusResponse {
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
         let response =
             StatusResponse {
                 id: self.persistent.id,
@@ -554,13 +562,13 @@ impl Hsm {
                         .collect(),
                 }),
             };
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_new_realm(&mut self, request: NewRealmRequest) -> NewRealmResponse {
         type Response = NewRealmResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
         let response = if self.persistent.realm.is_some() {
             Response::HaveRealm
         } else if !request.configuration.is_ok()
@@ -568,7 +576,7 @@ impl Hsm {
         {
             Response::InvalidConfiguration
         } else {
-            let realm_id = RealmId::random(&mut self.rng);
+            let realm_id = RealmId::random(&mut self.options.rng);
             self.persistent.realm = Some(PersistentRealmState {
                 id: realm_id,
                 groups: HashMap::new(),
@@ -577,12 +585,12 @@ impl Hsm {
                 self.create_new_group(realm_id, request.configuration, Some(OwnedRange::full()));
             Response::Ok(group_info)
         };
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_join_realm(&mut self, request: JoinRealmRequest) -> JoinRealmResponse {
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
 
         let response = match &self.persistent.realm {
             Some(realm) => {
@@ -605,16 +613,16 @@ impl Hsm {
             }
         };
 
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_new_group(&mut self, request: NewGroupRequest) -> NewGroupResponse {
         type Response = NewGroupResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
 
         let Some(realm) = &mut self.persistent.realm else {
-            trace!(hsm = self.name, response = ?Response::InvalidRealm);
+            trace!(hsm = self.options.name, response = ?Response::InvalidRealm);
             return Response::InvalidRealm;
         };
 
@@ -630,13 +638,13 @@ impl Hsm {
                 self.create_new_group(request.realm, request.configuration, owned_range);
             Response::Ok(group_info)
         };
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_join_group(&mut self, request: JoinGroupRequest) -> JoinGroupResponse {
         type Response = JoinGroupResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
         let response = match &mut self.persistent.realm {
             None => Response::InvalidRealm,
 
@@ -668,13 +676,13 @@ impl Hsm {
                 }
             }
         };
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_capture_next(&mut self, request: CaptureNextRequest) -> CaptureNextResponse {
         type Response = CaptureNextResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
 
         let response = (|| match &mut self.persistent.realm {
             None => Response::InvalidRealm,
@@ -736,13 +744,13 @@ impl Hsm {
             }
         })();
 
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_become_leader(&mut self, request: BecomeLeaderRequest) -> BecomeLeaderResponse {
         type Response = BecomeLeaderResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
 
         let response = (|| {
             match &self.persistent.realm {
@@ -782,11 +790,13 @@ impl Hsm {
                 }
             }
 
-            let tree = request
-                .last_entry
-                .partition
-                .as_ref()
-                .map(|p| Tree::with_existing_root(MerkleHasher(), p.root_hash));
+            let tree = request.last_entry.partition.as_ref().map(|p| {
+                Tree::with_existing_root(
+                    MerkleHasher(),
+                    p.root_hash,
+                    self.options.tree_overlay_size,
+                )
+            });
             self.volatile
                 .leader
                 .entry(request.group)
@@ -802,13 +812,13 @@ impl Hsm {
             Response::Ok
         })();
 
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_read_captured(&mut self, request: ReadCapturedRequest) -> ReadCapturedResponse {
         type Response = ReadCapturedResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
         let response = match &self.persistent.realm {
             None => Response::InvalidRealm,
 
@@ -839,13 +849,13 @@ impl Hsm {
                 }
             }
         };
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_commit(&mut self, request: CommitRequest) -> CommitResponse {
         type Response = CommitResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
 
         let response = (|| {
             let Some(realm) = &self.persistent.realm else {
@@ -897,7 +907,7 @@ impl Hsm {
                 .len();
 
             if captures > group.configuration.0.len() / 2 {
-                trace!(hsm = self.name, index = ?request.index, "leader committed entry");
+                trace!(hsm = self.options.name, index = ?request.index, "leader committed entry");
                 // todo: skip already committed entries
                 let responses = leader
                     .log
@@ -917,7 +927,7 @@ impl Hsm {
                 }
             } else {
                 warn!(
-                    hsm = self.name,
+                    hsm = self.options.name,
                     captures,
                     total = group.configuration.0.len(),
                     "no quorum. buggy caller?"
@@ -926,13 +936,13 @@ impl Hsm {
             }
         })();
 
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_transfer_out(&mut self, request: TransferOutRequest) -> TransferOutResponse {
         type Response = TransferOutResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
 
         let response = (|| {
             let Some(realm) = &self.persistent.realm else {
@@ -1034,9 +1044,13 @@ impl Hsm {
             }
             .build(&self.persistent.realm_key);
 
-            leader.tree = keeping_partition
-                .as_ref()
-                .map(|p| Tree::with_existing_root(MerkleHasher(), p.root_hash));
+            leader.tree = keeping_partition.as_ref().map(|p| {
+                Tree::with_existing_root(
+                    MerkleHasher(),
+                    p.root_hash,
+                    self.options.tree_overlay_size,
+                )
+            });
 
             let entry = LogEntry {
                 index,
@@ -1054,13 +1068,13 @@ impl Hsm {
             TransferOutResponse::Ok { entry, delta }
         })();
 
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_transfer_nonce(&mut self, request: TransferNonceRequest) -> TransferNonceResponse {
         type Response = TransferNonceResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
 
         let response = (|| {
             let Some(realm) = &self.persistent.realm else {
@@ -1078,12 +1092,12 @@ impl Hsm {
                 return Response::NotLeader;
             };
 
-            let nonce = TransferNonce::random(&mut self.rng);
+            let nonce = TransferNonce::random(&mut self.options.rng);
             leader.incoming = Some(nonce);
             Response::Ok(nonce)
         })();
 
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
@@ -1092,7 +1106,7 @@ impl Hsm {
         request: TransferStatementRequest,
     ) -> TransferStatementResponse {
         type Response = TransferStatementResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
         let response = (|| {
             let Some(realm) = &self.persistent.realm else {
                 return Response::InvalidRealm;
@@ -1134,13 +1148,13 @@ impl Hsm {
             Response::Ok(statement)
         })();
 
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_transfer_in(&mut self, request: TransferInRequest) -> TransferInResponse {
         type Response = TransferInResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
 
         let response = (|| {
             let Some(realm) = &self.persistent.realm else {
@@ -1246,11 +1260,15 @@ impl Hsm {
                 response: None,
             });
 
-            leader.tree = Some(Tree::with_existing_root(MerkleHasher(), partition_hash));
+            leader.tree = Some(Tree::with_existing_root(
+                MerkleHasher(),
+                partition_hash,
+                self.options.tree_overlay_size,
+            ));
             Response::Ok { entry, delta }
         })();
 
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
@@ -1259,7 +1277,7 @@ impl Hsm {
         request: CompleteTransferRequest,
     ) -> CompleteTransferResponse {
         type Response = CompleteTransferResponse;
-        trace!(hsm = self.name, ?request);
+        trace!(hsm = self.options.name, ?request);
 
         let response = (|| {
             let Some(realm) = &self.persistent.realm else {
@@ -1319,14 +1337,14 @@ impl Hsm {
             Response::Ok(entry)
         })();
 
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 
     fn handle_app(&mut self, request: AppRequest) -> AppResponse {
         type Response = AppResponse;
-        trace!(hsm = self.name, ?request);
-        let hsm_name = &self.name;
+        trace!(hsm = self.options.name, ?request);
+        let hsm_name = &self.options.name;
 
         let response = match &self.persistent.realm {
             Some(realm) if realm.id == request.realm => {
@@ -1363,7 +1381,7 @@ impl Hsm {
             None | Some(_) => Response::InvalidRealm,
         };
 
-        trace!(hsm = self.name, ?response);
+        trace!(hsm = self.options.name, ?response);
         response
     }
 }
