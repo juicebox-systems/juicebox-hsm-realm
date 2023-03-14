@@ -51,13 +51,14 @@ sharks = "0.5.0"
 subtle = { version = "2.4.1", default-features = false }
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros"] }
 tonic = { version = "0.8.3", features = ["channel"] }
-# We need https://github.com/tokio-rs/tracing/pull/2335 to quiet down error return
-# values, which is not yet unreleased.
-tracing = { git = "https://github.com/tokio-rs/tracing", default-features = false, features = [
+tracing = { version = "0.2.0", default-features = false, features = [
+    "alloc",
     "attributes",
 ] }
-tracing-opentelemetry = { git = "https://github.com/tokio-rs/tracing" }
-tracing-subscriber = { git = "https://github.com/tokio-rs/tracing" }
+# The latest Cargo.toml of tracing-opentelemetry in Git has an old version number.
+tracing-opentelemetry = { version = "*" }
+# The latest Cargo.toml of tracing-subscriber in Git has an old version number.
+tracing-subscriber = { version = "*" }
 url = { version = "2.3.1", features = ["serde"] }
 voprf = { version = "0.4.0" }
 
@@ -99,6 +100,11 @@ hsmcore = { path = "hsmcore" }
 # waiting on this issue/pr to be resolved
 # https://github.com/ferrilab/bitvec/issues/215
 bitvec = { git = 'https://github.com/superfell/bitvec', branch = 'vec_order' }
+# We need https://github.com/tokio-rs/tracing/pull/2335 to quiet down error return
+# values in tokio::instrument, which is not yet unreleased.
+tracing = { git = "https://github.com/tokio-rs/tracing" }
+tracing-opentelemetry = { git = "https://github.com/tokio-rs/tracing" }
+tracing-subscriber = { git = "https://github.com/tokio-rs/tracing" }
 
 [dev-dependencies]
 async-recursion = { workspace = true }
