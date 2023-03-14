@@ -30,7 +30,16 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure();
+    logging::configure("loam-load-balancer");
+
+    ctrlc::set_handler(move || {
+        info!(pid = std::process::id(), "received termination signal");
+        logging::flush();
+        info!(pid = std::process::id(), "exiting");
+        std::process::exit(0);
+    })
+    .expect("error setting signal handler");
+
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("lb{}", args.listen));
 
@@ -47,6 +56,9 @@ async fn main() {
     let (url, join_handle) = lb.listen(args.listen).await.expect("TODO");
     info!(url = %url, "Load balancer started");
     join_handle.await.unwrap();
+
+    logging::flush();
+    info!(pid = std::process::id(), "exiting");
 }
 
 fn parse_listen(s: &str) -> Result<SocketAddr, String> {

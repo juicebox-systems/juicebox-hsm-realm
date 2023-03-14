@@ -18,9 +18,19 @@ use common::process_group::ProcessGroup;
 
 #[tokio::main]
 async fn main() {
-    logging::configure();
+    logging::configure("loam-demo");
 
     let mut process_group = ProcessGroup::new();
+
+    let mut process_group_alias = process_group.clone();
+    ctrlc::set_handler(move || {
+        info!(pid = std::process::id(), "received termination signal");
+        logging::flush();
+        process_group_alias.kill();
+        info!(pid = std::process::id(), "exiting");
+        std::process::exit(0);
+    })
+    .expect("error setting signal handler");
 
     let bigtable = Uri::from_static("http://localhost:9000");
     info!(url = %bigtable, "connecting to Bigtable");
@@ -285,6 +295,8 @@ async fn main() {
     }
     println!();
 
+    info!(pid = std::process::id(), "main: done");
     process_group.kill();
-    println!("main: exiting");
+    logging::flush();
+    info!(pid = std::process::id(), "main: exiting");
 }

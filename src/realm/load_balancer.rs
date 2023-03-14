@@ -8,6 +8,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use opentelemetry_http::HeaderExtractor;
 use reqwest::Url;
 use std::collections::HashMap;
 use std::iter::zip;
@@ -18,7 +19,8 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time;
-use tracing::{trace, warn};
+use tracing::{instrument, trace, warn, Instrument, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub mod types;
 
@@ -27,6 +29,7 @@ use super::agent::types::{
     AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
 };
 use super::store::bigtable::StoreClient;
+use crate::logging::Spew;
 use hsm_types::{GroupId, OwnedRange, RealmId};
 use hsmcore::hsm::types as hsm_types;
 use types::{ClientRequest, ClientResponse};
@@ -99,6 +102,9 @@ struct Partition {
     leader: Url,
 }
 
+static REFRESH_SPEW: Spew = Spew::new();
+
+#[tracing::instrument(level = "trace")]
 async fn refresh(
     name: &str,
     store: &StoreClient,
@@ -142,7 +148,9 @@ async fn refresh(
                     Ok(_) => {}
 
                     Err(err) => {
-                        warn!(load_balancer = name, ?agent, ?err, "could not get status");
+                        if let Some(suppressed) = REFRESH_SPEW.ok() {
+                            warn!(load_balancer = name, %agent, %err, suppressed, "could not get status");
+                        }
                     }
                 }
             }
@@ -157,41 +165,54 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
+    #[instrument(level = "trace", name = "Service::call", skip(self, request))]
     fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
         trace!(load_balancer = self.0.name, ?request);
         let state = self.0.clone();
 
-        Box::pin(async move {
-            let request = marshalling::from_slice(request.collect().await?.to_bytes().as_ref())
-                .expect("TODO");
-            let realms = state.realms.lock().unwrap().clone();
-            let mut response =
-                handle_client_request(&request, &state.name, &realms, &state.agent_client).await;
+        let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
+            propagator.extract(&HeaderExtractor(request.headers()))
+        });
+        Span::current().set_parent(parent_context);
 
-            if matches!(response, ClientResponse::Unavailable) {
-                // retry with refreshed info about realm endpoints
-                let refreshed_realms =
-                    Arc::new(refresh(&state.name, &state.store, &state.agent_client).await);
-                *state.realms.lock().unwrap() = refreshed_realms.clone();
+        Box::pin(
+            async move {
+                let request = marshalling::from_slice(request.collect().await?.to_bytes().as_ref())
+                    .expect("TODO");
+                let realms = state.realms.lock().unwrap().clone();
+                let mut response =
+                    handle_client_request(&request, &state.name, &realms, &state.agent_client)
+                        .await;
 
-                response = handle_client_request(
-                    &request,
-                    &state.name,
-                    &refreshed_realms,
-                    &state.agent_client,
-                )
-                .await;
+                if matches!(response, ClientResponse::Unavailable) {
+                    // retry with refreshed info about realm endpoints
+                    let refreshed_realms =
+                        Arc::new(refresh(&state.name, &state.store, &state.agent_client).await);
+                    *state.realms.lock().unwrap() = refreshed_realms.clone();
+
+                    response = handle_client_request(
+                        &request,
+                        &state.name,
+                        &refreshed_realms,
+                        &state.agent_client,
+                    )
+                    .await;
+                }
+                trace!(load_balancer = state.name, ?response);
+                Ok(Response::builder()
+                    .body(Full::new(Bytes::from(
+                        marshalling::to_vec(&response).expect("TODO"),
+                    )))
+                    .expect("TODO"))
             }
-            trace!(load_balancer = state.name, ?response);
-            Ok(Response::builder()
-                .body(Full::new(Bytes::from(
-                    marshalling::to_vec(&response).expect("TODO"),
-                )))
-                .expect("TODO"))
-        })
+            // This doesn't look like it should do anything, but it seems to be
+            // critical to connecting these spans to the parent.
+            .instrument(Span::current()),
+        )
     }
 }
 
+#[tracing::instrument(level = "trace", skip(request, realms, agent_client))]
 async fn handle_client_request(
     request: &ClientRequest,
     name: &str,
@@ -232,7 +253,7 @@ async fn handle_client_request(
             Err(_) => {
                 warn!(
                     load_balancer = name,
-                    agent = ?partition.leader,
+                    agent = %partition.leader,
                     realm = ?request.realm,
                     group = ?partition.group,
                     "http error",

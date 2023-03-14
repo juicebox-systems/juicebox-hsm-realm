@@ -14,6 +14,7 @@ use std::collections::BTreeSet;
 use std::fmt::{self, Debug};
 use std::iter::zip;
 use std::ops::Deref;
+use tracing::instrument;
 
 use super::http_client;
 use super::http_client::ClientError;
@@ -27,14 +28,20 @@ use hsmcore::types::{
 };
 
 type OprfClient = voprf::OprfClient<OprfCipherSuite>;
-type OprfResult = digest::Output<<OprfCipherSuite as voprf::CipherSuite>::Hash>;
+struct OprfResult(digest::Output<<OprfCipherSuite as voprf::CipherSuite>::Hash>);
+
+impl Debug for OprfResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("(redacted)")
+    }
+}
 
 fn oprf_output_size() -> usize {
     <OprfCipherSuite as voprf::CipherSuite>::Hash::output_size()
 }
 
 /// A remote service that the client interacts with directly.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Realm {
     /// The network address to connect to the service.
     pub address: Url,
@@ -43,6 +50,15 @@ pub struct Realm {
     pub public_key: Vec<u8>,
     /// Temp hack
     pub id: RealmId,
+}
+
+impl Debug for Realm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Realm")
+            .field("id", &self.id)
+            .field("address", &self.address.as_str())
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug)]
@@ -239,6 +255,12 @@ struct LengthMismatchError;
 #[derive(Clone)]
 struct PgkShare(sharks::Share);
 
+impl Debug for PgkShare {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("(redacted)")
+    }
+}
+
 impl PgkShare {
     fn try_from_masked(
         masked_share: &MaskedPgkShare,
@@ -255,14 +277,15 @@ impl PgkShare {
         }
     }
 
-    fn mask(&self, oprf_pin: &[u8]) -> MaskedPgkShare {
+    fn mask(&self, oprf_pin: &OprfResult) -> MaskedPgkShare {
         let share = Vec::from(&self.0);
-        assert_eq!(oprf_pin.len(), share.len());
-        MaskedPgkShare(zip(oprf_pin, share).map(|(a, b)| a ^ b).collect())
+        assert_eq!(oprf_pin.0.len(), share.len());
+        MaskedPgkShare(zip(oprf_pin.0, share).map(|(a, b)| a ^ b).collect())
     }
 }
 
 /// Successful return type of [`Client::register_generation`].
+#[derive(Debug)]
 struct RegisterGenSuccess {
     /// If true, at least one generation record with a lower generation number
     /// was found on the server. The client should attempt to delete those
@@ -271,6 +294,7 @@ struct RegisterGenSuccess {
 }
 
 /// Error return type of [`Client::register_generation`].
+#[derive(Debug)]
 enum RegisterGenError {
     Error(RegisterError),
     Retry(GenerationNumber),
@@ -294,12 +318,14 @@ struct RecoverGenSuccess {
 }
 
 /// Error return type of [`Client::recover_generation`].
+#[derive(Debug)]
 struct RecoverGenError {
     error: RecoverError,
     retry: Option<GenerationNumber>,
 }
 
 /// Successful return type of [`Client::recover1`].
+#[derive(Debug)]
 struct Recover1Success {
     generation: GenerationNumber,
     pgk_share: PgkShare,
@@ -372,6 +398,7 @@ impl Client {
     ///
     /// If the secrets vary in length (such as passwords), the caller should
     /// add padding to obscure the secrets' length.
+    #[instrument(level = "trace", skip(self), err(level = "trace", Debug))]
     pub async fn register(
         &self,
         pin: &Pin,
@@ -522,6 +549,7 @@ impl Client {
 
     /// Executes phase 1 of registration on a particular realm at a particular
     /// generation.
+    #[instrument(level = "trace", skip(self), err(level = "trace", Debug))]
     async fn register1(
         &self,
         realm: &Realm,
@@ -561,7 +589,7 @@ impl Client {
                     if oprf_pin.len() != oprf_output_size() {
                         return Err(RegisterGenError::Error(RegisterError::ProtocolError));
                     }
-                    Ok(oprf_pin)
+                    Ok(OprfResult(oprf_pin))
                 }
 
                 Register1Response::InvalidAuth => {
@@ -579,6 +607,7 @@ impl Client {
 
     /// Executes phase 2 of registration on a particular realm at a particular
     /// generation.
+    #[instrument(level = "trace", skip(self), ret, err(level = "trace", Debug))]
     async fn register2(
         &self,
         realm: &Realm,
@@ -631,6 +660,7 @@ impl Client {
     ///
     /// If it's successful, this also deletes any earlier secrets for this
     /// user.
+    #[instrument(level = "trace", skip(self), err(level = "trace", Debug))]
     pub async fn recover(&self, pin: &Pin) -> Result<UserSecret, RecoverError> {
         // First, try the latest generation on each server (represented as
         // `generation = None`). In the common case, all the servers will
@@ -853,6 +883,7 @@ impl Client {
     ///
     /// If the generation number is given as `None`, tries the latest
     /// generation present on the realm.
+    #[instrument(level = "trace", skip(self), ret, err(level = "trace", Debug))]
     async fn recover1(
         &self,
         realm: &Realm,
@@ -993,6 +1024,7 @@ impl Client {
 
     /// Executes phase 2 of recovery on a particular realm at a particular
     /// generation.
+    #[instrument(level = "trace", skip(self))]
     async fn recover2(
         &self,
         realm: &Realm,
@@ -1043,6 +1075,7 @@ impl Client {
     ///
     /// If the generation number is given as `None`, deletes all the user's
     /// generations.
+    #[instrument(level = "trace", skip(self), err(level = "trace", Debug))]
     async fn delete_up_to(&self, up_to: Option<GenerationNumber>) -> Result<(), DeleteError> {
         let requests = self
             .configuration
@@ -1057,6 +1090,7 @@ impl Client {
     }
 
     /// Executes [`delete_up_to`](Self::delete_up_to) on a particular realm.
+    #[instrument(level = "trace", skip(self), err(level = "trace", Debug))]
     async fn delete_on_realm(
         &self,
         realm: &Realm,

@@ -36,7 +36,16 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure();
+    logging::configure("loam-agent");
+
+    ctrlc::set_handler(move || {
+        info!(pid = std::process::id(), "received termination signal");
+        logging::flush();
+        info!(pid = std::process::id(), "exiting");
+        std::process::exit(0);
+    })
+    .expect("error setting signal handler");
+
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
 

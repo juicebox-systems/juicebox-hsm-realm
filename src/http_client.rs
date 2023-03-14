@@ -1,10 +1,13 @@
+use opentelemetry_http::HeaderInjector;
+use reqwest::Url;
 use std::marker::PhantomData;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::realm::hsm::client::HsmRpcError;
 
 use super::realm::rpc::{Rpc, Service};
 use hsmcore::marshalling;
-use reqwest::Url;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
@@ -44,6 +47,29 @@ pub enum ClientError {
     HsmRpcError,
 }
 
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use ClientError::*;
+        match self {
+            Network(e) => {
+                write!(f, "network error: {e}")
+            }
+            HttpStatus(e) => {
+                write!(f, "non-OK HTTP status: {e}")
+            }
+            Serialization(e) => {
+                write!(f, "serialization error: {e:?}")
+            }
+            Deserialization(e) => {
+                write!(f, "deserialization error: {e:?}")
+            }
+            HsmRpcError => {
+                write!(f, "HSM RPC error")
+            }
+        }
+    }
+}
+
 impl From<marshalling::SerializationError> for ClientError {
     fn from(value: marshalling::SerializationError) -> Self {
         ClientError::Serialization(value)
@@ -70,6 +96,7 @@ impl<F: Service> Client<F> {
         }
     }
 
+    #[tracing::instrument(level = "trace", name = " http_client::send" skip(self, request))]
     pub async fn send<R: Rpc<F>>(
         &self,
         base_url: &Url,
@@ -77,9 +104,19 @@ impl<F: Service> Client<F> {
     ) -> Result<R::Response, ClientError> {
         type Error = ClientError;
         let url = base_url.join(R::PATH).unwrap();
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        opentelemetry::global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(
+                &Span::current().context(),
+                &mut HeaderInjector(&mut headers),
+            )
+        });
+
         match self
             .http
             .post(url)
+            .headers(headers)
             .body(marshalling::to_vec(&request)?)
             .send()
             .await

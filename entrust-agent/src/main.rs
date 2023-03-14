@@ -71,7 +71,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure();
+    logging::configure("entrust-agent");
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
 

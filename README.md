@@ -1,7 +1,21 @@
 ## Builds
 
-* `cargo test --all` run the unit tests
-* `cargo run --bin demo` run the demo aka "integration test"
+System dependencies:
+
+* [Rust](https://rustup.rs/)
+* [Protocol Buffers compiler](https://github.com/protocolbuffers/protobuf#protocol-compiler-installation),
+  as located and used by
+  [prost-build](https://docs.rs/prost-build/latest/prost_build/#sourcing-protoc).
+  This is needed for `opentelemetry-otlp` and can also be used to regenerate
+  the Google Cloud API messages.  On Debian, `apt install protobuf-compiler` is
+  sufficient.
+* See the section on the Bigtable emulator below, which you'll also need.
+
+Then:
+
+* `cargo test --all` to run the unit tests
+* `cargo build && cargo run --bin demo` to run the demo aka "integration test"
+
 
 ### Cross Compile
 
@@ -80,3 +94,19 @@ You can create tables like this:
 ```sh
 lbt createtable tab families=fam
 ```
+
+## OpenTelemetry traces
+
+The code sends OpenTelemetry traces over OTLP (GRPC) to `http://localhost:4317`.
+You can run a Jaeger instance, for example, to receive these and view them:
+
+Follow the [instructions](https://www.jaegertracing.io/docs/latest/getting-started/)
+to get an all-in-one Docker image or executable binary.
+
+Run:
+
+```sh
+COLLECTOR_OTLP_ENABLED=true ./jaeger-1.42.0-linux-amd64/jaeger-all-in-one --collector.otlp.grpc.host-port=:4317
+```
+
+Open <http://localhost:16686/>.
