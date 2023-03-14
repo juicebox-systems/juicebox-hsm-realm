@@ -21,9 +21,9 @@ use super::http_client::ClientError;
 use super::realm::load_balancer::types::{ClientRequest, ClientResponse, LoadBalancerService};
 use hsmcore::hsm::types::{RealmId, SecretsRequest, SecretsResponse};
 use hsmcore::types::{
-    AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedPgkShare, OprfBlindedResult,
+    AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedTgkShare, OprfBlindedResult,
     OprfCipherSuite, Policy, Recover1Request, Recover1Response, Recover2Request, Recover2Response,
-    Register1Request, Register1Response, Register2Request, Register2Response, UnlockPassword,
+    Register1Request, Register1Response, Register2Request, Register2Response, UnlockTag,
     UserSecretShare,
 };
 
@@ -221,49 +221,49 @@ pub enum DeleteError {
     InvalidAuth,
 }
 
-/// A random key that is used to derive secret-unlocking passwords
-/// ([`UnlockPassword`]) for each realm.
-struct PasswordGeneratingKey(Vec<u8>);
+/// A random key that is used to derive secret-unlocking tags
+/// ([`UnlockTag`]) for each realm.
+struct TagGeneratingKey(Vec<u8>);
 
-impl PasswordGeneratingKey {
+impl TagGeneratingKey {
     /// Generates a new key with random data.
     fn new_random() -> Self {
-        // The PGK should be one byte smaller than the OPRF output,
-        // so that the PGK shares can be masked with the OPRF output.
+        // The TGK should be one byte smaller than the OPRF output,
+        // so that the TGK shares can be masked with the OPRF output.
         // The `sharks` library adds an extra byte for the x-coordinate.
-        let mut pgk = vec![0u8; oprf_output_size() - 1];
-        OsRng.fill_bytes(&mut pgk);
-        Self(pgk)
+        let mut tgk = vec![0u8; oprf_output_size() - 1];
+        OsRng.fill_bytes(&mut tgk);
+        Self(tgk)
     }
 
-    /// Computes a derived secret-unlocking password for the realm.
-    fn password(&self, realm_id: &[u8]) -> UnlockPassword {
+    /// Computes a derived secret-unlocking tag for the realm.
+    fn tag(&self, realm_id: &[u8]) -> UnlockTag {
         let mut mac = Hmac::<Sha256>::new_from_slice(&self.0).expect("failed to initialize HMAC");
         mac.update(realm_id);
-        UnlockPassword(mac.finalize().into_bytes().to_vec())
+        UnlockTag(mac.finalize().into_bytes().to_vec())
     }
 }
 
-/// Error return type for [`PgkShare::try_from_masked`].
+/// Error return type for [`TgkShare::try_from_masked`].
 #[derive(Debug)]
 struct LengthMismatchError;
 
-/// A share of the [`PasswordGeneratingKey`].
+/// A share of the [`TagGeneratingKey`].
 ///
 /// The version of this that is XORed with `OPRF(PIN)` is
-/// [`MaskedPgkShare`](super::types::MaskedPgkShare).
+/// [`MaskedTgkShare`](super::types::MaskedTgkShare).
 #[derive(Clone)]
-struct PgkShare(sharks::Share);
+struct TgkShare(sharks::Share);
 
-impl Debug for PgkShare {
+impl Debug for TgkShare {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("(redacted)")
     }
 }
 
-impl PgkShare {
+impl TgkShare {
     fn try_from_masked(
-        masked_share: &MaskedPgkShare,
+        masked_share: &MaskedTgkShare,
         oprf_pin: &[u8],
     ) -> Result<Self, LengthMismatchError> {
         if masked_share.0.len() == oprf_pin.len() {
@@ -277,10 +277,10 @@ impl PgkShare {
         }
     }
 
-    fn mask(&self, oprf_pin: &OprfResult) -> MaskedPgkShare {
+    fn mask(&self, oprf_pin: &OprfResult) -> MaskedTgkShare {
         let share = Vec::from(&self.0);
         assert_eq!(oprf_pin.0.len(), share.len());
-        MaskedPgkShare(zip(oprf_pin.0, share).map(|(a, b)| a ^ b).collect())
+        MaskedTgkShare(zip(oprf_pin.0, share).map(|(a, b)| a ^ b).collect())
     }
 }
 
@@ -304,8 +304,8 @@ enum RegisterGenError {
 struct Register2Args {
     generation: GenerationNumber,
     oprf_pin: OprfResult,
-    pgk_share: PgkShare,
-    password: UnlockPassword,
+    tgk_share: TgkShare,
+    tag: UnlockTag,
     secret_share: UserSecretShare,
     policy: Policy,
 }
@@ -328,7 +328,7 @@ struct RecoverGenError {
 #[derive(Debug)]
 struct Recover1Success {
     generation: GenerationNumber,
-    pgk_share: PgkShare,
+    tgk_share: TgkShare,
     previous_generation: Option<GenerationNumber>,
 }
 
@@ -499,13 +499,13 @@ impl Client {
             oprfs_pin
         };
 
-        let pgk = PasswordGeneratingKey::new_random();
+        let tgk = TagGeneratingKey::new_random();
 
-        let pgk_shares: Vec<PgkShare> = {
+        let tgk_shares: Vec<TgkShare> = {
             Sharks(self.configuration.recover_threshold)
-                .dealer_rng(&pgk.0, &mut OsRng)
+                .dealer_rng(&tgk.0, &mut OsRng)
                 .take(self.configuration.realms.len())
-                .map(PgkShare)
+                .map(TgkShare)
                 .collect()
         };
 
@@ -520,18 +520,18 @@ impl Client {
         let register2_requests = zip4(
             &self.configuration.realms,
             oprfs_pin,
-            pgk_shares,
+            tgk_shares,
             secret_shares,
         )
-        .filter_map(|(realm, oprf_pin, pgk_share, secret_share)| {
+        .filter_map(|(realm, oprf_pin, tgk_share, secret_share)| {
             oprf_pin.map(|oprf_pin| {
                 self.register2(
                     realm,
                     Register2Args {
                         generation,
                         oprf_pin,
-                        pgk_share,
-                        password: pgk.password(&realm.public_key),
+                        tgk_share,
+                        tag: tgk.tag(&realm.public_key),
                         secret_share,
                         policy: policy.clone(),
                     },
@@ -614,21 +614,21 @@ impl Client {
         Register2Args {
             generation,
             oprf_pin,
-            pgk_share,
-            password,
+            tgk_share,
+            tag,
             secret_share,
             policy,
         }: Register2Args,
     ) -> Result<RegisterGenSuccess, RegisterError> {
-        let masked_pgk_share = pgk_share.mask(&oprf_pin);
+        let masked_tgk_share = tgk_share.mask(&oprf_pin);
 
         let register2_request = self.make_request(
             realm,
             SecretsRequest::Register2(Register2Request {
                 auth_token: self.auth_token.clone(),
                 generation,
-                masked_pgk_share,
-                password,
+                masked_tgk_share,
+                tag,
                 secret_share,
                 policy,
             }),
@@ -725,20 +725,20 @@ impl Client {
             .map(|realm| self.recover1(realm, request_generation, pin));
 
         let mut generations_found = BTreeSet::new();
-        let mut pgk_shares: Vec<(GenerationNumber, PgkShare)> = Vec::new();
+        let mut tgk_shares: Vec<(GenerationNumber, TgkShare)> = Vec::new();
         let mut unsuccessful: Vec<(GenerationNumber, UnsuccessfulRecoverReason)> = Vec::new();
         for result in join_all(recover1_requests).await {
             match result {
                 Ok(Recover1Success {
                     generation,
-                    pgk_share,
+                    tgk_share,
                     previous_generation,
                 }) => {
                     generations_found.insert(generation);
                     if let Some(p) = previous_generation {
                         generations_found.insert(p);
                     }
-                    pgk_shares.push((generation, pgk_share));
+                    tgk_shares.push((generation, tgk_share));
                 }
 
                 Err(RecoverGenError {
@@ -787,7 +787,7 @@ impl Client {
         // realm for some generation, but their generations may not have
         // agreed.
 
-        let pgk_shares: Vec<sharks::Share> = pgk_shares
+        let tgk_shares: Vec<sharks::Share> = tgk_shares
             .into_iter()
             .filter_map(|(generation, share)| {
                 if generation == current_generation {
@@ -798,7 +798,7 @@ impl Client {
             })
             .collect();
 
-        if pgk_shares.len() < usize::from(self.configuration.recover_threshold) {
+        if tgk_shares.len() < usize::from(self.configuration.recover_threshold) {
             return Err(RecoverGenError {
                 error: RecoverError::Unsuccessful(vec![(
                     current_generation,
@@ -808,8 +808,8 @@ impl Client {
             });
         }
 
-        let pgk = match Sharks(self.configuration.recover_threshold).recover(&pgk_shares) {
-            Ok(pgk) => PasswordGeneratingKey(pgk),
+        let tgk = match Sharks(self.configuration.recover_threshold).recover(&tgk_shares) {
+            Ok(tgk) => TagGeneratingKey(tgk),
 
             Err(_) => {
                 return Err(RecoverGenError {
@@ -822,10 +822,11 @@ impl Client {
             }
         };
 
-        let recover2_requests =
-            self.configuration.realms.iter().map(|realm| {
-                self.recover2(realm, current_generation, pgk.password(&realm.public_key))
-            });
+        let recover2_requests = self
+            .configuration
+            .realms
+            .iter()
+            .map(|realm| self.recover2(realm, current_generation, tgk.tag(&realm.public_key)));
 
         let recover2_results = join_all(recover2_requests).await;
 
@@ -907,13 +908,13 @@ impl Client {
         struct OkResponse {
             generation: GenerationNumber,
             blinded_oprf_pin: OprfBlindedResult,
-            masked_pgk_share: MaskedPgkShare,
+            masked_tgk_share: MaskedTgkShare,
             previous_generation: Option<GenerationNumber>,
         }
         let OkResponse {
             generation,
             blinded_oprf_pin,
-            masked_pgk_share,
+            masked_tgk_share,
             previous_generation,
         } = match recover1_request.await {
             Err(RequestError::HttpError(err)) => {
@@ -931,12 +932,12 @@ impl Client {
                 Recover1Response::Ok {
                     generation,
                     blinded_oprf_pin,
-                    masked_pgk_share,
+                    masked_tgk_share,
                     previous_generation,
                 } => OkResponse {
                     generation,
                     blinded_oprf_pin,
-                    masked_pgk_share,
+                    masked_tgk_share,
                     previous_generation,
                 },
 
@@ -1005,7 +1006,7 @@ impl Client {
                 }
             })?;
 
-        let pgk_share = PgkShare::try_from_masked(&masked_pgk_share, &oprf_pin).map_err(|_| {
+        let tgk_share = TgkShare::try_from_masked(&masked_tgk_share, &oprf_pin).map_err(|_| {
             RecoverGenError {
                 error: RecoverError::Unsuccessful(vec![(
                     generation,
@@ -1017,7 +1018,7 @@ impl Client {
 
         Ok(Recover1Success {
             generation,
-            pgk_share,
+            tgk_share,
             previous_generation,
         })
     }
@@ -1029,14 +1030,14 @@ impl Client {
         &self,
         realm: &Realm,
         generation: GenerationNumber,
-        password: UnlockPassword,
+        tag: UnlockTag,
     ) -> Result<UserSecretShare, RecoverError> {
         let recover2_request = self.make_request(
             realm,
             SecretsRequest::Recover2(Recover2Request {
                 auth_token: self.auth_token.clone(),
                 generation,
-                password,
+                tag,
             }),
         );
 
@@ -1054,7 +1055,7 @@ impl Client {
                     generation,
                     UnsuccessfulRecoverReason::NotRegistered,
                 )])),
-                Recover2Response::BadUnlockPassword => Err(RecoverError::Unsuccessful(vec![(
+                Recover2Response::BadUnlockTag => Err(RecoverError::Unsuccessful(vec![(
                     generation,
                     UnsuccessfulRecoverReason::FailedUnlock,
                 )])),
