@@ -57,18 +57,18 @@ pub struct Policy {
     pub num_guesses: u16,
 }
 
-/// A share of the password-generating key that has been XORed with
+/// A share of the tag-generating key that has been XORed with
 /// `OPRF(PIN)`.
 ///
 /// The client sends this to a realm during registration and gets it back from
 /// the realm during recovery.
 ///
 /// The client needs the correct PIN and a threshold number of such shares and
-/// OPRF results to recover the password-generating key.
+/// OPRF results to recover the tag-generating key.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct MaskedPgkShare(pub Vec<u8>);
+pub struct MaskedTgkShare(pub Vec<u8>);
 
-impl Debug for MaskedPgkShare {
+impl Debug for MaskedTgkShare {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("(redacted)")
     }
@@ -78,15 +78,15 @@ impl Debug for MaskedPgkShare {
 /// share of the user's secret and must provide to the realm during recovery to
 /// get back the share.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct UnlockPassword(pub Vec<u8>);
+pub struct UnlockTag(pub Vec<u8>);
 
-impl Debug for UnlockPassword {
+impl Debug for UnlockTag {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("(redacted)")
     }
 }
 
-impl ConstantTimeEq for UnlockPassword {
+impl ConstantTimeEq for UnlockTag {
     fn ct_eq(&self, other: &Self) -> subtle::Choice {
         self.0.ct_eq(&other.0)
     }
@@ -131,8 +131,8 @@ pub enum Register1Response {
 pub struct Register2Request {
     pub auth_token: AuthToken,
     pub generation: GenerationNumber,
-    pub masked_pgk_share: MaskedPgkShare,
-    pub password: UnlockPassword,
+    pub masked_tgk_share: MaskedTgkShare,
+    pub tag: UnlockTag,
     pub secret_share: UserSecretShare,
     pub policy: Policy,
 }
@@ -162,7 +162,7 @@ pub enum Recover1Response {
     Ok {
         generation: GenerationNumber,
         blinded_oprf_pin: OprfBlindedResult,
-        masked_pgk_share: MaskedPgkShare,
+        masked_tgk_share: MaskedTgkShare,
         /// The largest-numbered generation record on the server that's older
         /// than `generation`, if any. This allows the client to discover older
         /// generations to clean up or try recovering.
@@ -188,7 +188,7 @@ pub enum Recover1Response {
 pub struct Recover2Request {
     pub auth_token: AuthToken,
     pub generation: GenerationNumber,
-    pub password: UnlockPassword,
+    pub tag: UnlockTag,
 }
 
 /// Response message for the second phase of recovery.
@@ -197,7 +197,7 @@ pub enum Recover2Response {
     Ok(UserSecretShare),
     InvalidAuth,
     NotRegistered,
-    BadUnlockPassword,
+    BadUnlockTag,
 }
 
 /// Request message to delete registered secrets.

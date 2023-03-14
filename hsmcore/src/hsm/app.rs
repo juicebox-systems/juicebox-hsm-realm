@@ -14,10 +14,10 @@ use tracing::trace;
 
 use super::super::marshalling;
 use super::super::types::{
-    AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedPgkShare, OprfBlindedInput,
+    AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedTgkShare, OprfBlindedInput,
     OprfBlindedResult, OprfCipherSuite, Policy, Recover1Request, Recover1Response, Recover2Request,
     Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,
-    UnlockPassword, UserSecretShare,
+    UnlockTag, UserSecretShare,
 };
 use super::types::{SecretsRequest, SecretsResponse};
 use super::RealmKey;
@@ -59,8 +59,8 @@ enum GenerationRecord {
 struct RegisteredUserRecord {
     guess_count: u16,
     policy: Policy,
-    masked_pgk_share: MaskedPgkShare,
-    password: UnlockPassword,
+    masked_tgk_share: MaskedTgkShare,
+    tag: UnlockTag,
     secret_share: UserSecretShare,
 }
 
@@ -202,8 +202,8 @@ fn register2(
             *record = GenerationRecord::Registered(RegisteredUserRecord {
                 guess_count: 0,
                 policy: request.policy,
-                masked_pgk_share: request.masked_pgk_share,
-                password: request.password,
+                masked_tgk_share: request.masked_tgk_share,
+                tag: request.tag,
                 secret_share: request.secret_share,
             });
             let first_generation = *user_record.generations.first_key_value().unwrap().0;
@@ -243,7 +243,7 @@ fn recover1(
     let generation = iter.next().map(|(num, record)| (*num, record));
     let previous_generation = iter.next().map(|(num, _)| *num);
 
-    let (generation, masked_pgk_share) = match generation {
+    let (generation, masked_tgk_share) = match generation {
         None => {
             trace!(hsm = ctx.hsm_name,?user, ?request.generation,"can't recover: not registered");
             return (
@@ -288,7 +288,7 @@ fn recover1(
                 );
             }
             record.guess_count += 1;
-            (generation, record.masked_pgk_share.clone())
+            (generation, record.masked_tgk_share.clone())
         }
     };
 
@@ -299,7 +299,7 @@ fn recover1(
         Recover1Response::Ok {
             generation,
             blinded_oprf_pin,
-            masked_pgk_share,
+            masked_tgk_share,
             previous_generation,
         },
         Some(user_record),
@@ -321,9 +321,9 @@ fn recover2(
             (Recover2Response::NotRegistered, None)
         }
         Some(GenerationRecord::Registered(record)) => {
-            if !bool::from(request.password.ct_eq(&record.password)) {
-                trace!(hsm = ctx.hsm_name,?user,?request.generation, "can't recover: bad unlock password");
-                (Recover2Response::BadUnlockPassword, None)
+            if !bool::from(request.tag.ct_eq(&record.tag)) {
+                trace!(hsm = ctx.hsm_name,?user,?request.generation, "can't recover: bad unlock tag");
+                (Recover2Response::BadUnlockTag, None)
             } else {
                 record.guess_count = 0;
                 trace!(hsm = ctx.hsm_name,?user, ?request.generation, "recovered secret share successfully");
