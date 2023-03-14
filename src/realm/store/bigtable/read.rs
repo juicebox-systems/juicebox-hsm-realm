@@ -9,6 +9,7 @@ use tonic::Code;
 use tracing::{trace, warn};
 
 use super::BigtableClient;
+use crate::logging::Spew;
 
 #[derive(Clone, Hash, Eq, PartialEq)]
 pub struct RowKey(pub Vec<u8>);
@@ -50,6 +51,8 @@ impl<'a> fmt::Debug for Hex<'a> {
     }
 }
 
+static STREAM_SPEW: Spew = Spew::new();
+
 pub async fn read_rows(
     bigtable: &mut BigtableClient,
     request: ReadRowsRequest,
@@ -63,7 +66,9 @@ pub async fn read_rows(
                 Err(e) => {
                     // TODO, this seems to be a bug in hyper, in that it doesn't handle RST properly
                     // https://github.com/hyperium/hyper/issues/2872
-                    warn!(?e, code=?e.code(), "stream.message error during read_rows");
+                    if let Some(suppressed) = STREAM_SPEW.ok() {
+                        warn!(?e, code=?e.code(), suppressed, "stream.message error during read_rows");
+                    }
                     if e.code() == Code::Unknown {
                         tokio::time::sleep(Duration::from_millis(1)).await;
                         trace!("retrying read_rows");

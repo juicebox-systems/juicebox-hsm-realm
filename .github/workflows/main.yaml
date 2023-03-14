@@ -57,6 +57,9 @@ jobs:
         command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
         command -V cbt || go install cloud.google.com/go/cbt@latest
 
+    - name: Install Protobuf Compiler
+      run: sudo apt install protobuf-compiler
+
     - name: Use Rust/Cargo cache
       uses: actions/cache@v3
       with:

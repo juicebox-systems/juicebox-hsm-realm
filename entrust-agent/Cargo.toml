@@ -10,8 +10,9 @@ build = "build.rs"
 [dependencies]
 async-trait = { workspace = true }
 clap = { workspace = true }
+ctrlc = { workspace = true }
 http = { workspace = true }
 hsmcore = { path = "../hsmcore" }
-loam-mvp = { path=".." }
+loam-mvp = { path = ".." }
 tokio = { workspace = true }
 tracing = { workspace = true }

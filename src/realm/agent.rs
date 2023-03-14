@@ -6,6 +6,7 @@ use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use opentelemetry_http::HeaderExtractor;
 use reqwest::Url;
 use std::collections::btree_map::Entry::{Occupied, Vacant};
 use std::collections::{BTreeMap, HashMap};
@@ -16,7 +17,8 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{info, trace, warn};
+use tracing::{info, instrument, trace, warn, Instrument, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub mod types;
 
@@ -360,7 +362,7 @@ impl<T: Transport + 'static> Agent<T> {
                     sleep(Duration::from_millis(1)).await;
                 }
                 Ok(hsm_types::StatusResponse { id, .. }) => {
-                    info!(?id, ?url, "hsm id");
+                    info!(?id, %url, "hsm id");
                     if let Err(e) = store.set_address(&id, &url).await {
                         todo!("{e}")
                     }
@@ -398,53 +400,68 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
+    #[instrument(level = "trace", skip(self, request))]
     fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
+        let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
+            propagator.extract(&HeaderExtractor(request.headers()))
+        });
+        Span::current().set_parent(parent_context);
+
         let agent = self.clone();
-        Box::pin(async move {
-            let Some(path) = request.uri().path().strip_prefix('/') else {
-                return Ok(Response::builder()
-                    .status(http::StatusCode::NOT_FOUND)
-                    .body(Full::from(Bytes::new()))
-                    .unwrap());
-            };
-            match path {
-                AppRequest::PATH => handle_rpc(&agent, request, Self::handle_app).await,
-                BecomeLeaderRequest::PATH => {
-                    handle_rpc(&agent, request, Self::handle_become_leader).await
+        Box::pin(
+            async move {
+                let Some(path) = request.uri().path().strip_prefix('/') else {
+                    return Ok(Response::builder()
+                        .status(http::StatusCode::NOT_FOUND)
+                        .body(Full::from(Bytes::new()))
+                        .unwrap());
+                };
+                match path {
+                    AppRequest::PATH => handle_rpc(&agent, request, Self::handle_app).await,
+                    BecomeLeaderRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_become_leader).await
+                    }
+                    CompleteTransferRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_complete_transfer).await
+                    }
+                    JoinGroupRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_join_group).await
+                    }
+                    JoinRealmRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_join_realm).await
+                    }
+                    NewGroupRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_new_group).await
+                    }
+                    NewRealmRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_new_realm).await
+                    }
+                    ReadCapturedRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_read_captured).await
+                    }
+                    StatusRequest::PATH => handle_rpc(&agent, request, Self::handle_status).await,
+                    TransferInRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_transfer_in).await
+                    }
+                    TransferNonceRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_transfer_nonce).await
+                    }
+                    TransferOutRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_transfer_out).await
+                    }
+                    TransferStatementRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_transfer_statement).await
+                    }
+                    _ => Ok(Response::builder()
+                        .status(http::StatusCode::NOT_FOUND)
+                        .body(Full::from(Bytes::new()))
+                        .unwrap()),
                 }
-                CompleteTransferRequest::PATH => {
-                    handle_rpc(&agent, request, Self::handle_complete_transfer).await
-                }
-                JoinGroupRequest::PATH => {
-                    handle_rpc(&agent, request, Self::handle_join_group).await
-                }
-                JoinRealmRequest::PATH => {
-                    handle_rpc(&agent, request, Self::handle_join_realm).await
-                }
-                NewGroupRequest::PATH => handle_rpc(&agent, request, Self::handle_new_group).await,
-                NewRealmRequest::PATH => handle_rpc(&agent, request, Self::handle_new_realm).await,
-                ReadCapturedRequest::PATH => {
-                    handle_rpc(&agent, request, Self::handle_read_captured).await
-                }
-                StatusRequest::PATH => handle_rpc(&agent, request, Self::handle_status).await,
-                TransferInRequest::PATH => {
-                    handle_rpc(&agent, request, Self::handle_transfer_in).await
-                }
-                TransferNonceRequest::PATH => {
-                    handle_rpc(&agent, request, Self::handle_transfer_nonce).await
-                }
-                TransferOutRequest::PATH => {
-                    handle_rpc(&agent, request, Self::handle_transfer_out).await
-                }
-                TransferStatementRequest::PATH => {
-                    handle_rpc(&agent, request, Self::handle_transfer_statement).await
-                }
-                _ => Ok(Response::builder()
-                    .status(http::StatusCode::NOT_FOUND)
-                    .body(Full::from(Bytes::new()))
-                    .unwrap()),
             }
-        })
+            // This doesn't look like it should do anything, but it seems to be
+            // critical to connecting these spans to the parent.
+            .instrument(Span::current()),
+        )
     }
 }
 

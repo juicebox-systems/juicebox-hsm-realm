@@ -30,7 +30,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure();
+    logging::configure("loam-http-hsm");
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("hsm{}", args.listen));
     let hsm = HttpHsm::new(name, args.key, Box::new(OsRng));

@@ -16,7 +16,7 @@ use std::fmt::Write;
 use std::time::Duration;
 use tokio::time::sleep;
 use tonic::transport::{Channel, Endpoint};
-use tracing::trace;
+use tracing::{instrument, trace};
 use url::Url;
 
 mod mutate;
@@ -245,6 +245,7 @@ impl StoreClient {
         Ok(Self { bigtable, instance })
     }
 
+    #[instrument(level = "trace", skip(self))]
     pub async fn append(
         &self,
         realm: &RealmId,
@@ -356,6 +357,7 @@ impl StoreClient {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip(self))]
     async fn remove(
         &self,
         realm: &RealmId,
@@ -383,6 +385,7 @@ impl StoreClient {
         .await
     }
 
+    #[instrument(level = "trace", skip(self))]
     pub async fn read_log_entry(
         &self,
         realm: &RealmId,
@@ -422,6 +425,7 @@ impl StoreClient {
         Ok(entry)
     }
 
+    #[instrument(level = "trace", skip(self))]
     pub async fn read_last_log_entry(
         &self,
         realm: &RealmId,
@@ -459,6 +463,7 @@ impl StoreClient {
         Ok(entry)
     }
 
+    #[instrument(level = "trace", skip(self))]
     pub async fn get_addresses(&self) -> Result<Vec<(HsmId, Url)>, tonic::Status> {
         let rows = read_rows(
             &mut self.bigtable.clone(),
@@ -492,16 +497,17 @@ impl StoreClient {
             .collect();
 
         trace!(
-            addresses = ?addresses
-                .iter()
-                .map(|(hsm, url)| (hsm, url.as_str()))
-                .collect::<Vec<_>>(),
+            num_addresses = addresses.len(),
+            first_address = ?addresses
+                .first()
+                .map(|(hsm, url)| (hsm, url.as_str())),
             "get_addresses completed"
         );
 
         Ok(addresses)
     }
 
+    #[instrument(level = "trace", skip(self))]
     pub async fn set_address(&self, hsm: &HsmId, address: &Url) -> Result<(), tonic::Status> {
         trace!(?hsm, address = address.as_str(), "set_address starting");
         let MutateRowResponse { /* empty */ } = self
@@ -529,6 +535,7 @@ impl StoreClient {
 
 #[async_trait]
 impl TreeStoreReader<DataHash> for StoreClient {
+    #[instrument(level = "trace", skip(self))]
     async fn path_lookup(
         &self,
         realm: &RealmId,
@@ -581,6 +588,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
         Ok(nodes)
     }
 
+    #[instrument(level = "trace", skip(self))]
     async fn read_node(
         &self,
         realm: &RealmId,

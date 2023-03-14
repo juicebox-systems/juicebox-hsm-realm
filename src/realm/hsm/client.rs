@@ -1,7 +1,8 @@
 use async_trait::async_trait;
-use std::{fmt, fmt::Debug, sync::Arc};
+use std::fmt::{self, Debug};
+use std::sync::Arc;
 use tokio::time::Instant;
-use tracing::{trace, warn};
+use tracing::{instrument, trace, warn};
 
 use hsmcore::{
     hsm::rpc::HsmRpc,
@@ -42,6 +43,8 @@ impl<T: Transport> HsmClient<T> {
             transport: Arc::new(t),
         }
     }
+
+    #[instrument(level = "trace", name = "HsmClient::send", skip(self, r))]
     pub async fn send<RPC: HsmRpc + Send>(&self, r: RPC) -> Result<RPC::Response, T::Error> {
         let hsm_req = r.to_req();
         let req_bytes = marshalling::to_vec(&hsm_req)?;

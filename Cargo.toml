@@ -9,14 +9,21 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
-aes-gcm = { version="0.10.1", default-features = false, features=["aes", "alloc"] }
+aes-gcm = { version = "0.10.1", default-features = false, features = [
+    "aes",
+    "alloc",
+] }
 async-recursion = "1.0.2"
 async-trait = "0.1.64"
-bitvec = { version = "1.0.1", default-features = false, features = ["alloc", "serde"] }
+bitvec = { version = "1.0.1", default-features = false, features = [
+    "alloc",
+    "serde",
+] }
 bytes = { version = "1.4.0", default-features = false }
 ciborium = { version = "0.2.0", default-features = false }
 clap = { version = "4.1.6", features = ["derive"] }
 criterion = "0.4.0"
+ctrlc = "3.2.5"
 digest = "0.10.6"
 futures = "0.3.25"
 hex-literal = "0.3.4"
@@ -26,33 +33,52 @@ http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
 libc = { version = "0.2.139", default-features = false }
+nix = { version = "0.26.2", default-features = false, features = ["signal"] }
+opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
+opentelemetry-http = "0.7.0"
+opentelemetry-otlp = "0.11.0"
 prost = "0.11.6"
 prost-types = "0.11.6"
 rand = { version = "0.8.5", default-features = false, features = ["alloc"] }
 rand_chacha = "0.3.1"
 reqwest = { version = "0.11.14", default-features = false }
-serde = { version = "1.0.152", default-features = false, features = ["alloc", "derive"] }
+serde = { version = "1.0.152", default-features = false, features = [
+    "alloc",
+    "derive",
+] }
 sha2 = { version = "0.10.6", default-features = false }
 sharks = "0.5.0"
 subtle = { version = "2.4.1", default-features = false }
-tokio = { version = "1.25.0", features = ["rt-multi-thread","macros"] }
+tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros"] }
 tonic = { version = "0.8.3", features = ["channel"] }
-tracing = { version = "0.1.37", default-features = false }
-tracing-subscriber = "0.3.16"
+tracing = { version = "0.2.0", default-features = false, features = [
+    "alloc",
+    "attributes",
+] }
+# The latest Cargo.toml of tracing-opentelemetry in Git has an old version number.
+tracing-opentelemetry = { version = "*" }
+# The latest Cargo.toml of tracing-subscriber in Git has an old version number.
+tracing-subscriber = { version = "*" }
 url = { version = "2.3.1", features = ["serde"] }
-voprf = { version="0.4.0" }
+voprf = { version = "0.4.0" }
 
 [dependencies]
 async-trait = { workspace = true }
 bitvec = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
+ctrlc = { workspace = true, features = ["termination"] }
 digest = { workspace = true }
 futures = { workspace = true }
 hmac = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
+libc = { workspace = true }
+nix = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-http = { workspace = true }
+opentelemetry-otlp = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 rand = { workspace = true }
@@ -63,6 +89,7 @@ sharks = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 voprf = { workspace = true }
@@ -73,6 +100,11 @@ hsmcore = { path = "hsmcore" }
 # waiting on this issue/pr to be resolved
 # https://github.com/ferrilab/bitvec/issues/215
 bitvec = { git = 'https://github.com/superfell/bitvec', branch = 'vec_order' }
+# We need https://github.com/tokio-rs/tracing/pull/2335 to quiet down error return
+# values in tokio::instrument, which is not yet unreleased.
+tracing = { git = "https://github.com/tokio-rs/tracing" }
+tracing-opentelemetry = { git = "https://github.com/tokio-rs/tracing" }
+tracing-subscriber = { git = "https://github.com/tokio-rs/tracing" }
 
 [dev-dependencies]
 async-recursion = { workspace = true }
