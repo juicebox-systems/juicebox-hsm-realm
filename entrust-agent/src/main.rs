@@ -20,7 +20,8 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::ptr::null_mut;
 use std::sync::{Arc, Mutex};
-use tracing::{info, trace, warn};
+use tokio::time::Instant;
+use tracing::{debug, info, warn};
 
 use loam_mvp::logging;
 use loam_mvp::realm::agent::Agent;
@@ -168,13 +169,13 @@ unsafe impl Send for TransportInner {}
 impl Transport for EntrustSeeTransport {
     type Error = SeeError;
 
-    async fn send_rpc_msg(&self, msg: Vec<u8>) -> Result<Vec<u8>, Self::Error> {
-        self.0.lock().unwrap().send_rpc_msg(msg)
+    async fn send_rpc_msg(&self, msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, Self::Error> {
+        self.0.lock().unwrap().send_rpc_msg(msg_name, msg)
     }
 }
 
 impl TransportInner {
-    fn send_rpc_msg(&mut self, mut msg: Vec<u8>) -> Result<Vec<u8>, SeeError> {
+    fn send_rpc_msg(&mut self, msg_name: &str, mut msg: Vec<u8>) -> Result<Vec<u8>, SeeError> {
         unsafe {
             self.connect()?;
 
@@ -186,7 +187,10 @@ impl TransportInner {
                     ptr: msg.as_mut_ptr(),
                 },
             };
+            let start = Instant::now();
             let reply = self.transact(&mut cmd)?;
+            debug!(dur=?start.elapsed(), req=msg_name, "Entrust HSM request transacted");
+
             let resp_vec = reply.reply.seejob.seereply.as_slice().to_vec();
             self.collect_trace_buffer();
             Ok(resp_vec)
@@ -336,7 +340,6 @@ impl TransportInner {
         conn: NFastApp_Connection,
         cmd: &mut M_Command,
     ) -> Result<Reply, SeeError> {
-        trace!(cmd = ?cmd.cmd, "starting HSM Transact");
         let rc;
         let mut rep = M_Reply::default();
         unsafe {
@@ -359,7 +362,6 @@ impl TransportInner {
             }
             return Err(SeeError::CmdErrorReturn(rep.status));
         }
-        trace!(cmd=?cmd.cmd, "finished HSM Transact");
         Ok(Reply {
             app: self.app,
             inner: rep,

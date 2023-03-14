@@ -37,6 +37,28 @@ pub enum HsmRequest {
     AppRequest(AppRequest),
 }
 
+impl HsmRequest {
+    pub fn name(&self) -> &str {
+        match self {
+            HsmRequest::Status(_) => "Status",
+            HsmRequest::NewRealm(_) => "NewRealm",
+            HsmRequest::JoinRealm(_) => "JoinRealm",
+            HsmRequest::NewGroup(_) => "NewGroup",
+            HsmRequest::JoinGroup(_) => "JoinGroup",
+            HsmRequest::BecomeLeader(_) => "BecomeLeader",
+            HsmRequest::CaptureNext(_) => "CaptureNext",
+            HsmRequest::ReadCaptured(_) => "ReadCaptured",
+            HsmRequest::Commit(_) => "Commit",
+            HsmRequest::TransferOut(_) => "TransferOut",
+            HsmRequest::TransferNonce(_) => "TransferNonce",
+            HsmRequest::TransferStatement(_) => "TransferStatement",
+            HsmRequest::TransferIn(_) => "TransferIn",
+            HsmRequest::CompleteTransfer(_) => "CompleteTransfer",
+            HsmRequest::AppRequest(_) => "AppRequest",
+        }
+    }
+}
+
 impl HsmRpc for StatusRequest {
     type Response = StatusResponse;
     fn to_req(self) -> HsmRequest {
