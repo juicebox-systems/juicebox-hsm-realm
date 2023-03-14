@@ -1,7 +1,6 @@
 use core::fmt::Debug;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use strum::AsRefStr;
 
 use super::types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
@@ -19,7 +18,7 @@ pub trait HsmRpc: DeserializeOwned + Serialize + Debug {
 }
 
 // HsmRequest is what is sent over the "wire" to the HSM itself.
-#[derive(Serialize, Deserialize, AsRefStr)]
+#[derive(Serialize, Deserialize)]
 pub enum HsmRequest {
     Status(StatusRequest),
     NewRealm(NewRealmRequest),
@@ -36,6 +35,28 @@ pub enum HsmRequest {
     TransferIn(TransferInRequest),
     CompleteTransfer(CompleteTransferRequest),
     AppRequest(AppRequest),
+}
+
+impl HsmRequest {
+    pub fn name(&self) -> &str {
+        match self {
+            HsmRequest::Status(_) => "Status",
+            HsmRequest::NewRealm(_) => "NewRealm",
+            HsmRequest::JoinRealm(_) => "JoinRealm",
+            HsmRequest::NewGroup(_) => "NewGroup",
+            HsmRequest::JoinGroup(_) => "JoinGroup",
+            HsmRequest::BecomeLeader(_) => "BecomeLeader",
+            HsmRequest::CaptureNext(_) => "CaptureNext",
+            HsmRequest::ReadCaptured(_) => "ReadCaptured",
+            HsmRequest::Commit(_) => "Commit",
+            HsmRequest::TransferOut(_) => "TransferOut",
+            HsmRequest::TransferNonce(_) => "TransferNonce",
+            HsmRequest::TransferStatement(_) => "TransferStatement",
+            HsmRequest::TransferIn(_) => "TransferIn",
+            HsmRequest::CompleteTransfer(_) => "CompleteTransfer",
+            HsmRequest::AppRequest(_) => "AppRequest",
+        }
+    }
 }
 
 impl HsmRpc for StatusRequest {

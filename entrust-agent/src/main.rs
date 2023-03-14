@@ -21,7 +21,7 @@ use std::ops::Deref;
 use std::ptr::null_mut;
 use std::sync::{Arc, Mutex};
 use tokio::time::Instant;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, warn};
 
 use loam_mvp::logging;
 use loam_mvp::realm::agent::Agent;

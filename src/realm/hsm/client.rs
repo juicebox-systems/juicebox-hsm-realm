@@ -45,26 +45,24 @@ impl<T: Transport> HsmClient<T> {
     pub async fn send<RPC: HsmRpc + Send>(&self, r: RPC) -> Result<RPC::Response, T::Error> {
         let hsm_req = r.to_req();
         let req_bytes = marshalling::to_vec(&hsm_req)?;
+        let req_name = hsm_req.name();
 
         trace!(
             num_bytes = req_bytes.len(),
-            req = hsm_req.as_ref(),
+            req = req_name,
             "sending HSM RPC request"
         );
         let start = Instant::now();
-        let res_bytes = self
-            .transport
-            .send_rpc_msg(hsm_req.as_ref(), req_bytes)
-            .await?;
+        let res_bytes = self.transport.send_rpc_msg(req_name, req_bytes).await?;
 
         let dur = start.elapsed();
         if res_bytes.is_empty() {
-            warn!(req = hsm_req.as_ref(), "HSM failed to process RPC request");
+            warn!(req = req_name, "HSM failed to process RPC request");
             return Err(HsmRpcError.into());
         }
         trace!(
             num_bytes = res_bytes.len(),
-            req = hsm_req.as_ref(),
+            req = req_name,
             ?dur,
             "received HSM RPC response"
         );
