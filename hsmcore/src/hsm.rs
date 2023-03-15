@@ -19,9 +19,8 @@ pub mod types;
 
 use self::rpc::{HsmRequest, HsmRpc};
 use self::types::Partition;
-use super::marshalling;
 use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
-use super::rand::GetRandom;
+use super::{marshalling, CryptoRng};
 use app::{RecordChange, RootOprfKey};
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
@@ -46,7 +45,7 @@ impl fmt::Debug for RealmKey {
 }
 
 impl RealmKey {
-    pub fn random(rng: &mut impl GetRandom) -> Self {
+    pub fn random(rng: &mut impl CryptoRng) -> Self {
         let mut key = digest::Key::<Hmac<Sha256>>::default();
         rng.fill_bytes(&mut key);
         Self(key)
@@ -61,7 +60,7 @@ impl RealmKey {
 }
 
 impl GroupId {
-    fn random(rng: &mut Box<dyn GetRandom>) -> Self {
+    fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
         let mut id = [0u8; 16];
         rng.fill_bytes(&mut id);
         Self(id)
@@ -69,7 +68,7 @@ impl GroupId {
 }
 
 impl HsmId {
-    fn random(rng: &mut Box<dyn GetRandom>) -> Self {
+    fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
         let mut id = [0u8; 16];
         rng.fill_bytes(&mut id);
         Self(id)
@@ -77,7 +76,7 @@ impl HsmId {
 }
 
 impl RealmId {
-    fn random(rng: &mut Box<dyn GetRandom>) -> Self {
+    fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
         let mut id = [0u8; 16];
         rng.fill_bytes(&mut id);
         Self(id)
@@ -252,7 +251,7 @@ impl<'a> EntryHmacBuilder<'a> {
 }
 
 impl TransferNonce {
-    pub fn random(rng: &mut Box<dyn GetRandom>) -> Self {
+    pub fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
         let mut nonce = [0u8; 16];
         rng.fill_bytes(&mut nonce);
         Self(nonce)
@@ -336,7 +335,7 @@ pub struct Hsm {
 
 pub struct HsmOptions {
     pub name: String,
-    pub rng: Box<dyn GetRandom>,
+    pub rng: Box<dyn CryptoRng>,
     pub tree_overlay_size: u16,
 }
 

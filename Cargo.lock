@@ -621,6 +621,7 @@ name = "entrust-hsm"
 version = "0.1.0"
 dependencies = [
  "hsmcore",
+ "rand_core",
 ]
 
 [[package]]
@@ -940,6 +941,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "rand",
+ "rand_core",
  "serde",
  "sha2",
  "subtle",
