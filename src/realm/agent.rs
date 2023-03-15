@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use tokio::time::{self, sleep};
 use tracing::{info, instrument, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -160,108 +160,125 @@ impl<T: Transport + 'static> Agent<T> {
         trace!(agent = name, realm = ?realm_id, group = ?group_id, "start collecting captures");
 
         tokio::spawn(Box::pin(async move {
+            let mut interval = time::interval(Duration::from_millis(10));
+            interval.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
             loop {
-                let peers = agent.find_peers(realm_id, group_id).await.expect("todo");
-                let futures = peers.iter().filter_map(|(hsm_id, address)| {
-                    address
-                        .as_ref()
-                        .map(|address| agent.read_captured(realm_id, group_id, *hsm_id, address))
-                });
-                let captures = join_all(futures).await;
-                let mut map: BTreeMap<LogIndex, (EntryHmac, Vec<(HsmId, CapturedStatement)>)> =
-                    BTreeMap::new();
-                #[allow(clippy::manual_flatten)]
-                for capture in captures {
-                    if let Ok(ReadCapturedResponse::Ok {
-                        hsm_id,
-                        index,
-                        entry_hmac,
-                        statement,
-                    }) = capture
-                    {
-                        match map.entry(index) {
-                            Occupied(mut entry) => {
-                                let value = entry.get_mut();
-                                if entry_hmac != value.0 {
-                                    todo!();
-                                }
-                                value.1.push((hsm_id, statement));
-                            }
-                            Vacant(entry) => {
-                                entry.insert((entry_hmac, Vec::from([(hsm_id, statement)])));
-                            }
-                        }
-                    }
-                }
-
-                let mut commit_request: Option<CommitRequest> = None;
-                for (index, (entry_hmac, captures)) in map.into_iter() {
-                    if captures.len() >= (peers.len() + 1) / 2 {
-                        commit_request = Some(CommitRequest {
-                            realm: realm_id,
-                            group: group_id,
-                            index,
-                            entry_hmac,
-                            captures,
-                        });
-                    }
-                }
-
-                let responses = if let Some(commit_request) = commit_request {
-                    trace!(
-                    agent = name,
-                    index = ?commit_request.index,
-                    num_captures = commit_request.captures.len(),
-                    "requesting HSM to commit index");
-                    let response = hsm.send(commit_request).await;
-                    match response {
-                        Ok(CommitResponse::Ok {
-                            committed,
-                            responses,
-                        }) => {
-                            trace!(agent = name, ?committed, ?responses, "HSM committed entry");
-                            responses
-                        }
-                        Ok(CommitResponse::AlreadyCommitted { .. }) => {
-                            // TODO: this happens a lot now
-                            // because this doesn't remember
-                            // what it's already asked the HSM
-                            // to commit.
-                            trace!(agent = name, ?response, "commit response not ok");
-                            Vec::new()
-                        }
-                        _ => {
-                            warn!(agent = name, ?response, "commit response not ok");
-                            Vec::new()
-                        }
-                    }
-                } else {
-                    Vec::new()
-                };
-
-                {
-                    let mut locked = agent.0.state.lock().unwrap();
-                    if let Some(leader) = locked.leader.get_mut(&(realm_id, group_id)) {
-                        for (hmac, client_response) in responses {
-                            if let Some(sender) = leader.response_channels.remove(&hmac) {
-                                if sender.send(client_response).is_err() {
-                                    warn!(
-                                        "dropping response on the floor: client no longer waiting"
-                                    );
-                                }
-                            } else {
-                                warn!("dropping response on the floor: client never waiting");
-                            }
-                        }
-                    } else if !responses.is_empty() {
-                        warn!("dropping responses on the floor: no leader state");
-                    }
-                }
-                sleep(Duration::from_millis(10)).await;
+                interval.tick().await;
+                agent
+                    .collect_captures_inner(&name, &hsm, realm_id, group_id)
+                    .await;
             }
         }));
     }
 
+    #[instrument(level = "trace", skip(self), fields(released_count))]
+    async fn collect_captures_inner(
+        &self,
+        name: &str,
+        hsm: &HsmClient<T>,
+        realm_id: RealmId,
+        group_id: GroupId,
+    ) {
+        let peers = self.find_peers(realm_id, group_id).await.expect("todo");
+        let futures = peers.iter().filter_map(|(hsm_id, address)| {
+            address
+                .as_ref()
+                .map(|address| self.read_captured(realm_id, group_id, *hsm_id, address))
+        });
+        let captures = join_all(futures).await;
+        let mut map: BTreeMap<LogIndex, (EntryHmac, Vec<(HsmId, CapturedStatement)>)> =
+            BTreeMap::new();
+        #[allow(clippy::manual_flatten)]
+        for capture in captures {
+            if let Ok(ReadCapturedResponse::Ok {
+                hsm_id,
+                index,
+                entry_hmac,
+                statement,
+            }) = capture
+            {
+                match map.entry(index) {
+                    Occupied(mut entry) => {
+                        let value = entry.get_mut();
+                        if entry_hmac != value.0 {
+                            todo!();
+                        }
+                        value.1.push((hsm_id, statement));
+                    }
+                    Vacant(entry) => {
+                        entry.insert((entry_hmac, Vec::from([(hsm_id, statement)])));
+                    }
+                }
+            }
+        }
+
+        let mut commit_request: Option<CommitRequest> = None;
+        for (index, (entry_hmac, captures)) in map.into_iter() {
+            if captures.len() >= (peers.len() + 1) / 2 {
+                commit_request = Some(CommitRequest {
+                    realm: realm_id,
+                    group: group_id,
+                    index,
+                    entry_hmac,
+                    captures,
+                });
+            }
+        }
+
+        let responses = if let Some(commit_request) = commit_request {
+            trace!(
+                    agent = name,
+                    index = ?commit_request.index,
+                    num_captures = commit_request.captures.len(),
+                    "requesting HSM to commit index");
+            let response = hsm.send(commit_request).await;
+            match response {
+                Ok(CommitResponse::Ok {
+                    committed,
+                    responses,
+                }) => {
+                    trace!(agent = name, ?committed, ?responses, "HSM committed entry");
+                    responses
+                }
+                Ok(CommitResponse::AlreadyCommitted { .. }) => {
+                    // TODO: this happens a lot now
+                    // because this doesn't remember
+                    // what it's already asked the HSM
+                    // to commit.
+                    trace!(agent = name, ?response, "commit response not ok");
+                    Vec::new()
+                }
+                _ => {
+                    warn!(agent = name, ?response, "commit response not ok");
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        {
+            let mut count = 0;
+            let mut locked = self.0.state.lock().unwrap();
+            if let Some(leader) = locked.leader.get_mut(&(realm_id, group_id)) {
+                for (hmac, client_response) in responses {
+                    if let Some(sender) = leader.response_channels.remove(&hmac) {
+                        if sender.send(client_response).is_err() {
+                            warn!("dropping response on the floor: client no longer waiting");
+                        }
+                        count += 1;
+                    } else {
+                        warn!("dropping response on the floor: client never waiting");
+                    }
+                }
+            } else if !responses.is_empty() {
+                warn!("dropping responses on the floor: no leader state");
+            }
+            Span::current().record("released_count", count);
+        };
+    }
+
+    #[instrument(level = "trace", skip(self))]
     async fn find_peers(
         &self,
         realm_id: RealmId,

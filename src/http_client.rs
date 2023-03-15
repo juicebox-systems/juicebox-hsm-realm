@@ -96,7 +96,7 @@ impl<F: Service> Client<F> {
         }
     }
 
-    #[tracing::instrument(level = "trace", name = " http_client::send" skip(self, request))]
+    #[tracing::instrument(level = "trace", name = " http_client::send" skip(self, request, base_url), fields(base_url=%base_url))]
     pub async fn send<R: Rpc<F>>(
         &self,
         base_url: &Url,
