@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
 use tonic::Code;
-use tracing::{trace, warn};
+use tracing::{instrument, trace, warn};
 
 use super::BigtableClient;
 use crate::logging::Spew;
@@ -53,6 +53,7 @@ impl<'a> fmt::Debug for Hex<'a> {
 
 static STREAM_SPEW: Spew = Spew::new();
 
+#[instrument(level = "trace", skip(bigtable))]
 pub async fn read_rows(
     bigtable: &mut BigtableClient,
     request: ReadRowsRequest,
