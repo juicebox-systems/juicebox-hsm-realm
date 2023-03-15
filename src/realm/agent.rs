@@ -2,6 +2,7 @@ use bytes::Bytes;
 use future::join_all;
 use futures::channel::oneshot;
 use futures::{future, Future};
+use hsmcore::hsm::types::Configuration;
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -32,7 +33,7 @@ use hsm_types::{
     DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RealmId, SecretsResponse,
     TransferInProofs,
 };
-use hsmcore::hsm::types as hsm_types;
+use hsmcore::hsm::{types as hsm_types, HsmQuorum};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
 use types::{
@@ -179,7 +180,7 @@ impl<T: Transport + 'static> Agent<T> {
         realm_id: RealmId,
         group_id: GroupId,
     ) {
-        let peers = self.find_peers(realm_id, group_id).await.expect("todo");
+        let (configuration, peers) = self.find_peers(realm_id, group_id).await.expect("todo");
         let futures = peers.iter().filter_map(|(hsm_id, address)| {
             address
                 .as_ref()
@@ -214,7 +215,11 @@ impl<T: Transport + 'static> Agent<T> {
 
         let mut commit_request: Option<CommitRequest> = None;
         for (index, (entry_hmac, captures)) in map.into_iter() {
-            if captures.len() >= (peers.len() + 1) / 2 {
+            let mut q = HsmQuorum::new(&configuration.0);
+            for c in &captures {
+                q.vote(c.0, true);
+            }
+            if q.outcome().has_quorum {
                 commit_request = Some(CommitRequest {
                     realm: realm_id,
                     group: group_id,
@@ -222,6 +227,8 @@ impl<T: Transport + 'static> Agent<T> {
                     entry_hmac,
                     captures,
                 });
+            } else {
+                break;
             }
         }
 
@@ -283,12 +290,12 @@ impl<T: Transport + 'static> Agent<T> {
         &self,
         realm_id: RealmId,
         group_id: GroupId,
-    ) -> Result<HashMap<HsmId, Option<Url>>, ()> {
+    ) -> Result<(Configuration, HashMap<HsmId, Option<Url>>), ()> {
         let name = &self.0.name;
         let hsm = &self.0.hsm;
         let store = &self.0.store;
 
-        let mut peers: HashMap<HsmId, Option<Url>> =
+        let (configuration, mut peers): (_, HashMap<HsmId, Option<Url>>) =
             match hsm.send(hsm_types::StatusRequest {}).await {
                 Err(_) => todo!(),
                 Ok(hsm_types::StatusResponse {
@@ -300,14 +307,17 @@ impl<T: Transport + 'static> Agent<T> {
                     }
                     match realm.groups.into_iter().find(|group| group.id == group_id) {
                         None => todo!(),
-                        Some(group) => HashMap::from_iter(
-                            group
-                                .configuration
-                                .0
-                                .into_iter()
-                                .filter(|id| *id != hsm_id)
-                                .map(|id| (id, None)),
-                        ),
+                        Some(group) => {
+                            let peers = HashMap::from_iter(
+                                group
+                                    .configuration
+                                    .0
+                                    .iter()
+                                    .filter(|id| **id != hsm_id)
+                                    .map(|id| (*id, None)),
+                            );
+                            (group.configuration, peers)
+                        }
                     }
                 }
                 _ => todo!(),
@@ -327,7 +337,7 @@ impl<T: Transport + 'static> Agent<T> {
             ?peers,
             "looked up peer agent addresses from store"
         );
-        Ok(peers)
+        Ok((configuration, peers))
     }
 
     async fn read_captured(
