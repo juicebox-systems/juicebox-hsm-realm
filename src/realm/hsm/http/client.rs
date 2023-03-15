@@ -1,16 +1,18 @@
 use async_trait::async_trait;
 use reqwest::Url;
+use std::fmt::Debug;
 
 use super::super::{
     super::super::http_client::ClientError,
     client::{HsmClient, Transport},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct HsmHttpClient {
     hsm: Url,
     http: reqwest::Client,
 }
+
 impl HsmHttpClient {
     pub fn new_client(url: Url) -> HsmClient<HsmHttpClient> {
         HsmClient::new(Self {
@@ -19,6 +21,13 @@ impl HsmHttpClient {
         })
     }
 }
+
+impl Debug for HsmHttpClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "HsmHttpClient for {}", self.hsm)
+    }
+}
+
 #[async_trait]
 impl Transport for HsmHttpClient {
     type Error = ClientError;

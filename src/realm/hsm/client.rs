@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use std::fmt::{self, Debug};
 use std::sync::Arc;
 use tokio::time::Instant;
-use tracing::{instrument, trace, warn};
+use tracing::{instrument, span::Span, trace, warn};
 
 use hsmcore::{
     hsm::rpc::HsmRpc,
@@ -44,11 +44,12 @@ impl<T: Transport> HsmClient<T> {
         }
     }
 
-    #[instrument(level = "trace", name = "HsmClient::send", skip(self, r))]
+    #[instrument(level = "trace", name = "HsmClient::send", skip(r), fields(req_name))]
     pub async fn send<RPC: HsmRpc + Send>(&self, r: RPC) -> Result<RPC::Response, T::Error> {
         let hsm_req = r.to_req();
-        let req_bytes = marshalling::to_vec(&hsm_req)?;
         let req_name = hsm_req.name();
+        Span::current().record("req_name", req_name);
+        let req_bytes = marshalling::to_vec(&hsm_req)?;
 
         trace!(
             num_bytes = req_bytes.len(),
