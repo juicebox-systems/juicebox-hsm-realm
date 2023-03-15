@@ -165,7 +165,7 @@ impl<T: Transport + 'static> Agent<T> {
             loop {
                 interval.tick().await;
                 agent
-                    .collect_captures_inner(&name, &hsm, realm_id.clone(), group_id.clone())
+                    .collect_captures_inner(&name, &hsm, realm_id, group_id)
                     .await;
             }
         }));
