@@ -10,10 +10,7 @@ extern crate alloc;
 
 use alloc::{boxed::Box, string::String, vec};
 use core::slice;
-use hsmcore::{
-    hsm::{Hsm, HsmOptions, RealmKey},
-    rand::GetRandom,
-};
+use hsmcore::hsm::{Hsm, HsmOptions, RealmKey};
 use seelib::{
     Cmd_GenerateRandom, M_ByteBlock, M_Cmd_GenerateRandom_Args, M_Command, M_Reply, M_Status,
     M_Word, SEElib_AwaitJobEx, SEElib_FreeReply, SEElib_InitComplete, SEElib_ReturnJob,
@@ -68,9 +65,13 @@ pub extern "C" fn rust_main() -> isize {
     }
 }
 
+// TODO: This RNG is slow, so we should be using it to seed another one
+// instead.
 struct NFastRng;
 
-impl GetRandom for NFastRng {
+impl rand_core::CryptoRng for NFastRng {}
+
+impl rand_core::RngCore for NFastRng {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         let mut cmd = M_Command {
             cmd: Cmd_GenerateRandom,
@@ -88,6 +89,19 @@ impl GetRandom for NFastRng {
             dest.copy_from_slice(d);
             SEElib_FreeReply(&mut reply);
         }
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        rand_core::impls::next_u32_via_fill(self)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        rand_core::impls::next_u64_via_fill(self)
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+        self.fill_bytes(dest);
+        Ok(())
     }
 }
 

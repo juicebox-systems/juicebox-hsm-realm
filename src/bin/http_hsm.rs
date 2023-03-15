@@ -1,5 +1,5 @@
 use clap::Parser;
-use hsmcore::rand::OsRng;
+use rand::rngs::OsRng;
 use std::net::SocketAddr;
 use tracing::info;
 
