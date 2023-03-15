@@ -172,14 +172,14 @@ impl<T: Transport + 'static> Agent<T> {
     }
 
     // Returns the number of responses that were released to clients.
-    #[instrument(level = "trace", ret, skip(self))]
+    #[instrument(level = "trace", skip(self), fields(released_count))]
     async fn collect_captures_inner(
         &self,
         name: &str,
         hsm: &HsmClient<T>,
         realm_id: RealmId,
         group_id: GroupId,
-    ) -> usize {
+    ) {
         let peers = self.find_peers(realm_id, group_id).await.expect("todo");
         let futures = peers.iter().filter_map(|(hsm_id, address)| {
             address
@@ -275,8 +275,8 @@ impl<T: Transport + 'static> Agent<T> {
             } else if !responses.is_empty() {
                 warn!("dropping responses on the floor: no leader state");
             }
-            count
-        }
+            Span::current().record("released_count", count);
+        };
     }
 
     #[instrument(level = "trace", skip(self))]
