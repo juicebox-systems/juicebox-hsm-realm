@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
 use tonic::Code;
-use tracing::{instrument, trace, warn};
+use tracing::{instrument, trace, warn, Span};
 
 use super::BigtableClient;
 use crate::logging::Spew;
@@ -53,11 +53,12 @@ impl<'a> fmt::Debug for Hex<'a> {
 
 static STREAM_SPEW: Spew = Spew::new();
 
-#[instrument(level = "trace", skip(bigtable))]
+#[instrument(level = "trace", skip(bigtable), fields(retry_count))]
 pub async fn read_rows(
     bigtable: &mut BigtableClient,
     request: ReadRowsRequest,
 ) -> Result<HashMap<RowKey, Vec<Cell>>, tonic::Status> {
+    let mut retry_count = 0;
     'outer: loop {
         let mut stream = bigtable.read_rows(request.clone()).await?.into_inner();
         let mut rows = HashMap::new();
@@ -73,6 +74,7 @@ pub async fn read_rows(
                     if e.code() == Code::Unknown {
                         tokio::time::sleep(Duration::from_millis(1)).await;
                         trace!("retrying read_rows");
+                        retry_count += 1;
                         continue 'outer;
                     } else {
                         return Err(e);
@@ -94,6 +96,7 @@ pub async fn read_rows(
             active_row.is_none(),
             "ReadRowsResponse missing chunks: last row didn't complete",
         );
+        Span::current().record("retry_count", retry_count);
         return Ok(rows);
     }
 }
