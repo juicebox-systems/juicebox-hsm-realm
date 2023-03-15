@@ -171,7 +171,6 @@ impl<T: Transport + 'static> Agent<T> {
         }));
     }
 
-    // Returns the number of responses that were released to clients.
     #[instrument(level = "trace", skip(self), fields(released_count))]
     async fn collect_captures_inner(
         &self,
