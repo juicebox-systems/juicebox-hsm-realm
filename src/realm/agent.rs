@@ -2,7 +2,6 @@ use bytes::Bytes;
 use future::join_all;
 use futures::channel::oneshot;
 use futures::{future, Future};
-use hsmcore::hsm::types::Configuration;
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -30,10 +29,10 @@ use super::rpc::{handle_rpc, HandlerError, Rpc};
 use super::store::bigtable;
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
-    DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RealmId, SecretsResponse,
-    TransferInProofs,
+    Configuration, DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RealmId,
+    SecretsResponse, TransferInProofs,
 };
-use hsmcore::hsm::{types as hsm_types, HsmQuorum};
+use hsmcore::hsm::{types as hsm_types, HsmElection};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
 use types::{
@@ -215,11 +214,11 @@ impl<T: Transport + 'static> Agent<T> {
 
         let mut commit_request: Option<CommitRequest> = None;
         for (index, (entry_hmac, captures)) in map.into_iter() {
-            let mut q = HsmQuorum::new(&configuration.0);
+            let mut election = HsmElection::new(&configuration.0);
             for c in &captures {
-                q.vote(c.0, true);
+                election.vote(c.0);
             }
-            if q.outcome().has_quorum {
+            if election.outcome().has_quorum {
                 commit_request = Some(CommitRequest {
                     realm: realm_id,
                     group: group_id,
@@ -227,8 +226,6 @@ impl<T: Transport + 'static> Agent<T> {
                     entry_hmac,
                     captures,
                 });
-            } else {
-                break;
             }
         }
 
