@@ -5,9 +5,9 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::fmt;
+use core::fmt::{self, Debug};
 use digest::Digest;
-use hashbrown::{HashMap, HashSet}; // TODO: randomize hasher
+use hashbrown::HashMap; // TODO: randomize hasher
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -878,34 +878,29 @@ impl Hsm {
                 }
             }
 
-            let captures = request
-                .captures
-                .iter()
-                .filter_map(|(hsm_id, captured_statement)| {
-                    (group.configuration.0.contains(hsm_id)
-                        && CapturedStatementBuilder {
-                            hsm: *hsm_id,
-                            realm: request.realm,
-                            group: request.group,
-                            index: request.index,
-                            entry_hmac: &request.entry_hmac,
-                        }
-                        .verify(&self.persistent.realm_key, captured_statement)
-                        .is_ok())
-                    .then_some(*hsm_id)
-                })
-                .chain(match &group.captured {
-                    Some((index, entry_hmac))
-                        if *index == request.index && *entry_hmac == request.entry_hmac =>
-                    {
-                        Some(self.persistent.id)
-                    }
-                    _ => None,
-                })
-                .collect::<HashSet<HsmId>>()
-                .len();
+            let mut election = HsmElection::new(&group.configuration.0);
+            for (hsm_id, captured_statement) in request.captures {
+                if (CapturedStatementBuilder {
+                    hsm: hsm_id,
+                    realm: request.realm,
+                    group: request.group,
+                    index: request.index,
+                    entry_hmac: &request.entry_hmac,
+                }
+                .verify(&self.persistent.realm_key, &captured_statement)
+                .is_ok())
+                {
+                    election.vote(hsm_id);
+                };
+            }
+            if let Some((index, entry_hmac)) = &group.captured {
+                if *index == request.index && *entry_hmac == request.entry_hmac {
+                    election.vote(self.persistent.id);
+                }
+            };
 
-            if captures > group.configuration.0.len() / 2 {
+            let election_outcome = election.outcome();
+            if election_outcome.has_quorum {
                 trace!(hsm = self.options.name, index = ?request.index, "leader committed entry");
                 // todo: skip already committed entries
                 let responses = leader
@@ -927,8 +922,7 @@ impl Hsm {
             } else {
                 warn!(
                     hsm = self.options.name,
-                    captures,
-                    total = group.configuration.0.len(),
+                    election = ?election_outcome,
                     "no quorum. buggy caller?"
                 );
                 CommitResponse::NoQuorum
@@ -1515,14 +1509,157 @@ fn handle_app_request(
     }
 }
 
+pub struct HsmElection {
+    votes: HashMap<HsmId, bool>,
+}
+
+#[derive(PartialEq, Eq)]
+pub struct HsmElectionOutcome {
+    pub has_quorum: bool,
+    pub vote_count: usize,
+    pub member_count: usize,
+}
+
+impl HsmElection {
+    pub fn new(voters: &[HsmId]) -> HsmElection {
+        assert!(!voters.is_empty());
+        HsmElection {
+            votes: HashMap::from_iter(voters.iter().map(|id| (*id, false))),
+        }
+    }
+
+    pub fn vote(&mut self, voter: HsmId) {
+        self.votes.entry(voter).and_modify(|f| *f = true);
+    }
+
+    pub fn outcome(self) -> HsmElectionOutcome {
+        let yay = self.votes.iter().filter(|(_, v)| **v).count();
+        let all = self.votes.len();
+        HsmElectionOutcome {
+            has_quorum: yay * 2 > all,
+            vote_count: yay,
+            member_count: all,
+        }
+    }
+}
+
+impl Debug for HsmElectionOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "HsmElectionOutcome votes {} out of {}, {}",
+            self.vote_count,
+            self.member_count,
+            if self.has_quorum {
+                "Quorum"
+            } else {
+                "NoQuorum"
+            }
+        )
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::{
         super::bitvec,
         super::merkle::{agent::StoreKey, NodeHasher},
-        types::DataHash,
-        MerkleHasher,
+        types::{DataHash, HsmId},
+        HsmElection, HsmElectionOutcome, MerkleHasher,
     };
+
+    #[test]
+    #[should_panic]
+    fn empty_election() {
+        HsmElection::new(&[]);
+    }
+
+    #[test]
+    fn election_voters() {
+        let ids = (0..6).map(|b| HsmId([b; 16])).collect::<Vec<_>>();
+        fn has_q(ids: &[HsmId], voters: &[HsmId]) -> bool {
+            let mut q = HsmElection::new(ids);
+            for v in voters.iter() {
+                q.vote(*v);
+            }
+            let o = q.outcome();
+            assert_eq!(voters.len(), o.vote_count);
+            assert_eq!(ids.len(), o.member_count);
+            o.has_quorum
+        }
+        // 1 member
+        assert_eq!(true, has_q(&ids[..1], &ids[..1]));
+        assert_eq!(false, has_q(&ids[..1], &ids[..0]));
+        // 2 members
+        assert_eq!(true, has_q(&ids[..2], &ids[..2]));
+        assert_eq!(false, has_q(&ids[..2], &ids[..1]));
+        assert_eq!(false, has_q(&ids[..2], &ids[..0]));
+        // 3 members
+        assert_eq!(true, has_q(&ids[..3], &ids[..3]));
+        assert_eq!(true, has_q(&ids[..3], &ids[..2]));
+        assert_eq!(false, has_q(&ids[..3], &ids[..1]));
+        assert_eq!(false, has_q(&ids[..3], &ids[..0]));
+        // 4
+        assert_eq!(true, has_q(&ids[..4], &ids[..4]));
+        assert_eq!(true, has_q(&ids[..4], &ids[..3]));
+        assert_eq!(false, has_q(&ids[..4], &ids[..2]));
+        assert_eq!(false, has_q(&ids[..4], &ids[..1]));
+        assert_eq!(false, has_q(&ids[..4], &ids[..0]));
+        // 5
+        assert_eq!(true, has_q(&ids[..5], &ids[..5]));
+        assert_eq!(true, has_q(&ids[..5], &ids[..4]));
+        assert_eq!(true, has_q(&ids[..5], &ids[..3]));
+        assert_eq!(false, has_q(&ids[..5], &ids[..2]));
+        assert_eq!(false, has_q(&ids[..5], &ids[..1]));
+        assert_eq!(false, has_q(&ids[..5], &ids[..0]));
+        // 6
+        assert_eq!(true, has_q(&ids[..6], &ids[..6]));
+        assert_eq!(
+            true,
+            has_q(&ids[..6], &[ids[0], ids[4], ids[1], ids[5], ids[3]])
+        );
+        assert_eq!(true, has_q(&ids[..6], &[ids[5], ids[0], ids[2], ids[3]]));
+        assert_eq!(false, has_q(&ids[..6], &[ids[4], ids[0], ids[2]]));
+        assert_eq!(false, has_q(&ids[..6], &ids[3..5]));
+        assert_eq!(false, has_q(&ids[..6], &[ids[5], ids[1]]));
+        assert_eq!(false, has_q(&ids[..6], &ids[4..5]));
+        assert_eq!(false, has_q(&ids[..6], &ids[..0]));
+    }
+
+    #[test]
+    fn election_non_voters() {
+        let ids = (0..10).map(|b| HsmId([b; 16])).collect::<Vec<_>>();
+        let mut q = HsmElection::new(&ids[..5]);
+        for not_member in &ids[5..] {
+            q.vote(*not_member);
+        }
+        assert_eq!(
+            HsmElectionOutcome {
+                has_quorum: false,
+                vote_count: 0,
+                member_count: 5
+            },
+            q.outcome()
+        );
+    }
+
+    #[test]
+    fn election_vote_only_counts_once() {
+        let ids = (0..5).map(|b| HsmId([b; 16])).collect::<Vec<_>>();
+        let mut q = HsmElection::new(&ids);
+        q.vote(ids[0]);
+        q.vote(ids[0]);
+        q.vote(ids[0]);
+        q.vote(ids[1]);
+        assert_eq!(
+            HsmElectionOutcome {
+                has_quorum: false,
+                vote_count: 2,
+                member_count: 5
+            },
+            q.outcome()
+        );
+    }
 
     #[test]
     fn test_store_key_parse_datahash() {
