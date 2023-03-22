@@ -1346,7 +1346,7 @@ impl Hsm {
                         if (leader.log.last().unwrap().entry)
                             .partition
                             .as_ref()
-                            .filter(|partition| partition.range.contains(&request.rid))
+                            .filter(|partition| partition.range.contains(&request.record_id))
                             .is_some()
                         {
                             let app_ctx = app::AppContext {
@@ -1442,7 +1442,8 @@ fn handle_app_request(
         }
         None => (0, None),
     };
-    let (client_response, change) = app::process(app_ctx, request.request, value);
+    let (client_response, change) =
+        app::process(app_ctx, &request.record_id, request.request, value);
     let (root_hash, delta) = match change {
         Some(change) => match change {
             RecordChange::Update(mut record) => {

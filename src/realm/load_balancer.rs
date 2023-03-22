@@ -225,10 +225,15 @@ async fn handle_client_request(
         return Response::Unavailable;
     };
 
-    // TODO: this is a dumb hack and obviously not what we want.
-    let token = request.request.auth_token();
+    let token = &request.auth_token;
+    // TODO: should use a more secure signature scheme
+    if token.signature != b"it's-a-me!" {
+        trace!(?token, "failed auth");
+        return Response::InvalidAuth;
+    }
+
     let mut tenant = BitVec::new();
-    tenant.extend(&BitVec::<u8, Msb0>::from_slice(token.signature.as_bytes()));
+    tenant.extend(&BitVec::<u8, Msb0>::from_slice(token.tenant.as_bytes()));
     let mut user = BitVec::new();
     user.extend(&BitVec::<u8, Msb0>::from_slice(token.user.as_bytes()));
     let record_id = super::agent::types::make_record_id(&TenantId(tenant), &UserId(user));
@@ -244,7 +249,7 @@ async fn handle_client_request(
                 AppRequest {
                     realm: request.realm,
                     group: partition.group,
-                    rid: record_id.clone(),
+                    record_id: record_id.clone(),
                     request: request.request.clone(),
                 },
             )

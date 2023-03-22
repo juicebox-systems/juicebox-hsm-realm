@@ -347,6 +347,7 @@ enum RequestError {
     DeserializationError(marshalling::DeserializationError),
     SerializationError(marshalling::SerializationError),
     Unavailable,
+    InvalidAuth,
 }
 
 impl Client {
@@ -375,6 +376,7 @@ impl Client {
                 &realm.address,
                 ClientRequest {
                     realm: realm.id,
+                    auth_token: self.auth_token.clone(),
                     request,
                 },
             )
@@ -382,6 +384,7 @@ impl Client {
         {
             Ok(ClientResponse::Ok(response)) => Ok(response),
             Ok(ClientResponse::Unavailable) => Err(RequestError::Unavailable),
+            Ok(ClientResponse::InvalidAuth) => Err(RequestError::InvalidAuth),
             Err(ClientError::Network(e)) => Err(RequestError::HttpError(e)),
             Err(ClientError::HttpStatus(sc)) => Err(RequestError::HttpStatus(sc)),
             Err(ClientError::Serialization(e)) => Err(RequestError::SerializationError(e)),
@@ -561,7 +564,6 @@ impl Client {
         let register1_request = self.make_request(
             realm,
             SecretsRequest::Register1(Register1Request {
-                auth_token: self.auth_token.clone(),
                 generation,
                 blinded_pin: blinded_pin.message,
             }),
@@ -576,6 +578,9 @@ impl Client {
             }
             Err(RequestError::HttpStatus(_status)) => todo!(),
             Err(RequestError::Unavailable) => todo!(),
+            Err(RequestError::InvalidAuth) => {
+                Err(RegisterGenError::Error(RegisterError::InvalidAuth))
+            }
 
             Ok(SecretsResponse::Register1(rr)) => match rr {
                 Register1Response::Ok { blinded_oprf_pin } => {
@@ -590,10 +595,6 @@ impl Client {
                         return Err(RegisterGenError::Error(RegisterError::ProtocolError));
                     }
                     Ok(OprfResult(oprf_pin))
-                }
-
-                Register1Response::InvalidAuth => {
-                    Err(RegisterGenError::Error(RegisterError::InvalidAuth))
                 }
 
                 Register1Response::BadGeneration { first_available } => {
@@ -625,7 +626,6 @@ impl Client {
         let register2_request = self.make_request(
             realm,
             SecretsRequest::Register2(Register2Request {
-                auth_token: self.auth_token.clone(),
                 generation,
                 masked_tgk_share,
                 tag,
@@ -640,6 +640,7 @@ impl Client {
             | Err(RequestError::SerializationError(_)) => Err(RegisterError::ProtocolError),
             Err(RequestError::HttpStatus(_status)) => todo!(),
             Err(RequestError::Unavailable) => todo!(),
+            Err(RequestError::InvalidAuth) => Err(RegisterError::InvalidAuth),
 
             Ok(SecretsResponse::Register2(rr)) => match rr {
                 Register2Response::Ok {
@@ -647,7 +648,6 @@ impl Client {
                 } => Ok(RegisterGenSuccess {
                     found_earlier_generations,
                 }),
-                Register2Response::InvalidAuth => Err(RegisterError::InvalidAuth),
                 Register2Response::NotRegistering | Register2Response::AlreadyRegistered => {
                     Err(RegisterError::ProtocolError)
                 }
@@ -896,7 +896,6 @@ impl Client {
         let recover1_request = self.make_request(
             realm,
             SecretsRequest::Recover1(Recover1Request {
-                auth_token: self.auth_token.clone(),
                 generation,
                 blinded_pin: blinded_pin.message,
             }),
@@ -927,6 +926,12 @@ impl Client {
             | Err(RequestError::SerializationError(_)) => todo!(),
             Err(RequestError::HttpStatus(_status)) => todo!(),
             Err(RequestError::Unavailable) => todo!(),
+            Err(RequestError::InvalidAuth) => {
+                return Err(RecoverGenError {
+                    error: RecoverError::InvalidAuth,
+                    retry: None,
+                })
+            }
 
             Ok(SecretsResponse::Recover1(rr)) => match rr {
                 Recover1Response::Ok {
@@ -940,13 +945,6 @@ impl Client {
                     masked_tgk_share,
                     previous_generation,
                 },
-
-                Recover1Response::InvalidAuth => {
-                    return Err(RecoverGenError {
-                        error: RecoverError::InvalidAuth,
-                        retry: None,
-                    })
-                }
 
                 Recover1Response::NotRegistered {
                     generation,
@@ -1034,11 +1032,7 @@ impl Client {
     ) -> Result<UserSecretShare, RecoverError> {
         let recover2_request = self.make_request(
             realm,
-            SecretsRequest::Recover2(Recover2Request {
-                auth_token: self.auth_token.clone(),
-                generation,
-                tag,
-            }),
+            SecretsRequest::Recover2(Recover2Request { generation, tag }),
         );
 
         match recover2_request.await {
@@ -1047,10 +1041,10 @@ impl Client {
             | Err(RequestError::SerializationError(_)) => todo!(),
             Err(RequestError::HttpStatus(_status)) => todo!(),
             Err(RequestError::Unavailable) => todo!(),
+            Err(RequestError::InvalidAuth) => Err(RecoverError::InvalidAuth),
 
             Ok(SecretsResponse::Recover2(rr)) => match rr {
                 Recover2Response::Ok(secret_share) => Ok(secret_share),
-                Recover2Response::InvalidAuth => Err(RecoverError::InvalidAuth),
                 Recover2Response::NotRegistered => Err(RecoverError::Unsuccessful(vec![(
                     generation,
                     UnsuccessfulRecoverReason::NotRegistered,
@@ -1098,13 +1092,7 @@ impl Client {
         up_to: Option<GenerationNumber>,
     ) -> Result<(), DeleteError> {
         let delete_result = self
-            .make_request(
-                realm,
-                SecretsRequest::Delete(DeleteRequest {
-                    auth_token: self.auth_token.clone(),
-                    up_to,
-                }),
-            )
+            .make_request(realm, SecretsRequest::Delete(DeleteRequest { up_to }))
             .await;
 
         match delete_result {
@@ -1113,10 +1101,10 @@ impl Client {
             | Err(RequestError::SerializationError(_)) => todo!(),
             Err(RequestError::HttpStatus(_status)) => todo!(),
             Err(RequestError::Unavailable) => todo!(),
+            Err(RequestError::InvalidAuth) => Err(DeleteError::InvalidAuth),
 
             Ok(SecretsResponse::Delete(dr)) => match dr {
                 DeleteResponse::Ok => Ok(()),
-                DeleteResponse::InvalidAuth => Err(DeleteError::InvalidAuth),
             },
             Ok(_) => todo!(),
         }

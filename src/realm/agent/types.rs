@@ -296,7 +296,7 @@ impl Rpc<AgentService> for AppRequest {
 pub struct AppRequest {
     pub realm: RealmId,
     pub group: GroupId,
-    pub rid: RecordId,
+    pub record_id: RecordId,
     pub request: SecretsRequest,
 }
 

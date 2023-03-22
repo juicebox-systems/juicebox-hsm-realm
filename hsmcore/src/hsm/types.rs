@@ -9,7 +9,7 @@ use sha2::Sha256;
 use super::super::bitvec::{BitVec, Bits};
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
 use super::super::types::{
-    AuthToken, DeleteRequest, DeleteResponse, Recover1Request, Recover1Response, Recover2Request,
+    DeleteRequest, DeleteResponse, Recover1Request, Recover1Response, Recover2Request,
     Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,
 };
 
@@ -191,8 +191,8 @@ impl OwnedRange {
             end: RecordId::max_id(),
         }
     }
-    pub fn contains(&self, rid: &RecordId) -> bool {
-        rid >= &self.start && rid <= &self.end
+    pub fn contains(&self, record_id: &RecordId) -> bool {
+        record_id >= &self.start && record_id <= &self.end
     }
     pub fn join(&self, other: &OwnedRange) -> Option<Self> {
         match self.end.next() {
@@ -592,7 +592,7 @@ pub enum CompleteTransferResponse {
 pub struct AppRequest {
     pub realm: RealmId,
     pub group: GroupId,
-    pub rid: RecordId,
+    pub record_id: RecordId,
     pub request: SecretsRequest,
     pub index: LogIndex,
     pub proof: ReadProof<DataHash>,
@@ -621,18 +621,6 @@ pub enum SecretsRequest {
     Recover1(Recover1Request),
     Recover2(Recover2Request),
     Delete(DeleteRequest),
-}
-
-impl SecretsRequest {
-    pub fn auth_token(&self) -> &AuthToken {
-        match self {
-            SecretsRequest::Register1(r) => &r.auth_token,
-            SecretsRequest::Register2(r) => &r.auth_token,
-            SecretsRequest::Recover1(r) => &r.auth_token,
-            SecretsRequest::Recover2(r) => &r.auth_token,
-            SecretsRequest::Delete(r) => &r.auth_token,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
