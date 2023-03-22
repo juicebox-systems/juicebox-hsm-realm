@@ -12,6 +12,7 @@ use google::bigtable::v2::{
 use hsmcore::marshalling;
 use http::Uri;
 use std::collections::HashMap;
+use std::fmt;
 use std::fmt::Write;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -129,11 +130,19 @@ fn log_key(group: &GroupId, index: LogIndex) -> Vec<u8> {
         .collect()
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct StoreAdminClient {
     // https://cloud.google.com/bigtable/docs/reference/admin/rpc/google.bigtable.admin.v2
     bigtable: BigtableTableAdminClient,
     instance: Instance,
+}
+
+impl fmt::Debug for StoreAdminClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StoreAdminClient")
+            .field("instance", &self.instance)
+            .finish_non_exhaustive()
+    }
 }
 
 impl StoreAdminClient {
@@ -223,11 +232,19 @@ impl StoreAdminClient {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct StoreClient {
     // https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2
     bigtable: BigtableClient,
     instance: Instance,
+}
+
+impl fmt::Debug for StoreClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StoreClient")
+            .field("instance", &self.instance)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug)]

@@ -52,6 +52,20 @@ impl Spew {
 
 static EXPORT_SPEW: Spew = Spew::new();
 
+// Quiet down some libs.
+fn should_log(module_path: Option<&str>) -> bool {
+    if let Some(module) = module_path {
+        let module = module.split_once("::").map(|(l, _)| l).unwrap_or(module);
+        if matches!(
+            module,
+            "h2" | "hyper" | "mio" | "reqwest" | "tokio_util" | "tonic" | "tower" | "want"
+        ) {
+            return false;
+        }
+    }
+    true
+}
+
 pub fn configure(service_name: &str) {
     let log_level = std::env::var("LOGLEVEL")
         .map(|s| match Level::from_str(&s) {
@@ -59,23 +73,6 @@ pub fn configure(service_name: &str) {
             Err(e) => panic!("failed to parse LOGLEVEL: {e}"),
         })
         .unwrap_or(Level::INFO);
-
-    // Quiet down some libs.
-    let filter = FilterFn::new(|metadata| {
-        if let Some(module) = metadata.module_path() {
-            if module.starts_with("h2::")
-                || module.starts_with("hyper::")
-                || module.starts_with("reqwest::")
-                || module.starts_with("tokio_util::")
-                || module.starts_with("tonic::")
-                || module.starts_with("tower::")
-                || module.starts_with("want::")
-            {
-                return false;
-            }
-        }
-        true
-    });
 
     let terminal = tracing_subscriber::fmt::Subscriber::new()
         .with_file(true)
@@ -132,7 +129,7 @@ pub fn configure(service_name: &str) {
     opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
 
     tracing_subscriber::registry()
-        .with(filter)
+        .with(FilterFn::new(|metadata| should_log(metadata.module_path())))
         .with(terminal.with_filter(LevelFilter::from_level(log_level)))
         .with(telemetry)
         .init();
@@ -145,4 +142,18 @@ pub fn configure(service_name: &str) {
 
 pub fn flush() {
     opentelemetry::global::shutdown_tracer_provider()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_should_log() {
+        assert!(!should_log(Some("want")));
+        assert!(!should_log(Some("want::foo")));
+        assert!(should_log(Some("hsm")));
+        assert!(should_log(Some("hsm::foo")));
+        assert!(should_log(None));
+    }
 }

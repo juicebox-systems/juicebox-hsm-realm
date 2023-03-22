@@ -177,10 +177,17 @@ impl<HO: HashOutput> InteriorNode<HO> {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct LeafNode {
     pub value: Vec<u8>,
 }
+
+impl Debug for LeafNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("LeafNode")
+    }
+}
+
 impl LeafNode {
     fn new<HO, H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: Vec<u8>) -> (HO, LeafNode) {
         let h = Self::calc_hash(hasher, k, &v);

@@ -53,7 +53,7 @@ impl<'a> fmt::Debug for Hex<'a> {
 
 static STREAM_SPEW: Spew = Spew::new();
 
-#[instrument(level = "trace", skip(bigtable), fields(retry_count))]
+#[instrument(level = "trace", skip(bigtable, request), fields(retry_count))]
 pub async fn read_rows(
     bigtable: &mut BigtableClient,
     request: ReadRowsRequest,
