@@ -1,5 +1,7 @@
-use core::fmt::Debug;
+extern crate alloc;
 
+use alloc::{borrow::Cow, string::String, vec::Vec};
+use core::fmt::Debug;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::types::{
@@ -11,6 +13,42 @@ use super::types::{
     TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
     TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub enum MetricsAction {
+    // Record metrics.
+    Record,
+    // Records and then reports metrics back to the client and resets the HSM in memory metrics.
+    ReportAndReset,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct HsmRequestContainer {
+    pub req: HsmRequest,
+    pub metrics: Option<MetricsAction>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct HsmResponseContainer<'a, T> {
+    pub res: T,
+    // None unless ReportAndReset was specified as the metrics action.
+    pub metrics: Option<HsmMetrics<'a>>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct HsmMetrics<'a> {
+    // Uses Cow so that serialize can be on references, and deserialize
+    // can create new ones.
+    pub metrics: Vec<Cow<'a, HsmMetric>>,
+    pub hsm_name: Cow<'a, String>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct HsmMetric {
+    pub name: String,
+    pub units: String,
+    pub points: Vec<u64>,
+}
 
 pub trait HsmRpc: DeserializeOwned + Serialize + Debug {
     type Response: DeserializeOwned + Serialize + Debug;
@@ -38,7 +76,7 @@ pub enum HsmRequest {
 }
 
 impl HsmRequest {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'static str {
         match self {
             HsmRequest::Status(_) => "Status",
             HsmRequest::NewRealm(_) => "NewRealm",

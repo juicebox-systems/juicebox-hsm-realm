@@ -1,28 +1,45 @@
 use bytes::Bytes;
 use futures::Future;
+use hsmcore::hal::Clock;
 use hsmcore::hsm::{Hsm, HsmError, HsmOptions, RealmKey};
-use hsmcore::CryptoRng;
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use rand::rngs::OsRng;
 use reqwest::Url;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
+struct StdClock;
+
+impl Clock for StdClock {
+    type Instant = Instant;
+
+    fn now(&self) -> Option<Instant> {
+        Some(Instant::now())
+    }
+
+    fn elapsed(&self, start: Instant) -> Option<Duration> {
+        Some(start.elapsed())
+    }
+}
+
 #[derive(Clone)]
-pub struct HttpHsm(Arc<Mutex<Hsm>>);
+pub struct HttpHsm(Arc<Mutex<Hsm<OsRng, StdClock>>>);
 
 impl HttpHsm {
-    pub fn new(name: String, realm_key: RealmKey, rng: Box<dyn CryptoRng>) -> Self {
+    pub fn new(name: String, realm_key: RealmKey) -> Self {
         HttpHsm(Arc::new(Mutex::new(Hsm::new(
             HsmOptions {
                 name,
-                rng,
+                rng: OsRng,
+                clock: StdClock,
                 tree_overlay_size: 511,
             },
             realm_key,

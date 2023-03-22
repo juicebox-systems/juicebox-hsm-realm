@@ -76,17 +76,17 @@ async fn main() {
     let num_hsms = 5;
     info!(count = num_hsms, "creating initial HSMs and agents");
     let group1 = hsm_generator
-        .create_hsms(num_hsms, &mut process_group, &bigtable)
+        .create_hsms(num_hsms, None, &mut process_group, &bigtable)
         .await;
     let (realm_id, group_id1) = cluster::new_realm(&group1).await.unwrap();
     info!(?realm_id, group_id = ?group_id1, "initialized cluster");
 
     info!("creating additional groups");
     let group2 = hsm_generator
-        .create_hsms(5, &mut process_group, &bigtable)
+        .create_hsms(5, None, &mut process_group, &bigtable)
         .await;
     let group3 = hsm_generator
-        .create_hsms(4, &mut process_group, &bigtable)
+        .create_hsms(4, None, &mut process_group, &bigtable)
         .await;
 
     let mut groups = try_join_all([
@@ -169,7 +169,7 @@ async fn main() {
         let bigtable = bigtable.clone();
         async move {
             let agents = hsm_generator
-                .create_hsms(num_hsms, &mut process_group, &bigtable)
+                .create_hsms(num_hsms, None, &mut process_group, &bigtable)
                 .await;
             cluster::new_realm(&agents).await.unwrap().0
         }

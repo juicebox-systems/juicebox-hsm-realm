@@ -52,28 +52,34 @@ impl HsmGenerator {
     pub async fn create_hsms(
         &mut self,
         mut count: usize,
+        metrics: Option<Metrics>,
         process_group: &mut ProcessGroup,
         bigtable: &Uri,
     ) -> Vec<Url> {
         let mut agent_urls = Vec::with_capacity(count);
+        let mut add_metrics = Metrics::report_metrics(&metrics);
         if self.entrust.0 {
             let agent_port = self.port.next().unwrap();
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
-            process_group.spawn(
-                Command::new(format!(
-                    "target/{}/entrust-agent",
-                    if cfg!(debug_assertions) {
-                        "debug"
-                    } else {
-                        "release"
-                    }
-                ))
-                .arg("--listen")
+            let mut cmd = Command::new(format!(
+                "target/{}/entrust-agent",
+                if cfg!(debug_assertions) {
+                    "debug"
+                } else {
+                    "release"
+                }
+            ));
+            cmd.arg("--listen")
                 .arg(agent_address)
                 .arg("--bigtable")
-                .arg(bigtable.to_string()),
-            );
+                .arg(bigtable.to_string());
+
+            if add_metrics.next().is_some() {
+                cmd.arg("--metrics").arg("1000");
+            };
+
+            process_group.spawn(&mut cmd);
             agent_urls.push(agent_url);
             count -= 1;
         }
@@ -98,22 +104,24 @@ impl HsmGenerator {
             );
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
-            process_group.spawn(
-                Command::new(format!(
-                    "target/{}/agent",
-                    if cfg!(debug_assertions) {
-                        "debug"
-                    } else {
-                        "release"
-                    }
-                ))
-                .arg("--listen")
+            let mut cmd = Command::new(format!(
+                "target/{}/agent",
+                if cfg!(debug_assertions) {
+                    "debug"
+                } else {
+                    "release"
+                }
+            ));
+            cmd.arg("--listen")
                 .arg(agent_address)
                 .arg("--bigtable")
                 .arg(bigtable.to_string())
                 .arg("--hsm")
-                .arg(hsm_url.to_string()),
-            );
+                .arg(hsm_url.to_string());
+            if add_metrics.next().is_some() {
+                cmd.arg("--metrics").arg("1000");
+            }
+            process_group.spawn(&mut cmd);
             agent_url
         })
         .take(count)
@@ -145,5 +153,32 @@ impl HsmGenerator {
             agent_url
         });
         join_all(waiters).await;
+    }
+}
+
+#[allow(dead_code)] // the compiler doesn't seem to see the usage from hsm_bench
+#[derive(Clone, Debug)]
+pub enum Metrics {
+    Leader,
+    All,
+}
+
+impl Metrics {
+    #[allow(dead_code)] // the compiler doesn't seem to see the usage from hsm_bench
+    pub fn parse(arg: &str) -> Result<Metrics, String> {
+        let arg = arg.trim().to_ascii_lowercase();
+        match arg.as_str() {
+            "leader" => Ok(Metrics::Leader),
+            "all" => Ok(Metrics::All),
+            _ => Err(format!("valid options are Leader, All")),
+        }
+    }
+
+    fn report_metrics(m: &Option<Metrics>) -> Box<dyn Iterator<Item = ()>> {
+        match m {
+            None => Box::new(iter::empty()),
+            Some(Metrics::Leader) => Box::new(iter::once(())),
+            Some(Metrics::All) => Box::new(iter::repeat(())),
+        }
     }
 }

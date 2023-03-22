@@ -73,11 +73,12 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: build
+        args: --all
 
     - name: Run cargo test
       uses: actions-rs/cargo@v1
       with:
-        args: -p hsmcore -p loam-mvp
+        args: --all
         command: test
       env:
         RUST_BACKTRACE: '1'

@@ -8,9 +8,12 @@ mod seelib;
 
 extern crate alloc;
 
-use alloc::{boxed::Box, string::String, vec};
-use core::slice;
-use hsmcore::hsm::{Hsm, HsmOptions, RealmKey};
+use alloc::{string::String, vec};
+use core::{slice, time::Duration};
+use hsmcore::{
+    hal::Clock,
+    hsm::{Hsm, HsmOptions, RealmKey},
+};
 use seelib::{
     Cmd_GenerateRandom, M_ByteBlock, M_Cmd_GenerateRandom_Args, M_Command, M_Reply, M_Status,
     M_Word, SEElib_AwaitJobEx, SEElib_FreeReply, SEElib_InitComplete, SEElib_ReturnJob,
@@ -22,7 +25,8 @@ pub extern "C" fn rust_main() -> isize {
     let mut hsm = Hsm::new(
         HsmOptions {
             name: String::from("entrust"),
-            rng: Box::new(NFastRng),
+            rng: NFastRng,
+            clock: NCipherClock,
             tree_overlay_size: 511,
         },
         RealmKey::derive_from("010203".as_bytes()),
@@ -108,5 +112,116 @@ impl rand_core::RngCore for NFastRng {
 impl M_ByteBlock {
     pub unsafe fn as_slice(&self) -> &[u8] {
         slice::from_raw_parts(self.ptr, self.len as usize)
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(C)]
+struct TimeSpec {
+    sec: i32,
+    nsec: i32,
+}
+
+type ClockId = isize;
+const CLOCK_MONOTONIC: ClockId = 1;
+
+extern "C" {
+    fn clock_gettime(c: ClockId, tm: *mut TimeSpec) -> isize;
+}
+
+struct NCipherClock;
+
+impl Clock for NCipherClock {
+    type Instant = TimeSpec;
+
+    fn now(&self) -> Option<TimeSpec> {
+        let mut tm = TimeSpec::default();
+        unsafe {
+            match clock_gettime(CLOCK_MONOTONIC, &mut tm) {
+                0 => Some(tm),
+                _ => None,
+            }
+        }
+    }
+
+    fn elapsed(&self, start: TimeSpec) -> Option<Duration> {
+        let end = self.now()?;
+        timespec_elapsed(&start, &end)
+    }
+}
+
+#[allow(clippy::manual_range_contains)] // clippy thinks (0..1_000_000_000).contains(&nsec) is clearer. clippy is nuts.
+fn timespec_elapsed(start: &TimeSpec, end: &TimeSpec) -> Option<Duration> {
+    if end < start {
+        return None;
+    }
+    let mut sec = end.sec - start.sec;
+    let mut nsec = end.nsec - start.nsec;
+    if nsec < 0 {
+        sec -= 1;
+        nsec += 1_000_000_000;
+    }
+    assert!(sec >= 0);
+    assert!(nsec >= 0 && nsec < 1_000_000_000);
+    Some(Duration::new(sec as u64, nsec as u32))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn elapsed_zero() {
+        let s = TimeSpec {
+            sec: 123,
+            nsec: 4444_000,
+        };
+        assert_eq!(Some(Duration::ZERO), timespec_elapsed(&s, &s))
+    }
+
+    #[test]
+    fn elapsed() {
+        let s = TimeSpec {
+            sec: 4,
+            nsec: 10_000,
+        };
+        let e = TimeSpec {
+            sec: 4,
+            nsec: 100_000,
+        };
+        assert_eq!(
+            Some(Duration::from_nanos(100_000 - 10_000)),
+            timespec_elapsed(&s, &e)
+        );
+
+        let e = TimeSpec {
+            sec: 6,
+            nsec: 100_000,
+        };
+        assert_eq!(Some(Duration::new(2, 90_000)), timespec_elapsed(&s, &e));
+    }
+
+    #[test]
+    fn elapsed_nsec_rollover() {
+        let s = TimeSpec {
+            sec: 10,
+            nsec: 900_000_000,
+        };
+        let e = TimeSpec { sec: 11, nsec: 50 };
+        assert_eq!(
+            Some(Duration::from_nanos(100_000_050)),
+            timespec_elapsed(&s, &e)
+        );
+    }
+
+    #[test]
+    fn end_lt_start() {
+        let s = TimeSpec { sec: 5, nsec: 5000 };
+        let e = TimeSpec { sec: 5, nsec: 4999 };
+        assert!(timespec_elapsed(&s, &e).is_none());
+
+        let s = TimeSpec { sec: 5, nsec: 5000 };
+        let e = TimeSpec { sec: 4, nsec: 9000 };
+        assert!(timespec_elapsed(&s, &e).is_none());
     }
 }

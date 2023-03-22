@@ -1,7 +1,7 @@
 extern crate alloc;
 
 use aes_gcm::aead::Aead;
-use alloc::boxed::Box;
+use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -17,10 +17,13 @@ mod app;
 pub mod rpc;
 pub mod types;
 
-use self::rpc::{HsmRequest, HsmRpc};
+use self::rpc::{
+    HsmMetric, HsmMetrics, HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc,
+    MetricsAction,
+};
 use self::types::Partition;
 use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
-use super::{marshalling, CryptoRng};
+use super::{hal::Clock, hal::CryptoRng, marshalling};
 use app::{RecordChange, RootOprfKey};
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
@@ -60,7 +63,7 @@ impl RealmKey {
 }
 
 impl GroupId {
-    fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
+    fn random(rng: &mut impl CryptoRng) -> Self {
         let mut id = [0u8; 16];
         rng.fill_bytes(&mut id);
         Self(id)
@@ -68,7 +71,7 @@ impl GroupId {
 }
 
 impl HsmId {
-    fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
+    fn random(rng: &mut impl CryptoRng) -> Self {
         let mut id = [0u8; 16];
         rng.fill_bytes(&mut id);
         Self(id)
@@ -76,7 +79,7 @@ impl HsmId {
 }
 
 impl RealmId {
-    fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
+    fn random(rng: &mut impl CryptoRng) -> Self {
         let mut id = [0u8; 16];
         rng.fill_bytes(&mut id);
         Self(id)
@@ -251,7 +254,7 @@ impl<'a> EntryHmacBuilder<'a> {
 }
 
 impl TransferNonce {
-    pub fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
+    pub fn random(rng: &mut impl CryptoRng) -> Self {
         let mut nonce = [0u8; 16];
         rng.fill_bytes(&mut nonce);
         Self(nonce)
@@ -327,16 +330,18 @@ impl RecordEncryptionKey {
     }
 }
 
-pub struct Hsm {
-    options: HsmOptions,
+pub struct Hsm<RNG: CryptoRng, C: Clock> {
+    options: HsmOptions<RNG, C>,
     persistent: PersistentState,
     volatile: VolatileState,
+    metrics: HashMap<&'static str, HsmMetric>,
 }
 
-pub struct HsmOptions {
+pub struct HsmOptions<RNG: CryptoRng, C: Clock> {
     pub name: String,
-    pub rng: Box<dyn CryptoRng>,
+    pub rng: RNG,
     pub tree_overlay_size: u16,
+    pub clock: C,
 }
 
 struct PersistentState {
@@ -381,8 +386,8 @@ pub enum HsmError {
     Serialization(marshalling::SerializationError),
 }
 
-impl Hsm {
-    pub fn new(mut options: HsmOptions, realm_key: RealmKey) -> Self {
+impl<RNG: CryptoRng, C: Clock> Hsm<RNG, C> {
+    pub fn new(mut options: HsmOptions<RNG, C>, realm_key: RealmKey) -> Self {
         let root_oprf_key = RootOprfKey::from(&realm_key);
         let record_key = RecordEncryptionKey::from(&realm_key);
         let hsm_id = HsmId::random(&mut options.rng);
@@ -398,45 +403,120 @@ impl Hsm {
                 leader: HashMap::new(),
                 record_key,
             },
+            metrics: HashMap::new(),
         }
     }
     pub fn handle_request(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, HsmError> {
-        let request: HsmRequest = match marshalling::from_slice(request_bytes) {
+        let request: HsmRequestContainer = match marshalling::from_slice(request_bytes) {
             Ok(request) => request,
             Err(e) => {
                 warn!(error = ?e, "deserialization error");
                 return Err(HsmError::Deserialization(e));
             }
         };
-        match request {
-            HsmRequest::Status(r) => self.dispatch_request(r, Self::handle_status_request),
-            HsmRequest::NewRealm(r) => self.dispatch_request(r, Self::handle_new_realm),
-            HsmRequest::JoinRealm(r) => self.dispatch_request(r, Self::handle_join_realm),
-            HsmRequest::NewGroup(r) => self.dispatch_request(r, Self::handle_new_group),
-            HsmRequest::JoinGroup(r) => self.dispatch_request(r, Self::handle_join_group),
-            HsmRequest::BecomeLeader(r) => self.dispatch_request(r, Self::handle_become_leader),
-            HsmRequest::CaptureNext(r) => self.dispatch_request(r, Self::handle_capture_next),
-            HsmRequest::ReadCaptured(r) => self.dispatch_request(r, Self::handle_read_captured),
-            HsmRequest::Commit(r) => self.dispatch_request(r, Self::handle_commit),
-            HsmRequest::TransferOut(r) => self.dispatch_request(r, Self::handle_transfer_out),
-            HsmRequest::TransferNonce(r) => self.dispatch_request(r, Self::handle_transfer_nonce),
+        let req_name = request.req.name();
+        let start = request
+            .metrics
+            .as_ref()
+            .and_then(|_| self.options.clock.now());
+
+        let result = match request.req {
+            HsmRequest::Status(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_status_request)
+            }
+            HsmRequest::NewRealm(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_new_realm)
+            }
+            HsmRequest::JoinRealm(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_join_realm)
+            }
+            HsmRequest::NewGroup(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_new_group)
+            }
+            HsmRequest::JoinGroup(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_join_group)
+            }
+            HsmRequest::BecomeLeader(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_become_leader)
+            }
+            HsmRequest::CaptureNext(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_capture_next)
+            }
+            HsmRequest::ReadCaptured(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_read_captured)
+            }
+            HsmRequest::Commit(r) => self.dispatch_request(request.metrics, r, Self::handle_commit),
+            HsmRequest::TransferOut(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_transfer_out)
+            }
+            HsmRequest::TransferNonce(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_transfer_nonce)
+            }
             HsmRequest::TransferStatement(r) => {
-                self.dispatch_request(r, Self::handle_transfer_statement)
+                self.dispatch_request(request.metrics, r, Self::handle_transfer_statement)
             }
-            HsmRequest::TransferIn(r) => self.dispatch_request(r, Self::handle_transfer_in),
+            HsmRequest::TransferIn(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_transfer_in)
+            }
             HsmRequest::CompleteTransfer(r) => {
-                self.dispatch_request(r, Self::handle_complete_transfer)
+                self.dispatch_request(request.metrics, r, Self::handle_complete_transfer)
             }
-            HsmRequest::AppRequest(r) => self.dispatch_request(r, Self::handle_app),
+            HsmRequest::AppRequest(r) => {
+                self.dispatch_request(request.metrics, r, Self::handle_app)
+            }
+        };
+        if let Some(start_ts) = start {
+            if let Some(dur) = self.options.clock.elapsed(start_ts) {
+                let metric = self.metrics.entry(req_name).or_insert_with(|| HsmMetric {
+                    name: String::from(req_name),
+                    units: String::from("\u{b5}s"),
+                    points: Vec::new(),
+                });
+                // A u64's worth of microseconds can represent many 1000's of years.
+                // Hopefully we don't have any requests that take that long.
+                metric.points.push(dur.as_micros() as u64);
+            }
         }
+        result
     }
+
     fn dispatch_request<Req: HsmRpc, F: FnMut(&mut Self, Req) -> Req::Response>(
         &mut self,
+        metrics: Option<MetricsAction>,
         r: Req,
         mut f: F,
     ) -> Result<Vec<u8>, HsmError> {
         let response = f(self, r);
-        marshalling::to_vec(&response).map_err(HsmError::Serialization)
+
+        let m = if matches!(metrics, Some(MetricsAction::ReportAndReset)) {
+            self.metrics
+                .iter()
+                .filter_map(|(_k, metric)| {
+                    if metric.points.is_empty() {
+                        None
+                    } else {
+                        Some(Cow::Borrowed(metric))
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let resp = HsmResponseContainer {
+            res: response,
+            metrics: Some(HsmMetrics {
+                metrics: m,
+                hsm_name: Cow::Borrowed(&self.options.name),
+            }),
+        };
+        let result = marshalling::to_vec(&resp).map_err(HsmError::Serialization);
+
+        if matches!(metrics, Some(MetricsAction::ReportAndReset)) {
+            for (_, m) in self.metrics.iter_mut() {
+                m.points.clear();
+            }
+        }
+        result
     }
 
     fn create_new_group(
@@ -1662,7 +1742,7 @@ mod test {
     }
 
     #[test]
-    fn test_store_key_parse_datahash() {
+    fn test_store_key_parse_data_hash() {
         let prefix = bitvec![0, 1, 1, 1];
         let mh = MerkleHasher();
         let hash = mh.calc_hash(&[&[1, 2, 3, 4]]);
