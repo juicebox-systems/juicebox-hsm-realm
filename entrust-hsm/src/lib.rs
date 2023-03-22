@@ -174,7 +174,7 @@ mod test {
     fn elapsed_zero() {
         let s = TimeSpec {
             sec: 123,
-            nsec: 4444_000,
+            nsec: 4_444_000,
         };
         assert_eq!(Some(Duration::ZERO), timespec_elapsed(&s, &s))
     }
