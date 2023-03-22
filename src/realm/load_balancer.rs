@@ -1,5 +1,3 @@
-use bitvec::prelude::Msb0;
-use bitvec::vec::BitVec;
 use bytes::Bytes;
 use futures::future::join_all;
 use futures::Future;
@@ -25,9 +23,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 pub mod types;
 
 use super::super::http_client::Client;
-use super::agent::types::{
-    AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse, TenantId, UserId,
-};
+use super::agent::types::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
 use super::store::bigtable::StoreClient;
 use crate::logging::Spew;
 use hsm_types::{GroupId, OwnedRange, RealmId};
@@ -232,11 +228,7 @@ async fn handle_client_request(
         return Response::InvalidAuth;
     }
 
-    let mut tenant = BitVec::new();
-    tenant.extend(&BitVec::<u8, Msb0>::from_slice(token.tenant.as_bytes()));
-    let mut user = BitVec::new();
-    user.extend(&BitVec::<u8, Msb0>::from_slice(token.user.as_bytes()));
-    let record_id = super::agent::types::make_record_id(&TenantId(tenant), &UserId(user));
+    let record_id = super::agent::types::make_record_id(&token.tenant, &token.user);
 
     for partition in partitions {
         if !partition.owned_range.contains(&record_id) {

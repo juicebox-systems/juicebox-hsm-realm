@@ -1,7 +1,5 @@
-use bitvec::vec::BitVec;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::fmt;
 
 use super::super::rpc::{Rpc, Service};
 use hsm_types::{
@@ -312,56 +310,11 @@ pub enum AppResponse {
     InvalidProof,
 }
 
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
-pub struct UserId(pub BitVec);
-
-impl fmt::Debug for UserId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "0b")?;
-        for bit in &self.0 {
-            if *bit {
-                write!(f, "1")?;
-            } else {
-                write!(f, "0")?;
-            }
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
-pub struct TenantId(pub BitVec);
-
-impl fmt::Debug for TenantId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "0b")?;
-        for bit in &self.0 {
-            if *bit {
-                write!(f, "1")?;
-            } else {
-                write!(f, "0")?;
-            }
-        }
-        Ok(())
-    }
-}
-
-pub fn make_record_id(t: &TenantId, u: &UserId) -> RecordId {
+pub fn make_record_id(tenant: &str, user: &str) -> RecordId {
     let mut h = Sha256::new();
-    for bit in &t.0 {
-        if *bit {
-            h.update([1]);
-        } else {
-            h.update([0]);
-        }
-    }
-    h.update([b'|']);
-    for bit in &u.0 {
-        if *bit {
-            h.update([1]);
-        } else {
-            h.update([0]);
-        }
-    }
+    // TODO: deal with possibility of b'|' occurring in `tenant` and `user`.
+    h.update(tenant);
+    h.update(b"|");
+    h.update(user);
     RecordId(h.finalize().into())
 }
