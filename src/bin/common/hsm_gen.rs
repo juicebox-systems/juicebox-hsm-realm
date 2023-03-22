@@ -170,7 +170,7 @@ impl Metrics {
         match arg.as_str() {
             "leader" => Ok(Metrics::Leader),
             "all" => Ok(Metrics::All),
-            _ => Err(format!("valid options are Leader, All")),
+            _ => Err(String::from("valid options are Leader, All")),
         }
     }
 
