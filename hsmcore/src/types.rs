@@ -15,8 +15,9 @@ pub type OprfBlindedResult = voprf::EvaluationElement<OprfCipherSuite>;
 /// Represents the authority to act as a particular user.
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AuthToken {
+    pub tenant: String,
     pub user: String,
-    pub signature: String,
+    pub signature: Vec<u8>,
 }
 
 impl Debug for AuthToken {
@@ -113,7 +114,6 @@ impl Display for GenerationNumber {
 /// Request message for the first phase of registration.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Register1Request {
-    pub auth_token: AuthToken,
     pub generation: GenerationNumber,
     pub blinded_pin: OprfBlindedInput,
 }
@@ -122,14 +122,12 @@ pub struct Register1Request {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum Register1Response {
     Ok { blinded_oprf_pin: OprfBlindedResult },
-    InvalidAuth,
     BadGeneration { first_available: GenerationNumber },
 }
 
 /// Request message for the second phase of registration.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Register2Request {
-    pub auth_token: AuthToken,
     pub generation: GenerationNumber,
     pub masked_tgk_share: MaskedTgkShare,
     pub tag: UnlockTag,
@@ -141,7 +139,6 @@ pub struct Register2Request {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum Register2Response {
     Ok { found_earlier_generations: bool },
-    InvalidAuth,
     NotRegistering,
     AlreadyRegistered,
 }
@@ -149,7 +146,6 @@ pub enum Register2Response {
 /// Request message for the first phase of recovery.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Recover1Request {
-    pub auth_token: AuthToken,
     /// Which generation to recover. If the generation number is not provided, the
     /// server will start recovery with the latest generation.
     pub generation: Option<GenerationNumber>,
@@ -168,7 +164,6 @@ pub enum Recover1Response {
         /// generations to clean up or try recovering.
         previous_generation: Option<GenerationNumber>,
     },
-    InvalidAuth,
     NotRegistered {
         generation: Option<GenerationNumber>,
         previous_generation: Option<GenerationNumber>,
@@ -186,7 +181,6 @@ pub enum Recover1Response {
 /// Request message for the second phase of recovery.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Recover2Request {
-    pub auth_token: AuthToken,
     pub generation: GenerationNumber,
     pub tag: UnlockTag,
 }
@@ -195,7 +189,6 @@ pub struct Recover2Request {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum Recover2Response {
     Ok(UserSecretShare),
-    InvalidAuth,
     NotRegistered,
     BadUnlockTag,
 }
@@ -203,7 +196,6 @@ pub enum Recover2Response {
 /// Request message to delete registered secrets.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DeleteRequest {
-    pub auth_token: AuthToken,
     /// If `Some`, the server deletes generations from 0 up to and excluding
     /// this number. If `None`, the server deletes all generations.
     pub up_to: Option<GenerationNumber>,
@@ -213,5 +205,4 @@ pub struct DeleteRequest {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum DeleteResponse {
     Ok,
-    InvalidAuth,
 }

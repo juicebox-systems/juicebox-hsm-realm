@@ -1,7 +1,6 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt::{self, Debug};
 use hkdf::Hkdf;
@@ -9,17 +8,16 @@ use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
-use tracing::info;
-use tracing::trace;
+use tracing::{info, trace};
 
 use super::super::marshalling;
 use super::super::types::{
-    AuthToken, DeleteRequest, DeleteResponse, GenerationNumber, MaskedTgkShare, OprfBlindedInput,
+    DeleteRequest, DeleteResponse, GenerationNumber, MaskedTgkShare, OprfBlindedInput,
     OprfBlindedResult, OprfCipherSuite, Policy, Recover1Request, Recover1Response, Recover2Request,
     Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,
     UnlockTag, UserSecretShare,
 };
-use super::types::{SecretsRequest, SecretsResponse};
+use super::types::{RecordId, SecretsRequest, SecretsResponse};
 use super::RealmKey;
 
 type OprfServer = voprf::OprfServer<OprfCipherSuite>;
@@ -86,11 +84,12 @@ impl RootOprfKey {
     /// generation.
     fn user_generation_key(
         &self,
-        user: &str,
+        record_id: &RecordId,
         generation: GenerationNumber,
     ) -> digest::Output<Sha256> {
-        let mut mac = Hmac::<Sha256>::new_from_slice(&self.0).expect("failed to initialize HMAC");
-        mac.update(user.as_bytes());
+        let mut mac =
+            <Hmac<Sha256> as Mac>::new_from_slice(&self.0).expect("failed to initialize HMAC");
+        mac.update(record_id.0.as_slice());
         mac.update(&[0u8]);
         mac.update(&generation.0.to_be_bytes());
         mac.finalize().into_bytes()
@@ -105,27 +104,29 @@ impl Debug for RootOprfKey {
 
 fn register1(
     ctx: &AppContext,
+    record_id: &RecordId,
     request: Register1Request,
     mut user_record: UserRecord,
 ) -> (Register1Response, Option<UserRecord>) {
-    let Ok(user) = check_auth(&request.auth_token) else {
-        return (Register1Response::InvalidAuth, None)
-    };
+    type Response = Register1Response;
+
     trace!(
         hsm = ctx.hsm_name,
-        "register1 request for {user:?} at generation {}",
-        request.generation
+        ?record_id,
+        generation = %request.generation,
+        "register1 request",
     );
 
     if request.generation < user_record.first_available_generation {
         trace!(
             hsm = ctx.hsm_name,
-            "can't re-register {user:?} at generation {} (first available generation is {})",
-            request.generation,
-            user_record.first_available_generation
+            ?record_id,
+            generation = %request.generation,
+            first_available_generation = %user_record.first_available_generation,
+            "can't re-register generation",
         );
         return (
-            Register1Response::BadGeneration {
+            Response::BadGeneration {
                 first_available: user_record.first_available_generation,
             },
             None,
@@ -135,7 +136,7 @@ fn register1(
     match request.generation.0.checked_add(1) {
         None => {
             return (
-                Register1Response::BadGeneration {
+                Response::BadGeneration {
                     first_available: user_record.first_available_generation,
                 },
                 None,
@@ -152,49 +153,48 @@ fn register1(
 
     let blinded_oprf_pin = evaluate_oprf(
         ctx.root_oprf_key,
-        &user,
+        record_id,
         request.generation,
         &request.blinded_pin,
     );
     trace!(
         hsm = ctx.hsm_name,
-        "register1 {user:?} at generation {} completed",
-        request.generation
+        ?record_id,
+        generation = %request.generation,
+        "register1 completed",
     );
-    (
-        Register1Response::Ok { blinded_oprf_pin },
-        Some(user_record),
-    )
+    (Response::Ok { blinded_oprf_pin }, Some(user_record))
 }
 
 fn register2(
     ctx: &AppContext,
+    record_id: &RecordId,
     request: Register2Request,
     mut user_record: UserRecord,
 ) -> (Register2Response, Option<UserRecord>) {
-    let Ok(user) = check_auth(&request.auth_token) else {
-        return (Register2Response::InvalidAuth,None)
-    };
     trace!(
         hsm = ctx.hsm_name,
-        "register2 request for {user:?} at generation {}",
-        request.generation
+        ?record_id,
+        generation = %request.generation,
+        "register2 request",
     );
 
     match user_record.generations.get_mut(&request.generation) {
         None => {
             trace!(
                 hsm = ctx.hsm_name,
-                "can't do register2 for {user:?} at {}: haven't done register1",
-                request.generation
+                ?record_id,
+                generation = %request.generation,
+                "can't do register2: haven't done register1",
             );
             (Register2Response::NotRegistering, None)
         }
         Some(GenerationRecord::Registered(_)) => {
             trace!(
                 hsm = ctx.hsm_name,
-                "can't do register2 for {user:?} at {}: already registered",
-                request.generation
+                ?record_id,
+                generation = %request.generation,
+                "can't do register2: already registered",
             );
             (Register2Response::AlreadyRegistered, None)
         }
@@ -219,17 +219,20 @@ fn register2(
 
 fn recover1(
     ctx: &AppContext,
+    record_id: &RecordId,
     request: Recover1Request,
     mut user_record: UserRecord,
 ) -> (Recover1Response, Option<UserRecord>) {
-    let Ok(user) = check_auth(&request.auth_token) else {
-        return (Recover1Response::InvalidAuth, None)
-    };
     match request.generation {
-        Some(generation) => trace!(?user, ?generation, "recover1 request"),
+        Some(generation) => trace!(
+            hsm = ctx.hsm_name,
+            ?record_id,
+            %generation,
+            "recover1 request"
+        ),
         None => trace!(
             hsm = ctx.hsm_name,
-            ?user,
+            ?record_id,
             "recover1 request at latest generation"
         ),
     };
@@ -245,7 +248,7 @@ fn recover1(
 
     let (generation, masked_tgk_share) = match generation {
         None => {
-            trace!(hsm = ctx.hsm_name,?user, ?request.generation,"can't recover: not registered");
+            trace!(hsm = ctx.hsm_name, ?record_id, ?request.generation, "can't recover: not registered");
             return (
                 Recover1Response::NotRegistered {
                     generation: request.generation,
@@ -258,8 +261,8 @@ fn recover1(
         Some((generation, GenerationRecord::Registering)) => {
             trace!(
                 hsm = ctx.hsm_name,
-                ?user,
-                ?generation,
+                ?record_id,
+                %generation,
                 "can't recover: partially registered"
             );
             return (
@@ -275,8 +278,8 @@ fn recover1(
             if record.guess_count >= record.policy.num_guesses {
                 trace!(
                     hsm = ctx.hsm_name,
-                    ?user,
-                    ?generation,
+                    ?record_id,
+                    %generation,
                     "can't recover: out of guesses"
                 );
                 return (
@@ -292,9 +295,13 @@ fn recover1(
         }
     };
 
-    let blinded_oprf_pin =
-        evaluate_oprf(ctx.root_oprf_key, &user, generation, &request.blinded_pin);
-    info!(?user, ?generation, "recover1 completed");
+    let blinded_oprf_pin = evaluate_oprf(
+        ctx.root_oprf_key,
+        record_id,
+        generation,
+        &request.blinded_pin,
+    );
+    info!(?record_id, %generation, "recover1 completed");
     (
         Recover1Response::Ok {
             generation,
@@ -308,25 +315,22 @@ fn recover1(
 
 fn recover2(
     ctx: &AppContext,
+    record_id: &RecordId,
     request: Recover2Request,
     mut user_record: UserRecord,
 ) -> (Recover2Response, Option<UserRecord>) {
-    let Ok(user) = check_auth(&request.auth_token) else {
-        return (Recover2Response::InvalidAuth,None)
-    };
-
     match user_record.generations.get_mut(&request.generation) {
         None | Some(GenerationRecord::Registering) => {
-            trace!(hsm = ctx.hsm_name,?user, ?request.generation, "can't recover: not registered");
+            trace!(hsm = ctx.hsm_name, ?record_id, %request.generation, "can't recover: not registered");
             (Recover2Response::NotRegistered, None)
         }
         Some(GenerationRecord::Registered(record)) => {
             if !bool::from(request.tag.ct_eq(&record.tag)) {
-                trace!(hsm = ctx.hsm_name,?user,?request.generation, "can't recover: bad unlock tag");
+                trace!(hsm = ctx.hsm_name, ?record_id, %request.generation, "can't recover: bad unlock tag");
                 (Recover2Response::BadUnlockTag, None)
             } else {
                 record.guess_count = 0;
-                trace!(hsm = ctx.hsm_name,?user, ?request.generation, "recovered secret share successfully");
+                trace!(hsm = ctx.hsm_name, ?record_id, %request.generation, "recovered secret share successfully");
                 (
                     Recover2Response::Ok(record.secret_share.clone()),
                     Some(user_record),
@@ -338,20 +342,17 @@ fn recover2(
 
 fn delete_generations(
     ctx: &AppContext,
+    record_id: &RecordId,
     request: DeleteRequest,
     mut user_record: UserRecord,
 ) -> (DeleteResponse, Option<UserRecord>) {
-    let Ok(user) = check_auth(&request.auth_token) else {
-        return (DeleteResponse::InvalidAuth,None)
-    };
-
     match request.up_to {
         // Remove from 0 up to and excluding generation.
         Some(generation) => {
             trace!(
                 hsm = ctx.hsm_name,
-                ?user,
-                ?generation,
+                ?record_id,
+                %generation,
                 "delete request up to generation"
             );
             while let Some(entry) = user_record.generations.first_entry() {
@@ -364,7 +365,7 @@ fn delete_generations(
 
         // Remove all generations.
         None => {
-            trace!(hsm = ctx.hsm_name, ?user, "delete all generations");
+            trace!(hsm = ctx.hsm_name, ?record_id, "delete all generations");
             user_record.generations.clear();
         }
     }
@@ -372,25 +373,14 @@ fn delete_generations(
     (DeleteResponse::Ok, Some(user_record))
 }
 
-/// Returns the username if the auth token is valid, or an error otherwise.
-/// TODO: is this being done here, or perhaps at the agent?
-fn check_auth(token: &AuthToken) -> Result<String, ()> {
-    if token.signature == "it's-a-me!" {
-        Ok(token.user.clone())
-    } else {
-        trace!("failed auth for {:?}", token.user);
-        Err(())
-    }
-}
-
 /// Computes an OPRF for a user-generation.
 fn evaluate_oprf(
     root_oprf_key: &RootOprfKey,
-    user: &str,
+    record_id: &RecordId,
     generation: GenerationNumber,
     blinded_pin: &OprfBlindedInput,
 ) -> OprfBlindedResult {
-    let oprf_key = root_oprf_key.user_generation_key(user, generation);
+    let oprf_key = root_oprf_key.user_generation_key(record_id, generation);
     let oprf = OprfServer::new_from_seed(&oprf_key, &[ /* TODO: what is this "info" for? */])
         .expect("error constructing OprfServer");
     oprf.blind_evaluate(blinded_pin)
@@ -407,38 +397,36 @@ pub struct AppContext<'a> {
 
 pub fn process(
     ctx: &AppContext,
+    record_id: &RecordId,
     request: SecretsRequest,
     record_val: Option<&[u8]>,
 ) -> (SecretsResponse, Option<RecordChange>) {
-    // TODO: how de we want to handle serialization/deserialization errors
-    // TODO: value should be encrypted/decrypted somewhere
-
     let user_record_in = match record_val {
         None => UserRecord::new(),
-        Some(data) => marshalling::from_slice(data).unwrap(),
+        Some(data) => marshalling::from_slice(data).expect("TODO"),
     };
     let (result, user_record_out) = match request {
         SecretsRequest::Register1(req) => {
-            let res = register1(ctx, req, user_record_in);
+            let res = register1(ctx, record_id, req, user_record_in);
             (SecretsResponse::Register1(res.0), res.1)
         }
         SecretsRequest::Register2(req) => {
-            let res = register2(ctx, req, user_record_in);
+            let res = register2(ctx, record_id, req, user_record_in);
             (SecretsResponse::Register2(res.0), res.1)
         }
         SecretsRequest::Recover1(req) => {
-            let res = recover1(ctx, req, user_record_in);
+            let res = recover1(ctx, record_id, req, user_record_in);
             (SecretsResponse::Recover1(res.0), res.1)
         }
         SecretsRequest::Recover2(req) => {
-            let res = recover2(ctx, req, user_record_in);
+            let res = recover2(ctx, record_id, req, user_record_in);
             (SecretsResponse::Recover2(res.0), res.1)
         }
         SecretsRequest::Delete(req) => {
-            let res = delete_generations(ctx, req, user_record_in);
+            let res = delete_generations(ctx, record_id, req, user_record_in);
             (SecretsResponse::Delete(res.0), res.1)
         }
     };
-    let rc = user_record_out.map(|u| RecordChange::Update(marshalling::to_vec(&u).unwrap()));
+    let rc = user_record_out.map(|u| RecordChange::Update(marshalling::to_vec(&u).expect("TODO")));
     (result, rc)
 }

@@ -1102,7 +1102,7 @@ async fn start_app_request<T: Transport>(
             store,
             &partition.range,
             &partition.root_hash,
-            &request.rid,
+            &request.record_id,
         )
         .await
         {
@@ -1126,7 +1126,7 @@ async fn start_app_request<T: Transport>(
             .send(hsm_types::AppRequest {
                 realm: request.realm,
                 group: request.group,
-                rid: request.rid.clone(),
+                record_id: request.record_id.clone(),
                 request: request.request.clone(),
                 index: entry.index,
                 proof,
