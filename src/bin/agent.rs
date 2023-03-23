@@ -5,7 +5,7 @@ use std::time::Duration;
 use tracing::info;
 use url::Url;
 
-use loam_mvp::clap::parse_duration;
+use loam_mvp::clap_parsers::parse_duration;
 use loam_mvp::logging;
 use loam_mvp::realm::agent::Agent;
 use loam_mvp::realm::hsm::{client::HsmClient, http::client::HsmHttpClient};
