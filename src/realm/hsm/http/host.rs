@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use futures::Future;
-use hsmcore::hal::Clock;
+use hsmcore::hal::{Clock, Nanos};
 use hsmcore::hsm::{Hsm, HsmError, HsmOptions, RealmKey};
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
@@ -10,26 +10,42 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwest::Url;
 use std::net::SocketAddr;
+use std::ops::Sub;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
+struct HalInstant(Instant);
+impl Sub for HalInstant {
+    type Output = Nanos;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Nanos(
+            self.0
+                .duration_since(rhs.0)
+                .as_nanos()
+                .try_into()
+                .unwrap_or(Nanos::MAX.0),
+        )
+    }
+}
 struct StdPlatform;
 
 impl Clock for StdPlatform {
-    type Instant = Instant;
+    type Instant = HalInstant;
 
-    fn now(&self) -> Option<Instant> {
-        Some(Instant::now())
+    fn now(&self) -> Option<Self::Instant> {
+        Some(HalInstant(Instant::now()))
     }
 
-    fn elapsed(&self, start: Instant) -> Option<Duration> {
-        Some(start.elapsed())
+    fn elapsed(&self, start: Self::Instant) -> Option<Nanos> {
+        Some(HalInstant(Instant::now()) - start)
     }
 }
+
 impl RngCore for StdPlatform {
     fn next_u32(&mut self) -> u32 {
         OsRng.next_u32()
@@ -128,5 +144,23 @@ impl Service<Request<IncomingBody>> for HttpHsm {
                     .unwrap()),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn instant_sub() {
+        let s = Instant::now();
+        let e = s + Duration::from_nanos(12345);
+        assert_eq!(Nanos(12345), HalInstant(e) - HalInstant(s));
+        // Should saturate to zero on sub if RHS > LHS
+        assert_eq!(Nanos::ZERO, HalInstant(s) - HalInstant(e));
+        let e = s + Duration::from_secs(5);
+        // Should saturate to max if too large
+        assert_eq!(Nanos::MAX, HalInstant(e) - HalInstant(s));
     }
 }

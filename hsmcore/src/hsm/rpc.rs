@@ -4,6 +4,7 @@ use alloc::{borrow::Cow, string::String, vec::Vec};
 use core::fmt::Debug;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+use super::super::hal::Nanos;
 use super::types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
     CaptureNextResponse, CommitRequest, CommitResponse, CompleteTransferRequest,
@@ -47,7 +48,7 @@ pub struct HsmMetrics<'a> {
 pub struct HsmMetric {
     pub name: String,
     pub units: String,
-    pub points: Vec<u64>,
+    pub points: Vec<Nanos>,
 }
 
 pub trait HsmRpc: DeserializeOwned + Serialize + Debug {

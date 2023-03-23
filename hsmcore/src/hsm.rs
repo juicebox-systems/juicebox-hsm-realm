@@ -467,12 +467,10 @@ impl<P: Platform> Hsm<P> {
             if let Some(dur) = self.platform.elapsed(start_ts) {
                 let metric = self.metrics.entry(req_name).or_insert_with(|| HsmMetric {
                     name: String::from(req_name),
-                    units: String::from("\u{b5}s"),
+                    units: String::from("ns"),
                     points: Vec::new(),
                 });
-                // A u64's worth of microseconds can represent many 1000's of years.
-                // Hopefully we don't have any requests that take that long.
-                metric.points.push(dur.as_micros() as u64);
+                metric.points.push(dur);
             }
         }
         result

@@ -113,7 +113,7 @@ fn report_hsm_metrics(m: HsmMetrics) {
     for metric in m.metrics.into_iter() {
         h.reset();
         for p in &metric.points {
-            h.record(*p).unwrap();
+            h.record(p.0 as u64).unwrap();
         }
         info!(hsm=hsm_name, metric=metric.name, units=metric.units, count=?h.len(), min=?h.min(), mean=%format!("{:0.1}",h.mean()), p99=?h.value_at_quantile(0.99), max=?h.max(), "hsm metric");
     }

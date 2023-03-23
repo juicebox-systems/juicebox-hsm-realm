@@ -9,9 +9,9 @@ mod seelib;
 extern crate alloc;
 
 use alloc::{string::String, vec};
-use core::{slice, time::Duration};
+use core::{ops::Sub, slice};
 use hsmcore::{
-    hal::Clock,
+    hal::{Clock, Nanos},
     hsm::{Hsm, HsmOptions, RealmKey},
 };
 use seelib::{
@@ -120,6 +120,27 @@ struct TimeSpec {
     sec: i32,
     nsec: i32,
 }
+impl Sub for TimeSpec {
+    type Output = Nanos;
+
+    #[allow(clippy::manual_range_contains)] // clippy thinks (0..1_000_000_000).contains(&nsec) is clearer. clippy is nuts.
+    fn sub(self, rhs: Self) -> Self::Output {
+        if rhs > self {
+            Nanos(0)
+        } else {
+            let mut sec = self.sec - rhs.sec;
+            let mut nsec = self.nsec - rhs.nsec;
+            if nsec < 0 {
+                sec -= 1;
+                nsec += 1_000_000_000;
+            }
+            assert!(sec >= 0);
+            assert!(nsec >= 0 && nsec < 1_000_000_000);
+            let nanos = (sec as u64) * 1_000_000_000 + (nsec as u64);
+            Nanos(nanos.try_into().unwrap_or(Nanos::MAX.0))
+        }
+    }
+}
 
 type ClockId = isize;
 const CLOCK_MONOTONIC: ClockId = 1;
@@ -141,26 +162,9 @@ impl Clock for NCipher {
         }
     }
 
-    fn elapsed(&self, start: TimeSpec) -> Option<Duration> {
-        let end = self.now()?;
-        timespec_elapsed(&start, &end)
+    fn elapsed(&self, start: TimeSpec) -> Option<Nanos> {
+        Some(self.now()? - start)
     }
-}
-
-#[allow(clippy::manual_range_contains)] // clippy thinks (0..1_000_000_000).contains(&nsec) is clearer. clippy is nuts.
-fn timespec_elapsed(start: &TimeSpec, end: &TimeSpec) -> Option<Duration> {
-    if end < start {
-        return None;
-    }
-    let mut sec = end.sec - start.sec;
-    let mut nsec = end.nsec - start.nsec;
-    if nsec < 0 {
-        sec -= 1;
-        nsec += 1_000_000_000;
-    }
-    assert!(sec >= 0);
-    assert!(nsec >= 0 && nsec < 1_000_000_000);
-    Some(Duration::new(sec as u64, nsec as u32))
 }
 
 #[cfg(test)]
@@ -173,29 +177,30 @@ mod test {
             sec: 123,
             nsec: 4_444_000,
         };
-        assert_eq!(Some(Duration::ZERO), timespec_elapsed(&s, &s))
+        assert_eq!(Nanos::ZERO, s - s)
     }
 
     #[test]
     fn elapsed() {
         let s = TimeSpec {
+            sec: i32::MAX,
+            nsec: 10_000,
+        };
+        let e = TimeSpec {
+            sec: i32::MAX,
+            nsec: 100_000,
+        };
+        assert_eq!(Nanos(100_000 - 10_000), e - s);
+
+        let s = TimeSpec {
             sec: 4,
             nsec: 10_000,
         };
         let e = TimeSpec {
-            sec: 4,
-            nsec: 100_000,
-        };
-        assert_eq!(
-            Some(Duration::from_nanos(100_000 - 10_000)),
-            timespec_elapsed(&s, &e)
-        );
-
-        let e = TimeSpec {
             sec: 6,
             nsec: 100_000,
         };
-        assert_eq!(Some(Duration::new(2, 90_000)), timespec_elapsed(&s, &e));
+        assert_eq!(Nanos(2_000_090_000), e - s);
     }
 
     #[test]
@@ -205,20 +210,30 @@ mod test {
             nsec: 900_000_000,
         };
         let e = TimeSpec { sec: 11, nsec: 50 };
-        assert_eq!(
-            Some(Duration::from_nanos(100_000_050)),
-            timespec_elapsed(&s, &e)
-        );
+        assert_eq!(Nanos(100_000_050), e - s);
     }
 
     #[test]
     fn end_lt_start() {
         let s = TimeSpec { sec: 5, nsec: 5000 };
         let e = TimeSpec { sec: 5, nsec: 4999 };
-        assert!(timespec_elapsed(&s, &e).is_none());
+        assert_eq!(Nanos::ZERO, e - s);
 
         let s = TimeSpec { sec: 5, nsec: 5000 };
         let e = TimeSpec { sec: 4, nsec: 9000 };
-        assert!(timespec_elapsed(&s, &e).is_none());
+        assert_eq!(Nanos::ZERO, e - s);
+    }
+
+    #[test]
+    fn saturates() {
+        let s = TimeSpec { sec: 5, nsec: 0 };
+        let e = TimeSpec { sec: 1000, nsec: 0 };
+        assert_eq!(Nanos::MAX, e - s);
+
+        let e = TimeSpec {
+            sec: i32::MAX,
+            nsec: 999_999_999,
+        };
+        assert_eq!(Nanos::MAX, e - s);
     }
 }
