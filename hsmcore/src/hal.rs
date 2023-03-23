@@ -10,3 +10,8 @@ pub trait Clock {
     fn now(&self) -> Option<Self::Instant>;
     fn elapsed(&self, start: Self::Instant) -> Option<Duration>;
 }
+
+// Platform provides an abstraction for the integration to different HSM models.
+pub trait Platform: Clock + CryptoRng {}
+
+impl<R> Platform for R where R: Clock + CryptoRng {}

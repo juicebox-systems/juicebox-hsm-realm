@@ -7,6 +7,7 @@ use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use rand::rngs::OsRng;
+use rand::RngCore;
 use reqwest::Url;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -16,9 +17,9 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-struct StdClock;
+struct StdPlatform;
 
-impl Clock for StdClock {
+impl Clock for StdPlatform {
     type Instant = Instant;
 
     fn now(&self) -> Option<Instant> {
@@ -29,19 +30,36 @@ impl Clock for StdClock {
         Some(start.elapsed())
     }
 }
+impl RngCore for StdPlatform {
+    fn next_u32(&mut self) -> u32 {
+        OsRng.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        OsRng.next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        OsRng.fill_bytes(dest)
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
+        OsRng.try_fill_bytes(dest)
+    }
+}
+impl rand::CryptoRng for StdPlatform {}
 
 #[derive(Clone)]
-pub struct HttpHsm(Arc<Mutex<Hsm<OsRng, StdClock>>>);
+pub struct HttpHsm(Arc<Mutex<Hsm<StdPlatform>>>);
 
 impl HttpHsm {
     pub fn new(name: String, realm_key: RealmKey) -> Self {
         HttpHsm(Arc::new(Mutex::new(Hsm::new(
             HsmOptions {
                 name,
-                rng: OsRng,
-                clock: StdClock,
                 tree_overlay_size: 511,
             },
+            StdPlatform,
             realm_key,
         ))))
     }

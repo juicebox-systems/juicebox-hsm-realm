@@ -22,8 +22,9 @@ use self::rpc::{
     MetricsAction,
 };
 use self::types::Partition;
+use super::hal::Platform;
 use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
-use super::{hal::Clock, hal::CryptoRng, marshalling};
+use super::{hal::CryptoRng, marshalling};
 use app::{RecordChange, RootOprfKey};
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
@@ -330,18 +331,17 @@ impl RecordEncryptionKey {
     }
 }
 
-pub struct Hsm<RNG: CryptoRng, C: Clock> {
-    options: HsmOptions<RNG, C>,
+pub struct Hsm<P: Platform> {
+    platform: P,
+    options: HsmOptions,
     persistent: PersistentState,
     volatile: VolatileState,
     metrics: HashMap<&'static str, HsmMetric>,
 }
 
-pub struct HsmOptions<RNG: CryptoRng, C: Clock> {
+pub struct HsmOptions {
     pub name: String,
-    pub rng: RNG,
     pub tree_overlay_size: u16,
-    pub clock: C,
 }
 
 struct PersistentState {
@@ -386,13 +386,14 @@ pub enum HsmError {
     Serialization(marshalling::SerializationError),
 }
 
-impl<RNG: CryptoRng, C: Clock> Hsm<RNG, C> {
-    pub fn new(mut options: HsmOptions<RNG, C>, realm_key: RealmKey) -> Self {
+impl<P: Platform> Hsm<P> {
+    pub fn new(options: HsmOptions, mut platform: P, realm_key: RealmKey) -> Self {
         let root_oprf_key = RootOprfKey::from(&realm_key);
         let record_key = RecordEncryptionKey::from(&realm_key);
-        let hsm_id = HsmId::random(&mut options.rng);
+        let hsm_id = HsmId::random(&mut platform);
         Hsm {
             options,
+            platform,
             persistent: PersistentState {
                 id: hsm_id,
                 realm_key,
@@ -415,10 +416,7 @@ impl<RNG: CryptoRng, C: Clock> Hsm<RNG, C> {
             }
         };
         let req_name = request.req.name();
-        let start = request
-            .metrics
-            .as_ref()
-            .and_then(|_| self.options.clock.now());
+        let start = request.metrics.as_ref().and_then(|_| self.platform.now());
 
         let result = match request.req {
             HsmRequest::Status(r) => {
@@ -466,7 +464,7 @@ impl<RNG: CryptoRng, C: Clock> Hsm<RNG, C> {
             }
         };
         if let Some(start_ts) = start {
-            if let Some(dur) = self.options.clock.elapsed(start_ts) {
+            if let Some(dur) = self.platform.elapsed(start_ts) {
                 let metric = self.metrics.entry(req_name).or_insert_with(|| HsmMetric {
                     name: String::from(req_name),
                     units: String::from("\u{b5}s"),
@@ -525,7 +523,7 @@ impl<RNG: CryptoRng, C: Clock> Hsm<RNG, C> {
         configuration: Configuration,
         owned_range: Option<OwnedRange>,
     ) -> NewGroupInfo {
-        let group = GroupId::random(&mut self.options.rng);
+        let group = GroupId::random(&mut self.platform);
         let statement = GroupConfigurationStatementBuilder {
             realm,
             group,
@@ -655,7 +653,7 @@ impl<RNG: CryptoRng, C: Clock> Hsm<RNG, C> {
         {
             Response::InvalidConfiguration
         } else {
-            let realm_id = RealmId::random(&mut self.options.rng);
+            let realm_id = RealmId::random(&mut self.platform);
             self.persistent.realm = Some(PersistentRealmState {
                 id: realm_id,
                 groups: HashMap::new(),
@@ -1165,7 +1163,7 @@ impl<RNG: CryptoRng, C: Clock> Hsm<RNG, C> {
                 return Response::NotLeader;
             };
 
-            let nonce = TransferNonce::random(&mut self.options.rng);
+            let nonce = TransferNonce::random(&mut self.platform);
             leader.incoming = Some(nonce);
             Response::Ok(nonce)
         })();

@@ -25,10 +25,9 @@ pub extern "C" fn rust_main() -> isize {
     let mut hsm = Hsm::new(
         HsmOptions {
             name: String::from("entrust"),
-            rng: NFastRng,
-            clock: NCipherClock,
             tree_overlay_size: 511,
         },
+        NCipher,
         RealmKey::derive_from("010203".as_bytes()),
     );
     let mut buf = vec![0; 32 * 1024];
@@ -69,13 +68,13 @@ pub extern "C" fn rust_main() -> isize {
     }
 }
 
+struct NCipher;
+
+impl rand_core::CryptoRng for NCipher {}
+
 // TODO: This RNG is slow, so we should be using it to seed another one
 // instead.
-struct NFastRng;
-
-impl rand_core::CryptoRng for NFastRng {}
-
-impl rand_core::RngCore for NFastRng {
+impl rand_core::RngCore for NCipher {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         let mut cmd = M_Command {
             cmd: Cmd_GenerateRandom,
@@ -129,9 +128,7 @@ extern "C" {
     fn clock_gettime(c: ClockId, tm: *mut TimeSpec) -> isize;
 }
 
-struct NCipherClock;
-
-impl Clock for NCipherClock {
+impl Clock for NCipher {
     type Instant = TimeSpec;
 
     fn now(&self) -> Option<TimeSpec> {
