@@ -123,8 +123,9 @@ async fn main() {
                     recover_threshold: 1,
                 },
                 AuthToken {
+                    tenant: String::from("test"),
                     user: format!("mario{i}"),
-                    signature: String::from("it's-a-me!"),
+                    signature: b"it's-a-me!".to_vec(),
                 },
             )))
         })

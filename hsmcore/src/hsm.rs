@@ -1426,7 +1426,7 @@ impl<RNG: CryptoRng, C: Clock> Hsm<RNG, C> {
                         if (leader.log.last().unwrap().entry)
                             .partition
                             .as_ref()
-                            .filter(|partition| partition.range.contains(&request.rid))
+                            .filter(|partition| partition.range.contains(&request.record_id))
                             .is_some()
                         {
                             let app_ctx = app::AppContext {
@@ -1522,7 +1522,8 @@ fn handle_app_request(
         }
         None => (0, None),
     };
-    let (client_response, change) = app::process(app_ctx, request.request, value);
+    let (client_response, change) =
+        app::process(app_ctx, &request.record_id, request.request, value);
     let (root_hash, delta) = match change {
         Some(change) => match change {
             RecordChange::Update(mut record) => {
@@ -1668,42 +1669,39 @@ mod test {
             o.has_quorum
         }
         // 1 member
-        assert_eq!(true, has_q(&ids[..1], &ids[..1]));
-        assert_eq!(false, has_q(&ids[..1], &ids[..0]));
+        assert!(has_q(&ids[..1], &ids[..1]));
+        assert!(!has_q(&ids[..1], &ids[..0]));
         // 2 members
-        assert_eq!(true, has_q(&ids[..2], &ids[..2]));
-        assert_eq!(false, has_q(&ids[..2], &ids[..1]));
-        assert_eq!(false, has_q(&ids[..2], &ids[..0]));
+        assert!(has_q(&ids[..2], &ids[..2]));
+        assert!(!has_q(&ids[..2], &ids[..1]));
+        assert!(!has_q(&ids[..2], &ids[..0]));
         // 3 members
-        assert_eq!(true, has_q(&ids[..3], &ids[..3]));
-        assert_eq!(true, has_q(&ids[..3], &ids[..2]));
-        assert_eq!(false, has_q(&ids[..3], &ids[..1]));
-        assert_eq!(false, has_q(&ids[..3], &ids[..0]));
+        assert!(has_q(&ids[..3], &ids[..3]));
+        assert!(has_q(&ids[..3], &ids[..2]));
+        assert!(!has_q(&ids[..3], &ids[..1]));
+        assert!(!has_q(&ids[..3], &ids[..0]));
         // 4
-        assert_eq!(true, has_q(&ids[..4], &ids[..4]));
-        assert_eq!(true, has_q(&ids[..4], &ids[..3]));
-        assert_eq!(false, has_q(&ids[..4], &ids[..2]));
-        assert_eq!(false, has_q(&ids[..4], &ids[..1]));
-        assert_eq!(false, has_q(&ids[..4], &ids[..0]));
+        assert!(has_q(&ids[..4], &ids[..4]));
+        assert!(has_q(&ids[..4], &ids[..3]));
+        assert!(!has_q(&ids[..4], &ids[..2]));
+        assert!(!has_q(&ids[..4], &ids[..1]));
+        assert!(!has_q(&ids[..4], &ids[..0]));
         // 5
-        assert_eq!(true, has_q(&ids[..5], &ids[..5]));
-        assert_eq!(true, has_q(&ids[..5], &ids[..4]));
-        assert_eq!(true, has_q(&ids[..5], &ids[..3]));
-        assert_eq!(false, has_q(&ids[..5], &ids[..2]));
-        assert_eq!(false, has_q(&ids[..5], &ids[..1]));
-        assert_eq!(false, has_q(&ids[..5], &ids[..0]));
+        assert!(has_q(&ids[..5], &ids[..5]));
+        assert!(has_q(&ids[..5], &ids[..4]));
+        assert!(has_q(&ids[..5], &ids[..3]));
+        assert!(!has_q(&ids[..5], &ids[..2]));
+        assert!(!has_q(&ids[..5], &ids[..1]));
+        assert!(!has_q(&ids[..5], &ids[..0]));
         // 6
-        assert_eq!(true, has_q(&ids[..6], &ids[..6]));
-        assert_eq!(
-            true,
-            has_q(&ids[..6], &[ids[0], ids[4], ids[1], ids[5], ids[3]])
-        );
-        assert_eq!(true, has_q(&ids[..6], &[ids[5], ids[0], ids[2], ids[3]]));
-        assert_eq!(false, has_q(&ids[..6], &[ids[4], ids[0], ids[2]]));
-        assert_eq!(false, has_q(&ids[..6], &ids[3..5]));
-        assert_eq!(false, has_q(&ids[..6], &[ids[5], ids[1]]));
-        assert_eq!(false, has_q(&ids[..6], &ids[4..5]));
-        assert_eq!(false, has_q(&ids[..6], &ids[..0]));
+        assert!(has_q(&ids[..6], &ids[..6]));
+        assert!(has_q(&ids[..6], &[ids[0], ids[4], ids[1], ids[5], ids[3]]));
+        assert!(has_q(&ids[..6], &[ids[5], ids[0], ids[2], ids[3]]));
+        assert!(!has_q(&ids[..6], &[ids[4], ids[0], ids[2]]));
+        assert!(!has_q(&ids[..6], &ids[3..5]));
+        assert!(!has_q(&ids[..6], &[ids[5], ids[1]]));
+        assert!(!has_q(&ids[..6], &ids[4..5]));
+        assert!(!has_q(&ids[..6], &ids[..0]));
     }
 
     #[test]

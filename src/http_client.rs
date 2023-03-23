@@ -1,5 +1,6 @@
 use opentelemetry_http::HeaderInjector;
 use reqwest::Url;
+use std::fmt;
 use std::marker::PhantomData;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -30,12 +31,18 @@ impl<F: Service> EndpointClient<F> {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct Client<F: Service> {
     // reqwest::Client holds a connection pool. It's reference-counted
     // internally, so this field is relatively cheap to clone.
     http: reqwest::Client,
     _phantom_data: PhantomData<F>,
+}
+
+impl<F: Service + fmt::Debug> fmt::Debug for Client<F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client").finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug)]

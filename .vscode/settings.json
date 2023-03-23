@@ -6,6 +6,7 @@
         "bitslice",
         "bitvec",
         "Deque",
+        "Diffie",
         "fillcolor",
         "hashbrown",
         "Hasher",
