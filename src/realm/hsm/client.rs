@@ -1,13 +1,14 @@
 use async_trait::async_trait;
 use hdrhistogram::Histogram;
 use hsmcore::hsm::rpc::HsmMetrics;
-use tracing::info;
-
-use std::cell::RefCell;
-use std::fmt::{self, Debug};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    cell::RefCell,
+    fmt::{self, Debug},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::time::Instant;
+use tracing::info;
 use tracing::{instrument, span::Span, trace, warn};
 
 use hsmcore::{
