@@ -70,7 +70,7 @@ struct Args {
     #[arg(long)]
     image: Option<String>,
 
-    /// HSM Metrics reporting interval in milliseconds.
+    /// HSM Metrics reporting interval in milliseconds [default: no reporting]
     #[arg(long, value_parser=parse_duration)]
     metrics: Option<Duration>,
 }

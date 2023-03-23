@@ -35,7 +35,7 @@ struct Args {
     #[arg(short, long)]
     name: Option<String>,
 
-    /// HSM Metrics reporting interval in milliseconds.
+    /// HSM Metrics reporting interval in milliseconds [default: no reporting]
     #[arg(short, long, value_parser=parse_duration)]
     metrics: Option<Duration>,
 }
