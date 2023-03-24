@@ -1,7 +1,7 @@
 use crate::autogen::google;
 use async_trait::async_trait;
 use google::bigtable::admin::v2::table::TimestampGranularity;
-use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, Table};
+use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
 use google::bigtable::v2::row_range::EndKey::EndKeyOpen;
 use google::bigtable::v2::row_range::StartKey::StartKeyClosed;
 use google::bigtable::v2::{
@@ -162,11 +162,13 @@ impl StoreAdminClient {
                 parent: self.instance.path(),
                 table_id: discovery_table_brief(),
                 table: Some(Table {
-                    name: discovery_table(&self.instance),
+                    name: String::from(""),
                     cluster_states: HashMap::new(),
                     column_families: HashMap::from([(
                         String::from("f"),
-                        ColumnFamily { gc_rule: None },
+                        ColumnFamily {
+                            gc_rule: Some(GcRule { rule: None }),
+                        },
                     )]),
                     granularity: TimestampGranularity::Unspecified as i32,
                     restore_info: None,
@@ -194,11 +196,13 @@ impl StoreAdminClient {
                 parent: self.instance.path(),
                 table_id: merkle_table_brief(realm),
                 table: Some(Table {
-                    name: merkle_table(&self.instance, realm),
+                    name: String::from(""),
                     cluster_states: HashMap::new(),
                     column_families: HashMap::from([(
                         String::from("f"),
-                        ColumnFamily { gc_rule: None },
+                        ColumnFamily {
+                            gc_rule: Some(GcRule { rule: None }),
+                        },
                     )]),
                     granularity: TimestampGranularity::Unspecified as i32,
                     restore_info: None,
@@ -214,11 +218,13 @@ impl StoreAdminClient {
                 parent: self.instance.path(),
                 table_id: log_table_brief(realm),
                 table: Some(Table {
-                    name: log_table(&self.instance, realm),
+                    name: String::from(""),
                     cluster_states: HashMap::new(),
                     column_families: HashMap::from([(
                         String::from("f"),
-                        ColumnFamily { gc_rule: None },
+                        ColumnFamily {
+                            gc_rule: Some(GcRule { rule: None }),
+                        },
                     )]),
                     granularity: TimestampGranularity::Unspecified as i32,
                     restore_info: None,
