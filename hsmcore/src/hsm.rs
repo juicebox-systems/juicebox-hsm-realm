@@ -1,7 +1,6 @@
 extern crate alloc;
 
 use aes_gcm::aead::Aead;
-use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -17,12 +16,9 @@ mod app;
 pub mod rpc;
 pub mod types;
 
-use self::rpc::{
-    HsmMetric, HsmMetrics, HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc,
-    MetricsAction,
-};
+use self::rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use self::types::Partition;
-use super::hal::Platform;
+use super::hal::{Clock, Nanos, Platform};
 use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
 use super::{hal::CryptoRng, marshalling};
 use app::{RecordChange, RootOprfKey};
@@ -336,7 +332,6 @@ pub struct Hsm<P: Platform> {
     options: HsmOptions,
     persistent: PersistentState,
     volatile: VolatileState,
-    metrics: HashMap<&'static str, HsmMetric>,
 }
 
 pub struct HsmOptions {
@@ -386,6 +381,68 @@ pub enum HsmError {
     Serialization(marshalling::SerializationError),
 }
 
+struct Metrics<C: Clock> {
+    values: HashMap<String, Vec<Nanos>>,
+    action: MetricsAction,
+    clock: C,
+    // tracking for the very outer request, gets recorded as a metric during finish()
+    start: Option<C::Instant>,
+    req_name: &'static str,
+}
+
+impl<C: Clock> Metrics<C> {
+    fn new(req_name: &'static str, action: MetricsAction, clock: C) -> Self {
+        let start = match &action {
+            MetricsAction::Skip => None,
+            MetricsAction::Record => clock.now(),
+        };
+        Self {
+            values: HashMap::new(),
+            action,
+            clock,
+            start,
+            req_name,
+        }
+    }
+
+    fn finish(mut self) -> HashMap<String, Vec<Nanos>> {
+        let start = self.start.take();
+        self.record(self.req_name, start);
+        self.values
+    }
+
+    /// Call now when you want to capture the start time of a metric you're
+    /// going to capture. Later call record to capture when its complete.
+    ///
+    /// #Example
+    ///
+    /// let start = metrics.now();
+    /// do_expensive_thing();
+    /// metrics.record("expensive_op", start);
+    ///
+    fn now(&self) -> Option<C::Instant> {
+        match &self.action {
+            MetricsAction::Skip => None,
+            MetricsAction::Record => self.clock.now(),
+        }
+    }
+
+    /// Call record at the end of the thing you're measuring with the value from
+    /// the earlier call to now. This will calculate and record the metric. This
+    /// is a no-op if we're not capturing metrics for the current request.
+    fn record(&mut self, name: &str, start: Option<C::Instant>) {
+        if let Some(start_ts) = start {
+            if let Some(dur) = self.clock.elapsed(start_ts) {
+                let metric = self
+                    .values
+                    .entry(String::from(name))
+                    .or_insert_with(Vec::new);
+                metric.push(dur);
+            }
+        }
+    }
+}
+
 impl<P: Platform> Hsm<P> {
     pub fn new(options: HsmOptions, mut platform: P, realm_key: RealmKey) -> Self {
         let root_oprf_key = RootOprfKey::from(&realm_key);
@@ -404,7 +461,6 @@ impl<P: Platform> Hsm<P> {
                 leader: HashMap::new(),
                 record_key,
             },
-            metrics: HashMap::new(),
         }
     }
     pub fn handle_request(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, HsmError> {
@@ -416,103 +472,56 @@ impl<P: Platform> Hsm<P> {
             }
         };
         let req_name = request.req.name();
-        let start = request.metrics.as_ref().and_then(|_| self.platform.now());
+        let metrics = Metrics::new(req_name, request.metrics, self.platform.clone());
 
-        let result = match request.req {
-            HsmRequest::Status(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_status_request)
-            }
-            HsmRequest::NewRealm(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_new_realm)
-            }
-            HsmRequest::JoinRealm(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_join_realm)
-            }
-            HsmRequest::NewGroup(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_new_group)
-            }
-            HsmRequest::JoinGroup(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_join_group)
-            }
+        match request.req {
+            HsmRequest::Status(r) => self.dispatch_request(metrics, r, Self::handle_status_request),
+            HsmRequest::NewRealm(r) => self.dispatch_request(metrics, r, Self::handle_new_realm),
+            HsmRequest::JoinRealm(r) => self.dispatch_request(metrics, r, Self::handle_join_realm),
+            HsmRequest::NewGroup(r) => self.dispatch_request(metrics, r, Self::handle_new_group),
+            HsmRequest::JoinGroup(r) => self.dispatch_request(metrics, r, Self::handle_join_group),
             HsmRequest::BecomeLeader(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_become_leader)
+                self.dispatch_request(metrics, r, Self::handle_become_leader)
             }
             HsmRequest::CaptureNext(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_capture_next)
+                self.dispatch_request(metrics, r, Self::handle_capture_next)
             }
             HsmRequest::ReadCaptured(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_read_captured)
+                self.dispatch_request(metrics, r, Self::handle_read_captured)
             }
-            HsmRequest::Commit(r) => self.dispatch_request(request.metrics, r, Self::handle_commit),
+            HsmRequest::Commit(r) => self.dispatch_request(metrics, r, Self::handle_commit),
             HsmRequest::TransferOut(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_transfer_out)
+                self.dispatch_request(metrics, r, Self::handle_transfer_out)
             }
             HsmRequest::TransferNonce(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_transfer_nonce)
+                self.dispatch_request(metrics, r, Self::handle_transfer_nonce)
             }
             HsmRequest::TransferStatement(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_transfer_statement)
+                self.dispatch_request(metrics, r, Self::handle_transfer_statement)
             }
             HsmRequest::TransferIn(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_transfer_in)
+                self.dispatch_request(metrics, r, Self::handle_transfer_in)
             }
             HsmRequest::CompleteTransfer(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_complete_transfer)
+                self.dispatch_request(metrics, r, Self::handle_complete_transfer)
             }
-            HsmRequest::AppRequest(r) => {
-                self.dispatch_request(request.metrics, r, Self::handle_app)
-            }
-        };
-        if let Some(start_ts) = start {
-            if let Some(dur) = self.platform.elapsed(start_ts) {
-                let metric = self.metrics.entry(req_name).or_insert_with(|| HsmMetric {
-                    name: String::from(req_name),
-                    units: String::from("ns"),
-                    points: Vec::new(),
-                });
-                metric.points.push(dur);
-            }
+            HsmRequest::AppRequest(r) => self.dispatch_request(metrics, r, Self::handle_app),
         }
-        result
     }
 
-    fn dispatch_request<Req: HsmRpc, F: FnMut(&mut Self, Req) -> Req::Response>(
+    fn dispatch_request<Req: HsmRpc, F: FnMut(&mut Self, &mut Metrics<P>, Req) -> Req::Response>(
         &mut self,
-        metrics: Option<MetricsAction>,
+        mut metrics: Metrics<P>,
         r: Req,
         mut f: F,
     ) -> Result<Vec<u8>, HsmError> {
-        let response = f(self, r);
+        let response = f(self, &mut metrics, r);
 
-        let m = if matches!(metrics, Some(MetricsAction::ReportAndReset)) {
-            self.metrics
-                .iter()
-                .filter_map(|(_k, metric)| {
-                    if metric.points.is_empty() {
-                        None
-                    } else {
-                        Some(Cow::Borrowed(metric))
-                    }
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
         let resp = HsmResponseContainer {
             res: response,
-            metrics: Some(HsmMetrics {
-                metrics: m,
-                hsm_name: Cow::Borrowed(&self.options.name),
-            }),
+            metrics: metrics.finish(),
         };
-        let result = marshalling::to_vec(&resp).map_err(HsmError::Serialization);
-
-        if matches!(metrics, Some(MetricsAction::ReportAndReset)) {
-            for (_, m) in self.metrics.iter_mut() {
-                m.points.clear();
-            }
-        }
-        result
+        marshalling::to_vec(&resp).map_err(HsmError::Serialization)
     }
 
     fn create_new_group(
@@ -602,7 +611,11 @@ impl<P: Platform> Hsm<P> {
         }
     }
 
-    fn handle_status_request(&mut self, request: StatusRequest) -> StatusResponse {
+    fn handle_status_request(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: StatusRequest,
+    ) -> StatusResponse {
         trace!(hsm = self.options.name, ?request);
         let response =
             StatusResponse {
@@ -641,7 +654,11 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_new_realm(&mut self, request: NewRealmRequest) -> NewRealmResponse {
+    fn handle_new_realm(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: NewRealmRequest,
+    ) -> NewRealmResponse {
         type Response = NewRealmResponse;
         trace!(hsm = self.options.name, ?request);
         let response = if self.persistent.realm.is_some() {
@@ -664,7 +681,11 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_join_realm(&mut self, request: JoinRealmRequest) -> JoinRealmResponse {
+    fn handle_join_realm(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: JoinRealmRequest,
+    ) -> JoinRealmResponse {
         trace!(hsm = self.options.name, ?request);
 
         let response = match &self.persistent.realm {
@@ -692,7 +713,11 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_new_group(&mut self, request: NewGroupRequest) -> NewGroupResponse {
+    fn handle_new_group(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: NewGroupRequest,
+    ) -> NewGroupResponse {
         type Response = NewGroupResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -717,7 +742,11 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_join_group(&mut self, request: JoinGroupRequest) -> JoinGroupResponse {
+    fn handle_join_group(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: JoinGroupRequest,
+    ) -> JoinGroupResponse {
         type Response = JoinGroupResponse;
         trace!(hsm = self.options.name, ?request);
         let response = match &mut self.persistent.realm {
@@ -755,7 +784,11 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_capture_next(&mut self, request: CaptureNextRequest) -> CaptureNextResponse {
+    fn handle_capture_next(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: CaptureNextRequest,
+    ) -> CaptureNextResponse {
         type Response = CaptureNextResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -823,7 +856,11 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_become_leader(&mut self, request: BecomeLeaderRequest) -> BecomeLeaderResponse {
+    fn handle_become_leader(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: BecomeLeaderRequest,
+    ) -> BecomeLeaderResponse {
         type Response = BecomeLeaderResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -891,7 +928,11 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_read_captured(&mut self, request: ReadCapturedRequest) -> ReadCapturedResponse {
+    fn handle_read_captured(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: ReadCapturedRequest,
+    ) -> ReadCapturedResponse {
         type Response = ReadCapturedResponse;
         trace!(hsm = self.options.name, ?request);
         let response = match &self.persistent.realm {
@@ -928,7 +969,11 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_commit(&mut self, request: CommitRequest) -> CommitResponse {
+    fn handle_commit(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: CommitRequest,
+    ) -> CommitResponse {
         type Response = CommitResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -1009,7 +1054,11 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_transfer_out(&mut self, request: TransferOutRequest) -> TransferOutResponse {
+    fn handle_transfer_out(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: TransferOutRequest,
+    ) -> TransferOutResponse {
         type Response = TransferOutResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -1141,7 +1190,11 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_transfer_nonce(&mut self, request: TransferNonceRequest) -> TransferNonceResponse {
+    fn handle_transfer_nonce(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: TransferNonceRequest,
+    ) -> TransferNonceResponse {
         type Response = TransferNonceResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -1172,6 +1225,7 @@ impl<P: Platform> Hsm<P> {
 
     fn handle_transfer_statement(
         &mut self,
+        _metrics: &mut Metrics<P>,
         request: TransferStatementRequest,
     ) -> TransferStatementResponse {
         type Response = TransferStatementResponse;
@@ -1221,7 +1275,11 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_transfer_in(&mut self, request: TransferInRequest) -> TransferInResponse {
+    fn handle_transfer_in(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: TransferInRequest,
+    ) -> TransferInResponse {
         type Response = TransferInResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -1343,6 +1401,7 @@ impl<P: Platform> Hsm<P> {
 
     fn handle_complete_transfer(
         &mut self,
+        _metrics: &mut Metrics<P>,
         request: CompleteTransferRequest,
     ) -> CompleteTransferResponse {
         type Response = CompleteTransferResponse;
@@ -1410,10 +1469,13 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn handle_app(&mut self, request: AppRequest) -> AppResponse {
+    fn handle_app(&mut self, metrics: &mut Metrics<P>, request: AppRequest) -> AppResponse {
         type Response = AppResponse;
         trace!(hsm = self.options.name, ?request);
         let hsm_name = &self.options.name;
+
+        let start = metrics.now();
+        let app_req_name = app_req_name(&request);
 
         let response = match &self.persistent.realm {
             Some(realm) if realm.id == request.realm => {
@@ -1450,8 +1512,19 @@ impl<P: Platform> Hsm<P> {
             None | Some(_) => Response::InvalidRealm,
         };
 
+        metrics.record(app_req_name, start);
         trace!(hsm = self.options.name, ?response);
         response
+    }
+}
+
+fn app_req_name(r: &AppRequest) -> &'static str {
+    match &r.request {
+        types::SecretsRequest::Register1(_) => "App::Register1",
+        types::SecretsRequest::Register2(_) => "App::Register2",
+        types::SecretsRequest::Recover1(_) => "App::Recover1",
+        types::SecretsRequest::Recover2(_) => "App::Recover2",
+        types::SecretsRequest::Delete(_) => "App::Delete",
     }
 }
 

@@ -68,6 +68,7 @@ pub extern "C" fn rust_main() -> isize {
     }
 }
 
+#[derive(Clone)]
 struct NCipher;
 
 impl rand_core::CryptoRng for NCipher {}

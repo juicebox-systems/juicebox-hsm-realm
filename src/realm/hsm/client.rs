@@ -1,8 +1,7 @@
 use async_trait::async_trait;
 use hdrhistogram::Histogram;
-use hsmcore::hsm::rpc::HsmMetrics;
 use std::{
-    cell::RefCell,
+    collections::HashMap,
     fmt::{self, Debug},
     sync::{Arc, Mutex},
     time::Duration,
@@ -38,8 +37,15 @@ pub struct HsmClient<T>(Arc<HsmClientInner<T>>);
 #[derive(Debug)]
 struct HsmClientInner<T> {
     transport: T,
-    metrics: Option<Duration>,
-    last_metrics: Mutex<RefCell<Instant>>,
+    name: String,
+    metrics_interval: Option<Duration>,
+    metrics: Mutex<MetricsInner>,
+}
+
+#[derive(Debug)]
+struct MetricsInner {
+    last_reported: Instant,
+    metrics: HashMap<String, Histogram<u64>>,
 }
 
 impl<T> Clone for HsmClient<T> {
@@ -49,11 +55,15 @@ impl<T> Clone for HsmClient<T> {
 }
 
 impl<T: Transport> HsmClient<T> {
-    pub fn new(t: T, metrics_reporting_iterval: Option<Duration>) -> Self {
+    pub fn new(t: T, name: String, metrics_reporting_interval: Option<Duration>) -> Self {
         Self(Arc::new(HsmClientInner {
             transport: t,
-            metrics: metrics_reporting_iterval,
-            last_metrics: Mutex::new(RefCell::new(Instant::now())),
+            name,
+            metrics_interval: metrics_reporting_interval,
+            metrics: Mutex::new(MetricsInner {
+                last_reported: Instant::now(),
+                metrics: HashMap::new(),
+            }),
         }))
     }
 
@@ -63,20 +73,12 @@ impl<T: Transport> HsmClient<T> {
         let req_name = hsm_req.name();
         Span::current().record("req_name", req_name);
 
-        let metrics = self.0.metrics.as_ref().map(|interval| {
-            let lm = self.0.last_metrics.lock().unwrap();
-            let elapsed = lm.borrow().elapsed();
-            if elapsed > *interval {
-                *lm.borrow_mut() = Instant::now();
-                MetricsAction::ReportAndReset
-            } else {
-                MetricsAction::Record
-            }
-        });
-
         let req_bytes = marshalling::to_vec(&HsmRequestContainer {
             req: hsm_req,
-            metrics,
+            metrics: match self.0.metrics_interval {
+                Some(_) => MetricsAction::Record,
+                None => MetricsAction::Skip,
+            },
         })?;
 
         trace!(
@@ -99,22 +101,29 @@ impl<T: Transport> HsmClient<T> {
             "received HSM RPC response"
         );
         let response: HsmResponseContainer<RPC::Response> = marshalling::from_slice(&res_bytes)?;
-        match response.metrics {
-            None => {}
-            Some(m) => report_hsm_metrics(m),
+
+        if !response.metrics.is_empty() {
+            let mut m = self.0.metrics.lock().unwrap();
+            for (k, points) in response.metrics {
+                let h = m
+                    .metrics
+                    .entry(k)
+                    .or_insert_with(|| Histogram::new(1).unwrap());
+                for p in points {
+                    h.record(p.0 as u64).unwrap();
+                }
+            }
+            if let Some(interval) = self.0.metrics_interval {
+                let elapsed = m.last_reported.elapsed();
+                if elapsed > interval {
+                    m.last_reported = Instant::now();
+                    for (metric_name, h) in &m.metrics {
+                        info!(agent=self.0.name, metric=metric_name, count=?h.len(), min=?h.min(), mean=%format!("{:0.1}",h.mean()), p99=?h.value_at_quantile(0.99), max=?h.max(), "hsm metric");
+                    }
+                    m.metrics.clear();
+                }
+            };
         }
         Ok(response.res)
-    }
-}
-
-fn report_hsm_metrics(m: HsmMetrics) {
-    let mut h: Histogram<u32> = Histogram::new(1).unwrap();
-    let hsm_name = &m.hsm_name as &str;
-    for metric in m.metrics.into_iter() {
-        h.reset();
-        for p in &metric.points {
-            h.record(p.0 as u64).unwrap();
-        }
-        info!(hsm=hsm_name, metric=metric.name, units=metric.units, count=?h.len(), min=?h.min(), mean=%format!("{:0.1}",h.mean()), p99=?h.value_at_quantile(0.99), max=?h.max(), "hsm metric");
     }
 }

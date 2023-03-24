@@ -32,6 +32,8 @@ impl Sub for HalInstant {
         )
     }
 }
+
+#[derive(Clone)]
 struct StdPlatform;
 
 impl Clock for StdPlatform {

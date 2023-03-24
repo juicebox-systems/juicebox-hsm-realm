@@ -108,7 +108,7 @@ async fn main() {
         });
 
     let hsm_t = EntrustSeeTransport::new(args.module, args.trace, args.image);
-    let hsm = HsmClient::new(hsm_t, args.metrics);
+    let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);
     let agent = Agent::new(name, hsm, store, store_admin);
     let (url, join_handle) = agent.listen(args.listen).await.expect("TODO");
     info!(url = %url, "Agent started");

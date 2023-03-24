@@ -26,6 +26,6 @@ pub trait Clock {
 }
 
 // Platform provides an abstraction for the integration to different HSM models.
-pub trait Platform: Clock + CryptoRng {}
+pub trait Platform: Clock + CryptoRng + Clone {}
 
-impl<R> Platform for R where R: Clock + CryptoRng {}
+impl<R> Platform for R where R: Clock + CryptoRng + Clone {}

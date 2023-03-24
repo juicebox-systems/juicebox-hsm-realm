@@ -73,7 +73,7 @@ async fn main() {
         });
 
     let hsm_t = HsmHttpClient::new(args.hsm);
-    let hsm = HsmClient::new(hsm_t, args.metrics);
+    let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);
     let agent = Agent::new(name, hsm, store, store_admin);
     let (url, join_handle) = agent.listen(args.listen).await.expect("TODO");
     info!(url = %url, "Agent started");

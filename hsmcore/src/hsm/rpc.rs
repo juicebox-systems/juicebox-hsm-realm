@@ -1,7 +1,8 @@
 extern crate alloc;
 
-use alloc::{borrow::Cow, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use core::fmt::Debug;
+use hashbrown::HashMap;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::super::hal::Nanos;
@@ -17,38 +18,23 @@ use super::types::{
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub enum MetricsAction {
-    // Record metrics.
+    // Don't record any metrics.
+    Skip,
+    // Record metrics for the request.
     Record,
-    // Records and then reports metrics back to the client and resets the HSM in memory metrics.
-    ReportAndReset,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct HsmRequestContainer {
     pub req: HsmRequest,
-    pub metrics: Option<MetricsAction>,
+    pub metrics: MetricsAction,
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct HsmResponseContainer<'a, T> {
+pub struct HsmResponseContainer<T> {
     pub res: T,
-    // None unless ReportAndReset was specified as the metrics action.
-    pub metrics: Option<HsmMetrics<'a>>,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub struct HsmMetrics<'a> {
-    // Uses Cow so that serialize can be on references, and deserialize
-    // can create new ones.
-    pub metrics: Vec<Cow<'a, HsmMetric>>,
-    pub hsm_name: Cow<'a, String>,
-}
-
-#[derive(Clone, Deserialize, Serialize)]
-pub struct HsmMetric {
-    pub name: String,
-    pub units: String,
-    pub points: Vec<Nanos>,
+    // Empty unless Record was specified as the metrics action in the request.
+    pub metrics: HashMap<String, Vec<Nanos>>,
 }
 
 pub trait HsmRpc: DeserializeOwned + Serialize + Debug {
