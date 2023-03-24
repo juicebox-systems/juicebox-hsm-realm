@@ -3,7 +3,7 @@
 //! This module exists in part to encapsulate the secret shared between the HSMs.
 
 use futures::future::join_all;
-use http::Uri;
+use loam_mvp::realm::store::bigtable::BigTableArgs;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwest::Url;
@@ -54,7 +54,7 @@ impl HsmGenerator {
         mut count: usize,
         metrics: Option<Metrics>,
         process_group: &mut ProcessGroup,
-        bigtable: &Uri,
+        bigtable: &BigTableArgs,
     ) -> Vec<Url> {
         let mut agent_urls = Vec::with_capacity(count);
         let mut add_metrics = Metrics::report_metrics(&metrics);
@@ -70,15 +70,11 @@ impl HsmGenerator {
                     "release"
                 }
             ));
-            cmd.arg("--listen")
-                .arg(agent_address)
-                .arg("--bigtable")
-                .arg(bigtable.to_string());
-
             if add_metrics.next().is_some() {
                 cmd.arg("--metrics").arg("1000");
             };
-
+            cmd.arg("--listen").arg(agent_address);
+            bigtable.add_to_cmd(&mut cmd);
             process_group.spawn(&mut cmd);
             agent_urls.push(agent_url);
             count -= 1;
@@ -114,13 +110,12 @@ impl HsmGenerator {
             ));
             cmd.arg("--listen")
                 .arg(agent_address)
-                .arg("--bigtable")
-                .arg(bigtable.to_string())
                 .arg("--hsm")
                 .arg(hsm_url.to_string());
             if add_metrics.next().is_some() {
                 cmd.arg("--metrics").arg("1000");
             }
+            bigtable.add_to_cmd(&mut cmd);
             process_group.spawn(&mut cmd);
             agent_url
         })

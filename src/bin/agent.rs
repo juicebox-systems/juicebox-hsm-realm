@@ -1,5 +1,4 @@
 use clap::Parser;
-use http::Uri;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tracing::info;
@@ -8,15 +7,15 @@ use url::Url;
 use loam_mvp::clap_parsers::parse_duration;
 use loam_mvp::logging;
 use loam_mvp::realm::agent::Agent;
-use loam_mvp::realm::hsm::{client::HsmClient, http::client::HsmHttpClient};
-use loam_mvp::realm::store::bigtable;
+use loam_mvp::realm::hsm::client::HsmClient;
+use loam_mvp::realm::hsm::http::client::HsmHttpClient;
+use loam_mvp::realm::store::bigtable::BigTableArgs;
 
 #[derive(Parser)]
 #[command(about = "A host agent to pair with an HSM")]
 struct Args {
-    /// Address of Bigtable storage system (both data and admin).
-    #[arg(long, default_value = "http://localhost:9000")]
-    bigtable: Uri,
+    #[command(flatten)]
+    bigtable: BigTableArgs,
 
     /// Address of HSM (HTTP).
     #[arg(long, default_value = "http://localhost:8080")]
@@ -55,22 +54,8 @@ async fn main() {
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
 
-    info!(bigtable = %args.bigtable, "Connecting to Bigtable");
-    let instance = bigtable::Instance {
-        project: String::from("prj"),
-        instance: String::from("inst"),
-    };
-    let store = bigtable::StoreClient::new(args.bigtable.clone(), instance.clone())
-        .await
-        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable at `{}`: {e}", args.bigtable));
-    let store_admin = bigtable::StoreAdminClient::new(args.bigtable.clone(), instance.clone())
-        .await
-        .unwrap_or_else(|e| {
-            panic!(
-                "Unable to connect to Bigtable admin at `{}`: {e}",
-                args.bigtable
-            )
-        });
+    let store = args.bigtable.connect_data().await;
+    let store_admin = args.bigtable.connect_admin().await;
 
     let hsm_t = HsmHttpClient::new(args.hsm);
     let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);

@@ -1,7 +1,6 @@
 use clap::Parser;
 use futures::StreamExt;
 use hsmcore::types::{AuthToken, Policy};
-use http::Uri;
 use reqwest::Url;
 use std::net::SocketAddr;
 use std::process::Command;
@@ -13,7 +12,7 @@ use tracing::{debug, info};
 use loam_mvp::client::{Client, Configuration, Pin, Realm, UserSecret};
 use loam_mvp::logging;
 use loam_mvp::realm::cluster;
-use loam_mvp::realm::store::bigtable;
+use loam_mvp::realm::store::bigtable::BigTableArgs;
 
 mod common;
 use common::hsm_gen::{Entrust, HsmGenerator, Metrics};
@@ -22,9 +21,8 @@ use common::process_group::ProcessGroup;
 #[derive(Debug, Parser)]
 #[command(about = "An end-to-end benchmark to stress an HSM")]
 struct Args {
-    /// Address of Bigtable storage system.
-    #[arg(long, default_value = "http://localhost:9000")]
-    bigtable: Uri,
+    #[command(flatten)]
+    bigtable: BigTableArgs,
 
     /// Number of secret registrations to do at a time.
     #[arg(long, value_name = "N", default_value_t = 3)]
@@ -62,40 +60,24 @@ async fn main() {
     let args = Args::parse();
     info!(?args, "Parsed command-line args");
 
-    info!(url = %args.bigtable, "connecting to Bigtable");
-    let instance = bigtable::Instance {
-        project: String::from("prj"),
-        instance: String::from("inst"),
-    };
-    let store_admin = bigtable::StoreAdminClient::new(args.bigtable.clone(), instance.clone())
-        .await
-        .unwrap_or_else(|e| {
-            panic!(
-                "Unable to connect to Bigtable admin at `{}`: {e}",
-                args.bigtable
-            )
-        });
-
+    let store_admin = args.bigtable.connect_admin().await;
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
 
     info!("creating load balancer");
     let load_balancer: Url = {
         let address = SocketAddr::from(([127, 0, 0, 1], 3000));
-        process_group.spawn(
-            Command::new(format!(
-                "target/{}/load_balancer",
-                if cfg!(debug_assertions) {
-                    "debug"
-                } else {
-                    "release"
-                }
-            ))
-            .arg("--listen")
-            .arg(address.to_string())
-            .arg("--bigtable")
-            .arg(args.bigtable.to_string()),
-        );
+        let mut cmd = Command::new(format!(
+            "target/{}/load_balancer",
+            if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            }
+        ));
+        cmd.arg("--listen").arg(address.to_string());
+        args.bigtable.add_to_cmd(&mut cmd);
+        process_group.spawn(&mut cmd);
         Url::parse(&format!("http://{address}")).unwrap()
     };
 
