@@ -15,7 +15,7 @@ use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 
 mod common;
-use common::hsm_gen::{Entrust, HsmGenerator, Metrics};
+use common::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use common::process_group::ProcessGroup;
 
 #[derive(Debug, Parser)]
@@ -36,9 +36,9 @@ struct Args {
     #[arg(long, default_value_t = false)]
     entrust: bool,
 
-    /// Report metrics from HSMs. Options are Leader, All
-    #[arg(long, value_parser=Metrics::parse)]
-    metrics: Option<Metrics>,
+    /// Report metrics from HSMs. Options are Leader, All, None.
+    #[arg(long, value_parser=MetricsParticipants::parse, default_value_t=MetricsParticipants::None)]
+    metrics: MetricsParticipants,
 }
 
 #[tokio::main]
