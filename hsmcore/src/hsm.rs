@@ -472,6 +472,8 @@ impl<P: Platform> Hsm<P> {
             }
         };
         let req_name = request.req.name();
+
+        // TODO: We need to ensure that metrics can't be enabled on production builds for HSMs.
         let metrics = Metrics::new(req_name, request.metrics, self.platform.clone());
 
         match request.req {
