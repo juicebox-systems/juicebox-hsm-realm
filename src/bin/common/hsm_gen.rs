@@ -3,7 +3,7 @@
 //! This module exists in part to encapsulate the secret shared between the HSMs.
 
 use futures::future::join_all;
-use http::Uri;
+use loam_mvp::realm::store::bigtable::BigTableArgs;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwest::Url;
@@ -53,27 +53,24 @@ impl HsmGenerator {
         &mut self,
         mut count: usize,
         process_group: &mut ProcessGroup,
-        bigtable: &Uri,
+        bigtable: &BigTableArgs,
     ) -> Vec<Url> {
         let mut agent_urls = Vec::with_capacity(count);
         if self.entrust.0 {
             let agent_port = self.port.next().unwrap();
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
-            process_group.spawn(
-                Command::new(format!(
-                    "target/{}/entrust-agent",
-                    if cfg!(debug_assertions) {
-                        "debug"
-                    } else {
-                        "release"
-                    }
-                ))
-                .arg("--listen")
-                .arg(agent_address)
-                .arg("--bigtable")
-                .arg(bigtable.to_string()),
-            );
+            let mut cmd = Command::new(format!(
+                "target/{}/entrust-agent",
+                if cfg!(debug_assertions) {
+                    "debug"
+                } else {
+                    "release"
+                }
+            ));
+            cmd.arg("--listen").arg(agent_address);
+            bigtable.add_to_cmd(&mut cmd);
+            process_group.spawn(&mut cmd);
             agent_urls.push(agent_url);
             count -= 1;
         }
@@ -98,22 +95,20 @@ impl HsmGenerator {
             );
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
-            process_group.spawn(
-                Command::new(format!(
-                    "target/{}/agent",
-                    if cfg!(debug_assertions) {
-                        "debug"
-                    } else {
-                        "release"
-                    }
-                ))
-                .arg("--listen")
+            let mut cmd = Command::new(format!(
+                "target/{}/agent",
+                if cfg!(debug_assertions) {
+                    "debug"
+                } else {
+                    "release"
+                }
+            ));
+            cmd.arg("--listen")
                 .arg(agent_address)
-                .arg("--bigtable")
-                .arg(bigtable.to_string())
                 .arg("--hsm")
-                .arg(hsm_url.to_string()),
-            );
+                .arg(hsm_url.to_string());
+            bigtable.add_to_cmd(&mut cmd);
+            process_group.spawn(&mut cmd);
             agent_url
         })
         .take(count)
