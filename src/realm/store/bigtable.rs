@@ -14,10 +14,11 @@ use http::Uri;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Write;
+use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
 use tonic::transport::{Channel, Endpoint};
-use tracing::{instrument, trace};
+use tracing::{info, instrument, trace};
 use url::Url;
 
 mod mutate;
@@ -34,6 +35,73 @@ type BigtableTableAdminClient =
     google::bigtable::admin::v2::bigtable_table_admin_client::BigtableTableAdminClient<Channel>;
 type BigtableClient =
     google::bigtable::v2::bigtable_client::BigtableClient<tonic::transport::Channel>;
+
+#[derive(clap::Args, Clone, Debug)]
+pub struct BigTableArgs {
+    /// The name of the GCP project that contains the bigtable instance.
+    #[arg(long = "bigtable-project", default_value = "prj")]
+    pub project: String,
+
+    /// The name of the bigtable instance to connect to.
+    #[arg(long = "bigtable-inst", default_value = "inst")]
+    pub inst: String,
+
+    /// The url to the big table emulator [default uses GCP endpoints].
+    #[arg(long = "bigtable-url")]
+    pub url: Option<Uri>,
+}
+
+impl BigTableArgs {
+    pub async fn connect_data(&self) -> StoreClient {
+        let data_url = match &self.url {
+            Some(u) => u.clone(),
+            None => Uri::from_static("https://bigtable.googleapis.com"),
+        };
+        info!(
+            inst = self.inst,
+            project = self.project,
+            %data_url,
+            "Connecting to Bigtable Data"
+        );
+        let instance = Instance {
+            project: self.project.clone(),
+            instance: self.inst.clone(),
+        };
+        StoreClient::new(data_url.clone(), instance)
+            .await
+            .unwrap_or_else(|e| panic!("Unable to connect to Bigtable at `{data_url}`: {e}"))
+    }
+
+    pub async fn connect_admin(&self) -> StoreAdminClient {
+        let admin_url = match &self.url {
+            Some(u) => u.clone(),
+            None => Uri::from_static("https://bigtableadmin.googleapis.com"),
+        };
+        info!(
+            inst = self.inst,
+            project = self.project,
+             %admin_url,
+            "Connecting to Bigtable Admin"
+        );
+        let instance = Instance {
+            project: self.project.clone(),
+            instance: self.inst.clone(),
+        };
+        StoreAdminClient::new(admin_url.clone(), instance)
+            .await
+            .unwrap_or_else(|e| panic!("Unable to connect to Bigtable admin at `{admin_url}`: {e}"))
+    }
+
+    pub fn add_to_cmd(&self, cmd: &mut Command) {
+        cmd.arg("--bigtable-inst")
+            .arg(&self.inst)
+            .arg("--bigtable-project")
+            .arg(&self.project);
+        if let Some(u) = &self.url {
+            cmd.arg("--bigtable-url").arg(u.to_string());
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Instance {

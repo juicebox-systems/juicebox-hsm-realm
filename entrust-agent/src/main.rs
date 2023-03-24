@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use clap::Parser;
 use core::slice;
 use hsmcore::marshalling::{DeserializationError, SerializationError};
-use http::Uri;
 use nfastapp::{
     Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
     Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_ErrorReturn, Cmd_LoadBuffer,
@@ -26,16 +25,15 @@ use tracing::{debug, info, instrument, warn};
 use loam_mvp::logging;
 use loam_mvp::realm::agent::Agent;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
-use loam_mvp::realm::store::bigtable;
+use loam_mvp::realm::store::bigtable::BigTableArgs;
 
 mod nfastapp;
 
 #[derive(Parser)]
 #[command(about = "A host agent for use with an Entrust nCipherXC HSM")]
 struct Args {
-    /// Address of Bigtable storage system (both data and admin).
-    #[arg(long, default_value = "http://localhost:9000")]
-    bigtable: Uri,
+    #[command(flatten)]
+    bigtable: BigTableArgs,
 
     /// The IP/port to listen on.
     #[arg(
@@ -84,22 +82,8 @@ async fn main() {
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
 
-    info!(bigtable = %args.bigtable, "Connecting to Bigtable");
-    let instance = bigtable::Instance {
-        project: String::from("prj"),
-        instance: String::from("inst"),
-    };
-    let store = bigtable::StoreClient::new(args.bigtable.clone(), instance.clone())
-        .await
-        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable at `{}`: {e}", args.bigtable));
-    let store_admin = bigtable::StoreAdminClient::new(args.bigtable.clone(), instance.clone())
-        .await
-        .unwrap_or_else(|e| {
-            panic!(
-                "Unable to connect to Bigtable admin at `{}`: {e}",
-                args.bigtable
-            )
-        });
+    let store = args.bigtable.connect_data().await;
+    let store_admin = args.bigtable.connect_admin().await;
 
     let hsm_t = EntrustSeeTransport::new(args.module, args.trace, args.image);
     let hsm = HsmClient::new(hsm_t);

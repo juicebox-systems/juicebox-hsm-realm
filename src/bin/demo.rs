@@ -10,7 +10,7 @@ use hsmcore::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 use loam_mvp::logging;
 use loam_mvp::realm::cluster;
-use loam_mvp::realm::store::bigtable;
+use loam_mvp::realm::store::bigtable::BigTableArgs;
 
 mod common;
 use common::hsm_gen::{Entrust, HsmGenerator};
@@ -32,18 +32,13 @@ async fn main() {
     })
     .expect("error setting signal handler");
 
-    let bigtable = Uri::from_static("http://localhost:9000");
-    info!(url = %bigtable, "connecting to Bigtable");
-    let instance = bigtable::Instance {
+    let bt_args = BigTableArgs {
+        inst: String::from("inst"),
         project: String::from("prj"),
-        instance: String::from("inst"),
+        url: Some(Uri::from_static("http://localhost:9000")),
     };
-    let store = bigtable::StoreClient::new(bigtable.clone(), instance.clone())
-        .await
-        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable at `{bigtable}`: {e}"));
-    let store_admin = bigtable::StoreAdminClient::new(bigtable.clone(), instance.clone())
-        .await
-        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable admin at `{bigtable}`: {e}"));
+    let store = bt_args.connect_data().await;
+    let store_admin = bt_args.connect_admin().await;
 
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
@@ -53,20 +48,17 @@ async fn main() {
     let load_balancers: Vec<Url> = (1..=num_load_balancers)
         .map(|i| {
             let address = SocketAddr::from(([127, 0, 0, 1], 3000 + i));
-            process_group.spawn(
-                Command::new(format!(
-                    "target/{}/load_balancer",
-                    if cfg!(debug_assertions) {
-                        "debug"
-                    } else {
-                        "release"
-                    }
-                ))
-                .arg("--listen")
-                .arg(address.to_string())
-                .arg("--bigtable")
-                .arg(bigtable.to_string()),
-            );
+            let mut cmd = Command::new(format!(
+                "target/{}/load_balancer",
+                if cfg!(debug_assertions) {
+                    "debug"
+                } else {
+                    "release"
+                }
+            ));
+            cmd.arg("--listen").arg(address.to_string());
+            bt_args.add_to_cmd(&mut cmd);
+            process_group.spawn(&mut cmd);
             Url::parse(&format!("http://{address}")).unwrap()
         })
         .collect();
@@ -76,17 +68,17 @@ async fn main() {
     let num_hsms = 5;
     info!(count = num_hsms, "creating initial HSMs and agents");
     let group1 = hsm_generator
-        .create_hsms(num_hsms, &mut process_group, &bigtable)
+        .create_hsms(num_hsms, &mut process_group, &bt_args)
         .await;
     let (realm_id, group_id1) = cluster::new_realm(&group1).await.unwrap();
     info!(?realm_id, group_id = ?group_id1, "initialized cluster");
 
     info!("creating additional groups");
     let group2 = hsm_generator
-        .create_hsms(5, &mut process_group, &bigtable)
+        .create_hsms(5, &mut process_group, &bt_args)
         .await;
     let group3 = hsm_generator
-        .create_hsms(4, &mut process_group, &bigtable)
+        .create_hsms(4, &mut process_group, &bt_args)
         .await;
 
     let mut groups = try_join_all([
@@ -166,7 +158,7 @@ async fn main() {
     let mut realm_ids = join_all([5000, 6000, 7000].map(|start_port| {
         let mut hsm_generator = HsmGenerator::new(Entrust(false), start_port);
         let mut process_group = process_group.clone();
-        let bigtable = bigtable.clone();
+        let bigtable = bt_args.clone();
         async move {
             let agents = hsm_generator
                 .create_hsms(num_hsms, &mut process_group, &bigtable)
