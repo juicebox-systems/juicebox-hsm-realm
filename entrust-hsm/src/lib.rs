@@ -137,8 +137,10 @@ impl Sub for TimeSpec {
             }
             assert!(sec >= 0);
             assert!(nsec >= 0 && nsec < 1_000_000_000);
-            let nanos = (sec as u64) * 1_000_000_000 + (nsec as u64);
-            Nanos(nanos.try_into().unwrap_or(Nanos::MAX.0))
+            let nanos = (sec as u32)
+                .saturating_mul(1_000_000_000)
+                .saturating_add(nsec as u32);
+            Nanos(nanos)
         }
     }
 }
