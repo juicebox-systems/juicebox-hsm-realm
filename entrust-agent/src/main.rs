@@ -19,9 +19,11 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::ptr::null_mut;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::time::Instant;
 use tracing::{debug, info, instrument, warn};
 
+use loam_mvp::clap_parsers::parse_duration;
 use loam_mvp::logging;
 use loam_mvp::realm::agent::Agent;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
@@ -65,6 +67,10 @@ struct Args {
     /// relevant image. See section 6.3 of the Developer_CodeSafe_Guide
     #[arg(long)]
     image: Option<String>,
+
+    /// HSM Metrics reporting interval in milliseconds [default: no reporting]
+    #[arg(long, value_parser=parse_duration)]
+    metrics: Option<Duration>,
 }
 
 #[tokio::main]
@@ -86,7 +92,7 @@ async fn main() {
     let store_admin = args.bigtable.connect_admin().await;
 
     let hsm_t = EntrustSeeTransport::new(args.module, args.trace, args.image);
-    let hsm = HsmClient::new(hsm_t);
+    let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);
     let agent = Agent::new(name, hsm, store, store_admin);
     let (url, join_handle) = agent.listen(args.listen).await.expect("TODO");
     info!(url = %url, "Agent started");

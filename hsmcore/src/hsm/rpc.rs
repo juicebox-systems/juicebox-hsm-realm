@@ -1,7 +1,11 @@
-use core::fmt::Debug;
+extern crate alloc;
 
+use alloc::borrow::Cow;
+use alloc::vec::Vec;
+use core::fmt::Debug;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+use super::super::hal::Nanos;
 use super::types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
     CaptureNextResponse, CommitRequest, CommitResponse, CompleteTransferRequest,
@@ -11,6 +15,27 @@ use super::types::{
     TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
     TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub enum MetricsAction {
+    // Don't record any metrics.
+    Skip,
+    // Record metrics for the request.
+    Record,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct HsmRequestContainer {
+    pub req: HsmRequest,
+    pub metrics: MetricsAction,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct HsmResponseContainer<'a, T> {
+    pub res: T,
+    // Empty unless Record was specified as the metrics action in the request.
+    pub metrics: Vec<(Cow<'a, str>, Nanos)>,
+}
 
 pub trait HsmRpc: DeserializeOwned + Serialize + Debug {
     type Response: DeserializeOwned + Serialize + Debug;
@@ -38,7 +63,7 @@ pub enum HsmRequest {
 }
 
 impl HsmRequest {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &'static str {
         match self {
             HsmRequest::Status(_) => "Status",
             HsmRequest::NewRealm(_) => "NewRealm",

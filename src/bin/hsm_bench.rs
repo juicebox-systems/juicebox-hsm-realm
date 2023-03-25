@@ -15,7 +15,7 @@ use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 
 mod common;
-use common::hsm_gen::{Entrust, HsmGenerator};
+use common::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use common::process_group::ProcessGroup;
 
 #[derive(Debug, Parser)]
@@ -35,6 +35,10 @@ struct Args {
     /// Use an entrust HSM/Agent for one of the HSMs and make it the leader.
     #[arg(long, default_value_t = false)]
     entrust: bool,
+
+    /// Report metrics from HSMs. Options are Leader, All, None.
+    #[arg(long, value_parser=MetricsParticipants::parse, default_value_t=MetricsParticipants::None)]
+    metrics: MetricsParticipants,
 }
 
 #[tokio::main]
@@ -82,7 +86,7 @@ async fn main() {
     let num_hsms = 5;
     info!(count = num_hsms, "creating HSMs and agents");
     let group = hsm_generator
-        .create_hsms(num_hsms, &mut process_group, &args.bigtable)
+        .create_hsms(num_hsms, args.metrics, &mut process_group, &args.bigtable)
         .await;
     let (realm_id, group_id) = cluster::new_realm(&group).await.unwrap();
     info!(?realm_id, ?group_id, "initialized cluster");

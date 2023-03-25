@@ -22,6 +22,7 @@ criterion = "0.4.0"
 ctrlc = "3.2.5"
 digest = "0.10.6"
 futures = "0.3.25"
+hdrhistogram = { version = "7.5.2", default-features = false }
 hex-literal = "0.3.4"
 hkdf = "0.12.3"
 hmac = "0.12.1"
@@ -66,6 +67,7 @@ clap = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
 digest = { workspace = true }
 futures = { workspace = true }
+hdrhistogram = { workspace = true }
 hmac = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }

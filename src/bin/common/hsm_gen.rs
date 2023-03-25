@@ -7,7 +7,7 @@ use loam_mvp::realm::store::bigtable::BigTableArgs;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwest::Url;
-use std::fmt::Write;
+use std::fmt::{Display, Write};
 use std::iter;
 use std::net::SocketAddr;
 use std::ops::RangeFrom;
@@ -52,10 +52,12 @@ impl HsmGenerator {
     pub async fn create_hsms(
         &mut self,
         mut count: usize,
+        metrics: MetricsParticipants,
         process_group: &mut ProcessGroup,
         bigtable: &BigTableArgs,
     ) -> Vec<Url> {
         let mut agent_urls = Vec::with_capacity(count);
+        let mut next_is_leader = true;
         if self.entrust.0 {
             let agent_port = self.port.next().unwrap();
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
@@ -68,6 +70,10 @@ impl HsmGenerator {
                     "release"
                 }
             ));
+            if metrics.report_metrics(next_is_leader) {
+                cmd.arg("--metrics").arg("1000");
+            };
+            next_is_leader = false;
             cmd.arg("--listen").arg(agent_address);
             bigtable.add_to_cmd(&mut cmd);
             process_group.spawn(&mut cmd);
@@ -107,6 +113,10 @@ impl HsmGenerator {
                 .arg(agent_address)
                 .arg("--hsm")
                 .arg(hsm_url.to_string());
+            if metrics.report_metrics(next_is_leader) {
+                cmd.arg("--metrics").arg("1000");
+            }
+            next_is_leader = false;
             bigtable.add_to_cmd(&mut cmd);
             process_group.spawn(&mut cmd);
             agent_url
@@ -140,5 +150,44 @@ impl HsmGenerator {
             agent_url
         });
         join_all(waiters).await;
+    }
+}
+
+#[allow(dead_code)] // the compiler doesn't seem to see the usage from hsm_bench
+#[derive(Clone, Debug)]
+pub enum MetricsParticipants {
+    None,
+    Leader,
+    All,
+}
+
+impl Display for MetricsParticipants {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MetricsParticipants::None => f.write_str("None"),
+            MetricsParticipants::Leader => f.write_str("Leader"),
+            MetricsParticipants::All => f.write_str("All"),
+        }
+    }
+}
+
+impl MetricsParticipants {
+    #[allow(dead_code)] // the compiler doesn't seem to see the usage from hsm_bench
+    pub fn parse(arg: &str) -> Result<MetricsParticipants, String> {
+        let arg = arg.trim().to_ascii_lowercase();
+        match arg.as_str() {
+            "leader" => Ok(MetricsParticipants::Leader),
+            "all" => Ok(MetricsParticipants::All),
+            "none" => Ok(MetricsParticipants::None),
+            _ => Err(String::from("valid options are Leader, All")),
+        }
+    }
+
+    fn report_metrics(&self, is_leader: bool) -> bool {
+        match &self {
+            MetricsParticipants::None => false,
+            MetricsParticipants::Leader => is_leader,
+            MetricsParticipants::All => true,
+        }
     }
 }

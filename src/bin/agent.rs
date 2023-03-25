@@ -1,10 +1,13 @@
 use clap::Parser;
 use std::net::SocketAddr;
+use std::time::Duration;
 use tracing::info;
 use url::Url;
 
+use loam_mvp::clap_parsers::parse_duration;
 use loam_mvp::logging;
 use loam_mvp::realm::agent::Agent;
+use loam_mvp::realm::hsm::client::HsmClient;
 use loam_mvp::realm::hsm::http::client::HsmHttpClient;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 
@@ -30,6 +33,10 @@ struct Args {
     /// Name of the agent in logging [default: agent{listen}]
     #[arg(short, long)]
     name: Option<String>,
+
+    /// HSM Metrics reporting interval in milliseconds [default: no reporting]
+    #[arg(short, long, value_parser=parse_duration)]
+    metrics: Option<Duration>,
 }
 
 #[tokio::main]
@@ -50,7 +57,8 @@ async fn main() {
     let store = args.bigtable.connect_data().await;
     let store_admin = args.bigtable.connect_admin().await;
 
-    let hsm = HsmHttpClient::new_client(args.hsm);
+    let hsm_t = HsmHttpClient::new(args.hsm);
+    let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);
     let agent = Agent::new(name, hsm, store, store_admin);
     let (url, join_handle) = agent.listen(args.listen).await.expect("TODO");
     info!(url = %url, "Agent started");

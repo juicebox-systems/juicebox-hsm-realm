@@ -1,30 +1,83 @@
 use bytes::Bytes;
 use futures::Future;
+use hsmcore::hal::{Clock, Nanos};
 use hsmcore::hsm::{Hsm, HsmError, HsmOptions, RealmKey};
-use hsmcore::CryptoRng;
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use rand::rngs::OsRng;
+use rand::RngCore;
 use reqwest::Url;
 use std::net::SocketAddr;
+use std::ops::Sub;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
+struct HalInstant(Instant);
+impl Sub for HalInstant {
+    type Output = Nanos;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Nanos(
+            self.0
+                .duration_since(rhs.0)
+                .as_nanos()
+                .try_into()
+                .unwrap_or(Nanos::MAX.0),
+        )
+    }
+}
+
 #[derive(Clone)]
-pub struct HttpHsm(Arc<Mutex<Hsm>>);
+struct StdPlatform;
+
+impl Clock for StdPlatform {
+    type Instant = HalInstant;
+
+    fn now(&self) -> Option<Self::Instant> {
+        Some(HalInstant(Instant::now()))
+    }
+
+    fn elapsed(&self, start: Self::Instant) -> Option<Nanos> {
+        Some(HalInstant(Instant::now()) - start)
+    }
+}
+
+impl RngCore for StdPlatform {
+    fn next_u32(&mut self) -> u32 {
+        OsRng.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        OsRng.next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        OsRng.fill_bytes(dest)
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
+        OsRng.try_fill_bytes(dest)
+    }
+}
+impl rand::CryptoRng for StdPlatform {}
+
+#[derive(Clone)]
+pub struct HttpHsm(Arc<Mutex<Hsm<StdPlatform>>>);
 
 impl HttpHsm {
-    pub fn new(name: String, realm_key: RealmKey, rng: Box<dyn CryptoRng>) -> Self {
+    pub fn new(name: String, realm_key: RealmKey) -> Self {
         HttpHsm(Arc::new(Mutex::new(Hsm::new(
             HsmOptions {
                 name,
-                rng,
                 tree_overlay_size: 511,
             },
+            StdPlatform,
             realm_key,
         ))))
     }
@@ -93,5 +146,23 @@ impl Service<Request<IncomingBody>> for HttpHsm {
                     .unwrap()),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn instant_sub() {
+        let s = Instant::now();
+        let e = s + Duration::from_nanos(12345);
+        assert_eq!(Nanos(12345), HalInstant(e) - HalInstant(s));
+        // Should saturate to zero on sub if RHS > LHS
+        assert_eq!(Nanos::ZERO, HalInstant(s) - HalInstant(e));
+        let e = s + Duration::from_secs(5);
+        // Should saturate to max if too large
+        assert_eq!(Nanos::MAX, HalInstant(e) - HalInstant(s));
     }
 }

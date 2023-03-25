@@ -1,5 +1,4 @@
 use clap::Parser;
-use rand::rngs::OsRng;
 use std::net::SocketAddr;
 use tracing::info;
 
@@ -33,7 +32,7 @@ async fn main() {
     logging::configure("loam-http-hsm");
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("hsm{}", args.listen));
-    let hsm = HttpHsm::new(name, args.key, Box::new(OsRng));
+    let hsm = HttpHsm::new(name, args.key);
     let (url, join_handle) = hsm.listen(args.listen).await.unwrap();
     info!(url = %url, "HSM started");
     join_handle.await.unwrap();

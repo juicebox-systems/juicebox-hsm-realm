@@ -1,7 +1,7 @@
 extern crate alloc;
 
 use aes_gcm::aead::Aead;
-use alloc::boxed::Box;
+use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -17,10 +17,11 @@ mod app;
 pub mod rpc;
 pub mod types;
 
-use self::rpc::{HsmRequest, HsmRpc};
+use self::rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use self::types::Partition;
+use super::hal::{Clock, Nanos, Platform};
 use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
-use super::{marshalling, CryptoRng};
+use super::{hal::CryptoRng, marshalling};
 use app::{RecordChange, RootOprfKey};
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
@@ -60,7 +61,7 @@ impl RealmKey {
 }
 
 impl GroupId {
-    fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
+    fn random(rng: &mut impl CryptoRng) -> Self {
         let mut id = [0u8; 16];
         rng.fill_bytes(&mut id);
         Self(id)
@@ -68,7 +69,7 @@ impl GroupId {
 }
 
 impl HsmId {
-    fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
+    fn random(rng: &mut impl CryptoRng) -> Self {
         let mut id = [0u8; 16];
         rng.fill_bytes(&mut id);
         Self(id)
@@ -76,7 +77,7 @@ impl HsmId {
 }
 
 impl RealmId {
-    fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
+    fn random(rng: &mut impl CryptoRng) -> Self {
         let mut id = [0u8; 16];
         rng.fill_bytes(&mut id);
         Self(id)
@@ -251,7 +252,7 @@ impl<'a> EntryHmacBuilder<'a> {
 }
 
 impl TransferNonce {
-    pub fn random(rng: &mut Box<dyn CryptoRng>) -> Self {
+    pub fn random(rng: &mut impl CryptoRng) -> Self {
         let mut nonce = [0u8; 16];
         rng.fill_bytes(&mut nonce);
         Self(nonce)
@@ -327,7 +328,8 @@ impl RecordEncryptionKey {
     }
 }
 
-pub struct Hsm {
+pub struct Hsm<P: Platform> {
+    platform: P,
     options: HsmOptions,
     persistent: PersistentState,
     volatile: VolatileState,
@@ -335,7 +337,6 @@ pub struct Hsm {
 
 pub struct HsmOptions {
     pub name: String,
-    pub rng: Box<dyn CryptoRng>,
     pub tree_overlay_size: u16,
 }
 
@@ -381,13 +382,72 @@ pub enum HsmError {
     Serialization(marshalling::SerializationError),
 }
 
-impl Hsm {
-    pub fn new(mut options: HsmOptions, realm_key: RealmKey) -> Self {
+struct Metrics<'a, C: Clock> {
+    values: Vec<(Cow<'a, str>, Nanos)>,
+    action: MetricsAction,
+    clock: C,
+    // tracking for the very outer request, gets recorded as a metric during finish()
+    start: Option<C::Instant>,
+    req_name: &'a str,
+}
+
+impl<'a, C: Clock> Metrics<'a, C> {
+    fn new(req_name: &'a str, action: MetricsAction, clock: C) -> Self {
+        let start = match &action {
+            MetricsAction::Skip => None,
+            MetricsAction::Record => clock.now(),
+        };
+        Self {
+            values: Vec::new(),
+            action,
+            clock,
+            start,
+            req_name,
+        }
+    }
+
+    fn finish(mut self) -> Vec<(Cow<'a, str>, Nanos)> {
+        let start = self.start.take();
+        self.record(self.req_name, start);
+        self.values
+    }
+
+    /// Call now when you want to capture the start time of a metric you're
+    /// going to capture. Later call record to capture when its complete.
+    ///
+    /// #Example
+    ///
+    /// let start = metrics.now();
+    /// do_expensive_thing();
+    /// metrics.record("expensive_op", start);
+    ///
+    fn now(&self) -> Option<C::Instant> {
+        match &self.action {
+            MetricsAction::Skip => None,
+            MetricsAction::Record => self.clock.now(),
+        }
+    }
+
+    /// Call record at the end of the thing you're measuring with the value from
+    /// the earlier call to now. This will calculate and record the metric. This
+    /// is a no-op if we're not capturing metrics for the current request.
+    fn record(&mut self, name: &'a str, start: Option<C::Instant>) {
+        if let Some(start_ts) = start {
+            if let Some(dur) = self.clock.elapsed(start_ts) {
+                self.values.push((Cow::Borrowed(name), dur));
+            }
+        }
+    }
+}
+
+impl<P: Platform> Hsm<P> {
+    pub fn new(options: HsmOptions, mut platform: P, realm_key: RealmKey) -> Self {
         let root_oprf_key = RootOprfKey::from(&realm_key);
         let record_key = RecordEncryptionKey::from(&realm_key);
-        let hsm_id = HsmId::random(&mut options.rng);
+        let hsm_id = HsmId::random(&mut platform);
         Hsm {
             options,
+            platform,
             persistent: PersistentState {
                 id: hsm_id,
                 realm_key,
@@ -401,42 +461,66 @@ impl Hsm {
         }
     }
     pub fn handle_request(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, HsmError> {
-        let request: HsmRequest = match marshalling::from_slice(request_bytes) {
+        let request: HsmRequestContainer = match marshalling::from_slice(request_bytes) {
             Ok(request) => request,
             Err(e) => {
                 warn!(error = ?e, "deserialization error");
                 return Err(HsmError::Deserialization(e));
             }
         };
-        match request {
-            HsmRequest::Status(r) => self.dispatch_request(r, Self::handle_status_request),
-            HsmRequest::NewRealm(r) => self.dispatch_request(r, Self::handle_new_realm),
-            HsmRequest::JoinRealm(r) => self.dispatch_request(r, Self::handle_join_realm),
-            HsmRequest::NewGroup(r) => self.dispatch_request(r, Self::handle_new_group),
-            HsmRequest::JoinGroup(r) => self.dispatch_request(r, Self::handle_join_group),
-            HsmRequest::BecomeLeader(r) => self.dispatch_request(r, Self::handle_become_leader),
-            HsmRequest::CaptureNext(r) => self.dispatch_request(r, Self::handle_capture_next),
-            HsmRequest::ReadCaptured(r) => self.dispatch_request(r, Self::handle_read_captured),
-            HsmRequest::Commit(r) => self.dispatch_request(r, Self::handle_commit),
-            HsmRequest::TransferOut(r) => self.dispatch_request(r, Self::handle_transfer_out),
-            HsmRequest::TransferNonce(r) => self.dispatch_request(r, Self::handle_transfer_nonce),
+        let req_name = request.req.name();
+
+        // TODO: We need to ensure that metrics can't be enabled on production builds for HSMs.
+        let metrics = Metrics::new(req_name, request.metrics, self.platform.clone());
+
+        match request.req {
+            HsmRequest::Status(r) => self.dispatch_request(metrics, r, Self::handle_status_request),
+            HsmRequest::NewRealm(r) => self.dispatch_request(metrics, r, Self::handle_new_realm),
+            HsmRequest::JoinRealm(r) => self.dispatch_request(metrics, r, Self::handle_join_realm),
+            HsmRequest::NewGroup(r) => self.dispatch_request(metrics, r, Self::handle_new_group),
+            HsmRequest::JoinGroup(r) => self.dispatch_request(metrics, r, Self::handle_join_group),
+            HsmRequest::BecomeLeader(r) => {
+                self.dispatch_request(metrics, r, Self::handle_become_leader)
+            }
+            HsmRequest::CaptureNext(r) => {
+                self.dispatch_request(metrics, r, Self::handle_capture_next)
+            }
+            HsmRequest::ReadCaptured(r) => {
+                self.dispatch_request(metrics, r, Self::handle_read_captured)
+            }
+            HsmRequest::Commit(r) => self.dispatch_request(metrics, r, Self::handle_commit),
+            HsmRequest::TransferOut(r) => {
+                self.dispatch_request(metrics, r, Self::handle_transfer_out)
+            }
+            HsmRequest::TransferNonce(r) => {
+                self.dispatch_request(metrics, r, Self::handle_transfer_nonce)
+            }
             HsmRequest::TransferStatement(r) => {
-                self.dispatch_request(r, Self::handle_transfer_statement)
+                self.dispatch_request(metrics, r, Self::handle_transfer_statement)
             }
-            HsmRequest::TransferIn(r) => self.dispatch_request(r, Self::handle_transfer_in),
+            HsmRequest::TransferIn(r) => {
+                self.dispatch_request(metrics, r, Self::handle_transfer_in)
+            }
             HsmRequest::CompleteTransfer(r) => {
-                self.dispatch_request(r, Self::handle_complete_transfer)
+                self.dispatch_request(metrics, r, Self::handle_complete_transfer)
             }
-            HsmRequest::AppRequest(r) => self.dispatch_request(r, Self::handle_app),
+            HsmRequest::AppRequest(r) => self.dispatch_request(metrics, r, Self::handle_app),
         }
     }
-    fn dispatch_request<Req: HsmRpc, F: FnMut(&mut Self, Req) -> Req::Response>(
+
+    fn dispatch_request<Req: HsmRpc, F: FnMut(&mut Self, &mut Metrics<P>, Req) -> Req::Response>(
         &mut self,
+        mut metrics: Metrics<P>,
         r: Req,
         mut f: F,
     ) -> Result<Vec<u8>, HsmError> {
-        let response = f(self, r);
-        marshalling::to_vec(&response).map_err(HsmError::Serialization)
+        let response = f(self, &mut metrics, r);
+
+        let resp = HsmResponseContainer {
+            res: response,
+            metrics: metrics.finish(),
+        };
+        marshalling::to_vec(&resp).map_err(HsmError::Serialization)
     }
 
     fn create_new_group(
@@ -445,7 +529,7 @@ impl Hsm {
         configuration: Configuration,
         owned_range: Option<OwnedRange>,
     ) -> NewGroupInfo {
-        let group = GroupId::random(&mut self.options.rng);
+        let group = GroupId::random(&mut self.platform);
         let statement = GroupConfigurationStatementBuilder {
             realm,
             group,
@@ -526,7 +610,11 @@ impl Hsm {
         }
     }
 
-    fn handle_status_request(&mut self, request: StatusRequest) -> StatusResponse {
+    fn handle_status_request(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: StatusRequest,
+    ) -> StatusResponse {
         trace!(hsm = self.options.name, ?request);
         let response =
             StatusResponse {
@@ -565,7 +653,11 @@ impl Hsm {
         response
     }
 
-    fn handle_new_realm(&mut self, request: NewRealmRequest) -> NewRealmResponse {
+    fn handle_new_realm(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: NewRealmRequest,
+    ) -> NewRealmResponse {
         type Response = NewRealmResponse;
         trace!(hsm = self.options.name, ?request);
         let response = if self.persistent.realm.is_some() {
@@ -575,7 +667,7 @@ impl Hsm {
         {
             Response::InvalidConfiguration
         } else {
-            let realm_id = RealmId::random(&mut self.options.rng);
+            let realm_id = RealmId::random(&mut self.platform);
             self.persistent.realm = Some(PersistentRealmState {
                 id: realm_id,
                 groups: HashMap::new(),
@@ -588,7 +680,11 @@ impl Hsm {
         response
     }
 
-    fn handle_join_realm(&mut self, request: JoinRealmRequest) -> JoinRealmResponse {
+    fn handle_join_realm(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: JoinRealmRequest,
+    ) -> JoinRealmResponse {
         trace!(hsm = self.options.name, ?request);
 
         let response = match &self.persistent.realm {
@@ -616,7 +712,11 @@ impl Hsm {
         response
     }
 
-    fn handle_new_group(&mut self, request: NewGroupRequest) -> NewGroupResponse {
+    fn handle_new_group(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: NewGroupRequest,
+    ) -> NewGroupResponse {
         type Response = NewGroupResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -641,7 +741,11 @@ impl Hsm {
         response
     }
 
-    fn handle_join_group(&mut self, request: JoinGroupRequest) -> JoinGroupResponse {
+    fn handle_join_group(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: JoinGroupRequest,
+    ) -> JoinGroupResponse {
         type Response = JoinGroupResponse;
         trace!(hsm = self.options.name, ?request);
         let response = match &mut self.persistent.realm {
@@ -679,7 +783,11 @@ impl Hsm {
         response
     }
 
-    fn handle_capture_next(&mut self, request: CaptureNextRequest) -> CaptureNextResponse {
+    fn handle_capture_next(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: CaptureNextRequest,
+    ) -> CaptureNextResponse {
         type Response = CaptureNextResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -747,7 +855,11 @@ impl Hsm {
         response
     }
 
-    fn handle_become_leader(&mut self, request: BecomeLeaderRequest) -> BecomeLeaderResponse {
+    fn handle_become_leader(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: BecomeLeaderRequest,
+    ) -> BecomeLeaderResponse {
         type Response = BecomeLeaderResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -815,7 +927,11 @@ impl Hsm {
         response
     }
 
-    fn handle_read_captured(&mut self, request: ReadCapturedRequest) -> ReadCapturedResponse {
+    fn handle_read_captured(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: ReadCapturedRequest,
+    ) -> ReadCapturedResponse {
         type Response = ReadCapturedResponse;
         trace!(hsm = self.options.name, ?request);
         let response = match &self.persistent.realm {
@@ -852,7 +968,11 @@ impl Hsm {
         response
     }
 
-    fn handle_commit(&mut self, request: CommitRequest) -> CommitResponse {
+    fn handle_commit(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: CommitRequest,
+    ) -> CommitResponse {
         type Response = CommitResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -933,7 +1053,11 @@ impl Hsm {
         response
     }
 
-    fn handle_transfer_out(&mut self, request: TransferOutRequest) -> TransferOutResponse {
+    fn handle_transfer_out(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: TransferOutRequest,
+    ) -> TransferOutResponse {
         type Response = TransferOutResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -1065,7 +1189,11 @@ impl Hsm {
         response
     }
 
-    fn handle_transfer_nonce(&mut self, request: TransferNonceRequest) -> TransferNonceResponse {
+    fn handle_transfer_nonce(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: TransferNonceRequest,
+    ) -> TransferNonceResponse {
         type Response = TransferNonceResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -1085,7 +1213,7 @@ impl Hsm {
                 return Response::NotLeader;
             };
 
-            let nonce = TransferNonce::random(&mut self.options.rng);
+            let nonce = TransferNonce::random(&mut self.platform);
             leader.incoming = Some(nonce);
             Response::Ok(nonce)
         })();
@@ -1096,6 +1224,7 @@ impl Hsm {
 
     fn handle_transfer_statement(
         &mut self,
+        _metrics: &mut Metrics<P>,
         request: TransferStatementRequest,
     ) -> TransferStatementResponse {
         type Response = TransferStatementResponse;
@@ -1145,7 +1274,11 @@ impl Hsm {
         response
     }
 
-    fn handle_transfer_in(&mut self, request: TransferInRequest) -> TransferInResponse {
+    fn handle_transfer_in(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: TransferInRequest,
+    ) -> TransferInResponse {
         type Response = TransferInResponse;
         trace!(hsm = self.options.name, ?request);
 
@@ -1267,6 +1400,7 @@ impl Hsm {
 
     fn handle_complete_transfer(
         &mut self,
+        _metrics: &mut Metrics<P>,
         request: CompleteTransferRequest,
     ) -> CompleteTransferResponse {
         type Response = CompleteTransferResponse;
@@ -1334,10 +1468,13 @@ impl Hsm {
         response
     }
 
-    fn handle_app(&mut self, request: AppRequest) -> AppResponse {
+    fn handle_app(&mut self, metrics: &mut Metrics<P>, request: AppRequest) -> AppResponse {
         type Response = AppResponse;
         trace!(hsm = self.options.name, ?request);
         let hsm_name = &self.options.name;
+
+        let start = metrics.now();
+        let app_req_name = app_req_name(&request);
 
         let response = match &self.persistent.realm {
             Some(realm) if realm.id == request.realm => {
@@ -1374,8 +1511,19 @@ impl Hsm {
             None | Some(_) => Response::InvalidRealm,
         };
 
+        metrics.record(app_req_name, start);
         trace!(hsm = self.options.name, ?response);
         response
+    }
+}
+
+fn app_req_name(r: &AppRequest) -> &'static str {
+    match &r.request {
+        types::SecretsRequest::Register1(_) => "App::Register1",
+        types::SecretsRequest::Register2(_) => "App::Register2",
+        types::SecretsRequest::Recover1(_) => "App::Recover1",
+        types::SecretsRequest::Recover2(_) => "App::Recover2",
+        types::SecretsRequest::Delete(_) => "App::Delete",
     }
 }
 
@@ -1660,7 +1808,7 @@ mod test {
     }
 
     #[test]
-    fn test_store_key_parse_datahash() {
+    fn test_store_key_parse_data_hash() {
         let prefix = bitvec![0, 1, 1, 1];
         let mh = MerkleHasher();
         let hash = mh.calc_hash(&[&[1, 2, 3, 4]]);
