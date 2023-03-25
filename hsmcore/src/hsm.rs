@@ -1,6 +1,7 @@
 extern crate alloc;
 
 use aes_gcm::aead::Aead;
+use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -381,23 +382,23 @@ pub enum HsmError {
     Serialization(marshalling::SerializationError),
 }
 
-struct Metrics<C: Clock> {
-    values: HashMap<String, Vec<Nanos>>,
+struct Metrics<'a, C: Clock> {
+    values: Vec<(Cow<'a, str>, Nanos)>,
     action: MetricsAction,
     clock: C,
     // tracking for the very outer request, gets recorded as a metric during finish()
     start: Option<C::Instant>,
-    req_name: &'static str,
+    req_name: &'a str,
 }
 
-impl<C: Clock> Metrics<C> {
-    fn new(req_name: &'static str, action: MetricsAction, clock: C) -> Self {
+impl<'a, C: Clock> Metrics<'a, C> {
+    fn new(req_name: &'a str, action: MetricsAction, clock: C) -> Self {
         let start = match &action {
             MetricsAction::Skip => None,
             MetricsAction::Record => clock.now(),
         };
         Self {
-            values: HashMap::new(),
+            values: Vec::new(),
             action,
             clock,
             start,
@@ -405,7 +406,7 @@ impl<C: Clock> Metrics<C> {
         }
     }
 
-    fn finish(mut self) -> HashMap<String, Vec<Nanos>> {
+    fn finish(mut self) -> Vec<(Cow<'a, str>, Nanos)> {
         let start = self.start.take();
         self.record(self.req_name, start);
         self.values
@@ -430,14 +431,10 @@ impl<C: Clock> Metrics<C> {
     /// Call record at the end of the thing you're measuring with the value from
     /// the earlier call to now. This will calculate and record the metric. This
     /// is a no-op if we're not capturing metrics for the current request.
-    fn record(&mut self, name: &str, start: Option<C::Instant>) {
+    fn record(&mut self, name: &'a str, start: Option<C::Instant>) {
         if let Some(start_ts) = start {
             if let Some(dur) = self.clock.elapsed(start_ts) {
-                let metric = self
-                    .values
-                    .entry(String::from(name))
-                    .or_insert_with(Vec::new);
-                metric.push(dur);
+                self.values.push((Cow::Borrowed(name), dur));
             }
         }
     }

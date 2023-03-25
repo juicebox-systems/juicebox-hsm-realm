@@ -1,8 +1,8 @@
 extern crate alloc;
 
-use alloc::{string::String, vec::Vec};
+use alloc::borrow::Cow;
+use alloc::vec::Vec;
 use core::fmt::Debug;
-use hashbrown::HashMap;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::super::hal::Nanos;
@@ -31,10 +31,10 @@ pub struct HsmRequestContainer {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct HsmResponseContainer<T> {
+pub struct HsmResponseContainer<'a, T> {
     pub res: T,
     // Empty unless Record was specified as the metrics action in the request.
-    pub metrics: HashMap<String, Vec<Nanos>>,
+    pub metrics: Vec<(Cow<'a, str>, Nanos)>,
 }
 
 pub trait HsmRpc: DeserializeOwned + Serialize + Debug {

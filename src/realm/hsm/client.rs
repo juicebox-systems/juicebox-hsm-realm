@@ -104,14 +104,12 @@ impl<T: Transport> HsmClient<T> {
 
         if !response.metrics.is_empty() {
             let mut m = self.0.metrics.lock().unwrap();
-            for (k, points) in response.metrics {
+            for (k, dur) in response.metrics {
                 let h = m
                     .metrics
-                    .entry(k)
+                    .entry(k.into_owned())
                     .or_insert_with(|| Histogram::new(1).unwrap());
-                for p in points {
-                    h.record(p.0 as u64).unwrap();
-                }
+                h.record(dur.0 as u64).unwrap();
             }
             if let Some(interval) = self.0.metrics_interval {
                 let elapsed = m.last_reported.elapsed();
