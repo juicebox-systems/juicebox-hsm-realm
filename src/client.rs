@@ -7,7 +7,7 @@ use hmac::{Hmac, Mac};
 use hsmcore::marshalling;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use reqwest::Url;
+use reqwest::{Certificate, Url};
 use sha2::Sha256;
 use sharks::Sharks;
 use std::collections::BTreeSet;
@@ -350,6 +350,11 @@ enum RequestError {
     InvalidAuth,
 }
 
+#[derive(Default)]
+pub struct Options {
+    pub additional_root_certs: Vec<Certificate>,
+}
+
 impl Client {
     /// Constructs a new `Client`.
     ///
@@ -357,11 +362,13 @@ impl Client {
     ///
     /// The `auth_token` represents the authority to act as a particular user
     /// and should be valid for the lifetime of the `Client`.
-    pub fn new(configuration: Configuration, auth_token: AuthToken) -> Self {
+    pub fn new(options: Options, configuration: Configuration, auth_token: AuthToken) -> Self {
         Self {
             configuration: CheckedConfiguration::from(configuration),
             auth_token,
-            http: http_client::Client::new(),
+            http: http_client::Client::new(http_client::ClientOptions {
+                additional_root_certs: options.additional_root_certs,
+            }),
         }
     }
 

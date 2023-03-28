@@ -22,7 +22,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub mod types;
 
-use super::super::http_client::{Client, ClientError};
+use super::super::http_client::{Client, ClientError, ClientOptions};
 use super::hsm::client::{HsmClient, Transport};
 use super::merkle;
 use super::rpc::{handle_rpc, HandlerError, Rpc};
@@ -104,7 +104,7 @@ impl<T: Transport + 'static> Agent<T> {
             hsm,
             store,
             store_admin,
-            peer_client: Client::new(),
+            peer_client: Client::new(ClientOptions::default()),
             state: Mutex::new(State {
                 leader: HashMap::new(),
             }),

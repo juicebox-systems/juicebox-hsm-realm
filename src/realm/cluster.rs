@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info, trace, warn};
 
-use super::super::http_client::{Client, ClientError};
+use super::super::http_client::{Client, ClientError, ClientOptions};
 use super::agent::types::{
     AgentService, CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest,
     JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
@@ -34,7 +34,7 @@ pub enum NewRealmError {
 pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmError> {
     type Error = NewRealmError;
     info!("setting up new realm");
-    let agent_client = Client::new();
+    let agent_client = Client::new(ClientOptions::default());
 
     let hsms = try_join_all(
         group
@@ -193,7 +193,7 @@ pub async fn new_group(realm: RealmId, group: &[Url]) -> Result<GroupId, NewGrou
     type Error = NewGroupError;
     info!(?realm, "setting up new group");
 
-    let agent_client = Client::new();
+    let agent_client = Client::new(ClientOptions::default());
 
     // Ensure all HSMs are up and have joined the realm. Get their IDs to form
     // the configuration.
@@ -319,7 +319,7 @@ pub async fn transfer(
         "transferring ownership"
     );
 
-    let agent_client = Client::new();
+    let agent_client = Client::new(ClientOptions::default());
 
     let leaders = find_leaders(store, &agent_client).await.expect("TODO");
 

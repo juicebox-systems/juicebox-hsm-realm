@@ -16,13 +16,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::time;
+use tokio::{io, time};
+use tokio_rustls::rustls::{self, Certificate, PrivateKey};
+use tokio_rustls::TlsAcceptor;
 use tracing::{instrument, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub mod types;
 
-use super::super::http_client::Client;
+use super::super::http_client::{Client, ClientOptions};
 use super::agent::types::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
 use super::store::bigtable::StoreClient;
 use crate::logging::Spew;
@@ -45,7 +47,7 @@ impl LoadBalancer {
         Self(Arc::new(State {
             name,
             store,
-            agent_client: Client::new(),
+            agent_client: Client::new(ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
         }))
     }
@@ -53,10 +55,20 @@ impl LoadBalancer {
     pub async fn listen(
         self,
         address: SocketAddr,
+        certs: Vec<Certificate>,
+        key: PrivateKey,
     ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
         let listener = TcpListener::bind(address).await?;
-        let url = Url::parse(&format!("http://{address}")).unwrap();
+        let url = Url::parse(&format!("https://{address}")).unwrap();
         self.start_refresher().await;
+
+        let config = rustls::ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+        let acceptor = TlsAcceptor::from(Arc::new(config));
+
         Ok((
             url,
             tokio::spawn(async move {
@@ -64,12 +76,20 @@ impl LoadBalancer {
                     match listener.accept().await {
                         Err(e) => warn!("error accepting connection: {e:?}"),
                         Ok((stream, _)) => {
+                            let acceptor = acceptor.clone();
                             let lb = self.clone();
                             tokio::spawn(async move {
-                                if let Err(e) =
-                                    http1::Builder::new().serve_connection(stream, lb).await
-                                {
-                                    warn!("error serving connection: {e:?}");
+                                match acceptor.accept(stream).await {
+                                    Err(e) => {
+                                        warn!("error terminating TLS connection: {e:?}");
+                                    }
+                                    Ok(stream) => {
+                                        if let Err(e) =
+                                            http1::Builder::new().serve_connection(stream, lb).await
+                                        {
+                                            warn!("error serving connection: {e:?}");
+                                        }
+                                    }
                                 }
                             });
                         }

@@ -110,3 +110,12 @@ COLLECTOR_OTLP_ENABLED=true ./jaeger-1.42.0-linux-amd64/jaeger-all-in-one --coll
 ```
 
 Open <http://localhost:16686/>.
+
+
+## TLS Certificates
+
+The load balancer requires connections to use TLS. The load_balancer process takes cmdline arguments
+to specify where the key & cert files are.
+
+Demo and hsm_bench will generate a self signed cert for use during these runs. This requires you to have
+openssl on the path.
