@@ -8,6 +8,8 @@ use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
 use reqwest::Url;
+use rustls::server::ResolvesServerCert;
+use rustls::sign::{self, CertifiedKey};
 use std::collections::HashMap;
 use std::iter::zip;
 use std::net::SocketAddr;
@@ -16,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::{io, time};
+use tokio::time;
 use tokio_rustls::rustls::{self, Certificate, PrivateKey};
 use tokio_rustls::TlsAcceptor;
 use tracing::{instrument, trace, warn, Instrument, Span};
@@ -55,8 +57,7 @@ impl LoadBalancer {
     pub async fn listen(
         self,
         address: SocketAddr,
-        certs: Vec<Certificate>,
-        key: PrivateKey,
+        cert_resolver: Arc<CertResolver>,
     ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
         let listener = TcpListener::bind(address).await?;
         let url = Url::parse(&format!("https://{address}")).unwrap();
@@ -65,8 +66,7 @@ impl LoadBalancer {
         let config = rustls::ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
-            .with_single_cert(certs, key)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+            .with_cert_resolver(cert_resolver);
         let acceptor = TlsAcceptor::from(Arc::new(config));
 
         Ok((
@@ -300,4 +300,36 @@ async fn handle_client_request(
     }
 
     Response::Unavailable
+}
+
+pub struct CertResolver {
+    current: Mutex<Arc<CertifiedKey>>,
+}
+
+impl CertResolver {
+    pub fn new(chain: Vec<Certificate>, priv_key: PrivateKey) -> Result<Self, rustls::Error> {
+        // Borrows heavily from rusttls::server::handy::AlwaysResolvesChain
+        let key = sign::any_supported_type(&priv_key)
+            .map_err(|_| rustls::Error::General("invalid private key".into()))?;
+        Ok(Self {
+            current: Mutex::new(Arc::new(CertifiedKey::new(chain, key))),
+        })
+    }
+
+    pub fn update(
+        &self,
+        chain: Vec<Certificate>,
+        priv_key: PrivateKey,
+    ) -> Result<(), rustls::Error> {
+        let key = sign::any_supported_type(&priv_key)
+            .map_err(|_| rustls::Error::General("invalid private key".into()))?;
+        let ck = Arc::new(CertifiedKey::new(chain, key));
+        *self.current.lock().unwrap() = ck;
+        Ok(())
+    }
+}
+impl ResolvesServerCert for CertResolver {
+    fn resolve(&self, _client_hello: rustls::server::ClientHello) -> Option<Arc<CertifiedKey>> {
+        Some(self.current.lock().unwrap().clone())
+    }
 }
