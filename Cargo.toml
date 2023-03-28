@@ -39,7 +39,9 @@ prost-types = "0.11.6"
 rand = { version = "0.8.5", default-features = false, features = ["alloc"] }
 rand_core = "0.6.4"
 rand_chacha = "0.3.1"
-reqwest = { version = "0.11.14", default-features = false }
+rustls = "0.20.8"
+rustls-pemfile = "1.0"
+reqwest = { version = "0.11.14", default-features = false, features = [ "rustls-tls" ] }
 serde = { version = "1.0.152", default-features = false, features = [
     "alloc",
     "derive",
@@ -48,6 +50,7 @@ sha2 = { version = "0.10.6", default-features = false }
 sharks = "0.5.0"
 subtle = { version = "2.4.1", default-features = false }
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros"] }
+tokio-rustls = "0.23.4"
 tonic = { version = "0.8.3", features = ["channel"] }
 tracing = { version = "0.2.0", default-features = false, features = [
     "alloc",
@@ -81,10 +84,13 @@ prost = { workspace = true }
 prost-types = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
 sharks = { workspace = true }
 tokio = { workspace = true }
+tokio-rustls = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }

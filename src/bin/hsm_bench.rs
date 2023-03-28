@@ -1,7 +1,8 @@
 use clap::Parser;
 use futures::StreamExt;
 use hsmcore::types::{AuthToken, Policy};
-use reqwest::Url;
+use reqwest::{Certificate, Url};
+use std::fs;
 use std::net::SocketAddr;
 use std::process::Command;
 use std::sync::Arc;
@@ -9,12 +10,13 @@ use std::time::Instant;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
-use loam_mvp::client::{Client, Configuration, Pin, Realm, UserSecret};
+use loam_mvp::client::{Client, Configuration, Options, Pin, Realm, UserSecret};
 use loam_mvp::logging;
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 
 mod common;
+use common::certs::create_localhost_key_and_cert;
 use common::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use common::process_group::ProcessGroup;
 
@@ -64,6 +66,13 @@ async fn main() {
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
 
+    let (key_file, cert_file) = create_localhost_key_and_cert("target".into())
+        .expect("Failed to create TLS key/cert for load balancer");
+
+    let lb_cert =
+        Certificate::from_pem(&fs::read(&cert_file).expect("failed to read certificate file"))
+            .expect("failed to decode certificate file");
+
     info!("creating load balancer");
     let load_balancer: Url = {
         let address = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -75,10 +84,15 @@ async fn main() {
                 "release"
             }
         ));
-        cmd.arg("--listen").arg(address.to_string());
+        cmd.arg("--tls-cert")
+            .arg(cert_file)
+            .arg("--tls-key")
+            .arg(key_file)
+            .arg("--listen")
+            .arg(address.to_string());
         args.bigtable.add_to_cmd(&mut cmd);
         process_group.spawn(&mut cmd);
-        Url::parse(&format!("http://{address}")).unwrap()
+        Url::parse("https://localhost:3000/").unwrap()
     };
 
     let mut hsm_generator = HsmGenerator::new(Entrust(args.entrust), 4000);
@@ -95,6 +109,9 @@ async fn main() {
     let clients = (0..args.concurrency)
         .map(|i| {
             Arc::new(Mutex::new(Client::new(
+                Options {
+                    additional_root_certs: vec![lb_cert.clone()],
+                },
                 Configuration {
                     realms: vec![Realm {
                         address: load_balancer.clone(),

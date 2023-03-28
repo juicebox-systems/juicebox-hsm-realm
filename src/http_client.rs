@@ -1,5 +1,5 @@
 use opentelemetry_http::HeaderInjector;
-use reqwest::Url;
+use reqwest::{Certificate, Url};
 use std::fmt;
 use std::marker::PhantomData;
 use tracing::Span;
@@ -21,7 +21,7 @@ pub struct EndpointClient<F: Service> {
 impl<F: Service> EndpointClient<F> {
     pub fn new(url: Url) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::new(ClientOptions::default()),
             url,
         }
     }
@@ -29,6 +29,11 @@ impl<F: Service> EndpointClient<F> {
     pub async fn send<R: Rpc<F>>(&self, request: R) -> Result<R::Response, ClientError> {
         self.client.send(&self.url, request).await
     }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ClientOptions {
+    pub additional_root_certs: Vec<Certificate>,
 }
 
 #[derive(Clone, Default)]
@@ -96,9 +101,13 @@ impl From<HsmRpcError> for ClientError {
 }
 
 impl<F: Service> Client<F> {
-    pub fn new() -> Self {
+    pub fn new(options: ClientOptions) -> Self {
+        let mut b = reqwest::Client::builder().use_rustls_tls();
+        for c in options.additional_root_certs {
+            b = b.add_root_certificate(c);
+        }
         Self {
-            http: reqwest::Client::builder().build().expect("TODO"),
+            http: b.build().expect("TODO"),
             _phantom_data: PhantomData {},
         }
     }

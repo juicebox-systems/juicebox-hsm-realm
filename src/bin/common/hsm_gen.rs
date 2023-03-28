@@ -16,7 +16,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 use super::process_group::ProcessGroup;
-use loam_mvp::http_client;
+use loam_mvp::http_client::{self, ClientOptions};
 use loam_mvp::realm::agent::types::{AgentService, StatusRequest};
 
 type AgentClient = http_client::Client<AgentService>;
@@ -135,7 +135,7 @@ impl HsmGenerator {
         // TODO: we shouldn't wait here. Other code needs to handle
         // failures, since servers can go down at any later point.
         let waiters = agents.iter().map(|agent_url| async move {
-            let agent_client = AgentClient::new();
+            let agent_client = AgentClient::new(ClientOptions::default());
             for attempt in 1.. {
                 if let Ok(response) = agent_client.send(agent_url, StatusRequest {}).await {
                     if response.hsm.is_some() {

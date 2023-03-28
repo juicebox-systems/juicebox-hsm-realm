@@ -1,18 +1,20 @@
 use futures::future::{join_all, try_join_all};
 use hsmcore::types::{AuthToken, Policy};
 use http::Uri;
-use reqwest::Url;
+use reqwest::{Certificate, Url};
+use std::fs;
 use std::net::SocketAddr;
 use std::process::Command;
 use tracing::info;
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
-use loam_mvp::client::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
+use loam_mvp::client::{Client, Configuration, Options, Pin, Realm, RecoverError, UserSecret};
 use loam_mvp::logging;
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 
 mod common;
+use common::certs::create_localhost_key_and_cert;
 use common::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use common::process_group::ProcessGroup;
 
@@ -43,6 +45,13 @@ async fn main() {
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
 
+    let (key_file, cert_file) = create_localhost_key_and_cert("target".into())
+        .expect("Failed to create TLS key/cert for load balancer");
+
+    let lb_cert =
+        Certificate::from_pem(&fs::read(&cert_file).expect("failed to read certificate file"))
+            .expect("failed to decode certificate file");
+
     let num_load_balancers = 2;
     info!(count = num_load_balancers, "creating load balancers");
     let load_balancers: Vec<Url> = (1..=num_load_balancers)
@@ -56,10 +65,15 @@ async fn main() {
                     "release"
                 }
             ));
-            cmd.arg("--listen").arg(address.to_string());
+            cmd.arg("--tls-cert")
+                .arg(cert_file.clone())
+                .arg("--tls-key")
+                .arg(key_file.clone())
+                .arg("--listen")
+                .arg(address.to_string());
             bt_args.add_to_cmd(&mut cmd);
             process_group.spawn(&mut cmd);
-            Url::parse(&format!("http://{address}")).unwrap()
+            Url::parse(&format!("https://localhost:{}", address.port())).unwrap()
         })
         .collect();
 
@@ -181,6 +195,9 @@ async fn main() {
 
     let mut lb = load_balancers.iter().cycle();
     let client = Client::new(
+        Options {
+            additional_root_certs: vec![lb_cert],
+        },
         Configuration {
             realms: vec![
                 Realm {
