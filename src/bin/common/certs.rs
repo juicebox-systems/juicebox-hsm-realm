@@ -7,8 +7,6 @@ pub fn create_localhost_key_and_cert(dir: PathBuf) -> io::Result<(PathBuf, PathB
     let config_file = dir.join("openssl_req.txt");
     fs::write(config_file, cfg.as_bytes())?;
 
-    //  openssl req -config c.req -new -newkey rsa:4096 -nodes -subj "/C=US/ST=CA/L=SanFrancisco/O=Loam,Inc./OU=test/CN=localhost"
-    //  -x509 -extensions ext -keyout lb.key -out lb.cert -days 365
     Command::new("openssl")
         .current_dir(&dir)
         .args([

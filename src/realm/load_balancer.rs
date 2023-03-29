@@ -8,6 +8,7 @@ use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
 use reqwest::Url;
+use rustls::server::ResolvesServerCert;
 use std::collections::HashMap;
 use std::iter::zip;
 use std::net::SocketAddr;
@@ -16,8 +17,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::{io, time};
-use tokio_rustls::rustls::{self, Certificate, PrivateKey};
+use tokio::time;
+use tokio_rustls::rustls::{self};
 use tokio_rustls::TlsAcceptor;
 use tracing::{instrument, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -55,8 +56,7 @@ impl LoadBalancer {
     pub async fn listen(
         self,
         address: SocketAddr,
-        certs: Vec<Certificate>,
-        key: PrivateKey,
+        cert_resolver: Arc<dyn ResolvesServerCert>,
     ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
         let listener = TcpListener::bind(address).await?;
         let url = Url::parse(&format!("https://{address}")).unwrap();
@@ -65,8 +65,7 @@ impl LoadBalancer {
         let config = rustls::ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
-            .with_single_cert(certs, key)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+            .with_cert_resolver(cert_resolver);
         let acceptor = TlsAcceptor::from(Arc::new(config));
 
         Ok((
