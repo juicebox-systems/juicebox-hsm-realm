@@ -1,17 +1,19 @@
 use clap::Parser;
-use rustls::{Certificate, PrivateKey};
+use rustls::server::ResolvesServerCert;
+use rustls::sign::CertifiedKey;
+use rustls::{sign, Certificate, PrivateKey};
 use signal_hook::consts::signal::*;
 use signal_hook::iterator::Signals;
 use std::fs::File;
 use std::io::{self, BufReader};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use tracing::{info, warn};
 
 use loam_mvp::logging;
-use loam_mvp::realm::load_balancer::{CertResolver, LoadBalancer};
+use loam_mvp::realm::load_balancer::LoadBalancer;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 
 #[derive(Parser)]
@@ -49,9 +51,10 @@ async fn main() {
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("lb{}", args.listen));
 
-    let certs =
-        CertificateReloader::new(args.tls_key, args.tls_cert).expect("Failed to load TLS key/cert");
-    let cert_resolver = certs.resolver.clone();
+    let certs = Arc::new(
+        CertificateResolver::new(args.tls_key, args.tls_cert).expect("Failed to load TLS key/cert"),
+    );
+    let cert_resolver = certs.clone();
 
     let mut signals =
         Signals::new([SIGHUP, SIGINT, SIGTERM, SIGQUIT]).expect("Failed to init signal handler");
@@ -98,28 +101,37 @@ fn parse_listen(s: &str) -> Result<SocketAddr, String> {
         .map_err(|e| format!("couldn't parse listen argument: {e}"))
 }
 
-struct CertificateReloader {
-    key: PathBuf,
-    cert: PathBuf,
-    resolver: Arc<CertResolver>,
+struct CertificateResolver {
+    key_path: PathBuf,
+    cert_path: PathBuf,
+    current: Mutex<Arc<CertifiedKey>>,
 }
 
-impl CertificateReloader {
-    fn new(key: PathBuf, cert: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
-        let certs = Self::load_certs(&cert)?;
-        let mut keys = Self::load_keys(&key)?;
+impl CertificateResolver {
+    fn new(key_path: PathBuf, cert_path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+        let ck = Self::load(&key_path, &cert_path)?;
         Ok(Self {
-            key,
-            cert,
-            resolver: Arc::new(CertResolver::new(certs, keys.remove(0))?),
+            key_path,
+            cert_path,
+            current: Mutex::new(ck),
         })
     }
 
     fn reload(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let certs = Self::load_certs(&self.cert)?;
-        let mut keys = Self::load_keys(&self.key)?;
-        self.resolver.update(certs, keys.remove(0))?;
+        let ck = Self::load(&self.key_path, &self.cert_path)?;
+        *self.current.lock().unwrap() = ck;
         Ok(())
+    }
+
+    fn load(
+        key_path: &Path,
+        cert_path: &Path,
+    ) -> Result<Arc<CertifiedKey>, Box<dyn std::error::Error>> {
+        let certs = Self::load_certs(cert_path)?;
+        let keys = Self::load_keys(key_path)?;
+        let key = sign::any_supported_type(&keys[0])
+            .map_err(|_| rustls::Error::General("invalid private key".into()))?;
+        Ok(Arc::new(CertifiedKey::new(certs, key)))
     }
 
     fn load_certs(path: &Path) -> Result<Vec<Certificate>, Box<dyn std::error::Error>> {
@@ -141,5 +153,11 @@ impl CertificateReloader {
             return Err("No keys found in file".into());
         }
         Ok(keys)
+    }
+}
+
+impl ResolvesServerCert for CertificateResolver {
+    fn resolve(&self, _client_hello: rustls::server::ClientHello) -> Option<Arc<CertifiedKey>> {
+        Some(self.current.lock().unwrap().clone())
     }
 }
