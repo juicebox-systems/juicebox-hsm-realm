@@ -1,4 +1,5 @@
 use ::http::HeaderValue;
+use async_trait::async_trait;
 use reqwest::Certificate;
 use std::marker::PhantomData;
 
@@ -31,12 +32,9 @@ impl<F: rpc::Service> Client<F> {
     }
 }
 
+#[async_trait]
 impl<F: rpc::Service> http::Client for Client<F> {
-    fn send(
-        &self,
-        request: http::Request,
-        callback: Box<dyn FnOnce(Option<http::Response>) + Send>,
-    ) {
+    async fn send(&self, request: http::Request) -> Option<http::Response> {
         let mut request_builder = match request.method {
             http::Method::Get => self.http.get(request.url),
             http::Method::Put => self.http.put(request.url),
@@ -62,20 +60,18 @@ impl<F: rpc::Service> http::Client for Client<F> {
             request_builder = request_builder.body(body);
         }
 
-        tokio::spawn(async {
-            match request_builder.send().await {
-                Err(_) => callback(None),
-                Ok(response) => {
-                    let status = response.status().as_u16();
-                    match response.bytes().await {
-                        Err(_) => callback(None),
-                        Ok(bytes) => callback(Some(http::Response {
-                            status: http::ResponseStatus::from(status),
-                            bytes: bytes.to_vec(),
-                        })),
-                    }
+        match request_builder.send().await {
+            Err(_) => None,
+            Ok(response) => {
+                let status = response.status().as_u16();
+                match response.bytes().await {
+                    Err(_) => None,
+                    Ok(bytes) => Some(http::Response {
+                        status: http::ResponseStatus::from(status),
+                        bytes: bytes.to_vec(),
+                    }),
                 }
             }
-        });
+        }
     }
 }
