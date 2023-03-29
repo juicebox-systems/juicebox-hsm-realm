@@ -19,10 +19,11 @@ pub mod types;
 
 use self::rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use self::types::Partition;
+use super::hal::CryptoRng;
 use super::hal::{Clock, Nanos, Platform};
 use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
-use super::{hal::CryptoRng, marshalling};
 use app::{RecordChange, RootOprfKey};
+use loam_sdk_core::{marshalling, RealmId, SecretsRequest, SecretsResponse};
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
     CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse, CompleteTransferRequest,
@@ -30,10 +31,10 @@ use types::{
     GroupId, GroupStatus, HsmId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
     JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupInfo, NewGroupRequest,
     NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange, ReadCapturedRequest,
-    ReadCapturedResponse, RealmId, RealmStatus, SecretsResponse, StatusRequest, StatusResponse,
-    TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
-    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatement,
-    TransferStatementRequest, TransferStatementResponse, TransferringOut,
+    ReadCapturedResponse, RealmStatus, StatusRequest, StatusResponse, TransferInRequest,
+    TransferInResponse, TransferNonce, TransferNonceRequest, TransferNonceResponse,
+    TransferOutRequest, TransferOutResponse, TransferStatement, TransferStatementRequest,
+    TransferStatementResponse, TransferringOut,
 };
 
 #[derive(Clone)]
@@ -76,12 +77,10 @@ impl HsmId {
     }
 }
 
-impl RealmId {
-    fn random(rng: &mut impl CryptoRng) -> Self {
-        let mut id = [0u8; 16];
-        rng.fill_bytes(&mut id);
-        Self(id)
-    }
+fn create_random_realm_id(rng: &mut impl CryptoRng) -> RealmId {
+    let mut id = [0u8; 16];
+    rng.fill_bytes(&mut id);
+    RealmId(id)
 }
 
 impl Configuration {
@@ -667,7 +666,7 @@ impl<P: Platform> Hsm<P> {
         {
             Response::InvalidConfiguration
         } else {
-            let realm_id = RealmId::random(&mut self.platform);
+            let realm_id = create_random_realm_id(&mut self.platform);
             self.persistent.realm = Some(PersistentRealmState {
                 id: realm_id,
                 groups: HashMap::new(),
@@ -1519,11 +1518,11 @@ impl<P: Platform> Hsm<P> {
 
 fn app_req_name(r: &AppRequest) -> &'static str {
     match &r.request {
-        types::SecretsRequest::Register1(_) => "App::Register1",
-        types::SecretsRequest::Register2(_) => "App::Register2",
-        types::SecretsRequest::Recover1(_) => "App::Recover1",
-        types::SecretsRequest::Recover2(_) => "App::Recover2",
-        types::SecretsRequest::Delete(_) => "App::Delete",
+        SecretsRequest::Register1(_) => "App::Register1",
+        SecretsRequest::Register2(_) => "App::Register2",
+        SecretsRequest::Recover1(_) => "App::Recover1",
+        SecretsRequest::Recover2(_) => "App::Recover2",
+        SecretsRequest::Delete(_) => "App::Delete",
     }
 }
 

@@ -166,7 +166,7 @@ pub mod tests {
 
     use crate::bitvec;
 
-    use super::super::super::hsm::types::{OwnedRange, RealmId, RecordId};
+    use super::super::super::hsm::types::{OwnedRange, RecordId};
     use super::super::tests::TestHash;
     use super::super::{Dir, HashOutput, KeyVec, ReadProof};
     use super::Bits;
@@ -174,6 +174,7 @@ pub mod tests {
         all_store_key_starts, encode_prefix_into, Node, NodeKey, StoreKey, TreeStoreError,
     };
     use async_trait::async_trait;
+    use loam_sdk_core::RealmId;
 
     #[async_trait]
     pub trait TreeStoreReader<HO: HashOutput>: Sync {

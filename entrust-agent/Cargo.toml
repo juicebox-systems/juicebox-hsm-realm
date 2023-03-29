@@ -16,3 +16,4 @@ hsmcore = { path = "../hsmcore" }
 loam-mvp = { path = ".." }
 tokio = { workspace = true }
 tracing = { workspace = true }
+loam-sdk-core = { workspace = true }

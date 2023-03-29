@@ -1,12 +1,12 @@
 use futures::future::{join_all, try_join_all};
-use reqwest::Url;
 use std::collections::HashMap;
 use std::iter::zip;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info, trace, warn};
+use url::Url;
 
-use super::super::http_client::{Client, ClientError, ClientOptions};
+use super::super::http_client::{Client, ClientOptions};
 use super::agent::types::{
     AgentService, CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest,
     JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
@@ -15,10 +15,10 @@ use super::agent::types::{
     TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 use super::store::bigtable::StoreClient;
-use hsm_types::{
-    Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange, RealmId,
-};
+use hsm_types::{Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
+use loam_sdk::send_rpc;
+use loam_sdk_core::{ClientError, RealmId};
 
 #[derive(Debug)]
 pub enum NewRealmError {
@@ -39,7 +39,7 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
     let hsms = try_join_all(
         group
             .iter()
-            .map(|agent| agent_client.send(agent, StatusRequest {})),
+            .map(|agent| send_rpc(&agent_client, agent.clone(), StatusRequest {})),
     )
     .await
     .map_err(Error::NetworkError)?
@@ -61,15 +61,15 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
     debug!(?configuration, "gathered realm configuration");
 
     debug!(hsm = ?first, "requesting new realm");
-    let (realm_id, group_id, statement) = match agent_client
-        .send(
-            &group[0],
-            NewRealmRequest {
-                configuration: configuration.clone(),
-            },
-        )
-        .await
-        .map_err(Error::NetworkError)?
+    let (realm_id, group_id, statement) = match send_rpc(
+        &agent_client,
+        group[0].clone(),
+        NewRealmRequest {
+            configuration: configuration.clone(),
+        },
+    )
+    .await
+    .map_err(Error::NetworkError)?
     {
         NewRealmResponse::Ok {
             realm,
@@ -93,10 +93,13 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
         let configuration = configuration.clone();
         let statement = statement.clone();
         async {
-            match agent_client
-                .send(agent, JoinRealmRequest { realm: realm_id })
-                .await
-                .map_err(Error::NetworkError)?
+            match send_rpc(
+                &agent_client,
+                agent.clone(),
+                JoinRealmRequest { realm: realm_id },
+            )
+            .await
+            .map_err(Error::NetworkError)?
             {
                 JoinRealmResponse::NoHsm => Err(Error::NoHsm {
                     agent: agent.clone(),
@@ -107,18 +110,18 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
                 JoinRealmResponse::Ok { .. } => Ok(()),
             }?;
 
-            match agent_client
-                .send(
-                    agent,
-                    JoinGroupRequest {
-                        realm: realm_id,
-                        group: group_id,
-                        configuration,
-                        statement,
-                    },
-                )
-                .await
-                .map_err(Error::NetworkError)?
+            match send_rpc(
+                &agent_client,
+                agent.clone(),
+                JoinGroupRequest {
+                    realm: realm_id,
+                    group: group_id,
+                    configuration,
+                    statement,
+                },
+            )
+            .await
+            .map_err(Error::NetworkError)?
             {
                 JoinGroupResponse::Ok => Ok(()),
                 JoinGroupResponse::InvalidRealm => Err(Error::HaveRealm {
@@ -149,7 +152,7 @@ async fn wait_for_commit(
 ) -> Result<(), ClientError> {
     debug!(?realm, group = ?group_id, "waiting for first log entry to commit");
     loop {
-        let status = agent_client.send(leader, StatusRequest {}).await?;
+        let status = send_rpc(agent_client, leader.clone(), StatusRequest {}).await?;
         let Some(hsm) = status.hsm else { continue };
         let Some(realm_status) = hsm.realm else { continue };
         if realm_status.id != realm {
@@ -200,7 +203,7 @@ pub async fn new_group(realm: RealmId, group: &[Url]) -> Result<GroupId, NewGrou
 
     let join_realm_requests = group
         .iter()
-        .map(|agent| agent_client.send(agent, JoinRealmRequest { realm }));
+        .map(|agent| send_rpc(&agent_client, agent.clone(), JoinRealmRequest { realm }));
     let join_realm_results = try_join_all(join_realm_requests)
         .await
         .map_err(Error::NetworkError)?;
@@ -230,16 +233,16 @@ pub async fn new_group(realm: RealmId, group: &[Url]) -> Result<GroupId, NewGrou
     // Create a new group on the first agent.
 
     debug!(hsm = ?first, "requesting new group");
-    let (group_id, statement) = match agent_client
-        .send(
-            &group[0],
-            NewGroupRequest {
-                realm,
-                configuration: configuration.clone(),
-            },
-        )
-        .await
-        .map_err(Error::NetworkError)?
+    let (group_id, statement) = match send_rpc(
+        &agent_client,
+        group[0].clone(),
+        NewGroupRequest {
+            realm,
+            configuration: configuration.clone(),
+        },
+    )
+    .await
+    .map_err(Error::NetworkError)?
     {
         NewGroupResponse::Ok { group, statement } => Ok((group, statement)),
         NewGroupResponse::NoHsm => Err(Error::NoHsm {
@@ -260,18 +263,18 @@ pub async fn new_group(realm: RealmId, group: &[Url]) -> Result<GroupId, NewGrou
         let configuration = configuration.clone();
         let statement = statement.clone();
         async {
-            match agent_client
-                .send(
-                    agent,
-                    JoinGroupRequest {
-                        realm,
-                        group: group_id,
-                        configuration,
-                        statement,
-                    },
-                )
-                .await
-                .map_err(Error::NetworkError)?
+            match send_rpc(
+                &agent_client,
+                agent.clone(),
+                JoinGroupRequest {
+                    realm,
+                    group: group_id,
+                    configuration,
+                    statement,
+                },
+            )
+            .await
+            .map_err(Error::NetworkError)?
             {
                 JoinGroupResponse::Ok => Ok(()),
                 JoinGroupResponse::InvalidRealm => Err(Error::InvalidRealm {
@@ -339,62 +342,65 @@ pub async fn transfer(
     // accept a prefix is one that owns no prefix or one that owns the
     // complementary prefix (the one with its least significant bit flipped).
 
-    let transferring_partition = match agent_client
-        .send(
-            source_leader,
-            TransferOutRequest {
-                realm,
-                source,
-                destination,
-                range: range.clone(),
-            },
-        )
-        .await
+    let transferring_partition = match send_rpc(
+        &agent_client,
+        source_leader.clone(),
+        TransferOutRequest {
+            realm,
+            source,
+            destination,
+            range: range.clone(),
+        },
+    )
+    .await
     {
         Err(e) => todo!("{e:?}"),
         Ok(TransferOutResponse::Ok { transferring }) => transferring,
         Ok(r) => todo!("{r:?}"),
     };
 
-    let nonce = match agent_client
-        .send(dest_leader, TransferNonceRequest { realm, destination })
-        .await
+    let nonce = match send_rpc(
+        &agent_client,
+        dest_leader.clone(),
+        TransferNonceRequest { realm, destination },
+    )
+    .await
     {
         Err(e) => todo!("{e:?}"),
         Ok(TransferNonceResponse::Ok(nonce)) => nonce,
         Ok(r) => todo!("{r:?}"),
     };
 
-    let statement = match agent_client
-        .send(
-            source_leader,
-            TransferStatementRequest {
-                realm,
-                source,
-                destination,
-                nonce,
-            },
-        )
-        .await
+    let statement = match send_rpc(
+        &agent_client,
+        source_leader.clone(),
+        TransferStatementRequest {
+            realm,
+            source,
+            destination,
+            nonce,
+        },
+    )
+    .await
     {
         Err(e) => todo!("{e:?}"),
         Ok(TransferStatementResponse::Ok(statement)) => statement,
         Ok(r) => todo!("{r:?}"),
     };
 
-    match agent_client
-        .send(
-            dest_leader,
-            TransferInRequest {
-                realm,
-                source,
-                destination,
-                transferring: transferring_partition,
-                nonce,
-                statement,
-            },
-        )
-        .await
+    match send_rpc(
+        &agent_client,
+        dest_leader.clone(),
+        TransferInRequest {
+            realm,
+            source,
+            destination,
+            transferring: transferring_partition,
+            nonce,
+            statement,
+        },
+    )
+    .await
     {
         Err(e) => todo!("{e:?}"),
         Ok(TransferInResponse::Ok) => {}
@@ -406,17 +412,17 @@ pub async fn transfer(
     // and this calls CompleteTransferRequest, the keyspace will be lost
     // forever.
 
-    match agent_client
-        .send(
-            source_leader,
-            CompleteTransferRequest {
-                realm,
-                source,
-                destination,
-                range,
-            },
-        )
-        .await
+    match send_rpc(
+        &agent_client,
+        source_leader.clone(),
+        CompleteTransferRequest {
+            realm,
+            source,
+            destination,
+            range,
+        },
+    )
+    .await
     {
         Err(e) => todo!("{e:?}"),
         Ok(CompleteTransferResponse::Ok) => Ok(()),
@@ -434,7 +440,7 @@ async fn find_leaders(
     let responses = join_all(
         addresses
             .iter()
-            .map(|(_, address)| agent_client.send(address, StatusRequest {})),
+            .map(|(_, address)| send_rpc(agent_client, address.clone(), StatusRequest {})),
     )
     .await;
 

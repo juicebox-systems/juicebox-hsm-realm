@@ -4,9 +4,10 @@ use std::{
 };
 
 use super::super::bitvec::DisplayBits;
-use super::{super::hsm::types::RealmId, agent::StoreKey};
+use super::agent::StoreKey;
 use super::{agent::tests::TreeStoreReader, agent::Node, Bits, Branch, Dir, HashOutput, KeyVec};
 use async_recursion::async_recursion;
+use loam_sdk_core::RealmId;
 
 // Creates a dot file for a visualization of the tree starting
 // at the supplied root hash.

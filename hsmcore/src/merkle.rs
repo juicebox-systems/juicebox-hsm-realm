@@ -302,7 +302,6 @@ mod tests {
     use async_recursion::async_recursion;
     use async_trait::async_trait;
 
-    use super::super::hsm::types::RealmId;
     use super::{
         agent::{
             all_store_key_starts, tests::read, tests::TreeStoreReader, Node, StoreKey,
@@ -311,6 +310,7 @@ mod tests {
         *,
     };
     use crate::bitvec;
+    use loam_sdk_core::RealmId;
     use std::{
         collections::{BTreeMap, HashMap},
         hash::Hasher,

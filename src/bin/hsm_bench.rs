@@ -1,6 +1,7 @@
 use clap::Parser;
 use futures::StreamExt;
-use hsmcore::types::{AuthToken, Policy};
+use loam_sdk_core::requests::LoadBalancerService;
+use loam_sdk_core::{AuthToken, Policy};
 use reqwest::{Certificate, Url};
 use std::fs;
 use std::net::SocketAddr;
@@ -10,10 +11,11 @@ use std::time::Instant;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
-use loam_mvp::client::{Client, Configuration, Options, Pin, Realm, UserSecret};
+use loam_mvp::http_client::{Client, ClientOptions};
 use loam_mvp::logging;
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_sdk::{Configuration, Loam, Pin, Realm, UserSecret};
 
 mod common;
 use common::certs::create_localhost_key_and_cert;
@@ -106,15 +108,12 @@ async fn main() {
     info!(?realm_id, ?group_id, "initialized cluster");
 
     info!(clients = args.concurrency, "creating clients");
-    let clients = (0..args.concurrency)
+    let clients: Vec<Arc<Mutex<Loam<Client<LoadBalancerService>>>>> = (0..args.concurrency)
         .map(|i| {
-            Arc::new(Mutex::new(Client::new(
-                Options {
-                    additional_root_certs: vec![lb_cert.clone()],
-                },
+            Arc::new(Mutex::new(Loam::new(
                 Configuration {
                     realms: vec![Realm {
-                        address: load_balancer.clone(),
+                        address: load_balancer.to_string(),
                         public_key: b"qwer".to_vec(),
                         id: realm_id,
                     }],
@@ -126,6 +125,9 @@ async fn main() {
                     user: format!("mario{i}"),
                     signature: b"it's-a-me!".to_vec(),
                 },
+                Client::new(ClientOptions {
+                    additional_root_certs: vec![lb_cert.clone()],
+                }),
             )))
         })
         .collect::<Vec<_>>();

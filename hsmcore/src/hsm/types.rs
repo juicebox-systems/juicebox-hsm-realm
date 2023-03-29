@@ -8,22 +8,7 @@ use sha2::Sha256;
 
 use super::super::bitvec::{BitVec, Bits};
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
-use super::super::types::{
-    DeleteRequest, DeleteResponse, Recover1Request, Recover1Response, Recover2Request,
-    Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,
-};
-
-#[derive(Copy, Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct RealmId(pub [u8; 16]);
-
-impl fmt::Debug for RealmId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
-    }
-}
+use loam_sdk_core::{RealmId, SecretsRequest, SecretsResponse};
 
 #[derive(Copy, Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct GroupId(pub [u8; 16]);
@@ -612,25 +597,6 @@ pub enum AppResponse {
     NotOwner,
     NotLeader,
     InvalidRecordData,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum SecretsRequest {
-    Register1(Register1Request),
-    Register2(Register2Request),
-    Recover1(Recover1Request),
-    Recover2(Recover2Request),
-    Delete(DeleteRequest),
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[allow(clippy::large_enum_variant)]
-pub enum SecretsResponse {
-    Register1(Register1Response),
-    Register2(Register2Response),
-    Recover1(Recover1Response),
-    Recover2(Recover2Response),
-    Delete(DeleteResponse),
 }
 
 #[cfg(test)]

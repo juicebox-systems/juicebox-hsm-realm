@@ -63,6 +63,8 @@ tracing-opentelemetry = { version = "*" }
 tracing-subscriber = { version = "*" }
 url = { version = "2.3.1", features = ["serde"] }
 voprf = { version = "0.4.0" }
+loam-sdk = { path = "sdk/rust/sdk/client" }
+loam-sdk-core = { path = "sdk/rust/sdk/core" }
 
 [dependencies]
 async-trait = { workspace = true }
@@ -100,6 +102,8 @@ tracing-subscriber = { workspace = true }
 url = { workspace = true }
 voprf = { workspace = true }
 hsmcore = { path = "hsmcore" }
+loam-sdk = { workspace = true }
+loam-sdk-core = { workspace = true }
 
 
 [patch.crates-io]

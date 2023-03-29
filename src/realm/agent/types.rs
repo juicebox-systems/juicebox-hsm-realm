@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::super::rpc::{Rpc, Service};
 use hsm_types::{
     CapturedStatement, Configuration, EntryHmac, GroupConfigurationStatement, GroupId, HsmId,
-    LogIndex, OwnedRange, Partition, RealmId, RecordId, SecretsRequest, SecretsResponse,
-    TransferNonce, TransferStatement,
+    LogIndex, OwnedRange, Partition, RecordId, TransferNonce, TransferStatement,
 };
 use hsmcore::hsm::types as hsm_types;
+use loam_sdk_core::rpc::{Rpc, Service};
+use loam_sdk_core::{RealmId, SecretsRequest, SecretsResponse};
 
 #[derive(Clone, Debug)]
 pub struct AgentService();

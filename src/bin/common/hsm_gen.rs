@@ -6,7 +6,6 @@ use futures::future::join_all;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use reqwest::Url;
 use std::fmt::{Display, Write};
 use std::iter;
 use std::net::SocketAddr;
@@ -14,6 +13,7 @@ use std::ops::RangeFrom;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
+use url::Url;
 
 use super::process_group::ProcessGroup;
 use loam_mvp::http_client::{self, ClientOptions};
@@ -137,7 +137,9 @@ impl HsmGenerator {
         let waiters = agents.iter().map(|agent_url| async move {
             let agent_client = AgentClient::new(ClientOptions::default());
             for attempt in 1.. {
-                if let Ok(response) = agent_client.send(agent_url, StatusRequest {}).await {
+                if let Ok(response) =
+                    loam_sdk::send_rpc(&agent_client, agent_url.clone(), StatusRequest {}).await
+                {
                     if response.hsm.is_some() {
                         break;
                     }

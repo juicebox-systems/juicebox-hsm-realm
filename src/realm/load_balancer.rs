@@ -1,13 +1,13 @@
 use bytes::Bytes;
 use futures::future::join_all;
 use futures::Future;
-use hsmcore::marshalling;
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use loam_sdk::send_rpc;
+use loam_sdk_core::marshalling;
 use opentelemetry_http::HeaderExtractor;
-use reqwest::Url;
 use rustls::server::ResolvesServerCert;
 use std::collections::HashMap;
 use std::iter::zip;
@@ -22,16 +22,15 @@ use tokio_rustls::rustls::{self};
 use tokio_rustls::TlsAcceptor;
 use tracing::{instrument, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-pub mod types;
+use url::Url;
 
 use super::super::http_client::{Client, ClientOptions};
 use super::agent::types::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
 use super::store::bigtable::StoreClient;
 use crate::logging::Spew;
-use hsm_types::{GroupId, OwnedRange, RealmId};
+use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
-use types::{ClientRequest, ClientResponse};
+use loam_sdk_core::{ClientRequest, ClientResponse, RealmId};
 
 #[derive(Clone)]
 pub struct LoadBalancer(Arc<State>);
@@ -132,7 +131,7 @@ async fn refresh(
             let responses = join_all(
                 addresses
                     .iter()
-                    .map(|(_, address)| agent_client.send(address, StatusRequest {})),
+                    .map(|(_, address)| send_rpc(agent_client, address.clone(), StatusRequest {})),
             )
             .await;
 
@@ -254,17 +253,17 @@ async fn handle_client_request(
             continue;
         }
 
-        match agent_client
-            .send(
-                &partition.leader,
-                AppRequest {
-                    realm: request.realm,
-                    group: partition.group,
-                    record_id: record_id.clone(),
-                    request: request.request.clone(),
-                },
-            )
-            .await
+        match send_rpc(
+            agent_client,
+            partition.leader.clone(),
+            AppRequest {
+                realm: request.realm,
+                group: partition.group,
+                record_id: record_id.clone(),
+                request: request.request.clone(),
+            },
+        )
+        .await
         {
             Err(_) => {
                 warn!(
