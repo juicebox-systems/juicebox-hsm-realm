@@ -6,8 +6,11 @@ use hsm_types::{
     LogIndex, OwnedRange, Partition, RecordId, TransferNonce, TransferStatement,
 };
 use hsmcore::hsm::types as hsm_types;
-use loam_sdk_core::rpc::{Rpc, Service};
-use loam_sdk_core::{RealmId, SecretsRequest, SecretsResponse};
+use loam_sdk_core::{
+    requests::{SecretsRequest, SecretsResponse},
+    types::RealmId,
+};
+use loam_sdk_networking::rpc::{Rpc, Service};
 
 #[derive(Clone, Debug)]
 pub struct AgentService();

@@ -5,8 +5,8 @@ use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use loam_sdk::send_rpc;
 use loam_sdk_core::marshalling;
+use loam_sdk_networking::rpc;
 use opentelemetry_http::HeaderExtractor;
 use rustls::server::ResolvesServerCert;
 use std::collections::HashMap;
@@ -30,7 +30,8 @@ use super::store::bigtable::StoreClient;
 use crate::logging::Spew;
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
-use loam_sdk_core::{ClientRequest, ClientResponse, RealmId};
+use loam_sdk_core::types::RealmId;
+use loam_sdk_networking::requests::{ClientRequest, ClientResponse};
 
 #[derive(Clone)]
 pub struct LoadBalancer(Arc<State>);
@@ -131,7 +132,7 @@ async fn refresh(
             let responses = join_all(
                 addresses
                     .iter()
-                    .map(|(_, address)| send_rpc(agent_client, address.clone(), StatusRequest {})),
+                    .map(|(_, address)| rpc::send(agent_client, address, StatusRequest {})),
             )
             .await;
 
@@ -253,9 +254,9 @@ async fn handle_client_request(
             continue;
         }
 
-        match send_rpc(
+        match rpc::send(
             agent_client,
-            partition.leader.clone(),
+            &partition.leader,
             AppRequest {
                 realm: request.realm,
                 group: partition.group,

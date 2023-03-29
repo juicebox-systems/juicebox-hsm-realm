@@ -17,8 +17,8 @@ use super::agent::types::{
 use super::store::bigtable::StoreClient;
 use hsm_types::{Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
-use loam_sdk::send_rpc;
-use loam_sdk_core::{ClientError, RealmId};
+use loam_sdk_core::types::RealmId;
+use loam_sdk_networking::{requests::ClientError, rpc};
 
 #[derive(Debug)]
 pub enum NewRealmError {
@@ -39,7 +39,7 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
     let hsms = try_join_all(
         group
             .iter()
-            .map(|agent| send_rpc(&agent_client, agent.clone(), StatusRequest {})),
+            .map(|agent| rpc::send(&agent_client, agent, StatusRequest {})),
     )
     .await
     .map_err(Error::NetworkError)?
@@ -61,9 +61,9 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
     debug!(?configuration, "gathered realm configuration");
 
     debug!(hsm = ?first, "requesting new realm");
-    let (realm_id, group_id, statement) = match send_rpc(
+    let (realm_id, group_id, statement) = match rpc::send(
         &agent_client,
-        group[0].clone(),
+        &group[0],
         NewRealmRequest {
             configuration: configuration.clone(),
         },
@@ -93,13 +93,9 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
         let configuration = configuration.clone();
         let statement = statement.clone();
         async {
-            match send_rpc(
-                &agent_client,
-                agent.clone(),
-                JoinRealmRequest { realm: realm_id },
-            )
-            .await
-            .map_err(Error::NetworkError)?
+            match rpc::send(&agent_client, agent, JoinRealmRequest { realm: realm_id })
+                .await
+                .map_err(Error::NetworkError)?
             {
                 JoinRealmResponse::NoHsm => Err(Error::NoHsm {
                     agent: agent.clone(),
@@ -110,9 +106,9 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
                 JoinRealmResponse::Ok { .. } => Ok(()),
             }?;
 
-            match send_rpc(
+            match rpc::send(
                 &agent_client,
-                agent.clone(),
+                agent,
                 JoinGroupRequest {
                     realm: realm_id,
                     group: group_id,
@@ -152,7 +148,7 @@ async fn wait_for_commit(
 ) -> Result<(), ClientError> {
     debug!(?realm, group = ?group_id, "waiting for first log entry to commit");
     loop {
-        let status = send_rpc(agent_client, leader.clone(), StatusRequest {}).await?;
+        let status = rpc::send(agent_client, leader, StatusRequest {}).await?;
         let Some(hsm) = status.hsm else { continue };
         let Some(realm_status) = hsm.realm else { continue };
         if realm_status.id != realm {
@@ -203,7 +199,7 @@ pub async fn new_group(realm: RealmId, group: &[Url]) -> Result<GroupId, NewGrou
 
     let join_realm_requests = group
         .iter()
-        .map(|agent| send_rpc(&agent_client, agent.clone(), JoinRealmRequest { realm }));
+        .map(|agent| rpc::send(&agent_client, agent, JoinRealmRequest { realm }));
     let join_realm_results = try_join_all(join_realm_requests)
         .await
         .map_err(Error::NetworkError)?;
@@ -233,9 +229,9 @@ pub async fn new_group(realm: RealmId, group: &[Url]) -> Result<GroupId, NewGrou
     // Create a new group on the first agent.
 
     debug!(hsm = ?first, "requesting new group");
-    let (group_id, statement) = match send_rpc(
+    let (group_id, statement) = match rpc::send(
         &agent_client,
-        group[0].clone(),
+        &group[0],
         NewGroupRequest {
             realm,
             configuration: configuration.clone(),
@@ -263,9 +259,9 @@ pub async fn new_group(realm: RealmId, group: &[Url]) -> Result<GroupId, NewGrou
         let configuration = configuration.clone();
         let statement = statement.clone();
         async {
-            match send_rpc(
+            match rpc::send(
                 &agent_client,
-                agent.clone(),
+                agent,
                 JoinGroupRequest {
                     realm,
                     group: group_id,
@@ -342,9 +338,9 @@ pub async fn transfer(
     // accept a prefix is one that owns no prefix or one that owns the
     // complementary prefix (the one with its least significant bit flipped).
 
-    let transferring_partition = match send_rpc(
+    let transferring_partition = match rpc::send(
         &agent_client,
-        source_leader.clone(),
+        source_leader,
         TransferOutRequest {
             realm,
             source,
@@ -359,9 +355,9 @@ pub async fn transfer(
         Ok(r) => todo!("{r:?}"),
     };
 
-    let nonce = match send_rpc(
+    let nonce = match rpc::send(
         &agent_client,
-        dest_leader.clone(),
+        dest_leader,
         TransferNonceRequest { realm, destination },
     )
     .await
@@ -371,9 +367,9 @@ pub async fn transfer(
         Ok(r) => todo!("{r:?}"),
     };
 
-    let statement = match send_rpc(
+    let statement = match rpc::send(
         &agent_client,
-        source_leader.clone(),
+        source_leader,
         TransferStatementRequest {
             realm,
             source,
@@ -388,9 +384,9 @@ pub async fn transfer(
         Ok(r) => todo!("{r:?}"),
     };
 
-    match send_rpc(
+    match rpc::send(
         &agent_client,
-        dest_leader.clone(),
+        dest_leader,
         TransferInRequest {
             realm,
             source,
@@ -412,9 +408,9 @@ pub async fn transfer(
     // and this calls CompleteTransferRequest, the keyspace will be lost
     // forever.
 
-    match send_rpc(
+    match rpc::send(
         &agent_client,
-        source_leader.clone(),
+        source_leader,
         CompleteTransferRequest {
             realm,
             source,
@@ -440,7 +436,7 @@ async fn find_leaders(
     let responses = join_all(
         addresses
             .iter()
-            .map(|(_, address)| send_rpc(agent_client, address.clone(), StatusRequest {})),
+            .map(|(_, address)| rpc::send(agent_client, address, StatusRequest {})),
     )
     .await;
 

@@ -23,7 +23,11 @@ use super::hal::CryptoRng;
 use super::hal::{Clock, Nanos, Platform};
 use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
 use app::{RecordChange, RootOprfKey};
-use loam_sdk_core::{marshalling, RealmId, SecretsRequest, SecretsResponse};
+use loam_sdk_core::{
+    marshalling,
+    requests::{SecretsRequest, SecretsResponse},
+    types::RealmId,
+};
 use types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
     CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse, CompleteTransferRequest,

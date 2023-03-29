@@ -1,10 +1,9 @@
-use http::HeaderValue;
-use loam_sdk_core::HttpResponseStatus;
+use ::http::HeaderValue;
 use reqwest::Certificate;
 use std::marker::PhantomData;
 
-use loam_sdk::{HttpClient, HttpMethod, HttpRequest, HttpResponse};
-use loam_sdk_core::rpc::Service;
+use loam_sdk::http;
+use loam_sdk_networking::rpc;
 
 #[derive(Debug, Default, Clone)]
 pub struct ClientOptions {
@@ -12,14 +11,14 @@ pub struct ClientOptions {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Client<F: Service> {
+pub struct Client<F: rpc::Service> {
     // reqwest::Client holds a connection pool. It's reference-counted
     // internally, so this field is relatively cheap to clone.
     http: reqwest::Client,
     _phantom_data: PhantomData<F>,
 }
 
-impl<F: Service> Client<F> {
+impl<F: rpc::Service> Client<F> {
     pub fn new(options: ClientOptions) -> Self {
         let mut b = reqwest::Client::builder().use_rustls_tls();
         for c in options.additional_root_certs {
@@ -32,13 +31,17 @@ impl<F: Service> Client<F> {
     }
 }
 
-impl<F: Service> HttpClient for Client<F> {
-    fn send(&self, request: HttpRequest, callback: Box<dyn FnOnce(Option<HttpResponse>) + Send>) {
+impl<F: rpc::Service> http::Client for Client<F> {
+    fn send(
+        &self,
+        request: http::Request,
+        callback: Box<dyn FnOnce(Option<http::Response>) + Send>,
+    ) {
         let mut request_builder = match request.method {
-            HttpMethod::Get => self.http.get(request.url),
-            HttpMethod::Put => self.http.put(request.url),
-            HttpMethod::Post => self.http.post(request.url),
-            HttpMethod::Delete => self.http.delete(request.url),
+            http::Method::Get => self.http.get(request.url),
+            http::Method::Put => self.http.put(request.url),
+            http::Method::Post => self.http.post(request.url),
+            http::Method::Delete => self.http.delete(request.url),
         };
 
         let mut headers = reqwest::header::HeaderMap::new();
@@ -66,8 +69,8 @@ impl<F: Service> HttpClient for Client<F> {
                     let status = response.status().as_u16();
                     match response.bytes().await {
                         Err(_) => callback(None),
-                        Ok(bytes) => callback(Some(HttpResponse {
-                            status: HttpResponseStatus::from(status),
+                        Ok(bytes) => callback(Some(http::Response {
+                            status: http::ResponseStatus::from(status),
                             bytes: bytes.to_vec(),
                         })),
                     }

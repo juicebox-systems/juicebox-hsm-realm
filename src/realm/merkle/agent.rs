@@ -6,7 +6,7 @@ use hsmcore::hsm::types::{OwnedRange, RecordId};
 use hsmcore::merkle::{
     agent::Node, agent::StoreKey, agent::TreeStoreError, proof::ReadProof, Dir, HashOutput, KeyVec,
 };
-use loam_sdk_core::RealmId;
+use loam_sdk_core::types::RealmId;
 
 #[async_trait]
 pub trait TreeStoreReader<HO: HashOutput>: Sync {

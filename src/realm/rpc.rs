@@ -5,7 +5,7 @@ use hyper::{body::Incoming as IncomingBody, Request, Response};
 use tracing::{trace, warn};
 
 use loam_sdk_core::marshalling;
-use loam_sdk_core::rpc::{Rpc, Service};
+use loam_sdk_networking::rpc::{Rpc, Service};
 
 #[derive(Debug)]
 pub enum HandlerError {

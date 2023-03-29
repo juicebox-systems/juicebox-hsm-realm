@@ -8,7 +8,10 @@ use sha2::Sha256;
 
 use super::super::bitvec::{BitVec, Bits};
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
-use loam_sdk_core::{RealmId, SecretsRequest, SecretsResponse};
+use loam_sdk_core::{
+    requests::{SecretsRequest, SecretsResponse},
+    types::RealmId,
+};
 
 #[derive(Copy, Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct GroupId(pub [u8; 16]);

@@ -34,10 +34,10 @@ use hsm_types::{
 use hsmcore::hsm::{types as hsm_types, HsmElection};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
-use loam_sdk::send_rpc;
-use loam_sdk_core::rpc::Rpc;
-use loam_sdk_core::ClientError;
-use loam_sdk_core::{RealmId, SecretsResponse};
+use loam_sdk_core::requests::SecretsResponse;
+use loam_sdk_core::types::RealmId;
+use loam_sdk_networking::requests::ClientError;
+use loam_sdk_networking::rpc::{self, Rpc};
 use types::{
     AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
@@ -347,9 +347,9 @@ impl<T: Transport + 'static> Agent<T> {
         hsm_id: HsmId,
         address: &Url,
     ) -> Result<ReadCapturedResponse, ClientError> {
-        send_rpc(
+        rpc::send(
             &self.0.peer_client,
-            address.clone(),
+            address,
             ReadCapturedRequest {
                 realm: realm_id,
                 group: group_id,

@@ -4,6 +4,7 @@
 
 use futures::future::join_all;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_sdk_networking::rpc;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::fmt::{Display, Write};
@@ -137,9 +138,7 @@ impl HsmGenerator {
         let waiters = agents.iter().map(|agent_url| async move {
             let agent_client = AgentClient::new(ClientOptions::default());
             for attempt in 1.. {
-                if let Ok(response) =
-                    loam_sdk::send_rpc(&agent_client, agent_url.clone(), StatusRequest {}).await
-                {
+                if let Ok(response) = rpc::send(&agent_client, agent_url, StatusRequest {}).await {
                     if response.hsm.is_some() {
                         break;
                     }

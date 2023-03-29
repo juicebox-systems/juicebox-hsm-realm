@@ -310,7 +310,7 @@ mod tests {
         *,
     };
     use crate::bitvec;
-    use loam_sdk_core::RealmId;
+    use loam_sdk_core::types::RealmId;
     use std::{
         collections::{BTreeMap, HashMap},
         hash::Hasher,

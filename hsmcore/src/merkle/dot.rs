@@ -7,7 +7,7 @@ use super::super::bitvec::DisplayBits;
 use super::agent::StoreKey;
 use super::{agent::tests::TreeStoreReader, agent::Node, Bits, Branch, Dir, HashOutput, KeyVec};
 use async_recursion::async_recursion;
-use loam_sdk_core::RealmId;
+use loam_sdk_core::types::RealmId;
 
 // Creates a dot file for a visualization of the tree starting
 // at the supplied root hash.

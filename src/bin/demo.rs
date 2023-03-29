@@ -1,7 +1,7 @@
 use futures::future::{join_all, try_join_all};
 use http::Uri;
-use loam_sdk_core::requests::LoadBalancerService;
-use loam_sdk_core::{AuthToken, Policy};
+use loam_sdk_core::types::{AuthToken, Policy};
+use loam_sdk_networking::requests::LoadBalancerService;
 use reqwest::{Certificate, Url};
 use std::fs;
 use std::net::SocketAddr;
@@ -9,11 +9,11 @@ use std::process::Command;
 use tracing::info;
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
-use loam_mvp::http_client::{Client, ClientOptions};
+use loam_mvp::http_client;
 use loam_mvp::logging;
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
-use loam_sdk::{Configuration, Loam, Pin, Realm, RecoverError, UserSecret};
+use loam_sdk::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 
 mod common;
 use common::certs::create_localhost_key_and_cert;
@@ -196,26 +196,26 @@ async fn main() {
     realm_ids.push(realm_id);
 
     let mut lb = load_balancers.iter().cycle();
-    let client: Loam<Client<LoadBalancerService>> = Loam::new(
+    let client: Client<http_client::Client<LoadBalancerService>> = Client::new(
         Configuration {
             realms: vec![
                 Realm {
-                    address: lb.next().unwrap().to_string(),
+                    address: lb.next().unwrap().clone(),
                     public_key: b"qwer".to_vec(),
                     id: realm_ids[0],
                 },
                 Realm {
-                    address: lb.next().unwrap().to_string(),
+                    address: lb.next().unwrap().clone(),
                     public_key: b"asdf".to_vec(),
                     id: realm_ids[1],
                 },
                 Realm {
-                    address: lb.next().unwrap().to_string(),
+                    address: lb.next().unwrap().clone(),
                     public_key: b"zxcv".to_vec(),
                     id: realm_ids[2],
                 },
                 Realm {
-                    address: lb.next().unwrap().to_string(),
+                    address: lb.next().unwrap().clone(),
                     public_key: b"uiop".to_vec(),
                     id: realm_ids[3],
                 },
@@ -228,7 +228,7 @@ async fn main() {
             user: String::from("mario"),
             signature: b"it's-a-me!".to_vec(),
         },
-        Client::new(ClientOptions {
+        http_client::Client::new(http_client::ClientOptions {
             additional_root_certs: vec![lb_cert],
         }),
     );

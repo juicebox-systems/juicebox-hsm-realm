@@ -1208,6 +1208,7 @@ dependencies = [
  "libc",
  "loam-sdk",
  "loam-sdk-core",
+ "loam-sdk-networking",
  "nix",
  "opentelemetry",
  "opentelemetry-http",
@@ -1237,21 +1238,15 @@ dependencies = [
 name = "loam-sdk"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "digest 0.10.6",
  "futures",
- "hkdf",
  "hmac",
  "loam-sdk-core",
- "opentelemetry",
+ "loam-sdk-networking",
  "rand",
- "serde",
  "sha2",
  "sharks",
- "subtle",
  "tracing 0.2.0",
- "tracing-opentelemetry",
- "tracing-subscriber",
  "url",
  "voprf",
 ]
@@ -1260,19 +1255,24 @@ dependencies = [
 name = "loam-sdk-core"
 version = "0.1.0"
 dependencies = [
- "bytes",
  "ciborium",
  "digest 0.10.6",
- "futures",
- "http",
- "http-body-util",
- "hyper 1.0.0-rc.3",
  "serde",
  "subtle",
+ "voprf",
+]
+
+[[package]]
+name = "loam-sdk-networking"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "loam-sdk-core",
+ "opentelemetry",
+ "serde",
  "tracing 0.2.0",
  "tracing-opentelemetry",
- "tracing-subscriber",
- "voprf",
+ "url",
 ]
 
 [[package]]

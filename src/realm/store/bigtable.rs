@@ -27,7 +27,7 @@ mod read;
 use super::super::merkle::agent::TreeStoreReader;
 use hsmcore::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RecordId};
 use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
-use loam_sdk_core::RealmId;
+use loam_sdk_core::types::RealmId;
 
 use mutate::{mutate_rows, MutateRowsError};
 use read::read_rows;

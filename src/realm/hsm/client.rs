@@ -13,7 +13,7 @@ use tracing::{instrument, span::Span, trace, warn};
 use hsmcore::hsm::rpc::{HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
-use loam_sdk_core::ClientError;
+use loam_sdk_networking::requests::ClientError;
 
 /// The HSM signalled that the request processing failed, likely due to
 /// serialization or deserialization issues.
