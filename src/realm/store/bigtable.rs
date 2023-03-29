@@ -20,7 +20,7 @@ use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
 use tonic::transport::{Channel, Endpoint};
-use tracing::{info, instrument, trace, warn};
+use tracing::{info, instrument, trace};
 use url::Url;
 
 mod mutate;
@@ -352,10 +352,10 @@ impl StoreClient {
         group: &GroupId,
         items: &[Append],
     ) -> Result<(), AppendError> {
-        if items.is_empty() {
-            warn!("append passed empty list of things to append.");
-            return Ok(());
-        }
+        assert!(
+            !items.is_empty(),
+            "append passed empty list of things to append."
+        );
         trace!(
             realm = ?realm,
             group = ?group,
@@ -363,6 +363,28 @@ impl StoreClient {
             items = items.len(),
             "append starting",
         );
+
+        // Make sure the previous log entry exists and matches the expected
+        // value.
+        // TODO: cache some info about the last entry to avoid this read.
+        if items[0].entry.index != LogIndex::FIRST {
+            let prev_index = items[0].entry.index.prev().unwrap();
+            let Some(prev) = self.read_log_entry(realm, group, prev_index)
+                .await
+                .expect("TODO") else {
+                return Err(AppendError::LogPrecondition);
+            };
+            if prev.entry_hmac != items[0].entry.prev_hmac {
+                return Err(AppendError::LogPrecondition);
+            }
+        }
+        // Make sure the batch of entries have the expected indexes & hmacs
+        let mut prev = &items[0].entry;
+        for e in &items[1..] {
+            assert_eq!(e.entry.index, prev.index.next());
+            assert_eq!(e.entry.prev_hmac, prev.entry_hmac);
+            prev = &e.entry;
+        }
 
         let mut bigtable = self.bigtable.clone();
 
@@ -401,22 +423,7 @@ impl StoreClient {
             })?;
         }
 
-        // Make sure the previous log entry exists and matches the expected
-        // value.
-        // TODO: cache some info about the last entry to avoid this read.
-        if items[0].entry.index != LogIndex::FIRST {
-            let prev_index = items[0].entry.index.prev().unwrap();
-            let Some(prev) = self.read_log_entry(realm, group, prev_index)
-                .await
-                .expect("TODO") else {
-                return Err(AppendError::LogPrecondition);
-            };
-            if prev.entry_hmac != items[0].entry.prev_hmac {
-                return Err(AppendError::LogPrecondition);
-            }
-        }
-
-        // Append the new entry but only if it doesn't yet exist.
+        // Append the new row but only if it doesn't yet exist.
         let append_response = bigtable
             .check_and_mutate_row(CheckAndMutateRowRequest {
                 table_name: log_table(&self.instance, realm),

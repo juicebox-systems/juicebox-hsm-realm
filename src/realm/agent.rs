@@ -1187,28 +1187,39 @@ impl<T: Transport + 'static> Agent<T> {
     async fn keep_appending(&self, realm: RealmId, group: GroupId, next: LogIndex) {
         let store = self.0.store.clone();
         let mut next = next;
+        let mut batch = Vec::new();
+        const MAX_BATCH_SIZE: usize = 100;
         loop {
-            let request = {
+            batch.clear();
+            {
                 let mut locked = self.0.state.lock().unwrap();
                 let Some(leader) = locked.leader.get_mut(&(realm, group)) else {
                     return;
                 };
                 assert!(matches!(leader.appending, Appending));
-                let Some(request) = leader.append_queue.remove(&next) else {
-                    leader.appending = NotAppending { next };
-                    return;
-                };
-                request
-            };
+                loop {
+                    if let Some(request) = leader.append_queue.remove(&next) {
+                        batch.push(request);
+                        next = next.next();
+                        if batch.len() >= MAX_BATCH_SIZE {
+                            break;
+                        }
+                    } else {
+                        if batch.is_empty() {
+                            leader.appending = NotAppending { next };
+                            return;
+                        }
+                        break;
+                    }
+                }
+            }
 
-            match store.append(&realm, &group, &[request]).await {
+            match store.append(&realm, &group, &batch).await {
                 Err(bigtable::AppendError::LogPrecondition) => {
                     todo!("stop leading")
                 }
                 Err(_) => todo!(),
-                Ok(()) => {
-                    next = next.next();
-                }
+                Ok(()) => {}
             }
         }
     }
