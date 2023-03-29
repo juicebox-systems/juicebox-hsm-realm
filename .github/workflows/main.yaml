@@ -24,6 +24,9 @@ jobs:
     steps:
     - name: Check out sources
       uses: actions/checkout@v2
+      with:
+        submodules: recursive
+        token: ${{ secrets.ACCESS_TOKEN }}
 
     - name: Free up some space on image
       # see https://github.com/actions/runner-images/issues/2840
