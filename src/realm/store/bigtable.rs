@@ -2,12 +2,14 @@ use crate::autogen::google;
 use async_trait::async_trait;
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
-use google::bigtable::v2::row_range::EndKey::EndKeyOpen;
-use google::bigtable::v2::row_range::StartKey::StartKeyClosed;
+use google::bigtable::v2::column_range::{EndQualifier, StartQualifier};
+use google::bigtable::v2::row_range::{
+    EndKey::EndKeyClosed, EndKey::EndKeyOpen, StartKey::StartKeyClosed,
+};
 use google::bigtable::v2::{
-    mutate_rows_request, mutation, read_rows_request, row_filter, CheckAndMutateRowRequest,
-    MutateRowRequest, MutateRowResponse, MutateRowsRequest, Mutation, ReadRowsRequest, RowFilter,
-    RowRange, RowSet,
+    mutate_rows_request, mutation, read_rows_request, row_filter, row_filter::Filter,
+    CheckAndMutateRowRequest, ColumnRange, MutateRowRequest, MutateRowResponse, MutateRowsRequest,
+    Mutation, ReadRowsRequest, RowFilter, RowRange, RowSet,
 };
 use http::Uri;
 use loam_sdk_core::marshalling;
@@ -18,7 +20,7 @@ use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
 use tonic::transport::{Channel, Endpoint};
-use tracing::{info, instrument, trace};
+use tracing::{info, instrument, trace, warn};
 use url::Url;
 
 mod mutate;
@@ -330,6 +332,12 @@ pub enum AppendError {
     MerkleDeletes(google::rpc::Status),
 }
 
+#[derive(Debug)]
+pub struct Append {
+    pub entry: LogEntry,
+    pub delta: Option<StoreDelta<DataHash>>,
+}
+
 impl StoreClient {
     pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
         let endpoint = Endpoint::from(url);
@@ -342,45 +350,48 @@ impl StoreClient {
         &self,
         realm: &RealmId,
         group: &GroupId,
-        entry: &LogEntry,
-        delta: &StoreDelta<DataHash>,
+        items: &[Append],
     ) -> Result<(), AppendError> {
+        if items.is_empty() {
+            warn!("append passed empty list of things to append.");
+            return Ok(());
+        }
         trace!(
             realm = ?realm,
             group = ?group,
-            index = ?entry.index,
-            delta_adds = delta.add.len(),
-            delta_removes = delta.remove.len(),
+            first_index = ?items[0].entry.index,
+            items = items.len(),
             "append starting",
         );
 
         let mut bigtable = self.bigtable.clone();
 
         // Write new Merkle nodes.
-        if !delta.add.is_empty() {
+        let new_merkle_entries = items
+            .iter()
+            .filter(|i| i.delta.is_some())
+            .flat_map(|i| i.delta.as_ref().unwrap().add.iter())
+            .map(|(key, value)| mutate_rows_request::Entry {
+                row_key: key.store_key().into_bytes(),
+                mutations: vec![Mutation {
+                    mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
+                        family_name: String::from("f"),
+                        column_qualifier: b"n".to_vec(),
+                        timestamp_micros: -1,
+                        // TODO: unnecessarily wraps the leaf node values.
+                        value: marshalling::to_vec(value).expect("TODO"),
+                    })),
+                }],
+            })
+            .collect::<Vec<_>>();
+
+        if !new_merkle_entries.is_empty() {
             mutate_rows(
                 &mut bigtable,
                 MutateRowsRequest {
                     table_name: merkle_table(&self.instance, realm),
                     app_profile_id: String::new(),
-                    entries: delta
-                        .add
-                        .iter()
-                        .map(|(key, value)| mutate_rows_request::Entry {
-                            row_key: key.store_key().into_bytes(),
-                            mutations: vec![Mutation {
-                                mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
-                                    family_name: String::from("f"),
-                                    column_qualifier: b"n".to_vec(),
-                                    timestamp_micros: -1,
-                                    // TODO: this unnecessarily includes the
-                                    // node's hash and unnecessarily wraps the
-                                    // leaf node values.
-                                    value: marshalling::to_vec(value).expect("TODO"),
-                                })),
-                            }],
-                        })
-                        .collect(),
+                    entries: new_merkle_entries,
                 },
             )
             .await
@@ -393,14 +404,14 @@ impl StoreClient {
         // Make sure the previous log entry exists and matches the expected
         // value.
         // TODO: cache some info about the last entry to avoid this read.
-        if entry.index != LogIndex::FIRST {
-            let prev_index = entry.index.prev().unwrap();
+        if items[0].entry.index != LogIndex::FIRST {
+            let prev_index = items[0].entry.index.prev().unwrap();
             let Some(prev) = self.read_log_entry(realm, group, prev_index)
                 .await
                 .expect("TODO") else {
                 return Err(AppendError::LogPrecondition);
             };
-            if prev.entry_hmac != entry.prev_hmac {
+            if prev.entry_hmac != items[0].entry.prev_hmac {
                 return Err(AppendError::LogPrecondition);
             }
         }
@@ -410,17 +421,20 @@ impl StoreClient {
             .check_and_mutate_row(CheckAndMutateRowRequest {
                 table_name: log_table(&self.instance, realm),
                 app_profile_id: String::new(),
-                row_key: log_key(group, entry.index),
+                row_key: log_key(group, items[0].entry.index),
                 predicate_filter: None, // checks for any value
                 true_mutations: Vec::new(),
-                false_mutations: vec![Mutation {
-                    mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
-                        family_name: String::from("f"),
-                        column_qualifier: b"e".to_vec(),
-                        timestamp_micros: -1,
-                        value: marshalling::to_vec(entry).expect("TODO"),
-                    })),
-                }],
+                false_mutations: items
+                    .iter()
+                    .map(|i| Mutation {
+                        mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
+                            family_name: String::from("f"),
+                            column_qualifier: DownwardLogIndex(i.entry.index).bytes().to_vec(),
+                            timestamp_micros: -1,
+                            value: marshalling::to_vec(&i.entry).expect("TODO"),
+                        })),
+                    })
+                    .collect(),
             })
             .await
             .map_err(AppendError::Grpc)?
@@ -431,14 +445,16 @@ impl StoreClient {
 
         // Delete obsolete Merkle nodes. These deletes are deferred a bit so
         // that slow concurrent readers can still access them.
-        if !delta.remove.is_empty() {
+        let to_remove = items
+            .iter()
+            .filter(|i| i.delta.is_some())
+            .flat_map(|i| i.delta.as_ref().unwrap().remove.iter())
+            .map(|k| k.store_key())
+            .collect::<Vec<_>>();
+
+        if !to_remove.is_empty() {
             let store = self.clone();
             let realm = *realm;
-            let to_remove = delta
-                .remove
-                .iter()
-                .map(|key| key.store_key())
-                .collect::<Vec<_>>();
             tokio::spawn(async move {
                 sleep(Duration::from_secs(5)).await;
                 store.remove(&realm, to_remove).await.expect("TODO");
@@ -490,23 +506,38 @@ impl StoreClient {
                 table_name: log_table(&self.instance, realm),
                 app_profile_id: String::new(),
                 rows: Some(RowSet {
-                    row_keys: vec![log_key(group, index)],
-                    row_ranges: Vec::new(),
+                    row_keys: Vec::new(),
+                    row_ranges: vec![RowRange {
+                        start_key: Some(StartKeyClosed(log_key(group, index))),
+                        end_key: Some(EndKeyClosed(log_key(group, LogIndex::FIRST))),
+                    }],
                 }),
-                filter: None,
-                rows_limit: 0,
+                filter: Some(RowFilter {
+                    filter: Some(Filter::ColumnRangeFilter(ColumnRange {
+                        family_name: String::from("f"),
+                        start_qualifier: Some(StartQualifier::StartQualifierClosed(
+                            DownwardLogIndex(index).bytes().to_vec(),
+                        )),
+                        end_qualifier: Some(EndQualifier::EndQualifierClosed(
+                            DownwardLogIndex(index).bytes().to_vec(),
+                        )),
+                    })),
+                }),
+                rows_limit: 1,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
             },
         )
         .await?;
 
-        let entry = rows.into_iter().next().and_then(|(_key, cells)| {
+        let entry: Option<LogEntry> = rows.into_iter().next().and_then(|(_key, cells)| {
             cells
                 .into_iter()
-                .find(|cell| cell.family == "f" && cell.qualifier == b"e")
+                .find(|cell| cell.family == "f")
                 .map(|cell| marshalling::from_slice(&cell.value).expect("TODO"))
         });
-
+        if let Some(e) = &entry {
+            assert_eq!(e.index, index);
+        }
         trace!(
             realm = ?realm,
             group = ?group,
@@ -534,10 +565,12 @@ impl StoreClient {
                     row_keys: Vec::new(),
                     row_ranges: vec![RowRange {
                         start_key: Some(StartKeyClosed(log_key(group, LogIndex(u64::MAX)))),
-                        end_key: None,
+                        end_key: Some(EndKeyClosed(log_key(group, LogIndex::FIRST))),
                     }],
                 }),
-                filter: None,
+                filter: Some(RowFilter {
+                    filter: Some(Filter::CellsPerRowLimitFilter(1)),
+                }),
                 rows_limit: 1,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
             },
@@ -547,7 +580,7 @@ impl StoreClient {
         let entry = rows.into_iter().next().and_then(|(_key, cells)| {
             cells
                 .into_iter()
-                .find(|cell| cell.family == "f" && cell.qualifier == b"e")
+                .find(|cell| cell.family == "f")
                 .map(|cell| marshalling::from_slice(&cell.value).expect("TODO"))
         });
 
@@ -777,6 +810,18 @@ mod tests {
         assert_eq!(
             format!("{}/tables/{}", instance.path(), discovery_table_brief()),
             expected
+        );
+    }
+
+    #[test]
+    fn test_download_logindex() {
+        assert_eq!(
+            [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe],
+            DownwardLogIndex(LogIndex(1)).bytes()
+        );
+        assert_eq!(
+            [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd],
+            DownwardLogIndex(LogIndex(2)).bytes()
         );
     }
 

@@ -26,13 +26,13 @@ use super::super::http_client::{Client, ClientOptions};
 use super::hsm::client::{HsmClient, Transport};
 use super::merkle;
 use super::rpc::{handle_rpc, HandlerError};
-use super::store::bigtable;
+use super::store::bigtable::{self, Append};
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
-    Configuration, DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, TransferInProofs,
+    Configuration, EntryHmac, GroupId, HsmId, LogIndex, TransferInProofs,
 };
 use hsmcore::hsm::{types as hsm_types, HsmElection};
-use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
+use hsmcore::merkle::agent::TreeStoreError;
 use hsmcore::merkle::Dir;
 use loam_sdk_core::requests::SecretsResponse;
 use loam_sdk_core::types::RealmId;
@@ -73,12 +73,6 @@ struct LeaderState {
     /// store.
     appending: AppendingState,
     response_channels: HashMap<EntryHmac, oneshot::Sender<SecretsResponse>>,
-}
-
-#[derive(Debug)]
-struct Append {
-    pub entry: LogEntry,
-    pub delta: Option<StoreDelta<DataHash>>,
 }
 
 #[derive(Debug)]
@@ -549,8 +543,10 @@ impl<T: Transport + 'static> Agent<T> {
             .append(
                 &new_realm_response.realm,
                 &new_realm_response.group,
-                &new_realm_response.entry,
-                &new_realm_response.delta.unwrap_or_default(),
+                &[Append {
+                    entry: new_realm_response.entry,
+                    delta: new_realm_response.delta,
+                }],
             )
             .await
         {
@@ -646,8 +642,10 @@ impl<T: Transport + 'static> Agent<T> {
             .append(
                 &realm,
                 &new_group_response.group,
-                &new_group_response.entry,
-                &new_group_response.delta.unwrap_or_default(),
+                &[Append {
+                    entry: new_group_response.entry,
+                    delta: new_group_response.delta,
+                }],
             )
             .await
         {
@@ -1203,15 +1201,7 @@ impl<T: Transport + 'static> Agent<T> {
                 request
             };
 
-            match store
-                .append(
-                    &realm,
-                    &group,
-                    &request.entry,
-                    &request.delta.unwrap_or_default(),
-                )
-                .await
-            {
+            match store.append(&realm, &group, &[request]).await {
                 Err(bigtable::AppendError::LogPrecondition) => {
                     todo!("stop leading")
                 }
