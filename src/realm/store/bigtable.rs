@@ -19,7 +19,7 @@ use std::fmt::Write;
 use std::ops::Deref;
 use std::process::Command;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tonic::transport::{Channel, Endpoint};
 use tracing::{info, instrument, trace};
@@ -379,6 +379,7 @@ impl StoreClient {
             items = items.len(),
             "append starting",
         );
+        let start = Instant::now();
 
         // Make sure the previous log entry exists and matches the expected value.
         if items[0].entry.index != LogIndex::FIRST {
@@ -512,7 +513,13 @@ impl StoreClient {
             });
         }
 
-        trace!("append succeeded");
+        trace!(
+            realm = ?realm,
+            group = ?group,
+            dur = ?start.elapsed(),
+            items = items.len(),
+            "append succeeded"
+        );
         Ok(())
     }
 
