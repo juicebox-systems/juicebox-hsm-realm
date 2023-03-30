@@ -13,16 +13,16 @@ use tracing::{instrument, span::Span, trace, warn};
 use hsmcore::hsm::rpc::{HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
-use loam_sdk_networking::requests::ClientError;
+use loam_sdk_networking::rpc::RpcError;
 
 /// The HSM signalled that the request processing failed, likely due to
 /// serialization or deserialization issues.
 #[derive(Debug)]
 pub struct HsmRpcError;
 
-impl From<HsmRpcError> for ClientError {
+impl From<HsmRpcError> for RpcError {
     fn from(_v: HsmRpcError) -> Self {
-        ClientError::HsmRpcError
+        RpcError::Network
     }
 }
 

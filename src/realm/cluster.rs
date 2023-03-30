@@ -18,11 +18,11 @@ use super::store::bigtable::StoreClient;
 use hsm_types::{Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
 use loam_sdk_core::types::RealmId;
-use loam_sdk_networking::{requests::ClientError, rpc};
+use loam_sdk_networking::rpc::{self, RpcError};
 
 #[derive(Debug)]
 pub enum NewRealmError {
-    NetworkError(ClientError),
+    NetworkError(RpcError),
     NoHsm { agent: Url },
     HaveRealm { agent: Url },
     InvalidConfiguration,
@@ -145,7 +145,7 @@ async fn wait_for_commit(
     realm: RealmId,
     group_id: GroupId,
     agent_client: &Client<AgentService>,
-) -> Result<(), ClientError> {
+) -> Result<(), RpcError> {
     debug!(?realm, group = ?group_id, "waiting for first log entry to commit");
     loop {
         let status = rpc::send(agent_client, leader, StatusRequest {}).await?;
@@ -179,7 +179,7 @@ async fn wait_for_commit(
 
 #[derive(Debug)]
 pub enum NewGroupError {
-    NetworkError(ClientError),
+    NetworkError(RpcError),
     NoHsm { agent: Url },
     InvalidRealm { agent: Url },
     InvalidConfiguration,

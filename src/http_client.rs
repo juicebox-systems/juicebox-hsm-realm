@@ -1,7 +1,7 @@
-use ::http::HeaderValue;
+use ::http::{HeaderName, HeaderValue};
 use async_trait::async_trait;
 use reqwest::Certificate;
-use std::marker::PhantomData;
+use std::{collections::HashMap, marker::PhantomData, str::FromStr};
 
 use loam_sdk::http;
 use loam_sdk_networking::rpc;
@@ -44,15 +44,11 @@ impl<F: rpc::Service> http::Client for Client<F> {
 
         let mut headers = reqwest::header::HeaderMap::new();
         for (key, value) in request.headers {
-            headers.extend(
-                key.parse::<reqwest::header::HeaderName>()
-                    .map_err(|_| ())
-                    .and_then(|header_name| {
-                        HeaderValue::from_str(&value)
-                            .map(|header_value| (header_name, header_value))
-                            .map_err(|_| ())
-                    }),
-            );
+            if let (Ok(header_name), Ok(header_value)) =
+                (HeaderName::from_str(&key), HeaderValue::from_str(&value))
+            {
+                headers.append(header_name, header_value);
+            }
         }
         request_builder = request_builder.headers(headers);
 
@@ -64,11 +60,18 @@ impl<F: rpc::Service> http::Client for Client<F> {
             Err(_) => None,
             Ok(response) => {
                 let status = response.status().as_u16();
+                let mut headers = HashMap::new();
+                for (header_name, header_value) in response.headers() {
+                    if let Ok(value) = header_value.to_str() {
+                        headers.insert(header_name.to_string(), value.to_owned());
+                    }
+                }
                 match response.bytes().await {
                     Err(_) => None,
                     Ok(bytes) => Some(http::Response {
-                        status: http::ResponseStatus::from(status),
-                        bytes: bytes.to_vec(),
+                        status_code: status,
+                        headers,
+                        body: bytes.to_vec(),
                     }),
                 }
             }

@@ -1,7 +1,7 @@
 use futures::future::{join_all, try_join_all};
 use http::Uri;
 use loam_sdk_core::types::{AuthToken, Policy};
-use loam_sdk_networking::requests::LoadBalancerService;
+use loam_sdk_networking::rpc::LoadBalancerService;
 use reqwest::{Certificate, Url};
 use std::fs;
 use std::net::SocketAddr;

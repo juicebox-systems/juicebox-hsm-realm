@@ -30,8 +30,8 @@ use super::store::bigtable::StoreClient;
 use crate::logging::Spew;
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
+use loam_sdk_core::requests::{ClientRequest, ClientResponse};
 use loam_sdk_core::types::RealmId;
-use loam_sdk_networking::requests::{ClientRequest, ClientResponse};
 
 #[derive(Clone)]
 pub struct LoadBalancer(Arc<State>);

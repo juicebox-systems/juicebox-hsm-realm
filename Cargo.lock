@@ -1267,6 +1267,7 @@ name = "loam-sdk-networking"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "http",
  "loam-sdk-core",
  "opentelemetry",
  "serde",
