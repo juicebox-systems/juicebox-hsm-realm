@@ -10,15 +10,20 @@ use sha2::Sha256;
 use subtle::ConstantTimeEq;
 use tracing::{info, trace};
 
-use super::super::marshalling;
-use super::super::types::{
-    DeleteRequest, DeleteResponse, GenerationNumber, MaskedTgkShare, OprfBlindedInput,
-    OprfBlindedResult, OprfCipherSuite, Policy, Recover1Request, Recover1Response, Recover2Request,
-    Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,
-    UnlockTag, UserSecretShare,
-};
-use super::types::{RecordId, SecretsRequest, SecretsResponse};
+use super::types::RecordId;
 use super::RealmKey;
+use loam_sdk_core::{
+    marshalling,
+    requests::{
+        DeleteRequest, DeleteResponse, Recover1Request, Recover1Response, Recover2Request,
+        Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,
+        SecretsRequest, SecretsResponse,
+    },
+    types::{
+        GenerationNumber, MaskedTgkShare, OprfBlindedInput, OprfBlindedResult, OprfCipherSuite,
+        Policy, UnlockTag, UserSecretShare,
+    },
+};
 
 type OprfServer = voprf::OprfServer<OprfCipherSuite>;
 

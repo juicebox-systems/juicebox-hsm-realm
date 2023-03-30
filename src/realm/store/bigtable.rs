@@ -9,8 +9,8 @@ use google::bigtable::v2::{
     MutateRowRequest, MutateRowResponse, MutateRowsRequest, Mutation, ReadRowsRequest, RowFilter,
     RowRange, RowSet,
 };
-use hsmcore::marshalling;
 use http::Uri;
+use loam_sdk_core::marshalling;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Write;
@@ -25,8 +25,9 @@ mod mutate;
 mod read;
 
 use super::super::merkle::agent::TreeStoreReader;
-use hsmcore::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RealmId, RecordId};
+use hsmcore::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RecordId};
 use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
+use loam_sdk_core::types::RealmId;
 
 use mutate::{mutate_rows, MutateRowsError};
 use read::read_rows;

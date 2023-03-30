@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use clap::Parser;
 use core::slice;
-use hsmcore::marshalling::{DeserializationError, SerializationError};
+use loam_sdk_core::marshalling::{DeserializationError, SerializationError};
 use nfastapp::{
     Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
     Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_ErrorReturn, Cmd_LoadBuffer,

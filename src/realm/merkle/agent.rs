@@ -2,10 +2,11 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 
 use hsmcore::bitvec::Bits;
-use hsmcore::hsm::types::{OwnedRange, RealmId, RecordId};
+use hsmcore::hsm::types::{OwnedRange, RecordId};
 use hsmcore::merkle::{
     agent::Node, agent::StoreKey, agent::TreeStoreError, proof::ReadProof, Dir, HashOutput, KeyVec,
 };
+use loam_sdk_core::types::RealmId;
 
 #[async_trait]
 pub trait TreeStoreReader<HO: HashOutput>: Sync {

@@ -2,19 +2,10 @@ use bytes::Bytes;
 use futures::Future;
 use http_body_util::{BodyExt, Full};
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use std::fmt;
 use tracing::{trace, warn};
 
-use hsmcore::marshalling;
-
-pub trait Service {}
-
-pub trait Rpc<S: Service>: fmt::Debug + DeserializeOwned + Serialize {
-    const PATH: &'static str;
-    type Response: fmt::Debug + DeserializeOwned + Serialize;
-}
+use loam_sdk_core::marshalling;
+use loam_sdk_networking::rpc::{Rpc, Service};
 
 #[derive(Debug)]
 pub enum HandlerError {

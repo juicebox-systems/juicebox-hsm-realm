@@ -7,7 +7,6 @@ use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
-use reqwest::Url;
 use std::collections::btree_map::Entry::{Occupied, Vacant};
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
@@ -19,22 +18,25 @@ use tokio::task::JoinHandle;
 use tokio::time::{self, sleep};
 use tracing::{info, instrument, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use url::Url;
 
 pub mod types;
 
-use super::super::http_client::{Client, ClientError, ClientOptions};
+use super::super::http_client::{Client, ClientOptions};
 use super::hsm::client::{HsmClient, Transport};
 use super::merkle;
-use super::rpc::{handle_rpc, HandlerError, Rpc};
+use super::rpc::{handle_rpc, HandlerError};
 use super::store::bigtable;
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
-    Configuration, DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RealmId,
-    SecretsResponse, TransferInProofs,
+    Configuration, DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, TransferInProofs,
 };
 use hsmcore::hsm::{types as hsm_types, HsmElection};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
+use loam_sdk_core::requests::SecretsResponse;
+use loam_sdk_core::types::RealmId;
+use loam_sdk_networking::rpc::{self, Rpc, RpcError};
 use types::{
     AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
@@ -343,23 +345,22 @@ impl<T: Transport + 'static> Agent<T> {
         group_id: GroupId,
         hsm_id: HsmId,
         address: &Url,
-    ) -> Result<ReadCapturedResponse, ClientError> {
-        self.0
-            .peer_client
-            .send(
-                address,
-                ReadCapturedRequest {
-                    realm: realm_id,
-                    group: group_id,
-                },
-            )
-            .await
-            .map(|result| match result {
-                ReadCapturedResponse::Ok { hsm_id: id, .. } if id != hsm_id => {
-                    ReadCapturedResponse::NoHsm
-                }
-                x => x,
-            })
+    ) -> Result<ReadCapturedResponse, RpcError> {
+        rpc::send(
+            &self.0.peer_client,
+            address,
+            ReadCapturedRequest {
+                realm: realm_id,
+                group: group_id,
+            },
+        )
+        .await
+        .map(|result| match result {
+            ReadCapturedResponse::Ok { hsm_id: id, .. } if id != hsm_id => {
+                ReadCapturedResponse::NoHsm
+            }
+            x => x,
+        })
     }
 
     pub async fn listen(

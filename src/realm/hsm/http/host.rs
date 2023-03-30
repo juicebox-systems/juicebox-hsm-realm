@@ -8,7 +8,6 @@ use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use rand::rngs::OsRng;
 use rand::RngCore;
-use reqwest::Url;
 use std::net::SocketAddr;
 use std::ops::Sub;
 use std::pin::Pin;
@@ -17,6 +16,7 @@ use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tracing::warn;
+use url::Url;
 
 struct HalInstant(Instant);
 impl Sub for HalInstant {

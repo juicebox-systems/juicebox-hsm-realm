@@ -19,6 +19,7 @@ sha2 = { workspace = true }
 subtle = { workspace = true }
 tracing = { workspace = true }
 voprf = { workspace = true }
+loam-sdk-core = { workspace = true }
 
 [dev-dependencies]
 async-recursion = { workspace = true }

@@ -10,15 +10,21 @@ use tokio::time::Instant;
 use tracing::info;
 use tracing::{instrument, span::Span, trace, warn};
 
-use hsmcore::{
-    hsm::rpc::{HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction},
-    marshalling::{self, DeserializationError, SerializationError},
-};
+use hsmcore::hsm::rpc::{HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
+
+use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
+use loam_sdk_networking::rpc::RpcError;
 
 /// The HSM signalled that the request processing failed, likely due to
 /// serialization or deserialization issues.
 #[derive(Debug)]
 pub struct HsmRpcError;
+
+impl From<HsmRpcError> for RpcError {
+    fn from(_v: HsmRpcError) -> Self {
+        RpcError::Network
+    }
+}
 
 #[async_trait]
 pub trait Transport: fmt::Debug + Send + Sync {
