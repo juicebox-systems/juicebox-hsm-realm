@@ -21,7 +21,10 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
-use tonic::transport::{Channel, Endpoint};
+use tonic::codegen::InterceptedService;
+use tonic::service::Interceptor;
+use tonic::transport::{Channel, Endpoint, Error};
+use tonic::Status;
 use tracing::{info, instrument, trace};
 use url::Url;
 
@@ -37,9 +40,12 @@ use mutate::{mutate_rows, MutateRowsError};
 use read::read_rows;
 
 type BigtableTableAdminClient =
-    google::bigtable::admin::v2::bigtable_table_admin_client::BigtableTableAdminClient<Channel>;
-type BigtableClient =
-    google::bigtable::v2::bigtable_client::BigtableClient<tonic::transport::Channel>;
+    google::bigtable::admin::v2::bigtable_table_admin_client::BigtableTableAdminClient<
+        InterceptedService<Channel, AuthInterceptor>,
+    >;
+type BigtableClient = google::bigtable::v2::bigtable_client::BigtableClient<
+    InterceptedService<Channel, AuthInterceptor>,
+>;
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct BigTableArgs {
@@ -203,6 +209,29 @@ fn log_key(group: &GroupId, index: LogIndex) -> Vec<u8> {
         .collect()
 }
 
+async fn configure_channel(
+    url: Uri,
+) -> Result<InterceptedService<Channel, AuthInterceptor>, Error> {
+    let endpoint = Endpoint::from(url);
+    let cha = endpoint.connect().await?;
+    let interceptor = AuthInterceptor {};
+    Ok(InterceptedService::new(cha, interceptor))
+}
+
+#[derive(Clone)]
+pub struct AuthInterceptor {
+    //
+}
+impl Interceptor for AuthInterceptor {
+    fn call(&mut self, req: tonic::Request<()>) -> Result<tonic::Request<()>, Status> {
+        // change req in func sig to mut
+        // gcloud auth print-access-token
+        // req.metadata_mut()
+        // .insert("authorization",MetadataValue::from_static("Bearer <access token>"));
+        Ok(req)
+    }
+}
+
 #[derive(Clone)]
 pub struct StoreAdminClient {
     // https://cloud.google.com/bigtable/docs/reference/admin/rpc/google.bigtable.admin.v2
@@ -220,8 +249,8 @@ impl fmt::Debug for StoreAdminClient {
 
 impl StoreAdminClient {
     pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
-        let endpoint = Endpoint::from(url);
-        let bigtable = BigtableTableAdminClient::connect(endpoint).await?;
+        let is = configure_channel(url).await?;
+        let bigtable = BigtableTableAdminClient::new(is);
         Ok(Self { bigtable, instance })
     }
 
@@ -352,8 +381,8 @@ pub struct Append {
 
 impl StoreClient {
     pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
-        let endpoint = Endpoint::from(url);
-        let bigtable = BigtableClient::connect(endpoint).await?;
+        let is = configure_channel(url).await?;
+        let bigtable = BigtableClient::new(is);
         Ok(Self {
             bigtable,
             instance,
