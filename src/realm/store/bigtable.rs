@@ -16,7 +16,9 @@ use loam_sdk_core::marshalling;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Write;
+use std::ops::Deref;
 use std::process::Command;
+use std::sync::Mutex;
 use std::time::Duration;
 use tokio::time::sleep;
 use tonic::transport::{Channel, Endpoint};
@@ -27,7 +29,7 @@ mod mutate;
 mod read;
 
 use super::super::merkle::agent::TreeStoreReader;
-use hsmcore::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RecordId};
+use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RecordId};
 use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
 use loam_sdk_core::types::RealmId;
 
@@ -309,11 +311,21 @@ impl StoreAdminClient {
     }
 }
 
-#[derive(Clone)]
 pub struct StoreClient {
     // https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2
     bigtable: BigtableClient,
     instance: Instance,
+    last_write: Mutex<Option<(RealmId, GroupId, LogIndex, EntryHmac)>>,
+}
+
+impl Clone for StoreClient {
+    fn clone(&self) -> Self {
+        Self {
+            bigtable: self.bigtable.clone(),
+            instance: self.instance.clone(),
+            last_write: Mutex::new(None),
+        }
+    }
 }
 
 impl fmt::Debug for StoreClient {
@@ -342,7 +354,11 @@ impl StoreClient {
     pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
         let endpoint = Endpoint::from(url);
         let bigtable = BigtableClient::connect(endpoint).await?;
-        Ok(Self { bigtable, instance })
+        Ok(Self {
+            bigtable,
+            instance,
+            last_write: Mutex::new(None),
+        })
     }
 
     #[instrument(level = "trace", skip(self))]
@@ -364,20 +380,40 @@ impl StoreClient {
             "append starting",
         );
 
-        // Make sure the previous log entry exists and matches the expected
-        // value.
-        // TODO: cache some info about the last entry to avoid this read.
+        // Make sure the previous log entry exists and matches the expected value.
         if items[0].entry.index != LogIndex::FIRST {
             let prev_index = items[0].entry.index.prev().unwrap();
-            let Some(prev) = self.read_log_entry(realm, group, prev_index)
-                .await
-                .expect("TODO") else {
-                return Err(AppendError::LogPrecondition);
+            let read_log_entry = {
+                let last_write = self.last_write.lock().unwrap();
+                match last_write.deref() {
+                    Some((last_realm, last_group, last_index, last_hmac))
+                        if last_realm == realm
+                            && last_group == group
+                            && *last_index == prev_index =>
+                    {
+                        if *last_hmac != items[0].entry.prev_hmac {
+                            return Err(AppendError::LogPrecondition);
+                        }
+                        false
+                    }
+                    _ => true,
+                }
             };
-            if prev.entry_hmac != items[0].entry.prev_hmac {
-                return Err(AppendError::LogPrecondition);
+            if read_log_entry {
+                if let Some(prev) = self
+                    .read_log_entry(realm, group, prev_index)
+                    .await
+                    .expect("TODO")
+                {
+                    if prev.entry_hmac != items[0].entry.prev_hmac {
+                        return Err(AppendError::LogPrecondition);
+                    }
+                } else {
+                    return Err(AppendError::LogPrecondition);
+                };
             }
         }
+
         // Make sure the batch of entries have the expected indexes & hmacs
         let mut prev = &items[0].entry;
         for e in &items[1..] {
@@ -449,6 +485,14 @@ impl StoreClient {
         if append_response.predicate_matched {
             return Err(AppendError::LogPrecondition);
         }
+
+        let last = items.last().unwrap();
+        *self.last_write.lock().unwrap() = Some((
+            *realm,
+            *group,
+            last.entry.index,
+            last.entry.entry_hmac.clone(),
+        ));
 
         // Delete obsolete Merkle nodes. These deletes are deferred a bit so
         // that slow concurrent readers can still access them.

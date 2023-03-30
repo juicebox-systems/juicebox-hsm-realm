@@ -108,16 +108,14 @@ impl<T: Transport + 'static> Agent<T> {
     }
 
     fn start_watching(&self, realm: RealmId, group: GroupId, next_index: LogIndex) {
-        let name = self.0.name.clone();
-        let hsm = self.0.hsm.clone();
-        let store = self.0.store.clone();
+        let state = self.0.clone();
 
-        trace!(agent = name, realm = ?realm, group = ?group, ?next_index, "start watching log");
+        trace!(agent = state.name, realm = ?realm, group = ?group, ?next_index, "start watching log");
 
         tokio::spawn(async move {
             let mut next_index = next_index;
             loop {
-                match store.read_log_entry(&realm, &group, next_index).await {
+                match state.store.read_log_entry(&realm, &group, next_index).await {
                     Err(e) => todo!("{e:?}"),
                     Ok(None) => {
                         // TODO: how would we tell if the log was truncated?
@@ -125,8 +123,15 @@ impl<T: Transport + 'static> Agent<T> {
                     }
                     Ok(Some(entry)) => {
                         let index = entry.index;
-                        trace!(agent = name, ?realm, ?group, ?index, "found log entry");
-                        match hsm
+                        trace!(
+                            agent = state.name,
+                            ?realm,
+                            ?group,
+                            ?index,
+                            "found log entry"
+                        );
+                        match state
+                            .hsm
                             .send(CaptureNextRequest {
                                 realm,
                                 group,
@@ -136,7 +141,7 @@ impl<T: Transport + 'static> Agent<T> {
                         {
                             Err(_) => todo!(),
                             Ok(CaptureNextResponse::Ok { hsm_id, .. }) => {
-                                trace!(agent = name, ?realm, ?group, hsm=?hsm_id, ?index,
+                                trace!(agent = state.name, ?realm, ?group, hsm=?hsm_id, ?index,
                                     "HSM captured entry");
                                 // TODO: cache capture statement
                                 next_index = next_index.next();
@@ -1185,7 +1190,6 @@ impl<T: Transport + 'static> Agent<T> {
     /// Precondition: `leader.appending` is Appending because this task is the one
     /// doing the appending.
     async fn keep_appending(&self, realm: RealmId, group: GroupId, next: LogIndex) {
-        let store = self.0.store.clone();
         let mut next = next;
         let mut batch = Vec::new();
         const MAX_BATCH_SIZE: usize = 100;
@@ -1214,7 +1218,7 @@ impl<T: Transport + 'static> Agent<T> {
                 }
             }
 
-            match store.append(&realm, &group, &batch).await {
+            match self.0.store.append(&realm, &group, &batch).await {
                 Err(bigtable::AppendError::LogPrecondition) => {
                     todo!("stop leading")
                 }
