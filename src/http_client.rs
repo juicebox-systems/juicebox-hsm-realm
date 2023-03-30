@@ -5,8 +5,6 @@ use std::marker::PhantomData;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::realm::hsm::client::HsmRpcError;
-
 use super::realm::rpc::{Rpc, Service};
 use hsmcore::marshalling;
 
@@ -56,7 +54,6 @@ pub enum ClientError {
     HttpStatus(reqwest::StatusCode),
     Serialization(marshalling::SerializationError),
     Deserialization(marshalling::DeserializationError),
-    HsmRpcError,
 }
 
 impl std::fmt::Display for ClientError {
@@ -75,9 +72,6 @@ impl std::fmt::Display for ClientError {
             Deserialization(e) => {
                 write!(f, "deserialization error: {e:?}")
             }
-            HsmRpcError => {
-                write!(f, "HSM RPC error")
-            }
         }
     }
 }
@@ -91,12 +85,6 @@ impl From<marshalling::SerializationError> for ClientError {
 impl From<marshalling::DeserializationError> for ClientError {
     fn from(value: marshalling::DeserializationError) -> Self {
         ClientError::Deserialization(value)
-    }
-}
-
-impl From<HsmRpcError> for ClientError {
-    fn from(_v: HsmRpcError) -> Self {
-        ClientError::HsmRpcError
     }
 }
 

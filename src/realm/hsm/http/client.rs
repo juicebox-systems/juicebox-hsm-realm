@@ -1,8 +1,9 @@
 use async_trait::async_trait;
+use hsmcore::marshalling::{self, DeserializationError, SerializationError};
 use reqwest::Url;
 use std::fmt::Debug;
 
-use super::super::{super::super::http_client::ClientError, client::Transport};
+use super::super::{super::hsm::client::HsmRpcError, client::Transport};
 
 #[derive(Clone)]
 pub struct HsmHttpClient {
@@ -27,16 +28,48 @@ impl Debug for HsmHttpClient {
 
 #[async_trait]
 impl Transport for HsmHttpClient {
-    type Error = ClientError;
+    type Error = HsmHttpTransportError;
 
     async fn send_rpc_msg(&self, _msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, Self::Error> {
         match self.http.post(self.hsm.clone()).body(msg).send().await {
-            Err(err) => Err(ClientError::Network(err)),
+            Err(err) => Err(HsmHttpTransportError::Network(err)),
             Ok(response) if response.status().is_success() => {
-                let resp_body = response.bytes().await.map_err(ClientError::Network)?;
+                let resp_body = response
+                    .bytes()
+                    .await
+                    .map_err(HsmHttpTransportError::Network)?;
                 Ok(resp_body.to_vec())
             }
-            Ok(response) => Err(ClientError::HttpStatus(response.status())),
+            Ok(response) => Err(HsmHttpTransportError::HttpStatus(response.status())),
         }
+    }
+}
+
+#[derive(Debug)]
+pub enum HsmHttpTransportError {
+    Network(reqwest::Error),
+    HttpStatus(reqwest::StatusCode),
+    Serialization(marshalling::SerializationError),
+    Deserialization(marshalling::DeserializationError),
+    // TODO, HsmClient should probably not force this into the transport error, but rather have
+    // its own error type.
+    HsmRpcError,
+}
+
+impl From<SerializationError> for HsmHttpTransportError {
+    fn from(value: SerializationError) -> Self {
+        HsmHttpTransportError::Serialization(value)
+    }
+}
+
+impl From<DeserializationError> for HsmHttpTransportError {
+    fn from(value: DeserializationError) -> Self {
+        HsmHttpTransportError::Deserialization(value)
+    }
+}
+
+impl From<HsmRpcError> for HsmHttpTransportError {
+    fn from(_: HsmRpcError) -> Self {
+        HsmHttpTransportError::HsmRpcError
     }
 }
