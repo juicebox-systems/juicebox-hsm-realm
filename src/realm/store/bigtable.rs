@@ -517,6 +517,12 @@ impl StoreClient {
             return Err(AppendError::LogPrecondition);
         }
 
+        // append is supposed to be called sequentially, so this isn't racy.
+        // Even if its not called sequentially last_write is purely a
+        // performance improvement (it can save a log read), its not a
+        // correctness thing. The code above that uses last_write to check the
+        // hmac chain will fallback to reading the log entry from the store if
+        // the last_write info doesn't apply to that append.
         let last = items.last().unwrap();
         *self.last_write.lock().unwrap() = Some((
             *realm,
