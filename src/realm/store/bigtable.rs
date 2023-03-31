@@ -213,9 +213,9 @@ async fn configure_channel(
     url: Uri,
 ) -> Result<InterceptedService<Channel, AuthInterceptor>, Error> {
     let endpoint = Endpoint::from(url);
-    let cha = endpoint.connect().await?;
+    let channel = endpoint.connect().await?;
     let interceptor = AuthInterceptor {};
-    Ok(InterceptedService::new(cha, interceptor))
+    Ok(InterceptedService::new(channel, interceptor))
 }
 
 #[derive(Clone)]
@@ -249,8 +249,8 @@ impl fmt::Debug for StoreAdminClient {
 
 impl StoreAdminClient {
     pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
-        let is = configure_channel(url).await?;
-        let bigtable = BigtableTableAdminClient::new(is);
+        let auth_channel = configure_channel(url).await?;
+        let bigtable = BigtableTableAdminClient::new(auth_channel);
         Ok(Self { bigtable, instance })
     }
 
@@ -381,8 +381,8 @@ pub struct Append {
 
 impl StoreClient {
     pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
-        let is = configure_channel(url).await?;
-        let bigtable = BigtableClient::new(is);
+        let auth_channel = configure_channel(url).await?;
+        let bigtable = BigtableClient::new(auth_channel);
         Ok(Self {
             bigtable,
             instance,
@@ -901,7 +901,7 @@ mod tests {
     }
 
     #[test]
-    fn test_download_logindex() {
+    fn test_downward_logindex() {
         assert_eq!(
             [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe],
             DownwardLogIndex(LogIndex(1)).bytes()
