@@ -458,8 +458,8 @@ impl StoreClient {
         // Write new Merkle nodes.
         let new_merkle_entries = items
             .iter()
-            .filter(|i| i.delta.is_some())
-            .flat_map(|i| i.delta.as_ref().unwrap().add.iter())
+            .filter_map(|i| i.delta.as_ref())
+            .flat_map(|delta| delta.add.iter())
             .map(|(key, value)| mutate_rows_request::Entry {
                 row_key: key.store_key().into_bytes(),
                 mutations: vec![Mutation {
