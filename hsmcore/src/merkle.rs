@@ -70,7 +70,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct InteriorNode<HO> {
     left: Option<Branch<HO>>,
     right: Option<Branch<HO>>,
@@ -177,7 +177,7 @@ impl<HO: HashOutput> InteriorNode<HO> {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct LeafNode {
     pub value: Vec<u8>,
 }
@@ -575,10 +575,11 @@ mod tests {
         verify_prefixes(&add_by_hash, KeyVec::new(), &root);
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct MemStore<HO> {
         nodes: BTreeMap<Vec<u8>, (HO, Node<HO>)>,
     }
+
     impl<HO> MemStore<HO> {
         fn new() -> Self {
             MemStore {

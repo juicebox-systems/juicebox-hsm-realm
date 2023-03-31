@@ -2,6 +2,7 @@ use bytes::Bytes;
 use future::join_all;
 use futures::channel::oneshot;
 use futures::{future, Future};
+use hsmcore::hsm::types::{DataHash, LogEntry};
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -26,13 +27,13 @@ use super::super::http_client::{Client, ClientOptions};
 use super::hsm::client::{HsmClient, Transport};
 use super::merkle;
 use super::rpc::{handle_rpc, HandlerError};
-use super::store::bigtable::{self, Append};
+use super::store::bigtable::{self};
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
     Configuration, EntryHmac, GroupId, HsmId, LogIndex, TransferInProofs,
 };
 use hsmcore::hsm::{types as hsm_types, HsmElection};
-use hsmcore::merkle::agent::TreeStoreError;
+use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
 use loam_sdk_core::requests::SecretsResponse;
 use loam_sdk_core::types::RealmId;
@@ -73,6 +74,12 @@ struct LeaderState {
     /// store.
     appending: AppendingState,
     response_channels: HashMap<EntryHmac, oneshot::Sender<SecretsResponse>>,
+}
+
+#[derive(Debug)]
+pub struct Append {
+    pub entry: LogEntry,
+    pub delta: Option<StoreDelta<DataHash>>,
 }
 
 #[derive(Debug)]
@@ -548,10 +555,8 @@ impl<T: Transport + 'static> Agent<T> {
             .append(
                 &new_realm_response.realm,
                 &new_realm_response.group,
-                &[Append {
-                    entry: new_realm_response.entry,
-                    delta: new_realm_response.delta,
-                }],
+                &[new_realm_response.entry],
+                new_realm_response.delta.unwrap_or_default(),
             )
             .await
         {
@@ -647,10 +652,8 @@ impl<T: Transport + 'static> Agent<T> {
             .append(
                 &realm,
                 &new_group_response.group,
-                &[Append {
-                    entry: new_group_response.entry,
-                    delta: new_group_response.delta,
-                }],
+                &[new_group_response.entry],
+                new_group_response.delta.unwrap_or_default(),
             )
             .await
         {
@@ -1194,6 +1197,7 @@ impl<T: Transport + 'static> Agent<T> {
         let mut batch = Vec::new();
         const MAX_BATCH_SIZE: usize = 100;
         loop {
+            let mut delta = None;
             batch.clear();
             {
                 let mut locked = self.0.state.lock().unwrap();
@@ -1202,7 +1206,15 @@ impl<T: Transport + 'static> Agent<T> {
                 };
                 assert!(matches!(leader.appending, Appending));
                 while let Some(request) = leader.append_queue.remove(&next) {
-                    batch.push(request);
+                    batch.push(request.entry);
+                    delta = match (delta, request.delta) {
+                        (None, req_delta) => req_delta,
+                        (d, None) => d,
+                        (Some(mut d), Some(req_delta)) => {
+                            d.squash(req_delta);
+                            Some(d)
+                        }
+                    };
                     next = next.next();
                     if batch.len() >= MAX_BATCH_SIZE {
                         break;
@@ -1214,7 +1226,12 @@ impl<T: Transport + 'static> Agent<T> {
                 }
             }
 
-            match self.0.store.append(&realm, &group, &batch).await {
+            match self
+                .0
+                .store
+                .append(&realm, &group, &batch, delta.unwrap_or_default())
+                .await
+            {
                 Err(bigtable::AppendError::LogPrecondition) => {
                     todo!("stop leading")
                 }

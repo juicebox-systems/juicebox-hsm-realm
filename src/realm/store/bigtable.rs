@@ -374,12 +374,6 @@ pub enum AppendError {
     MerkleDeletes(google::rpc::Status),
 }
 
-#[derive(Debug)]
-pub struct Append {
-    pub entry: LogEntry,
-    pub delta: Option<StoreDelta<DataHash>>,
-}
-
 impl StoreClient {
     pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
         let auth_channel = configure_channel(url).await?;
@@ -396,24 +390,27 @@ impl StoreClient {
         &self,
         realm: &RealmId,
         group: &GroupId,
-        items: &[Append],
+        entries: &[LogEntry],
+        delta: StoreDelta<DataHash>,
     ) -> Result<(), AppendError> {
         assert!(
-            !items.is_empty(),
+            !entries.is_empty(),
             "append passed empty list of things to append."
         );
         trace!(
             realm = ?realm,
             group = ?group,
-            first_index = ?items[0].entry.index,
-            items = items.len(),
+            first_index = ?entries[0].index,
+            entries = entries.len(),
+            merkle_nodes_new = delta.add.len(),
+            merkle_nodes_remove = delta.remove.len(),
             "append starting",
         );
         let start = Instant::now();
 
         // Make sure the previous log entry exists and matches the expected value.
-        if items[0].entry.index != LogIndex::FIRST {
-            let prev_index = items[0].entry.index.prev().unwrap();
+        if entries[0].index != LogIndex::FIRST {
+            let prev_index = entries[0].index.prev().unwrap();
             let read_log_entry = {
                 let last_write = self.last_write.lock().unwrap();
                 match last_write.deref() {
@@ -422,7 +419,7 @@ impl StoreClient {
                             && last_group == group
                             && *last_index == prev_index =>
                     {
-                        if *last_hmac != items[0].entry.prev_hmac {
+                        if *last_hmac != entries[0].prev_hmac {
                             return Err(AppendError::LogPrecondition);
                         }
                         false
@@ -436,7 +433,7 @@ impl StoreClient {
                     .await
                     .expect("TODO")
                 {
-                    if prev.entry_hmac != items[0].entry.prev_hmac {
+                    if prev.entry_hmac != entries[0].prev_hmac {
                         return Err(AppendError::LogPrecondition);
                     }
                 } else {
@@ -446,20 +443,19 @@ impl StoreClient {
         }
 
         // Make sure the batch of entries have the expected indexes & hmacs
-        let mut prev = &items[0].entry;
-        for e in &items[1..] {
-            assert_eq!(e.entry.index, prev.index.next());
-            assert_eq!(e.entry.prev_hmac, prev.entry_hmac);
-            prev = &e.entry;
+        let mut prev = &entries[0];
+        for e in &entries[1..] {
+            assert_eq!(e.index, prev.index.next());
+            assert_eq!(e.prev_hmac, prev.entry_hmac);
+            prev = e;
         }
 
         let mut bigtable = self.bigtable.clone();
 
         // Write new Merkle nodes.
-        let new_merkle_entries = items
+        let new_merkle_entries = delta
+            .add
             .iter()
-            .filter_map(|i| i.delta.as_ref())
-            .flat_map(|delta| delta.add.iter())
             .map(|(key, value)| mutate_rows_request::Entry {
                 row_key: key.store_key().into_bytes(),
                 mutations: vec![Mutation {
@@ -495,17 +491,17 @@ impl StoreClient {
             .check_and_mutate_row(CheckAndMutateRowRequest {
                 table_name: log_table(&self.instance, realm),
                 app_profile_id: String::new(),
-                row_key: log_key(group, items[0].entry.index),
+                row_key: log_key(group, entries[0].index),
                 predicate_filter: None, // checks for any value
                 true_mutations: Vec::new(),
-                false_mutations: items
+                false_mutations: entries
                     .iter()
-                    .map(|i| Mutation {
+                    .map(|entry| Mutation {
                         mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
                             family_name: String::from("f"),
-                            column_qualifier: DownwardLogIndex(i.entry.index).bytes().to_vec(),
+                            column_qualifier: DownwardLogIndex(entry.index).bytes().to_vec(),
                             timestamp_micros: -1,
-                            value: marshalling::to_vec(&i.entry).expect("TODO"),
+                            value: marshalling::to_vec(entry).expect("TODO"),
                         })),
                     })
                     .collect(),
@@ -523,20 +519,15 @@ impl StoreClient {
         // correctness thing. The code above that uses last_write to check the
         // hmac chain will fallback to reading the log entry from the store if
         // the last_write info doesn't apply to that append.
-        let last = items.last().unwrap();
-        *self.last_write.lock().unwrap() = Some((
-            *realm,
-            *group,
-            last.entry.index,
-            last.entry.entry_hmac.clone(),
-        ));
+        let last = entries.last().unwrap();
+        *self.last_write.lock().unwrap() =
+            Some((*realm, *group, last.index, last.entry_hmac.clone()));
 
         // Delete obsolete Merkle nodes. These deletes are deferred a bit so
         // that slow concurrent readers can still access them.
-        let to_remove = items
+        let to_remove = delta
+            .remove
             .iter()
-            .filter(|i| i.delta.is_some())
-            .flat_map(|i| i.delta.as_ref().unwrap().remove.iter())
             .map(|k| k.store_key())
             .collect::<Vec<_>>();
 
@@ -553,7 +544,7 @@ impl StoreClient {
             realm = ?realm,
             group = ?group,
             dur = ?start.elapsed(),
-            items = items.len(),
+            entries = entries.len(),
             "append succeeded"
         );
         Ok(())

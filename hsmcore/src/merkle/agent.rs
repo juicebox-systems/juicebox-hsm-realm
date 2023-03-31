@@ -2,14 +2,14 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use hashbrown::HashSet; // TODO: randomize hasher
+use hashbrown::{HashMap, HashSet}; // TODO: randomize hasher
 use serde::{Deserialize, Serialize};
 
 use super::super::hsm::types::RecordId;
 use super::Bits;
 use super::{base128, HashOutput, InteriorNode, KeyVec, LeafNode};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Node<HO> {
     Interior(InteriorNode<HO>),
     Leaf(LeafNode),
@@ -26,40 +26,55 @@ pub enum TreeStoreError {
 // constructing these, which I think was the intent.
 #[non_exhaustive]
 pub struct StoreDelta<HO: HashOutput> {
-    pub add: Vec<(NodeKey<HO>, Node<HO>)>,
+    pub add: HashMap<NodeKey<HO>, Node<HO>>,
     pub remove: HashSet<NodeKey<HO>>,
 }
 
 impl<HO: HashOutput> Default for StoreDelta<HO> {
     fn default() -> Self {
         Self {
-            add: Vec::new(),
+            add: HashMap::new(),
             remove: HashSet::new(),
+        }
+    }
+}
+
+impl<HO: HashOutput> StoreDelta<HO> {
+    /// Updates self with the changes described in other. Nodes that are added
+    /// and then deleted by a subsequent squash are removed entirely. Squashing
+    /// a number of StoreDelta's and then writing the result to storage is the
+    /// same as applying the individual deltas to storage.
+    pub fn squash(&mut self, other: StoreDelta<HO>) {
+        self.add.extend(other.add);
+        for k in other.remove {
+            if self.add.remove(&k).is_none() {
+                self.remove.insert(k);
+            }
         }
     }
 }
 
 #[derive(Default)]
 pub struct DeltaBuilder<HO> {
-    to_add: Vec<(NodeKey<HO>, Node<HO>)>,
+    to_add: HashMap<NodeKey<HO>, Node<HO>>,
     to_remove: HashSet<NodeKey<HO>>,
 }
 impl<HO: HashOutput> DeltaBuilder<HO> {
     pub fn new() -> Self {
         DeltaBuilder {
-            to_add: Vec::new(),
+            to_add: HashMap::new(),
             to_remove: HashSet::new(),
         }
     }
     pub fn add(&mut self, key: NodeKey<HO>, n: Node<HO>) {
-        self.to_add.push((key, n));
+        self.to_add.insert(key, n);
     }
     pub fn remove(&mut self, key: NodeKey<HO>) {
         self.to_remove.insert(key);
     }
     pub fn build(mut self) -> StoreDelta<HO> {
-        for n in &self.to_add {
-            self.to_remove.remove(&n.0);
+        for (k, _) in &self.to_add {
+            self.to_remove.remove(k);
         }
         StoreDelta {
             add: self.to_add,
@@ -164,10 +179,11 @@ pub fn all_store_key_starts(k: &RecordId) -> Vec<StoreKeyStart> {
 pub mod tests {
     use std::collections::HashMap;
 
-    use crate::bitvec;
-
-    use super::super::super::hsm::types::{OwnedRange, RecordId};
-    use super::super::tests::TestHash;
+    use super::super::super::{
+        bitvec,
+        hsm::types::{OwnedRange, RecordId},
+    };
+    use super::super::tests::{new_empty_tree, TestHash, TEST_REALM};
     use super::super::{Dir, HashOutput, KeyVec, ReadProof};
     use super::Bits;
     use super::{
@@ -394,5 +410,42 @@ pub mod tests {
         assert!(StoreKey::parse::<TestHash>(&[]).is_none());
         assert!(StoreKey::parse::<TestHash>(&[1, 2]).is_none());
         assert!(StoreKey::parse::<TestHash>(&[1, 2, 128 | 1]).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_squash_deltas() {
+        let range = OwnedRange::full();
+        let (mut tree, init_root, mut store) = new_empty_tree(&range).await;
+        let mut deltas = Vec::new();
+
+        // insert some keys, collect the deltas
+        let mut root = init_root;
+        for key in (1..6).map(|i| RecordId([i; 32])) {
+            let rp = read(&TEST_REALM, &store, &range, &init_root, &key)
+                .await
+                .unwrap();
+            let vp = tree.latest_proof(rp).unwrap();
+            root = match tree.insert(vp, key.0.to_vec()).unwrap() {
+                (root, None) => root,
+                (root, Some(d)) => {
+                    deltas.push(d);
+                    root
+                }
+            };
+        }
+        // squashing the deltas and applying it, or applying them individually should result in the same thing
+        let mut squashed_store = store.clone();
+        let mut squashed = deltas[0].clone();
+        for d in &deltas[1..] {
+            squashed.squash(d.clone());
+        }
+        assert!(squashed.add.len() < deltas.iter().map(|d| d.add.len()).sum());
+        assert!(squashed.remove.len() < deltas.iter().map(|d| d.remove.len()).sum());
+        squashed_store.apply_store_delta(root, squashed);
+
+        for d in deltas.into_iter() {
+            store.apply_store_delta(root, d);
+        }
+        assert_eq!(store, squashed_store);
     }
 }
