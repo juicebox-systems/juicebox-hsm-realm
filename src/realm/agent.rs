@@ -1201,20 +1201,16 @@ impl<T: Transport + 'static> Agent<T> {
                     return;
                 };
                 assert!(matches!(leader.appending, Appending));
-                loop {
-                    if let Some(request) = leader.append_queue.remove(&next) {
-                        batch.push(request);
-                        next = next.next();
-                        if batch.len() >= MAX_BATCH_SIZE {
-                            break;
-                        }
-                    } else {
-                        if batch.is_empty() {
-                            leader.appending = NotAppending { next };
-                            return;
-                        }
+                while let Some(request) = leader.append_queue.remove(&next) {
+                    batch.push(request);
+                    next = next.next();
+                    if batch.len() >= MAX_BATCH_SIZE {
                         break;
                     }
+                }
+                if batch.is_empty() {
+                    leader.appending = NotAppending { next };
+                    return;
                 }
             }
 
