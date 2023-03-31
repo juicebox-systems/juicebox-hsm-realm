@@ -349,6 +349,7 @@ pub struct StoreClient {
 
 impl Clone for StoreClient {
     fn clone(&self) -> Self {
+        // StoreClient is cloned during append to handle the delayed merkle node delete.
         Self {
             bigtable: self.bigtable.clone(),
             instance: self.instance.clone(),
