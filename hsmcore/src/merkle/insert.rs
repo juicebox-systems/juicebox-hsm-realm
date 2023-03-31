@@ -19,7 +19,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         &mut self,
         mut proof: VerifiedProof<HO>,
         v: Vec<u8>,
-    ) -> Result<(HO, Option<StoreDelta<HO>>), ProofError> {
+    ) -> Result<(HO, StoreDelta<HO>), ProofError> {
         //
         if proof.root_hash() != &self.overlay.latest_root {
             return Err(ProofError::Stale);
@@ -27,7 +27,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         let mut delta = DeltaBuilder::new();
         if let Some(leaf) = &proof.leaf {
             if leaf.value == v {
-                return Ok((self.overlay.latest_root, None));
+                return Ok((self.overlay.latest_root, StoreDelta::default()));
             }
             let last_int = proof.path.last().unwrap();
             let leaf_hash = last_int
@@ -135,7 +135,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         }
         let final_delta = delta.build();
         self.overlay.add_delta(child_hash, &final_delta);
-        Ok((child_hash, Some(final_delta)))
+        Ok((child_hash, final_delta))
     }
 }
 
@@ -166,8 +166,6 @@ mod tests {
         let (new_root, d) = tree
             .insert(tree.latest_proof(rp).unwrap(), [42].to_vec())
             .unwrap();
-        assert!(d.is_some());
-        let d = d.unwrap();
         assert_eq!(2, d.add.len());
         let (leaf_key, leaf_node) = d
             .add
@@ -386,21 +384,21 @@ mod tests {
         let (root3, d3) = tree
             .insert(tree.latest_proof(rp_3).unwrap(), [13].to_vec())
             .unwrap();
-        store.apply_store_delta(root1, d1.unwrap());
+        store.apply_store_delta(root1, d1);
         check_tree_invariants(&tree.hasher, &range, root1, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root1, &store).await.unwrap(),
             store.len()
         );
 
-        store.apply_store_delta(root2, d2.unwrap());
+        store.apply_store_delta(root2, d2);
         check_tree_invariants(&tree.hasher, &range, root2, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root2, &store).await.unwrap(),
             store.len()
         );
 
-        store.apply_store_delta(root3, d3.unwrap());
+        store.apply_store_delta(root3, d3);
         check_tree_invariants(&tree.hasher, &range, root3, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root3, &store).await.unwrap(),

@@ -52,6 +52,10 @@ impl<HO: HashOutput> StoreDelta<HO> {
             }
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.add.is_empty() && self.remove.is_empty()
+    }
 }
 
 #[derive(Default)]
@@ -184,7 +188,7 @@ pub mod tests {
         hsm::types::{OwnedRange, RecordId},
     };
     use super::super::tests::{new_empty_tree, TestHash, TEST_REALM};
-    use super::super::{Dir, HashOutput, KeyVec, ReadProof};
+    use super::super::{agent::StoreDelta, Dir, HashOutput, KeyVec, ReadProof};
     use super::Bits;
     use super::{
         all_store_key_starts, encode_prefix_into, Node, NodeKey, StoreKey, TreeStoreError,
@@ -420,18 +424,14 @@ pub mod tests {
 
         // insert some keys, collect the deltas
         let mut root = init_root;
+        let mut d: StoreDelta<TestHash>;
         for key in (1..6).map(|i| RecordId([i; 32])) {
             let rp = read(&TEST_REALM, &store, &range, &init_root, &key)
                 .await
                 .unwrap();
             let vp = tree.latest_proof(rp).unwrap();
-            root = match tree.insert(vp, key.0.to_vec()).unwrap() {
-                (root, None) => root,
-                (root, Some(d)) => {
-                    deltas.push(d);
-                    root
-                }
-            };
+            (root, d) = tree.insert(vp, key.0.to_vec()).unwrap();
+            deltas.push(d);
         }
         // squashing the deltas and applying it, or applying them individually should result in the same thing
         let mut squashed_store = store.clone();

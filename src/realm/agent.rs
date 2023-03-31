@@ -79,7 +79,7 @@ struct LeaderState {
 #[derive(Debug)]
 pub struct Append {
     pub entry: LogEntry,
-    pub delta: Option<StoreDelta<DataHash>>,
+    pub delta: StoreDelta<DataHash>,
 }
 
 #[derive(Debug)]
@@ -556,7 +556,7 @@ impl<T: Transport + 'static> Agent<T> {
                 &new_realm_response.realm,
                 &new_realm_response.group,
                 &[new_realm_response.entry],
-                new_realm_response.delta.unwrap_or_default(),
+                new_realm_response.delta,
             )
             .await
         {
@@ -653,7 +653,7 @@ impl<T: Transport + 'static> Agent<T> {
                 &realm,
                 &new_group_response.group,
                 &[new_group_response.entry],
-                new_group_response.delta.unwrap_or_default(),
+                new_group_response.delta,
             )
             .await
         {
@@ -1040,7 +1040,14 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
             Ok(HsmResponse::NotTransferring) => Ok(Response::Ok),
             Ok(HsmResponse::Ok(entry)) => {
-                self.append(request.realm, request.source, Append { entry, delta: None });
+                self.append(
+                    request.realm,
+                    request.source,
+                    Append {
+                        entry,
+                        delta: StoreDelta::default(),
+                    },
+                );
                 Ok(Response::Ok)
             }
         }
@@ -1197,7 +1204,7 @@ impl<T: Transport + 'static> Agent<T> {
         let mut batch = Vec::new();
         const MAX_BATCH_SIZE: usize = 100;
         loop {
-            let mut delta = None;
+            let mut delta = StoreDelta::default();
             batch.clear();
             {
                 let mut locked = self.0.state.lock().unwrap();
@@ -1207,14 +1214,11 @@ impl<T: Transport + 'static> Agent<T> {
                 assert!(matches!(leader.appending, Appending));
                 while let Some(request) = leader.append_queue.remove(&next) {
                     batch.push(request.entry);
-                    delta = match (delta, request.delta) {
-                        (None, req_delta) => req_delta,
-                        (d, None) => d,
-                        (Some(mut d), Some(req_delta)) => {
-                            d.squash(req_delta);
-                            Some(d)
-                        }
-                    };
+                    if delta.is_empty() {
+                        delta = request.delta;
+                    } else {
+                        delta.squash(request.delta);
+                    }
                     next = next.next();
                     if batch.len() >= MAX_BATCH_SIZE {
                         break;
@@ -1226,12 +1230,7 @@ impl<T: Transport + 'static> Agent<T> {
                 }
             }
 
-            match self
-                .0
-                .store
-                .append(&realm, &group, &batch, delta.unwrap_or_default())
-                .await
-            {
+            match self.0.store.append(&realm, &group, &batch, delta).await {
                 Err(bigtable::AppendError::LogPrecondition) => {
                     todo!("stop leading")
                 }

@@ -428,13 +428,9 @@ mod tests {
         assert!(range.contains(key), "test bug, key not inside key range");
         let rp = read(&TEST_REALM, store, range, &root, key).await.unwrap();
         let vp = tree.latest_proof(rp).unwrap();
-        let new_root = match tree.insert(vp, val).unwrap() {
-            (root, None) => root,
-            (root, Some(d)) => {
-                store.apply_store_delta(root, d);
-                root
-            }
-        };
+        let (new_root, d) = tree.insert(vp, val).unwrap();
+        store.apply_store_delta(new_root, d);
+
         if !skip_tree_check {
             check_tree_invariants(&tree.hasher, range, new_root, store).await;
         }
