@@ -63,7 +63,7 @@ pub struct BigTableArgs {
 }
 
 impl BigTableArgs {
-    pub async fn connect_data(&self) -> StoreClient {
+    pub async fn connect_data(&self) -> Result<StoreClient, tonic::transport::Error> {
         let data_url = match &self.url {
             Some(u) => u.clone(),
             None => Uri::from_static("https://bigtable.googleapis.com"),
@@ -78,12 +78,10 @@ impl BigTableArgs {
             project: self.project.clone(),
             instance: self.inst.clone(),
         };
-        StoreClient::new(data_url.clone(), instance)
-            .await
-            .unwrap_or_else(|e| panic!("Unable to connect to Bigtable at `{data_url}`: {e}"))
+        StoreClient::new(data_url.clone(), instance).await
     }
 
-    pub async fn connect_admin(&self) -> StoreAdminClient {
+    pub async fn connect_admin(&self) -> Result<StoreAdminClient, tonic::transport::Error> {
         let admin_url = match &self.url {
             Some(u) => u.clone(),
             None => Uri::from_static("https://bigtableadmin.googleapis.com"),
@@ -98,9 +96,7 @@ impl BigTableArgs {
             project: self.project.clone(),
             instance: self.inst.clone(),
         };
-        StoreAdminClient::new(admin_url.clone(), instance)
-            .await
-            .unwrap_or_else(|e| panic!("Unable to connect to Bigtable admin at `{admin_url}`: {e}"))
+        StoreAdminClient::new(admin_url.clone(), instance).await
     }
 
     pub fn add_to_cmd(&self, cmd: &mut Command) {

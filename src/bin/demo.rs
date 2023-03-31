@@ -41,8 +41,15 @@ async fn main() {
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),
     };
-    let store = bt_args.connect_data().await;
-    let store_admin = bt_args.connect_admin().await;
+    let store = bt_args
+        .connect_data()
+        .await
+        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable: {e}"));
+
+    let store_admin = bt_args
+        .connect_admin()
+        .await
+        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable admin: {e}"));
 
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");

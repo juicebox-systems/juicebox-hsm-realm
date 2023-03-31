@@ -64,7 +64,11 @@ async fn main() {
     let args = Args::parse();
     info!(?args, "Parsed command-line args");
 
-    let store_admin = args.bigtable.connect_admin().await;
+    let store_admin = args
+        .bigtable
+        .connect_admin()
+        .await
+        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable admin: {e}"));
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
 

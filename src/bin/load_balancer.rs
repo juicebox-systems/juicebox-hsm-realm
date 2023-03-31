@@ -85,7 +85,11 @@ async fn main() {
         })
         .unwrap();
 
-    let store = args.bigtable.connect_data().await;
+    let store = args
+        .bigtable
+        .connect_data()
+        .await
+        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable: {e}"));
 
     let lb = LoadBalancer::new(name, store);
     let (url, join_handle) = lb.listen(args.listen, cert_resolver).await.expect("TODO");
