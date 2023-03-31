@@ -21,7 +21,7 @@ use self::rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, M
 use self::types::Partition;
 use super::hal::CryptoRng;
 use super::hal::{Clock, Nanos, Platform};
-use super::merkle::{proof::ProofError, MergeError, NodeHasher, Tree};
+use super::merkle::{agent::StoreDelta, proof::ProofError, MergeError, NodeHasher, Tree};
 use app::{RecordChange, RootOprfKey};
 use loam_sdk_core::{
     marshalling,
@@ -551,7 +551,7 @@ impl<P: Platform> Hsm<P> {
 
         let index = LogIndex::FIRST;
         let (partition, data) = match &owned_range {
-            None => (None, None),
+            None => (None, StoreDelta::default()),
             Some(key_range) => {
                 let h = MerkleHasher();
                 let (root_hash, delta) = Tree::new_tree(&h, key_range);
@@ -560,7 +560,7 @@ impl<P: Platform> Hsm<P> {
                         range: key_range.clone(),
                         root_hash,
                     }),
-                    Some(delta),
+                    delta,
                 )
             }
         };
@@ -1107,7 +1107,7 @@ impl<P: Platform> Hsm<P> {
             if request.range == owned_partition.range {
                 keeping_partition = None;
                 transferring_partition = owned_partition.clone();
-                delta = None;
+                delta = StoreDelta::default();
             } else {
                 match owned_partition.range.split_at(&request.range) {
                     None => return Response::NotOwner,
@@ -1143,7 +1143,7 @@ impl<P: Platform> Hsm<P> {
                     root_hash: transferring.root_hash,
                     range: transferring.range,
                 };
-                delta = Some(split_delta);
+                delta = split_delta;
             }
 
             let index = last_entry.index.next();
@@ -1353,11 +1353,11 @@ impl<P: Platform> Hsm<P> {
                             range: merge_result.range,
                             root_hash: merge_result.root_hash,
                         },
-                        Some(merge_result.delta),
+                        merge_result.delta,
                     ),
                 }
             } else {
-                (request.transferring, None)
+                (request.transferring, StoreDelta::default())
             };
 
             let index = last_entry.index.next();
@@ -1621,7 +1621,7 @@ fn handle_app_request(
                 }
             }
         },
-        None => (*tree_latest_proof.root_hash(), None),
+        None => (*tree_latest_proof.root_hash(), StoreDelta::default()),
     };
 
     let index = last_entry.entry.index.next();

@@ -70,7 +70,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct InteriorNode<HO> {
     left: Option<Branch<HO>>,
     right: Option<Branch<HO>>,
@@ -177,7 +177,7 @@ impl<HO: HashOutput> InteriorNode<HO> {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct LeafNode {
     pub value: Vec<u8>,
 }
@@ -428,13 +428,9 @@ mod tests {
         assert!(range.contains(key), "test bug, key not inside key range");
         let rp = read(&TEST_REALM, store, range, &root, key).await.unwrap();
         let vp = tree.latest_proof(rp).unwrap();
-        let new_root = match tree.insert(vp, val).unwrap() {
-            (root, None) => root,
-            (root, Some(d)) => {
-                store.apply_store_delta(root, d);
-                root
-            }
-        };
+        let (new_root, d) = tree.insert(vp, val).unwrap();
+        store.apply_store_delta(new_root, d);
+
         if !skip_tree_check {
             check_tree_invariants(&tree.hasher, range, new_root, store).await;
         }
@@ -575,10 +571,11 @@ mod tests {
         verify_prefixes(&add_by_hash, KeyVec::new(), &root);
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct MemStore<HO> {
         nodes: BTreeMap<Vec<u8>, (HO, Node<HO>)>,
     }
+
     impl<HO> MemStore<HO> {
         fn new() -> Self {
             MemStore {

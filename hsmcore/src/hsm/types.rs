@@ -341,7 +341,7 @@ pub struct NewGroupInfo {
     pub group: GroupId,
     pub statement: GroupConfigurationStatement,
     pub entry: LogEntry,
-    pub delta: Option<StoreDelta<DataHash>>,
+    pub delta: StoreDelta<DataHash>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -479,7 +479,7 @@ pub struct TransferOutRequest {
 pub enum TransferOutResponse {
     Ok {
         entry: LogEntry,
-        delta: Option<StoreDelta<DataHash>>,
+        delta: StoreDelta<DataHash>,
     },
     InvalidRealm,
     InvalidGroup,
@@ -545,7 +545,7 @@ pub struct TransferInRequest {
 pub enum TransferInResponse {
     Ok {
         entry: LogEntry,
-        delta: Option<StoreDelta<DataHash>>,
+        delta: StoreDelta<DataHash>,
     },
     InvalidRealm,
     InvalidGroup,
@@ -591,7 +591,7 @@ pub struct AppRequest {
 pub enum AppResponse {
     Ok {
         entry: LogEntry,
-        delta: Option<StoreDelta<DataHash>>,
+        delta: StoreDelta<DataHash>,
     },
     InvalidRealm,
     InvalidGroup,

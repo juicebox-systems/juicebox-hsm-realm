@@ -2,22 +2,29 @@ use crate::autogen::google;
 use async_trait::async_trait;
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
-use google::bigtable::v2::row_range::EndKey::EndKeyOpen;
-use google::bigtable::v2::row_range::StartKey::StartKeyClosed;
+use google::bigtable::v2::column_range::{EndQualifier, StartQualifier};
+use google::bigtable::v2::row_range::{
+    EndKey::EndKeyClosed, EndKey::EndKeyOpen, StartKey::StartKeyClosed,
+};
 use google::bigtable::v2::{
-    mutate_rows_request, mutation, read_rows_request, row_filter, CheckAndMutateRowRequest,
-    MutateRowRequest, MutateRowResponse, MutateRowsRequest, Mutation, ReadRowsRequest, RowFilter,
-    RowRange, RowSet,
+    mutate_rows_request, mutation, read_rows_request, row_filter, row_filter::Filter,
+    CheckAndMutateRowRequest, ColumnRange, MutateRowRequest, MutateRowResponse, MutateRowsRequest,
+    Mutation, ReadRowsRequest, RowFilter, RowRange, RowSet,
 };
 use http::Uri;
 use loam_sdk_core::marshalling;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Write;
+use std::ops::Deref;
 use std::process::Command;
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
-use tonic::transport::{Channel, Endpoint};
+use tonic::codegen::InterceptedService;
+use tonic::service::Interceptor;
+use tonic::transport::{Channel, Endpoint, Error};
+use tonic::Status;
 use tracing::{info, instrument, trace};
 use url::Url;
 
@@ -25,7 +32,7 @@ mod mutate;
 mod read;
 
 use super::super::merkle::agent::TreeStoreReader;
-use hsmcore::hsm::types::{DataHash, GroupId, HsmId, LogEntry, LogIndex, RecordId};
+use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RecordId};
 use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
 use loam_sdk_core::types::RealmId;
 
@@ -33,9 +40,12 @@ use mutate::{mutate_rows, MutateRowsError};
 use read::read_rows;
 
 type BigtableTableAdminClient =
-    google::bigtable::admin::v2::bigtable_table_admin_client::BigtableTableAdminClient<Channel>;
-type BigtableClient =
-    google::bigtable::v2::bigtable_client::BigtableClient<tonic::transport::Channel>;
+    google::bigtable::admin::v2::bigtable_table_admin_client::BigtableTableAdminClient<
+        InterceptedService<Channel, AuthInterceptor>,
+    >;
+type BigtableClient = google::bigtable::v2::bigtable_client::BigtableClient<
+    InterceptedService<Channel, AuthInterceptor>,
+>;
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct BigTableArgs {
@@ -199,6 +209,29 @@ fn log_key(group: &GroupId, index: LogIndex) -> Vec<u8> {
         .collect()
 }
 
+async fn configure_channel(
+    url: Uri,
+) -> Result<InterceptedService<Channel, AuthInterceptor>, Error> {
+    let endpoint = Endpoint::from(url);
+    let channel = endpoint.connect().await?;
+    let interceptor = AuthInterceptor {};
+    Ok(InterceptedService::new(channel, interceptor))
+}
+
+#[derive(Clone)]
+pub struct AuthInterceptor {
+    //
+}
+impl Interceptor for AuthInterceptor {
+    fn call(&mut self, req: tonic::Request<()>) -> Result<tonic::Request<()>, Status> {
+        // change req in func sig to mut
+        // gcloud auth print-access-token
+        // req.metadata_mut()
+        // .insert("authorization",MetadataValue::from_static("Bearer <access token>"));
+        Ok(req)
+    }
+}
+
 #[derive(Clone)]
 pub struct StoreAdminClient {
     // https://cloud.google.com/bigtable/docs/reference/admin/rpc/google.bigtable.admin.v2
@@ -216,8 +249,8 @@ impl fmt::Debug for StoreAdminClient {
 
 impl StoreAdminClient {
     pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
-        let endpoint = Endpoint::from(url);
-        let bigtable = BigtableTableAdminClient::connect(endpoint).await?;
+        let auth_channel = configure_channel(url).await?;
+        let bigtable = BigtableTableAdminClient::new(auth_channel);
         Ok(Self { bigtable, instance })
     }
 
@@ -307,11 +340,22 @@ impl StoreAdminClient {
     }
 }
 
-#[derive(Clone)]
 pub struct StoreClient {
     // https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2
     bigtable: BigtableClient,
     instance: Instance,
+    last_write: Mutex<Option<(RealmId, GroupId, LogIndex, EntryHmac)>>,
+}
+
+impl Clone for StoreClient {
+    fn clone(&self) -> Self {
+        // StoreClient is cloned during append to handle the delayed merkle node delete.
+        Self {
+            bigtable: self.bigtable.clone(),
+            instance: self.instance.clone(),
+            last_write: Mutex::new(None),
+        }
+    }
 }
 
 impl fmt::Debug for StoreClient {
@@ -332,9 +376,13 @@ pub enum AppendError {
 
 impl StoreClient {
     pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
-        let endpoint = Endpoint::from(url);
-        let bigtable = BigtableClient::connect(endpoint).await?;
-        Ok(Self { bigtable, instance })
+        let auth_channel = configure_channel(url).await?;
+        let bigtable = BigtableClient::new(auth_channel);
+        Ok(Self {
+            bigtable,
+            instance,
+            last_write: Mutex::new(None),
+        })
     }
 
     #[instrument(level = "trace", skip(self))]
@@ -342,45 +390,93 @@ impl StoreClient {
         &self,
         realm: &RealmId,
         group: &GroupId,
-        entry: &LogEntry,
-        delta: &StoreDelta<DataHash>,
+        entries: &[LogEntry],
+        delta: StoreDelta<DataHash>,
     ) -> Result<(), AppendError> {
+        assert!(
+            !entries.is_empty(),
+            "append passed empty list of things to append."
+        );
         trace!(
             realm = ?realm,
             group = ?group,
-            index = ?entry.index,
-            delta_adds = delta.add.len(),
-            delta_removes = delta.remove.len(),
+            first_index = ?entries[0].index,
+            entries = entries.len(),
+            merkle_nodes_new = delta.add.len(),
+            merkle_nodes_remove = delta.remove.len(),
             "append starting",
         );
+        let start = Instant::now();
+
+        // Make sure the previous log entry exists and matches the expected value.
+        if entries[0].index != LogIndex::FIRST {
+            let prev_index = entries[0].index.prev().unwrap();
+            let read_log_entry = {
+                let last_write = self.last_write.lock().unwrap();
+                match last_write.deref() {
+                    Some((last_realm, last_group, last_index, last_hmac))
+                        if last_realm == realm
+                            && last_group == group
+                            && *last_index == prev_index =>
+                    {
+                        if *last_hmac != entries[0].prev_hmac {
+                            return Err(AppendError::LogPrecondition);
+                        }
+                        false
+                    }
+                    _ => true,
+                }
+            };
+            if read_log_entry {
+                if let Some(prev) = self
+                    .read_log_entry(realm, group, prev_index)
+                    .await
+                    .expect("TODO")
+                {
+                    if prev.entry_hmac != entries[0].prev_hmac {
+                        return Err(AppendError::LogPrecondition);
+                    }
+                } else {
+                    return Err(AppendError::LogPrecondition);
+                };
+            }
+        }
+
+        // Make sure the batch of entries have the expected indexes & hmacs
+        let mut prev = &entries[0];
+        for e in &entries[1..] {
+            assert_eq!(e.index, prev.index.next());
+            assert_eq!(e.prev_hmac, prev.entry_hmac);
+            prev = e;
+        }
 
         let mut bigtable = self.bigtable.clone();
 
         // Write new Merkle nodes.
-        if !delta.add.is_empty() {
+        let new_merkle_entries = delta
+            .add
+            .iter()
+            .map(|(key, value)| mutate_rows_request::Entry {
+                row_key: key.store_key().into_bytes(),
+                mutations: vec![Mutation {
+                    mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
+                        family_name: String::from("f"),
+                        column_qualifier: b"n".to_vec(),
+                        timestamp_micros: -1,
+                        // TODO: unnecessarily wraps the leaf node values.
+                        value: marshalling::to_vec(value).expect("TODO"),
+                    })),
+                }],
+            })
+            .collect::<Vec<_>>();
+
+        if !new_merkle_entries.is_empty() {
             mutate_rows(
                 &mut bigtable,
                 MutateRowsRequest {
                     table_name: merkle_table(&self.instance, realm),
                     app_profile_id: String::new(),
-                    entries: delta
-                        .add
-                        .iter()
-                        .map(|(key, value)| mutate_rows_request::Entry {
-                            row_key: key.store_key().into_bytes(),
-                            mutations: vec![Mutation {
-                                mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
-                                    family_name: String::from("f"),
-                                    column_qualifier: b"n".to_vec(),
-                                    timestamp_micros: -1,
-                                    // TODO: this unnecessarily includes the
-                                    // node's hash and unnecessarily wraps the
-                                    // leaf node values.
-                                    value: marshalling::to_vec(value).expect("TODO"),
-                                })),
-                            }],
-                        })
-                        .collect(),
+                    entries: new_merkle_entries,
                 },
             )
             .await
@@ -390,37 +486,25 @@ impl StoreClient {
             })?;
         }
 
-        // Make sure the previous log entry exists and matches the expected
-        // value.
-        // TODO: cache some info about the last entry to avoid this read.
-        if entry.index != LogIndex::FIRST {
-            let prev_index = entry.index.prev().unwrap();
-            let Some(prev) = self.read_log_entry(realm, group, prev_index)
-                .await
-                .expect("TODO") else {
-                return Err(AppendError::LogPrecondition);
-            };
-            if prev.entry_hmac != entry.prev_hmac {
-                return Err(AppendError::LogPrecondition);
-            }
-        }
-
-        // Append the new entry but only if it doesn't yet exist.
+        // Append the new row but only if it doesn't yet exist.
         let append_response = bigtable
             .check_and_mutate_row(CheckAndMutateRowRequest {
                 table_name: log_table(&self.instance, realm),
                 app_profile_id: String::new(),
-                row_key: log_key(group, entry.index),
+                row_key: log_key(group, entries[0].index),
                 predicate_filter: None, // checks for any value
                 true_mutations: Vec::new(),
-                false_mutations: vec![Mutation {
-                    mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
-                        family_name: String::from("f"),
-                        column_qualifier: b"e".to_vec(),
-                        timestamp_micros: -1,
-                        value: marshalling::to_vec(entry).expect("TODO"),
-                    })),
-                }],
+                false_mutations: entries
+                    .iter()
+                    .map(|entry| Mutation {
+                        mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
+                            family_name: String::from("f"),
+                            column_qualifier: DownwardLogIndex(entry.index).bytes().to_vec(),
+                            timestamp_micros: -1,
+                            value: marshalling::to_vec(entry).expect("TODO"),
+                        })),
+                    })
+                    .collect(),
             })
             .await
             .map_err(AppendError::Grpc)?
@@ -429,23 +513,40 @@ impl StoreClient {
             return Err(AppendError::LogPrecondition);
         }
 
+        // append is supposed to be called sequentially, so this isn't racy.
+        // Even if its not called sequentially last_write is purely a
+        // performance improvement (it can save a log read), its not a
+        // correctness thing. The code above that uses last_write to check the
+        // hmac chain will fallback to reading the log entry from the store if
+        // the last_write info doesn't apply to that append.
+        let last = entries.last().unwrap();
+        *self.last_write.lock().unwrap() =
+            Some((*realm, *group, last.index, last.entry_hmac.clone()));
+
         // Delete obsolete Merkle nodes. These deletes are deferred a bit so
         // that slow concurrent readers can still access them.
-        if !delta.remove.is_empty() {
+        let to_remove = delta
+            .remove
+            .iter()
+            .map(|k| k.store_key())
+            .collect::<Vec<_>>();
+
+        if !to_remove.is_empty() {
             let store = self.clone();
             let realm = *realm;
-            let to_remove = delta
-                .remove
-                .iter()
-                .map(|key| key.store_key())
-                .collect::<Vec<_>>();
             tokio::spawn(async move {
                 sleep(Duration::from_secs(5)).await;
                 store.remove(&realm, to_remove).await.expect("TODO");
             });
         }
 
-        trace!("append succeeded");
+        trace!(
+            realm = ?realm,
+            group = ?group,
+            dur = ?start.elapsed(),
+            entries = entries.len(),
+            "append succeeded"
+        );
         Ok(())
     }
 
@@ -490,23 +591,38 @@ impl StoreClient {
                 table_name: log_table(&self.instance, realm),
                 app_profile_id: String::new(),
                 rows: Some(RowSet {
-                    row_keys: vec![log_key(group, index)],
-                    row_ranges: Vec::new(),
+                    row_keys: Vec::new(),
+                    row_ranges: vec![RowRange {
+                        start_key: Some(StartKeyClosed(log_key(group, index))),
+                        end_key: Some(EndKeyClosed(log_key(group, LogIndex::FIRST))),
+                    }],
                 }),
-                filter: None,
-                rows_limit: 0,
+                filter: Some(RowFilter {
+                    filter: Some(Filter::ColumnRangeFilter(ColumnRange {
+                        family_name: String::from("f"),
+                        start_qualifier: Some(StartQualifier::StartQualifierClosed(
+                            DownwardLogIndex(index).bytes().to_vec(),
+                        )),
+                        end_qualifier: Some(EndQualifier::EndQualifierClosed(
+                            DownwardLogIndex(index).bytes().to_vec(),
+                        )),
+                    })),
+                }),
+                rows_limit: 1,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
             },
         )
         .await?;
 
-        let entry = rows.into_iter().next().and_then(|(_key, cells)| {
+        let entry: Option<LogEntry> = rows.into_iter().next().and_then(|(_key, cells)| {
             cells
                 .into_iter()
-                .find(|cell| cell.family == "f" && cell.qualifier == b"e")
+                .find(|cell| cell.family == "f")
                 .map(|cell| marshalling::from_slice(&cell.value).expect("TODO"))
         });
-
+        if let Some(e) = &entry {
+            assert_eq!(e.index, index);
+        }
         trace!(
             realm = ?realm,
             group = ?group,
@@ -534,10 +650,12 @@ impl StoreClient {
                     row_keys: Vec::new(),
                     row_ranges: vec![RowRange {
                         start_key: Some(StartKeyClosed(log_key(group, LogIndex(u64::MAX)))),
-                        end_key: None,
+                        end_key: Some(EndKeyClosed(log_key(group, LogIndex::FIRST))),
                     }],
                 }),
-                filter: None,
+                filter: Some(RowFilter {
+                    filter: Some(Filter::CellsPerRowLimitFilter(1)),
+                }),
                 rows_limit: 1,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
             },
@@ -547,7 +665,7 @@ impl StoreClient {
         let entry = rows.into_iter().next().and_then(|(_key, cells)| {
             cells
                 .into_iter()
-                .find(|cell| cell.family == "f" && cell.qualifier == b"e")
+                .find(|cell| cell.family == "f")
                 .map(|cell| marshalling::from_slice(&cell.value).expect("TODO"))
         });
 
@@ -777,6 +895,18 @@ mod tests {
         assert_eq!(
             format!("{}/tables/{}", instance.path(), discovery_table_brief()),
             expected
+        );
+    }
+
+    #[test]
+    fn test_downward_logindex() {
+        assert_eq!(
+            [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe],
+            DownwardLogIndex(LogIndex(1)).bytes()
+        );
+        assert_eq!(
+            [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd],
+            DownwardLogIndex(LogIndex(2)).bytes()
         );
     }
 

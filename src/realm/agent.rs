@@ -2,6 +2,7 @@ use bytes::Bytes;
 use future::join_all;
 use futures::channel::oneshot;
 use futures::{future, Future};
+use hsmcore::hsm::types::{DataHash, LogEntry};
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -26,10 +27,10 @@ use super::super::http_client::{Client, ClientOptions};
 use super::hsm::client::{HsmClient, Transport};
 use super::merkle;
 use super::rpc::{handle_rpc, HandlerError};
-use super::store::bigtable;
+use super::store::bigtable::{self};
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
-    Configuration, DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, TransferInProofs,
+    Configuration, EntryHmac, GroupId, HsmId, LogIndex, TransferInProofs,
 };
 use hsmcore::hsm::{types as hsm_types, HsmElection};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
@@ -76,9 +77,9 @@ struct LeaderState {
 }
 
 #[derive(Debug)]
-struct Append {
+pub struct Append {
     pub entry: LogEntry,
-    pub delta: Option<StoreDelta<DataHash>>,
+    pub delta: StoreDelta<DataHash>,
 }
 
 #[derive(Debug)]
@@ -114,16 +115,14 @@ impl<T: Transport + 'static> Agent<T> {
     }
 
     fn start_watching(&self, realm: RealmId, group: GroupId, next_index: LogIndex) {
-        let name = self.0.name.clone();
-        let hsm = self.0.hsm.clone();
-        let store = self.0.store.clone();
+        let state = self.0.clone();
 
-        trace!(agent = name, realm = ?realm, group = ?group, ?next_index, "start watching log");
+        trace!(agent = state.name, realm = ?realm, group = ?group, ?next_index, "start watching log");
 
         tokio::spawn(async move {
             let mut next_index = next_index;
             loop {
-                match store.read_log_entry(&realm, &group, next_index).await {
+                match state.store.read_log_entry(&realm, &group, next_index).await {
                     Err(e) => todo!("{e:?}"),
                     Ok(None) => {
                         // TODO: how would we tell if the log was truncated?
@@ -131,8 +130,15 @@ impl<T: Transport + 'static> Agent<T> {
                     }
                     Ok(Some(entry)) => {
                         let index = entry.index;
-                        trace!(agent = name, ?realm, ?group, ?index, "found log entry");
-                        match hsm
+                        trace!(
+                            agent = state.name,
+                            ?realm,
+                            ?group,
+                            ?index,
+                            "found log entry"
+                        );
+                        match state
+                            .hsm
                             .send(CaptureNextRequest {
                                 realm,
                                 group,
@@ -142,7 +148,7 @@ impl<T: Transport + 'static> Agent<T> {
                         {
                             Err(_) => todo!(),
                             Ok(CaptureNextResponse::Ok { hsm_id, .. }) => {
-                                trace!(agent = name, ?realm, ?group, hsm=?hsm_id, ?index,
+                                trace!(agent = state.name, ?realm, ?group, hsm=?hsm_id, ?index,
                                     "HSM captured entry");
                                 // TODO: cache capture statement
                                 next_index = next_index.next();
@@ -549,8 +555,8 @@ impl<T: Transport + 'static> Agent<T> {
             .append(
                 &new_realm_response.realm,
                 &new_realm_response.group,
-                &new_realm_response.entry,
-                &new_realm_response.delta.unwrap_or_default(),
+                &[new_realm_response.entry],
+                new_realm_response.delta,
             )
             .await
         {
@@ -646,8 +652,8 @@ impl<T: Transport + 'static> Agent<T> {
             .append(
                 &realm,
                 &new_group_response.group,
-                &new_group_response.entry,
-                &new_group_response.delta.unwrap_or_default(),
+                &[new_group_response.entry],
+                new_group_response.delta,
             )
             .await
         {
@@ -1034,7 +1040,14 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
             Ok(HsmResponse::NotTransferring) => Ok(Response::Ok),
             Ok(HsmResponse::Ok(entry)) => {
-                self.append(request.realm, request.source, Append { entry, delta: None });
+                self.append(
+                    request.realm,
+                    request.source,
+                    Append {
+                        entry,
+                        delta: StoreDelta::default(),
+                    },
+                );
                 Ok(Response::Ok)
             }
         }
@@ -1187,38 +1200,42 @@ impl<T: Transport + 'static> Agent<T> {
     /// Precondition: `leader.appending` is Appending because this task is the one
     /// doing the appending.
     async fn keep_appending(&self, realm: RealmId, group: GroupId, next: LogIndex) {
-        let store = self.0.store.clone();
         let mut next = next;
+        let mut batch = Vec::new();
+        const MAX_BATCH_SIZE: usize = 100;
         loop {
-            let request = {
+            let mut delta = StoreDelta::default();
+            batch.clear();
+            {
                 let mut locked = self.0.state.lock().unwrap();
                 let Some(leader) = locked.leader.get_mut(&(realm, group)) else {
                     return;
                 };
                 assert!(matches!(leader.appending, Appending));
-                let Some(request) = leader.append_queue.remove(&next) else {
+                while let Some(request) = leader.append_queue.remove(&next) {
+                    batch.push(request.entry);
+                    if delta.is_empty() {
+                        delta = request.delta;
+                    } else {
+                        delta.squash(request.delta);
+                    }
+                    next = next.next();
+                    if batch.len() >= MAX_BATCH_SIZE {
+                        break;
+                    }
+                }
+                if batch.is_empty() {
                     leader.appending = NotAppending { next };
                     return;
-                };
-                request
-            };
+                }
+            }
 
-            match store
-                .append(
-                    &realm,
-                    &group,
-                    &request.entry,
-                    &request.delta.unwrap_or_default(),
-                )
-                .await
-            {
+            match self.0.store.append(&realm, &group, &batch, delta).await {
                 Err(bigtable::AppendError::LogPrecondition) => {
                     todo!("stop leading")
                 }
                 Err(_) => todo!(),
-                Ok(()) => {
-                    next = next.next();
-                }
+                Ok(()) => {}
             }
         }
     }
