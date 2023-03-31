@@ -11,6 +11,7 @@ use tracing::info;
 use hsmcore::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::http_client;
 use loam_mvp::logging;
+use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_sdk::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
@@ -18,7 +19,6 @@ use loam_sdk::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
 mod common;
 use common::certs::create_localhost_key_and_cert;
 use common::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
-use common::process_group::ProcessGroup;
 
 #[tokio::main]
 async fn main() {
