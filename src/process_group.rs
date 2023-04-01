@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{info, warn};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ProcessGroup(Arc<Mutex<Vec<ProcessKiller>>>);
 
 impl ProcessGroup {
