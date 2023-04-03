@@ -3,16 +3,26 @@ use std::{
     sync::atomic::{AtomicU16, Ordering},
     time::Duration,
 };
-use tokio::time::sleep;
+use tokio::time::{self, sleep};
 
 use hsmcore::{
-    hsm::types::{EntryHmac, GroupId, LogEntry, LogIndex},
-    merkle::agent::StoreDelta,
+    bitvec::BitVec,
+    hsm::{
+        types::{EntryHmac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId},
+        MerkleHasher,
+    },
+    merkle::{
+        agent::{StoreDelta, StoreKey},
+        Tree,
+    },
 };
 use loam_mvp::{
     process_group::ProcessGroup,
-    realm::store::bigtable::{
-        AppendError::LogPrecondition, BigTableArgs, StoreAdminClient, StoreClient,
+    realm::{
+        merkle::agent::{self, TreeStoreReader},
+        store::bigtable::{
+            AppendError::LogPrecondition, BigTableArgs, StoreAdminClient, StoreClient,
+        },
     },
 };
 use loam_sdk_core::types::RealmId;
@@ -171,6 +181,7 @@ async fn read_log_entry() {
 async fn last_log_entry_does_not_cross_groups() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator()).await;
+    let (_, delta) = Tree::new_tree(&MerkleHasher(), &OwnedRange::full());
 
     for g in &[GROUP_1, GROUP_2, GROUP_3] {
         assert!(data.read_last_log_entry(&REALM, g).await.unwrap().is_none());
@@ -184,7 +195,7 @@ async fn last_log_entry_does_not_cross_groups() {
     };
 
     // with a row in group 1, other groups should still see an empty log
-    data.append(&REALM, &GROUP_1, &[entry1.clone()], StoreDelta::default())
+    data.append(&REALM, &GROUP_1, &[entry1.clone()], delta)
         .await
         .expect("should of appended log entry");
     assert_eq!(
@@ -293,6 +304,65 @@ async fn batch_hmac_chain_verified() {
     let _ = data
         .append(&REALM, &GROUP_1, &entries, StoreDelta::default())
         .await;
+}
+
+#[tokio::test]
+async fn append_store_delta() {
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator()).await;
+    let entries = create_log_batch(LogIndex::FIRST, EntryHmac([0; 32].into()), 4);
+    let (starting_root, delta) = Tree::new_tree(&MerkleHasher(), &OwnedRange::full());
+
+    data.append(&REALM, &GROUP_3, &entries, delta)
+        .await
+        .unwrap();
+
+    // get a readproof, mutate the merkle tree and append the changes to the store.
+    let rp = agent::read(
+        &REALM,
+        &data,
+        &OwnedRange::full(),
+        &starting_root,
+        &RecordId([1; 32]),
+    )
+    .await
+    .unwrap();
+    let mut tree = Tree::with_existing_root(MerkleHasher(), starting_root, 15);
+    let vp = tree.latest_proof(rp).unwrap();
+    let (new_root, delta) = tree.insert(vp, vec![1, 2, 3]).unwrap();
+    let last_log_entry = entries.last().unwrap();
+    let entries = create_log_batch(
+        last_log_entry.index.next(),
+        last_log_entry.entry_hmac.clone(),
+        1,
+    );
+    // Verify the original root is readable.
+    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
+        .await
+        .unwrap();
+
+    // Apply the delta, the original root, and the new root should both be
+    // readable until the deferred delete kicks in.
+    time::pause();
+    data.append(&REALM, &GROUP_3, &entries, delta)
+        .await
+        .unwrap();
+
+    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
+        .await
+        .unwrap();
+    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &new_root))
+        .await
+        .unwrap();
+
+    time::advance(Duration::from_secs(6)).await;
+    // The deferred delete should of executed and the original root deleted.
+    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
+        .await
+        .expect_err("should of failed to find node");
+    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &new_root))
+        .await
+        .unwrap();
 }
 
 fn create_log_batch(first_idx: LogIndex, prev_hmac: EntryHmac, count: usize) -> Vec<LogEntry> {

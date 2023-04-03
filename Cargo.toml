@@ -120,6 +120,7 @@ async-recursion = { workspace = true }
 criterion = { workspace = true }
 hex-literal = { workspace = true }
 rand_chacha = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [lib]
 doctest = false
