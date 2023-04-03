@@ -14,7 +14,7 @@ System dependencies:
 Then:
 
 * `cargo test --all` to run the unit tests
-* `cargo build && cargo run --bin demo` to run the demo aka "integration test"
+* `cargo build && cargo run --bin demo_runner -- --demo target/debug/demo` to run the demo aka "integration test"
 
 
 ### Cross Compile

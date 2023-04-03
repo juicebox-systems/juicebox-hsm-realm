@@ -1,235 +1,55 @@
-use futures::future::{join_all, try_join_all};
-use http::Uri;
-use loam_sdk_core::types::{AuthToken, Policy};
+use clap::Parser;
+use loam_sdk_core::types::Policy;
 use loam_sdk_networking::rpc::LoadBalancerService;
-use reqwest::{Certificate, Url};
+use reqwest::Certificate;
+
 use std::fs;
-use std::net::SocketAddr;
-use std::process::Command;
+use std::path::PathBuf;
 use tracing::info;
 
-use hsmcore::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::http_client;
 use loam_mvp::logging;
-use loam_mvp::process_group::ProcessGroup;
-use loam_mvp::realm::cluster;
-use loam_mvp::realm::store::bigtable::BigTableArgs;
-use loam_sdk::{Client, Configuration, Pin, Realm, RecoverError, UserSecret};
+use loam_sdk::{Client, Pin, RecoverError, UserSecret};
 
-mod common;
-use common::certs::create_localhost_key_and_cert;
-use common::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
+#[derive(Parser)]
+#[command(about = "A rust demo of the loam-sdk")]
+struct Args {
+    /// The SDK client configuration information, as a JSON string
+    #[arg(short, long)]
+    configuration: String,
+
+    /// The SDK client auth token, as a JSON string
+    #[arg(short, long)]
+    auth_token: String,
+
+    /// Name of the file containing the certificate(s) used by the load balancer for terminating TLS.
+    #[arg(long)]
+    tls_cert: PathBuf,
+}
 
 #[tokio::main]
 async fn main() {
     logging::configure("loam-demo");
 
-    let mut process_group = ProcessGroup::new();
+    let args = Args::parse();
 
-    let mut process_group_alias = process_group.clone();
-    ctrlc::set_handler(move || {
-        info!(pid = std::process::id(), "received termination signal");
-        logging::flush();
-        process_group_alias.kill();
-        info!(pid = std::process::id(), "exiting");
-        std::process::exit(0);
-    })
-    .expect("error setting signal handler");
-
-    let bt_args = BigTableArgs {
-        inst: String::from("inst"),
-        project: String::from("prj"),
-        url: Some(Uri::from_static("http://localhost:9000")),
-    };
-    let store = bt_args
-        .connect_data()
-        .await
-        .expect("Unable to connect to Bigtable");
-
-    let store_admin = bt_args
-        .connect_admin()
-        .await
-        .expect("Unable to connect to Bigtable admin");
-
-    info!("initializing service discovery table");
-    store_admin.initialize_discovery().await.expect("TODO");
-
-    let (key_file, cert_file) = create_localhost_key_and_cert("target".into())
-        .expect("Failed to create TLS key/cert for load balancer");
+    let configuration =
+        serde_json::from_str(&args.configuration).expect("failed to parse configuration");
+    let auth_token = serde_json::from_str(&args.auth_token).expect("failed to parse auth_token");
 
     let lb_cert =
-        Certificate::from_pem(&fs::read(&cert_file).expect("failed to read certificate file"))
+        Certificate::from_pem(&fs::read(&args.tls_cert).expect("failed to read certificate file"))
             .expect("failed to decode certificate file");
 
-    let num_load_balancers = 2;
-    info!(count = num_load_balancers, "creating load balancers");
-    let load_balancers: Vec<Url> = (1..=num_load_balancers)
-        .map(|i| {
-            let address = SocketAddr::from(([127, 0, 0, 1], 3000 + i));
-            let mut cmd = Command::new(format!(
-                "target/{}/load_balancer",
-                if cfg!(debug_assertions) {
-                    "debug"
-                } else {
-                    "release"
-                }
-            ));
-            cmd.arg("--tls-cert")
-                .arg(cert_file.clone())
-                .arg("--tls-key")
-                .arg(key_file.clone())
-                .arg("--listen")
-                .arg(address.to_string());
-            bt_args.add_to_cmd(&mut cmd);
-            process_group.spawn(&mut cmd);
-            Url::parse(&format!("https://localhost:{}", address.port())).unwrap()
-        })
-        .collect();
-
-    let mut hsm_generator = HsmGenerator::new(Entrust(false), 4000);
-
-    let num_hsms = 5;
-    info!(count = num_hsms, "creating initial HSMs and agents");
-    let group1 = hsm_generator
-        .create_hsms(
-            num_hsms,
-            MetricsParticipants::None,
-            &mut process_group,
-            &bt_args,
-        )
-        .await;
-    let (realm_id, group_id1) = cluster::new_realm(&group1).await.unwrap();
-    info!(?realm_id, group_id = ?group_id1, "initialized cluster");
-    let realm1_public_key = hsm_generator.public_communication_key();
-
-    info!("creating additional groups");
-    let group2 = hsm_generator
-        .create_hsms(5, MetricsParticipants::None, &mut process_group, &bt_args)
-        .await;
-    let group3 = hsm_generator
-        .create_hsms(4, MetricsParticipants::None, &mut process_group, &bt_args)
-        .await;
-
-    let mut groups = try_join_all([
-        cluster::new_group(realm_id, &group2),
-        cluster::new_group(realm_id, &group3),
-        cluster::new_group(realm_id, &group1),
-    ])
-    .await
-    .unwrap();
-    info!(?realm_id, new_groups = ?groups, "created groups");
-
-    groups.insert(0, group_id1);
-    info!(
-        source = ?groups[0],
-        destination = ?groups[1],
-        "transferring ownership of entire uid-space"
-    );
-    cluster::transfer(realm_id, groups[0], groups[1], OwnedRange::full(), &store)
-        .await
-        .unwrap();
-
-    info!("growing the cluster to 4 partitions");
-    cluster::transfer(
-        realm_id,
-        groups[1],
-        groups[2],
-        OwnedRange {
-            start: RecordId::min_id(),
-            end: RecordId([0x80; 32]),
-        },
-        &store,
-    )
-    .await
-    .unwrap();
-
-    cluster::transfer(
-        realm_id,
-        groups[1],
-        groups[0],
-        OwnedRange {
-            start: RecordId([0x80; 32]).next().unwrap(),
-            end: RecordId([0xA0; 32]),
-        },
-        &store,
-    )
-    .await
-    .unwrap();
-
-    cluster::transfer(
-        realm_id,
-        groups[2],
-        groups[3],
-        OwnedRange {
-            start: RecordId([0x40; 32]),
-            end: RecordId([0x80; 32]),
-        },
-        &store,
-    )
-    .await
-    .unwrap();
-
-    // moving part of a partition to another group.
-    cluster::transfer(
-        realm_id,
-        groups[2],
-        groups[3],
-        OwnedRange {
-            start: RecordId([0x30; 32]),
-            end: RecordId([0x40; 32]).prev().unwrap(),
-        },
-        &store,
-    )
-    .await
-    .unwrap();
-
-    info!("creating additional realms");
-    let mut realms = join_all([5000, 6000, 7000].map(|start_port| {
-        let mut hsm_generator = HsmGenerator::new(Entrust(false), start_port);
-        let mut process_group = process_group.clone();
-        let bigtable = bt_args.clone();
-        async move {
-            let agents = hsm_generator
-                .create_hsms(
-                    num_hsms,
-                    MetricsParticipants::None,
-                    &mut process_group,
-                    &bigtable,
-                )
-                .await;
-            let realm_id = cluster::new_realm(&agents).await.unwrap().0;
-            let public_key = hsm_generator.public_communication_key();
-            (realm_id, public_key)
-        }
-    }))
-    .await;
-    realms.push((realm_id, realm1_public_key));
-
-    let mut lb = load_balancers.iter().cycle();
     let client: Client<http_client::Client<LoadBalancerService>> = Client::new(
-        Configuration {
-            realms: realms
-                .into_iter()
-                .map(|(id, public_key)| Realm {
-                    address: lb.next().unwrap().clone(),
-                    id,
-                    public_key,
-                })
-                .collect(),
-            register_threshold: 3,
-            recover_threshold: 3,
-        },
-        AuthToken {
-            tenant: String::from("test"),
-            user: String::from("mario"),
-            signature: b"it's-a-me!".to_vec(),
-        },
+        configuration,
+        auth_token,
         http_client::Client::new(http_client::ClientOptions {
             additional_root_certs: vec![lb_cert],
         }),
     );
 
-    println!("main: Starting register (allowing 2 guesses)");
+    info!("Starting register (allowing 2 guesses)");
     client
         .register(
             &Pin(b"1234".to_vec()),
@@ -238,49 +58,51 @@ async fn main() {
         )
         .await
         .expect("register failed");
-    println!("main: register succeeded");
-    println!();
+    info!("Register succeeded");
 
-    println!("main: Starting recover with wrong PIN (guess 1)");
+    info!("Starting recover with wrong PIN (guess 1)");
     match client.recover(&Pin(b"1212".to_vec())).await {
-        Err(RecoverError::Unsuccessful(_)) => { /* ok */ }
+        Err(RecoverError::Unsuccessful(_)) => {
+            info!("Recover expectedly unsuccessful")
+        }
         result => panic!("Unexpected result from recover: {result:?}"),
     };
-    println!();
 
-    println!("main: Starting recover with correct PIN (guess 2)");
+    info!("Starting recover with correct PIN (guess 2)");
     let secret = client
         .recover(&Pin(b"1234".to_vec()))
         .await
         .expect("recover failed");
-    println!(
-        "main: Recovered secret {:?}",
-        String::from_utf8_lossy(&secret.0)
+    info!(
+        secret = String::from_utf8_lossy(&secret.0).to_string(),
+        "Recovered secret"
     );
-    println!();
 
-    println!("main: Starting recover with wrong PIN (guess 1)");
+    info!("Starting recover with wrong PIN (guess 1)");
     match client.recover(&Pin(b"1212".to_vec())).await {
-        Err(RecoverError::Unsuccessful(_)) => { /* ok */ }
+        Err(RecoverError::Unsuccessful(_)) => {
+            info!("Recover expectedly unsuccessful")
+        }
         result => panic!("Unexpected result from recover: {result:?}"),
     };
-    println!();
 
-    println!("main: Starting recover with wrong PIN (guess 2)");
+    info!("Starting recover with wrong PIN (guess 2)");
     match client.recover(&Pin(b"1212".to_vec())).await {
-        Err(RecoverError::Unsuccessful(_)) => { /* ok */ }
+        Err(RecoverError::Unsuccessful(_)) => {
+            info!("Recover expectedly unsuccessful")
+        }
         result => panic!("Unexpected result from recover: {result:?}"),
     };
-    println!();
 
-    println!("main: Starting recover with correct PIN (guess 3)");
+    info!("Starting recover with correct PIN (guess 3)");
     match client.recover(&Pin(b"1234".to_vec())).await {
-        Err(RecoverError::Unsuccessful(_)) => { /* ok */ }
+        Err(RecoverError::Unsuccessful(_)) => {
+            info!("Recover expectedly unsuccessful")
+        }
         result => panic!("Unexpected result from recover: {result:?}"),
     };
-    println!();
 
-    println!("main: Starting register");
+    info!("Starting register");
     client
         .register(
             &Pin(b"4321".to_vec()),
@@ -289,32 +111,28 @@ async fn main() {
         )
         .await
         .expect("register failed");
-    println!("main: register succeeded");
-    println!();
+    info!("register succeeded");
 
-    println!("main: Starting recover with correct PIN (guess 1)");
+    info!("Starting recover with correct PIN (guess 1)");
     let secret = client
         .recover(&Pin(b"4321".to_vec()))
         .await
         .expect("recover failed");
-    println!(
-        "main: Recovered secret {:?}",
-        String::from_utf8_lossy(&secret.0)
+    info!(
+        secret = String::from_utf8_lossy(&secret.0).to_string(),
+        "Recovered secret"
     );
 
-    println!("main: Deleting secret");
+    info!("Deleting secret");
     match client.delete_all().await {
         Ok(()) => {
-            println!("main: delete succeeded");
+            info!("delete succeeded");
         }
         Err(e) => {
-            println!("main: warning: delete failed: {e:?}");
+            info!(error = ?e, "delete failed");
         }
     }
-    println!();
 
-    info!(pid = std::process::id(), "main: done");
-    process_group.kill();
     logging::flush();
-    info!(pid = std::process::id(), "main: exiting");
+    info!(pid = std::process::id(), "exiting");
 }
