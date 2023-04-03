@@ -355,7 +355,13 @@ async fn append_store_delta() {
         .await
         .unwrap();
 
-    time::advance(Duration::from_secs(6)).await;
+    // This is not as clean as it might first look. tokio::time will auto advance
+    // time when it thinks there's nothing to do. The read's above might trigger
+    // that condition. There's no way to turn auto-advance off. This sleep should
+    // ensure that the deferred delete was executed by now. But it may of already
+    // executed before now. Given all this, its important above that starting_root
+    // is read first.
+    time::sleep(Duration::from_secs(6)).await;
     // The deferred delete should of executed and the original root deleted.
     data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
         .await
