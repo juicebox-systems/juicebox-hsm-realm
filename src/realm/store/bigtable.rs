@@ -756,8 +756,23 @@ impl StoreClient {
     }
 
     #[instrument(level = "trace", skip(self))]
-    pub async fn set_address(&self, hsm: &HsmId, address: &Url) -> Result<(), tonic::Status> {
+    pub async fn set_address(
+        &self,
+        hsm: &HsmId,
+        address: &Url,
+        // timestamp of the registration, typically SystemTime::now()
+        timestamp: SystemTime,
+    ) -> Result<(), tonic::Status> {
         trace!(?hsm, address = address.as_str(), "set_address starting");
+        // Come back before April 11 2262 to fix this.
+        let timestamp_micros = (timestamp
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            * 1000)
+            .try_into()
+            .unwrap(); // timestamps are in microseconds, but need to be rounded to milliseconds (or coarser depending on table schema).
+
         let MutateRowResponse { /* empty */ } = self
             .bigtable
             .clone()
@@ -775,7 +790,7 @@ impl StoreClient {
                     mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
                         family_name: String::from("f"),
                         column_qualifier: b"a".to_vec(),
-                        timestamp_micros: -1,
+                        timestamp_micros,
                         value: address.as_str().as_bytes().to_vec(),
                     })),
                 }],

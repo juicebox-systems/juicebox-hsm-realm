@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::{self, sleep};
@@ -419,7 +419,11 @@ impl<T: Transport + 'static> Agent<T> {
             let hsm_id = fn_hsm_id().await;
             info!(hsm=?hsm_id, url=%url, "registering agent with service discovery");
             loop {
-                if let Err(e) = agent.store.set_address(&hsm_id, &url).await {
+                if let Err(e) = agent
+                    .store
+                    .set_address(&hsm_id, &url, SystemTime::now())
+                    .await
+                {
                     warn!(err = ?e, "failed to register with service discovery");
                     sleep(bigtable::DISCOVERY_REGISTER_INTERVAL / 10).await;
                 } else {

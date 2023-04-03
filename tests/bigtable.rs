@@ -1,14 +1,15 @@
+use reqwest::Url;
 use std::{
     process::Command,
     sync::atomic::{AtomicU16, Ordering},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tokio::time::{self, sleep};
 
 use hsmcore::{
     bitvec::BitVec,
     hsm::{
-        types::{EntryHmac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId},
+        types::{EntryHmac, GroupId, HsmId, LogEntry, LogIndex, OwnedRange, RecordId},
         MerkleHasher,
     },
     merkle::{
@@ -21,7 +22,7 @@ use loam_mvp::{
     realm::{
         merkle::agent::{self, TreeStoreReader},
         store::bigtable::{
-            AppendError::LogPrecondition, BigTableArgs, StoreAdminClient, StoreClient,
+            self, AppendError::LogPrecondition, BigTableArgs, StoreAdminClient, StoreClient,
         },
     },
 };
@@ -389,4 +390,51 @@ fn create_log_batch(first_idx: LogIndex, prev_hmac: EntryHmac, count: usize) -> 
         entries.push(e);
     }
     entries
+}
+
+#[tokio::test]
+async fn service_discovery() {
+    let mut pg = ProcessGroup::new();
+    let (admin, data) = init_bt(&mut pg, emulator()).await;
+
+    admin.initialize_discovery().await.unwrap();
+    assert!(data.get_addresses().await.unwrap().is_empty());
+
+    let url1: Url = "http://localhost:9999".parse().unwrap();
+    let hsm1 = HsmId([5; 16]);
+    let url2: Url = "http://localhost:9998".parse().unwrap();
+    let hsm2 = HsmId([1; 16]);
+
+    // Should be able to read what we just wrote.
+    data.set_address(&hsm1, &url1, SystemTime::now())
+        .await
+        .unwrap();
+    assert_eq!(
+        vec![(hsm1, url1.clone())],
+        data.get_addresses().await.unwrap()
+    );
+
+    data.set_address(&hsm2, &url2, SystemTime::now())
+        .await
+        .unwrap();
+    let mut addresses = data.get_addresses().await.unwrap();
+    assert_eq!(2, addresses.len());
+    // addresses are returned in no specific order.
+    if addresses[0].0 != hsm1 {
+        addresses.swap(0, 1);
+    }
+    assert_eq!(vec![(hsm1, url1.clone()), (hsm2, url2.clone())], addresses);
+
+    // reading with an old timestamp should result in it being expired.
+    data.set_address(
+        &hsm1,
+        &url1,
+        SystemTime::now() - bigtable::DISCOVERY_EXPIRY_AGE - Duration::from_secs(1),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        vec![(hsm2, url2.clone())],
+        data.get_addresses().await.unwrap()
+    );
 }
