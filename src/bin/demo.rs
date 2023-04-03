@@ -44,12 +44,12 @@ async fn main() {
     let store = bt_args
         .connect_data()
         .await
-        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable: {e}"));
+        .expect("Unable to connect to Bigtable");
 
     let store_admin = bt_args
         .connect_admin()
         .await
-        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable admin: {e}"));
+        .expect("Unable to connect to Bigtable admin");
 
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");

@@ -68,7 +68,7 @@ async fn main() {
         .bigtable
         .connect_admin()
         .await
-        .unwrap_or_else(|e| panic!("Unable to connect to Bigtable admin: {e}"));
+        .expect("Unable to connect to Bigtable admin");
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
 
