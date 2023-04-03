@@ -32,6 +32,7 @@ const GROUP_1: GroupId = GroupId([1; 16]);
 const GROUP_2: GroupId = GroupId([3; 16]);
 const GROUP_3: GroupId = GroupId([15; 16]);
 
+// rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: AtomicU16 = AtomicU16::new(8222);
 
 fn emulator() -> BigTableArgs {
