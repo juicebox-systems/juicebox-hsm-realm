@@ -16,8 +16,8 @@ use std::time::Duration;
 use tokio::time::sleep;
 use url::Url;
 
-use super::process_group::ProcessGroup;
 use loam_mvp::http_client::{self, ClientOptions};
+use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::agent::types::{AgentService, StatusRequest};
 
 type AgentClient = http_client::Client<AgentService>;

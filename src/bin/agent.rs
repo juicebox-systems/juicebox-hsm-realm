@@ -54,8 +54,17 @@ async fn main() {
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
 
-    let store = args.bigtable.connect_data().await;
-    let store_admin = args.bigtable.connect_admin().await;
+    let store = args
+        .bigtable
+        .connect_data()
+        .await
+        .expect("Unable to connect to Bigtable");
+
+    let store_admin = args
+        .bigtable
+        .connect_admin()
+        .await
+        .expect("Unable to connect to Bigtable admin");
 
     let hsm_t = HsmHttpClient::new(args.hsm);
     let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);

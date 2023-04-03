@@ -300,7 +300,7 @@ impl<'a> TransferStatementBuilder<'a> {
     }
 }
 
-struct MerkleHasher();
+pub struct MerkleHasher();
 impl NodeHasher<DataHash> for MerkleHasher {
     fn calc_hash(&self, parts: &[&[u8]]) -> DataHash {
         let mut h = Sha256::new();

@@ -13,6 +13,7 @@ use tracing::{debug, info};
 
 use loam_mvp::http_client;
 use loam_mvp::logging;
+use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_sdk::{Client, Configuration, Pin, Realm, UserSecret};
@@ -20,7 +21,6 @@ use loam_sdk::{Client, Configuration, Pin, Realm, UserSecret};
 mod common;
 use common::certs::create_localhost_key_and_cert;
 use common::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
-use common::process_group::ProcessGroup;
 
 #[derive(Debug, Parser)]
 #[command(about = "An end-to-end benchmark to stress an HSM")]
@@ -64,7 +64,11 @@ async fn main() {
     let args = Args::parse();
     info!(?args, "Parsed command-line args");
 
-    let store_admin = args.bigtable.connect_admin().await;
+    let store_admin = args
+        .bigtable
+        .connect_admin()
+        .await
+        .expect("Unable to connect to Bigtable admin");
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
 
