@@ -197,7 +197,7 @@ async fn last_log_entry_does_not_cross_groups() {
     // with a row in group 1, other groups should still see an empty log
     data.append(&REALM, &GROUP_1, &[entry1.clone()], delta)
         .await
-        .expect("should of appended log entry");
+        .expect("should have appended log entry");
     assert_eq!(
         data.read_last_log_entry(&REALM, &GROUP_1)
             .await
@@ -223,7 +223,7 @@ async fn last_log_entry_does_not_cross_groups() {
     };
     data.append(&REALM, &GROUP_3, &[entry3.clone()], StoreDelta::default())
         .await
-        .expect("should of appended log entry");
+        .expect("should have appended log entry");
     assert!(data
         .read_last_log_entry(&REALM, &GROUP_2)
         .await
@@ -362,10 +362,10 @@ async fn append_store_delta() {
     // executed before now. Given all this, its important above that starting_root
     // is read first.
     time::sleep(Duration::from_secs(6)).await;
-    // The deferred delete should of executed and the original root deleted.
+    // The deferred delete should have executed and the original root be deleted.
     data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
         .await
-        .expect_err("should of failed to find node");
+        .expect_err("should have failed to find node");
     data.read_node(&REALM, StoreKey::new(&BitVec::new(), &new_root))
         .await
         .unwrap();
