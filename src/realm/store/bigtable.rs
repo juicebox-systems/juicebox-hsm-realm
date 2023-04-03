@@ -19,13 +19,13 @@ use std::fmt::Write;
 use std::ops::Deref;
 use std::process::Command;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::time::sleep;
 use tonic::codegen::InterceptedService;
 use tonic::service::Interceptor;
 use tonic::transport::{Channel, Endpoint, Error};
 use tonic::Status;
-use tracing::{info, instrument, trace};
+use tracing::{debug, info, instrument, trace, warn};
 use url::Url;
 
 mod mutate;
@@ -46,6 +46,12 @@ type BigtableTableAdminClient =
 type BigtableClient = google::bigtable::v2::bigtable_client::BigtableClient<
     InterceptedService<Channel, AuthInterceptor>,
 >;
+
+/// Agents should register themselves with service discovery this often.
+pub const DISCOVERY_REGISTER_INTERVAL: Duration = Duration::from_secs(60 * 10);
+
+/// Discovery records that haven't been updated in at least this log will be expired and deleted.
+pub const DISCOVERY_EXPIRY_AGE: Duration = Duration::from_secs(60 * 21);
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct BigTableArgs {
@@ -686,21 +692,57 @@ impl StoreClient {
         )
         .await?;
 
-        let addresses: Vec<(HsmId, Url)> = rows
-            .into_iter()
-            .filter_map(|(row_key, cells)| {
-                cells
-                    .into_iter()
-                    .find(|cell| cell.family == "f" && cell.qualifier == b"a")
-                    .and_then(|cell| String::from_utf8(cell.value).ok())
-                    .and_then(|url| Url::parse(&url).ok())
-                    .map(|url| {
+        let mut addresses = Vec::with_capacity(rows.len());
+        let mut expired = Vec::new();
+        let expire_when_before = SystemTime::now() - DISCOVERY_EXPIRY_AGE;
+        for (row_key, cells) in rows {
+            for cell in cells {
+                if cell.family == "f" && cell.qualifier == b"a" {
+                    let written_at =
+                        SystemTime::UNIX_EPOCH + Duration::from_micros(cell.timestamp as u64);
+                    if written_at < expire_when_before {
+                        expired.push(row_key.0.clone());
+                    } else if let Some(url) = String::from_utf8(cell.value)
+                        .ok()
+                        .and_then(|url| Url::parse(&url).ok())
+                    {
                         let mut hsm = HsmId([0u8; 16]);
                         hsm.0.copy_from_slice(&row_key.0);
-                        (hsm, url)
-                    })
-            })
-            .collect();
+                        addresses.push((hsm, url))
+                    }
+                }
+            }
+        }
+        if !expired.is_empty() {
+            let mut bigtable = self.bigtable.clone();
+            let table = discovery_table(&self.instance);
+            tokio::spawn(async move {
+                let len = expired.len();
+                let r = mutate_rows(
+                    &mut bigtable,
+                    MutateRowsRequest {
+                        table_name: table,
+                        app_profile_id: String::new(),
+                        entries: expired
+                            .into_iter()
+                            .map(|key| mutate_rows_request::Entry {
+                                row_key: key,
+                                mutations: vec![Mutation {
+                                    mutation: Some(mutation::Mutation::DeleteFromRow(
+                                        mutation::DeleteFromRow {},
+                                    )),
+                                }],
+                            })
+                            .collect(),
+                    },
+                )
+                .await;
+                match r {
+                    Err(e) => warn!(error = ?e, "failed to remove expired discovery entries"),
+                    Ok(_) => debug!(num=?len, "removed expired discovery entries"),
+                }
+            });
+        }
 
         trace!(
             num_addresses = addresses.len(),
@@ -724,6 +766,12 @@ impl StoreClient {
                 app_profile_id: String::new(),
                 row_key: hsm.0.to_vec(),
                 mutations: vec![Mutation {
+                    mutation: Some(mutation::Mutation::DeleteFromColumn(mutation::DeleteFromColumn {
+                        family_name: String::from("f"),
+                        column_qualifier: b"a".to_vec(),
+                        time_range:None,
+                    })),
+                },Mutation {
                     mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
                         family_name: String::from("f"),
                         column_qualifier: b"a".to_vec(),
