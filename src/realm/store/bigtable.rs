@@ -786,7 +786,8 @@ impl StoreClient {
                         column_qualifier: b"a".to_vec(),
                         time_range:None,
                     })),
-                },Mutation {
+                },
+                Mutation {
                     mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
                         family_name: String::from("f"),
                         column_qualifier: b"a".to_vec(),
