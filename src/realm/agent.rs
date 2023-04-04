@@ -1085,10 +1085,10 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(HsmResponse::DecodingError) => Ok(Response::DecodingError),
             Ok(HsmResponse::Ok {
                 noise,
-                session_lifetime_millis,
+                session_lifetime,
             }) => Ok(Response::Ok(NoiseResponse::Handshake {
                 noise,
-                session_lifetime_millis,
+                session_lifetime,
             })),
         }
     }

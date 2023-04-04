@@ -6,6 +6,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::{self, Debug};
+use core::time::Duration;
 use digest::Digest;
 use hashbrown::HashMap; // TODO: randomize hasher
 use hkdf::Hkdf;
@@ -53,7 +54,7 @@ use types::{
 ///
 /// The agent or load balancer could override this default with a more
 /// sophisticated estimate, so it's OK for this to be a constant here.
-const SESSION_LIFETIME_MILLIS: u32 = 5000;
+const SESSION_LIFETIME: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct RealmKey(digest::Key<Hmac<Sha256>>);
@@ -1540,7 +1541,7 @@ impl<P: Platform> Hsm<P> {
                                             );
                                             Response::Ok {
                                                 noise: response,
-                                                session_lifetime_millis: SESSION_LIFETIME_MILLIS,
+                                                session_lifetime: SESSION_LIFETIME,
                                             }
                                         }
                                         Err(_) => Response::SessionError,
@@ -1871,7 +1872,7 @@ impl NoiseHelper {
                 (
                     NoiseResponse::Handshake {
                         noise: handshake_response,
-                        session_lifetime_millis: SESSION_LIFETIME_MILLIS,
+                        session_lifetime: SESSION_LIFETIME,
                     },
                     transport,
                 )

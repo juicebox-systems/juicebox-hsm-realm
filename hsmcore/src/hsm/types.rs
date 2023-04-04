@@ -2,6 +2,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use core::fmt;
+use core::time::Duration;
 use hmac::Hmac;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -590,7 +591,7 @@ pub struct HandshakeRequest {
 pub enum HandshakeResponse {
     Ok {
         noise: noise::HandshakeResponse,
-        session_lifetime_millis: u32,
+        session_lifetime: Duration,
     },
     InvalidRealm,
     InvalidGroup,
