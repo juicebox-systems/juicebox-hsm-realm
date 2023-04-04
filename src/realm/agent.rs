@@ -1068,7 +1068,7 @@ impl<T: Transport + 'static> Agent<T> {
                 record_id: request.record_id,
                 session_id: request.session_id,
                 handshake: match request.encrypted {
-                    NoiseRequest::Handshake(h) => h,
+                    NoiseRequest::Handshake { handshake } => handshake,
                     NoiseRequest::Transport { .. } => {
                         unreachable!("handle_handshake shouldn't be used for Transport requests");
                     }
@@ -1087,7 +1087,7 @@ impl<T: Transport + 'static> Agent<T> {
                 noise,
                 session_lifetime,
             }) => Ok(Response::Ok(NoiseResponse::Handshake {
-                noise,
+                handshake: noise,
                 session_lifetime,
             })),
         }

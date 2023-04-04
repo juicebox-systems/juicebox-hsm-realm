@@ -1817,7 +1817,7 @@ impl NoiseHelper {
         rng: &mut dyn CryptoRng,
     ) -> Result<(Self, SecretsRequest), AppError> {
         let (message, secrets_request) = match encrypted {
-            NoiseRequest::Handshake(handshake) => {
+            NoiseRequest::Handshake { handshake } => {
                 let (handshake, payload) = noise::Handshake::start(
                     (&realm_communication.0, &realm_communication.1),
                     handshake,
@@ -1833,7 +1833,7 @@ impl NoiseHelper {
                 (NoiseHelperState::Handshake(handshake), secrets_request)
             }
 
-            NoiseRequest::Transport(ciphertext) => {
+            NoiseRequest::Transport { ciphertext } => {
                 let mut transport = sessions
                     .remove(&(record_id.clone(), session_id))
                     .ok_or(AppError::MissingSession)?;
@@ -1871,7 +1871,7 @@ impl NoiseHelper {
                     .expect("Noise handshake encryption error");
                 (
                     NoiseResponse::Handshake {
-                        noise: handshake_response,
+                        handshake: handshake_response,
                         session_lifetime: SESSION_LIFETIME,
                     },
                     transport,
@@ -1881,7 +1881,7 @@ impl NoiseHelper {
                 let ciphertext = transport
                     .encrypt(&response)
                     .expect("Noise transport encryption error");
-                (NoiseResponse::Transport(ciphertext), transport)
+                (NoiseResponse::Transport { ciphertext }, transport)
             }
         };
 
