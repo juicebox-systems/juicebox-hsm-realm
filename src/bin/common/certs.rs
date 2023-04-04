@@ -1,7 +1,7 @@
 use std::{fs, io, path::PathBuf, process::Command};
 
 /// Creates a self signed cert & key for localhost in the specified directory.
-/// Returns the key file & cert file, both files are in PEM format.
+/// Returns the key file & cert file in PEM format, as well as the cert file in DER format.
 pub fn create_localhost_key_and_cert(dir: PathBuf) -> io::Result<(PathBuf, PathBuf, PathBuf)> {
     let cfg = include_str!("openssl_req.txt");
     let config_file = dir.join("openssl_req.txt");
