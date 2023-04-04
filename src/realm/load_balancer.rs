@@ -192,27 +192,40 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
 
         Box::pin(
             async move {
-                let request = marshalling::from_slice(request.collect().await?.to_bytes().as_ref())
-                    .expect("TODO");
-                let realms = state.realms.lock().unwrap().clone();
-                let mut response =
-                    handle_client_request(&request, &state.name, &realms, &state.agent_client)
-                        .await;
+                let response =
+                    match marshalling::from_slice(request.collect().await?.to_bytes().as_ref()) {
+                        Err(_) => ClientResponse::DecodingError,
+                        Ok(request) => {
+                            let realms = state.realms.lock().unwrap().clone();
+                            match handle_client_request(
+                                &request,
+                                &state.name,
+                                &realms,
+                                &state.agent_client,
+                            )
+                            .await
+                            {
+                                ClientResponse::Unavailable => {
+                                    // retry with refreshed info about realm endpoints
+                                    let refreshed_realms = Arc::new(
+                                        refresh(&state.name, &state.store, &state.agent_client)
+                                            .await,
+                                    );
+                                    *state.realms.lock().unwrap() = refreshed_realms.clone();
 
-                if matches!(response, ClientResponse::Unavailable) {
-                    // retry with refreshed info about realm endpoints
-                    let refreshed_realms =
-                        Arc::new(refresh(&state.name, &state.store, &state.agent_client).await);
-                    *state.realms.lock().unwrap() = refreshed_realms.clone();
+                                    handle_client_request(
+                                        &request,
+                                        &state.name,
+                                        &refreshed_realms,
+                                        &state.agent_client,
+                                    )
+                                    .await
+                                }
+                                response => response,
+                            }
+                        }
+                    };
 
-                    response = handle_client_request(
-                        &request,
-                        &state.name,
-                        &refreshed_realms,
-                        &state.agent_client,
-                    )
-                    .await;
-                }
                 trace!(load_balancer = state.name, ?response);
                 Ok(Response::builder()
                     .body(Full::new(Bytes::from(
@@ -261,7 +274,9 @@ async fn handle_client_request(
                 realm: request.realm,
                 group: partition.group,
                 record_id: record_id.clone(),
-                request: request.request.clone(),
+                session_id: request.session_id,
+                kind: request.kind,
+                encrypted: request.encrypted.clone(),
             },
         )
         .await
@@ -295,7 +310,10 @@ async fn handle_client_request(
             }
 
             Ok(AppResponse::Ok(response)) => return Response::Ok(response),
-        }
+            Ok(AppResponse::MissingSession) => return Response::MissingSession,
+            Ok(AppResponse::SessionError) => return Response::SessionError,
+            Ok(AppResponse::DecodingError) => return Response::DecodingError,
+        };
     }
 
     Response::Unavailable

@@ -1,5 +1,8 @@
 [workspace]
 members = ["codegen", "entrust-agent", "entrust-hsm", "hsmcore"]
+# This allows the sdk packages to reference their workspace (for dependencies
+# and such), rather than this one.
+exclude = ["sdk"]
 
 [package]
 name = "loam-mvp"
@@ -26,10 +29,15 @@ hdrhistogram = { version = "7.5.2", default-features = false }
 hex-literal = "0.3.4"
 hkdf = "0.12.3"
 hmac = "0.12.1"
+hsmcore = { path = "hsmcore" }
 http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
 libc = { version = "0.2.139", default-features = false }
+loam-sdk = { path = "sdk/rust/sdk/client" }
+loam-sdk-core = { path = "sdk/rust/sdk/core" }
+loam-sdk-networking = { path = "sdk/rust/sdk/networking" }
+loam-sdk-noise = { path = "sdk/rust/sdk/noise" }
 nix = { version = "0.26.2", default-features = false, features = ["signal"] }
 opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
 opentelemetry-http = "0.7.0"
@@ -41,13 +49,14 @@ rand_core = "0.6.4"
 rand_chacha = "0.3.1"
 rustls = "0.20.8"
 rustls-pemfile = "1.0"
-reqwest = { version = "0.11.14", default-features = false, features = [ "rustls-tls" ] }
+reqwest = { version = "0.11.14", default-features = false, features = [
+    "rustls-tls",
+] }
 serde = { version = "1.0.152", default-features = false, features = [
     "alloc",
     "derive",
 ] }
 sha2 = { version = "0.10.6", default-features = false }
-sharks = "0.5.0"
 signal-hook = "0.3.15"
 subtle = { version = "2.4.1", default-features = false }
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros"] }
@@ -63,9 +72,12 @@ tracing-opentelemetry = { version = "*" }
 tracing-subscriber = { version = "*" }
 url = { version = "2.3.1", features = ["serde"] }
 voprf = { version = "0.4.0" }
-loam-sdk = { path = "sdk/rust/sdk/client" }
-loam-sdk-core = { path = "sdk/rust/sdk/core" }
-loam-sdk-networking = { path = "sdk/rust/sdk/networking" }
+x25519-dalek = { version = "2.0.0-pre.1", default-features = false, features = [
+    "reusable_secrets",
+    "serde",
+    "u64_backend",      # TODO: need 32-bit on HSMs
+] }
+
 
 [dependencies]
 async-trait = { workspace = true }
@@ -76,10 +88,14 @@ digest = { workspace = true }
 futures = { workspace = true }
 hdrhistogram = { workspace = true }
 hmac = { workspace = true }
+hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 libc = { workspace = true }
+loam-sdk = { workspace = true }
+loam-sdk-core = { workspace = true }
+loam-sdk-networking = { workspace = true }
 nix = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
@@ -92,7 +108,6 @@ rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
-sharks = { workspace = true }
 signal-hook = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
@@ -102,10 +117,7 @@ tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 voprf = { workspace = true }
-hsmcore = { path = "hsmcore" }
-loam-sdk = { workspace = true }
-loam-sdk-core = { workspace = true }
-loam-sdk-networking = { workspace = true }
+x25519-dalek = { workspace = true }
 
 
 [patch.crates-io]

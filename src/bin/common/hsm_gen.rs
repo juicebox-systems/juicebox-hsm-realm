@@ -15,6 +15,7 @@ use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
 use url::Url;
+use x25519_dalek as x25519;
 
 use loam_mvp::http_client::{self, ClientOptions};
 use loam_mvp::process_group::ProcessGroup;
@@ -48,6 +49,22 @@ impl HsmGenerator {
             port: start_port..,
             entrust,
         }
+    }
+
+    pub fn public_communication_key(&self) -> Vec<u8> {
+        // TODO: This is all an insecure placeholder.
+        use hmac::Hmac;
+        use hmac::Mac;
+        let mut mac = Hmac::<sha2::Sha512>::new_from_slice(b"worlds worst secret").expect("TODO");
+        mac.update(self.secret.as_bytes());
+        let realm_key = mac.finalize().into_bytes();
+
+        let secret = {
+            let mut buf = [0u8; 32];
+            buf.copy_from_slice(&realm_key.as_slice()[..32]);
+            x25519::StaticSecret::from(buf)
+        };
+        x25519::PublicKey::from(&secret).to_bytes().to_vec()
     }
 
     pub async fn create_hsms(

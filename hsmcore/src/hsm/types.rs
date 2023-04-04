@@ -2,6 +2,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use core::fmt;
+use core::time::Duration;
 use hmac::Hmac;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -9,9 +10,10 @@ use sha2::Sha256;
 use super::super::bitvec::{BitVec, Bits};
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
 use loam_sdk_core::{
-    requests::{SecretsRequest, SecretsResponse},
-    types::RealmId,
+    requests::{NoiseRequest, NoiseResponse},
+    types::{RealmId, SessionId},
 };
+use loam_sdk_noise::server as noise;
 
 #[derive(Copy, Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct GroupId(pub [u8; 16]);
@@ -37,7 +39,7 @@ impl fmt::Debug for HsmId {
     }
 }
 
-#[derive(Clone, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct RecordId(pub [u8; 32]);
 impl RecordId {
     pub fn num_bits() -> usize {
@@ -453,7 +455,7 @@ pub struct CommitRequest {
 pub enum CommitResponse {
     Ok {
         committed: Option<LogIndex>,
-        responses: Vec<(EntryHmac, SecretsResponse)>,
+        responses: Vec<(EntryHmac, NoiseResponse)>,
     },
     AlreadyCommitted {
         committed: LogIndex,
@@ -577,11 +579,36 @@ pub enum CompleteTransferResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct HandshakeRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+    pub record_id: RecordId,
+    pub session_id: SessionId,
+    pub handshake: noise::HandshakeRequest,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum HandshakeResponse {
+    Ok {
+        noise: noise::HandshakeResponse,
+        session_lifetime: Duration,
+    },
+    InvalidRealm,
+    InvalidGroup,
+    NotOwner,
+    NotLeader,
+    MissingSession,
+    SessionError,
+    DecodingError,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AppRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub record_id: RecordId,
-    pub request: SecretsRequest,
+    pub session_id: SessionId,
+    pub encrypted: NoiseRequest,
     pub index: LogIndex,
     pub proof: ReadProof<DataHash>,
 }
@@ -600,6 +627,41 @@ pub enum AppResponse {
     NotOwner,
     NotLeader,
     InvalidRecordData,
+    MissingSession,
+    SessionError,
+    DecodingError,
+}
+
+/// The error types from [`AppResponse`], used internally in the HSM
+/// processing.
+pub enum AppError {
+    InvalidRealm,
+    InvalidGroup,
+    StaleProof,
+    InvalidProof,
+    NotOwner,
+    NotLeader,
+    InvalidRecordData,
+    MissingSession,
+    SessionError,
+    DecodingError,
+}
+
+impl From<AppError> for AppResponse {
+    fn from(e: AppError) -> Self {
+        match e {
+            AppError::InvalidRealm => Self::InvalidRealm,
+            AppError::InvalidGroup => Self::InvalidGroup,
+            AppError::StaleProof => Self::StaleProof,
+            AppError::InvalidProof => Self::InvalidProof,
+            AppError::NotOwner => Self::NotOwner,
+            AppError::NotLeader => Self::NotLeader,
+            AppError::InvalidRecordData => Self::InvalidRecordData,
+            AppError::MissingSession => Self::MissingSession,
+            AppError::SessionError => Self::SessionError,
+            AppError::DecodingError => Self::DecodingError,
+        }
+    }
 }
 
 #[cfg(test)]

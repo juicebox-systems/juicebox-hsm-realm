@@ -26,6 +26,7 @@ pub extern "C" fn rust_main() -> isize {
         HsmOptions {
             name: String::from("entrust"),
             tree_overlay_size: 511,
+            max_sessions: 511,
         },
         NCipher,
         RealmKey::derive_from("010203".as_bytes()),

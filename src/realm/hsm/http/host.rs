@@ -76,6 +76,7 @@ impl HttpHsm {
             HsmOptions {
                 name,
                 tree_overlay_size: 511,
+                max_sessions: 511,
             },
             StdPlatform,
             realm_key,

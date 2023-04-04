@@ -100,6 +100,7 @@ async fn main() {
         .await;
     let (realm_id, group_id1) = cluster::new_realm(&group1).await.unwrap();
     info!(?realm_id, group_id = ?group_id1, "initialized cluster");
+    let realm1_public_key = hsm_generator.public_communication_key();
 
     info!("creating additional groups");
     let group2 = hsm_generator
@@ -183,7 +184,7 @@ async fn main() {
     .unwrap();
 
     info!("creating additional realms");
-    let mut realm_ids = join_all([5000, 6000, 7000].map(|start_port| {
+    let mut realms = join_all([5000, 6000, 7000].map(|start_port| {
         let mut hsm_generator = HsmGenerator::new(Entrust(false), start_port);
         let mut process_group = process_group.clone();
         let bigtable = bt_args.clone();
@@ -196,37 +197,25 @@ async fn main() {
                     &bigtable,
                 )
                 .await;
-            cluster::new_realm(&agents).await.unwrap().0
+            let realm_id = cluster::new_realm(&agents).await.unwrap().0;
+            let public_key = hsm_generator.public_communication_key();
+            (realm_id, public_key)
         }
     }))
     .await;
-    realm_ids.push(realm_id);
+    realms.push((realm_id, realm1_public_key));
 
     let mut lb = load_balancers.iter().cycle();
     let client: Client<http_client::Client<LoadBalancerService>> = Client::new(
         Configuration {
-            realms: vec![
-                Realm {
+            realms: realms
+                .into_iter()
+                .map(|(id, public_key)| Realm {
                     address: lb.next().unwrap().clone(),
-                    public_key: b"qwer".to_vec(),
-                    id: realm_ids[0],
-                },
-                Realm {
-                    address: lb.next().unwrap().clone(),
-                    public_key: b"asdf".to_vec(),
-                    id: realm_ids[1],
-                },
-                Realm {
-                    address: lb.next().unwrap().clone(),
-                    public_key: b"zxcv".to_vec(),
-                    id: realm_ids[2],
-                },
-                Realm {
-                    address: lb.next().unwrap().clone(),
-                    public_key: b"uiop".to_vec(),
-                    id: realm_ids[3],
-                },
-            ],
+                    id,
+                    public_key,
+                })
+                .collect(),
             register_threshold: 3,
             recover_threshold: 3,
         },

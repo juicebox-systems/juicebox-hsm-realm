@@ -35,7 +35,7 @@ use hsm_types::{
 use hsmcore::hsm::{types as hsm_types, HsmElection};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
-use loam_sdk_core::requests::SecretsResponse;
+use loam_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use loam_sdk_core::types::RealmId;
 use loam_sdk_networking::rpc::{self, Rpc, RpcError};
 use types::{
@@ -73,7 +73,7 @@ struct LeaderState {
     /// This serves as a mutex to prevent multiple concurrent appends to the
     /// store.
     appending: AppendingState,
-    response_channels: HashMap<EntryHmac, oneshot::Sender<SecretsResponse>>,
+    response_channels: HashMap<EntryHmac, oneshot::Sender<NoiseResponse>>,
 }
 
 #[derive(Debug)]
@@ -179,7 +179,6 @@ impl<T: Transport + 'static> Agent<T> {
         }));
     }
 
-    #[instrument(level = "trace", skip(self), fields(released_count))]
     async fn collect_captures_inner(
         &self,
         name: &str,
@@ -1053,8 +1052,60 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
+    /// Called by `handle_app` to process [`AppRequest`]s of type Handshake
+    /// that don't have a payload. Unlike other [`AppRequest`]s, these don't
+    /// require dealing with the log or Merkle tree.
+    async fn handle_handshake(&self, request: AppRequest) -> Result<AppResponse, HandlerError> {
+        type Response = AppResponse;
+        type HsmResponse = hsm_types::HandshakeResponse;
+
+        match self
+            .0
+            .hsm
+            .send(hsm_types::HandshakeRequest {
+                realm: request.realm,
+                group: request.group,
+                record_id: request.record_id,
+                session_id: request.session_id,
+                handshake: match request.encrypted {
+                    NoiseRequest::Handshake { handshake } => handshake,
+                    NoiseRequest::Transport { .. } => {
+                        unreachable!("handle_handshake shouldn't be used for Transport requests");
+                    }
+                },
+            })
+            .await
+        {
+            Err(_) => Ok(Response::NoHsm),
+            Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
+            Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
+            Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => Ok(Response::NotLeader),
+            Ok(HsmResponse::MissingSession) => Ok(Response::MissingSession),
+            Ok(HsmResponse::SessionError) => Ok(Response::SessionError),
+            Ok(HsmResponse::DecodingError) => Ok(Response::DecodingError),
+            Ok(HsmResponse::Ok {
+                noise,
+                session_lifetime,
+            }) => Ok(Response::Ok(NoiseResponse::Handshake {
+                handshake: noise,
+                session_lifetime,
+            })),
+        }
+    }
+
+    /// The top-level handler for all [`AppRequest`]s. This deals with requests
+    /// of type Transport and of type Handshake that have a payload. It
+    /// delegates requests of type Handshake that don't have a payload, since
+    /// those can be handled more efficiently without dealing with the log or
+    /// Merkle tree.
     async fn handle_app(&self, request: AppRequest) -> Result<AppResponse, HandlerError> {
         type Response = AppResponse;
+
+        match request.kind {
+            ClientRequestKind::HandshakeOnly => return self.handle_handshake(request).await,
+            ClientRequestKind::SecretsRequest => { /* handled here, below */ }
+        }
+
         let realm = request.realm;
         let group = request.group;
 
@@ -1066,7 +1117,7 @@ impl<T: Transport + 'static> Agent<T> {
         match result {
             Err(response) => Ok(response),
             Ok(append_request) => {
-                let (sender, receiver) = oneshot::channel::<SecretsResponse>();
+                let (sender, receiver) = oneshot::channel::<NoiseResponse>();
 
                 {
                     let mut locked = self.0.state.lock().unwrap();
@@ -1141,7 +1192,8 @@ async fn start_app_request<T: Transport>(
                 realm: request.realm,
                 group: request.group,
                 record_id: request.record_id.clone(),
-                request: request.request.clone(),
+                session_id: request.session_id,
+                encrypted: request.encrypted.clone(),
                 index: entry.index,
                 proof,
             })
@@ -1162,6 +1214,9 @@ async fn start_app_request<T: Transport>(
             Ok(HsmResponse::InvalidProof) => return Err(Response::InvalidProof),
             // TODO, is this right? if we can't decrypt the leaf, then the proof is likely bogus.
             Ok(HsmResponse::InvalidRecordData) => return Err(Response::InvalidProof),
+            Ok(HsmResponse::MissingSession) => return Err(Response::MissingSession),
+            Ok(HsmResponse::SessionError) => return Err(Response::SessionError),
+            Ok(HsmResponse::DecodingError) => return Err(Response::DecodingError),
 
             Ok(HsmResponse::Ok { entry, delta }) => {
                 trace!(
