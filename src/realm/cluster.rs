@@ -460,7 +460,7 @@ async fn find_leaders(
             Ok(_) => {}
 
             Err(err) => {
-                warn!(?agent, ?err, "could not get status");
+                warn!(%agent, ?err, "could not get status");
             }
         }
     }

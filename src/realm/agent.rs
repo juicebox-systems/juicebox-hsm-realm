@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::{self, sleep};
@@ -375,32 +375,7 @@ impl<T: Transport + 'static> Agent<T> {
         let listener = TcpListener::bind(address).await?;
         let url = Url::parse(&format!("http://{address}")).unwrap();
 
-        let hsm = &self.0.hsm;
-        let store = &self.0.store;
-
-        // Wait for the HSM to be up and register it.
-        //
-        // TODO: we shouldn't wait here. Other code needs to handle failures,
-        // since HSMs can go down at any later point.
-        for attempt in 1.. {
-            match hsm.send(hsm_types::StatusRequest {}).await {
-                Err(e) => {
-                    warn!(?e, "failed to connect to HSM");
-                    if attempt >= 1000 {
-                        panic!("failed to connect to HSM: {e:?}");
-                    }
-                    sleep(Duration::from_millis(1)).await;
-                }
-                Ok(hsm_types::StatusResponse { id, .. }) => {
-                    info!(?id, %url, "hsm id");
-                    if let Err(e) = store.set_address(&id, &url).await {
-                        todo!("{e}")
-                    }
-                    break;
-                }
-            };
-        }
-
+        self.start_service_registration(url.clone());
         Ok((
             url,
             tokio::spawn(async move {
@@ -422,6 +397,37 @@ impl<T: Transport + 'static> Agent<T> {
                 }
             }),
         ))
+    }
+
+    fn start_service_registration(&self, url: Url) {
+        let agent = self.0.clone();
+        tokio::spawn(async move {
+            let fn_hsm_id = || async {
+                loop {
+                    match agent.hsm.send(hsm_types::StatusRequest {}).await {
+                        Err(e) => {
+                            warn!(err=?e, "failed to connect to HSM");
+                            sleep(Duration::from_millis(10)).await;
+                        }
+                        Ok(hsm_types::StatusResponse { id, .. }) => return id,
+                    }
+                }
+            };
+            let hsm_id = fn_hsm_id().await;
+            info!(hsm=?hsm_id, url=%url, "registering agent with service discovery");
+            loop {
+                if let Err(e) = agent
+                    .store
+                    .set_address(&hsm_id, &url, SystemTime::now())
+                    .await
+                {
+                    warn!(err = ?e, "failed to register with service discovery");
+                    sleep(bigtable::DISCOVERY_REGISTER_INTERVAL / 10).await;
+                } else {
+                    sleep(bigtable::DISCOVERY_REGISTER_INTERVAL).await;
+                }
+            }
+        });
     }
 }
 
