@@ -72,7 +72,7 @@ async fn main() {
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
 
-    let (key_file, cert_file) = create_localhost_key_and_cert("target".into())
+    let (key_file, cert_file, _) = create_localhost_key_and_cert("target".into())
         .expect("Failed to create TLS key/cert for load balancer");
 
     let lb_cert =

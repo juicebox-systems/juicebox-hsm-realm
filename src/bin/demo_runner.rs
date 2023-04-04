@@ -4,6 +4,7 @@ use http::Uri;
 use loam_sdk_core::types::AuthToken;
 use reqwest::Url;
 
+use std::env::current_dir;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Command;
@@ -66,8 +67,9 @@ async fn main() {
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
 
-    let (key_file, cert_file) = create_localhost_key_and_cert("target".into())
-        .expect("Failed to create TLS key/cert for load balancer");
+    let (key_file, cert_file, cert_der_file) =
+        create_localhost_key_and_cert(current_dir().unwrap().join("target"))
+            .expect("Failed to create TLS key/cert for load balancer");
 
     let num_load_balancers = 2;
     info!(count = num_load_balancers, "creating load balancers");
@@ -236,8 +238,8 @@ async fn main() {
     info!(pid = std::process::id(), "runner: executing demo");
 
     Command::new(args.demo)
-        .arg("--tls-cert")
-        .arg(cert_file.clone())
+        .arg("--tls-certificate")
+        .arg(cert_der_file.clone())
         .arg("--configuration")
         .arg(serde_json::to_string(&configuration).unwrap())
         .arg("--auth-token")

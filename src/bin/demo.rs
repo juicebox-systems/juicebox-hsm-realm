@@ -24,7 +24,7 @@ struct Args {
 
     /// Name of the file containing the certificate(s) used by the load balancer for terminating TLS.
     #[arg(long)]
-    tls_cert: PathBuf,
+    tls_certificate: PathBuf,
 }
 
 #[tokio::main]
@@ -37,9 +37,10 @@ async fn main() {
         serde_json::from_str(&args.configuration).expect("failed to parse configuration");
     let auth_token = serde_json::from_str(&args.auth_token).expect("failed to parse auth_token");
 
-    let lb_cert =
-        Certificate::from_pem(&fs::read(&args.tls_cert).expect("failed to read certificate file"))
-            .expect("failed to decode certificate file");
+    let lb_cert = Certificate::from_der(
+        &fs::read(&args.tls_certificate).expect("failed to read certificate file"),
+    )
+    .expect("failed to decode certificate file");
 
     let client: Client<http_client::Client<LoadBalancerService>> = Client::new(
         configuration,
