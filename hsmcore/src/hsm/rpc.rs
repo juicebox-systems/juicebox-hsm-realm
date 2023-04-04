@@ -9,11 +9,12 @@ use super::super::hal::Nanos;
 use super::types::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
     CaptureNextResponse, CommitRequest, CommitResponse, CompleteTransferRequest,
-    CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
-    JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
-    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse, TransferInRequest,
-    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
-    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
+    CompleteTransferResponse, HandshakeRequest, HandshakeResponse, JoinGroupRequest,
+    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
+    NewRealmRequest, NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest,
+    StatusResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
+    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
+    TransferStatementResponse,
 };
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
@@ -59,6 +60,7 @@ pub enum HsmRequest {
     TransferStatement(TransferStatementRequest),
     TransferIn(TransferInRequest),
     CompleteTransfer(CompleteTransferRequest),
+    HandshakeRequest(HandshakeRequest),
     AppRequest(AppRequest),
 }
 
@@ -79,6 +81,7 @@ impl HsmRequest {
             HsmRequest::TransferStatement(_) => "TransferStatement",
             HsmRequest::TransferIn(_) => "TransferIn",
             HsmRequest::CompleteTransfer(_) => "CompleteTransfer",
+            HsmRequest::HandshakeRequest(_) => "HandshakeRequest",
             HsmRequest::AppRequest(_) => "AppRequest",
         }
     }
@@ -166,6 +169,12 @@ impl HsmRpc for CompleteTransferRequest {
     type Response = CompleteTransferResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::CompleteTransfer(self)
+    }
+}
+impl HsmRpc for HandshakeRequest {
+    type Response = HandshakeResponse;
+    fn to_req(self) -> HsmRequest {
+        HsmRequest::HandshakeRequest(self)
     }
 }
 impl HsmRpc for AppRequest {

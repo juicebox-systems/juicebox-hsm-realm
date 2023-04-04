@@ -7,8 +7,8 @@ use hsm_types::{
 };
 use hsmcore::hsm::types as hsm_types;
 use loam_sdk_core::{
-    requests::{SecretsRequest, SecretsResponse},
-    types::RealmId,
+    requests::{ClientRequestKind, NoiseRequest, NoiseResponse},
+    types::{RealmId, SessionId},
 };
 use loam_sdk_networking::rpc::{Rpc, Service};
 
@@ -298,19 +298,24 @@ pub struct AppRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub record_id: RecordId,
-    pub request: SecretsRequest,
+    pub session_id: SessionId,
+    pub kind: ClientRequestKind,
+    pub encrypted: NoiseRequest,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum AppResponse {
-    Ok(SecretsResponse),
+    Ok(NoiseResponse),
     NoHsm,
     NoStore,
     InvalidRealm,
     InvalidGroup,
     NotLeader,
     InvalidProof,
+    MissingSession,
+    SessionError,
+    DecodingError,
 }
 
 pub fn make_record_id(tenant: &str, user: &str) -> RecordId {

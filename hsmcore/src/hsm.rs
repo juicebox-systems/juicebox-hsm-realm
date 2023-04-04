@@ -12,34 +12,48 @@ use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use tracing::{info, trace, warn};
+use x25519_dalek as x25519;
 
 mod app;
+mod cache;
 pub mod rpc;
 pub mod types;
 
-use self::rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
-use self::types::Partition;
-use super::hal::CryptoRng;
-use super::hal::{Clock, Nanos, Platform};
-use super::merkle::{agent::StoreDelta, proof::ProofError, MergeError, NodeHasher, Tree};
+use super::hal::{Clock, CryptoRng, Nanos, Platform};
+use super::merkle::{
+    agent::StoreDelta,
+    proof::{ProofError, ReadProof, VerifiedProof},
+    MergeError, NodeHasher, Tree,
+};
 use app::{RecordChange, RootOprfKey};
+use cache::Cache;
 use loam_sdk_core::{
     marshalling,
-    requests::{SecretsRequest, SecretsResponse},
-    types::RealmId,
+    requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse},
+    types::{RealmId, SessionId},
 };
+use loam_sdk_noise::server as noise;
+use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use types::{
-    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
-    CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse, CompleteTransferRequest,
-    CompleteTransferResponse, Configuration, DataHash, EntryHmac, GroupConfigurationStatement,
-    GroupId, GroupStatus, HsmId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
-    JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupInfo, NewGroupRequest,
-    NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange, ReadCapturedRequest,
-    ReadCapturedResponse, RealmStatus, StatusRequest, StatusResponse, TransferInRequest,
-    TransferInResponse, TransferNonce, TransferNonceRequest, TransferNonceResponse,
-    TransferOutRequest, TransferOutResponse, TransferStatement, TransferStatementRequest,
-    TransferStatementResponse, TransferringOut,
+    AppError, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
+    CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
+    CompleteTransferRequest, CompleteTransferResponse, Configuration, DataHash, EntryHmac,
+    GroupConfigurationStatement, GroupId, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId,
+    JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus,
+    LogEntry, LogIndex, NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest,
+    NewRealmResponse, OwnedRange, Partition, ReadCapturedRequest, ReadCapturedResponse,
+    RealmStatus, RecordId, StatusRequest, StatusResponse, TransferInRequest, TransferInResponse,
+    TransferNonce, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
+    TransferOutResponse, TransferStatement, TransferStatementRequest, TransferStatementResponse,
+    TransferringOut,
 };
+
+/// Returned in Noise handshake requests as a hint to the client of how long
+/// they should reuse an inactive session.
+///
+/// The agent or load balancer could override this default with a more
+/// sophisticated estimate, so it's OK for this to be a constant here.
+const SESSION_LIFETIME_MILLIS: u32 = 5000;
 
 #[derive(Clone)]
 pub struct RealmKey(digest::Key<Hmac<Sha256>>);
@@ -341,13 +355,15 @@ pub struct Hsm<P: Platform> {
 pub struct HsmOptions {
     pub name: String,
     pub tree_overlay_size: u16,
+    pub max_sessions: u16,
 }
 
 struct PersistentState {
     id: HsmId,
-    realm_key: RealmKey,
+    realm_key: RealmKey, // TODO: rename. This is used for MACs.
+    realm_communication: (x25519::StaticSecret, x25519::PublicKey),
     realm: Option<PersistentRealmState>,
-    root_oprf_key: RootOprfKey,
+    root_oprf_key: RootOprfKey, // TODO: switch to random per-generation OPRF keys.
 }
 
 struct PersistentRealmState {
@@ -369,14 +385,16 @@ struct LeaderVolatileGroupState {
     log: Vec<LeaderLogEntry>, // never empty
     committed: Option<LogIndex>,
     incoming: Option<TransferNonce>,
+    /// This is `Some` if and only if the last entry in `log` owns a partition.
     tree: Option<Tree<MerkleHasher, DataHash>>,
+    sessions: Cache<(RecordId, SessionId), noise::Transport>,
 }
 
 struct LeaderLogEntry {
     entry: LogEntry,
     /// A possible response to the client. This must not be externalized until
     /// after the entry has been committed.
-    response: Option<SecretsResponse>,
+    response: Option<NoiseResponse>,
 }
 
 #[derive(Debug)]
@@ -448,12 +466,23 @@ impl<P: Platform> Hsm<P> {
         let root_oprf_key = RootOprfKey::from(&realm_key);
         let record_key = RecordEncryptionKey::from(&realm_key);
         let hsm_id = HsmId::random(&mut platform);
+
+        let realm_communication = {
+            // TODO: This is an insecure placeholder.
+            let mut buf = [0u8; 32];
+            buf.copy_from_slice(&realm_key.0[..32]);
+            let secret = x25519::StaticSecret::from(buf);
+            let public = x25519::PublicKey::from(&secret);
+            (secret, public)
+        };
+
         Hsm {
             options,
             platform,
             persistent: PersistentState {
                 id: hsm_id,
                 realm_key,
+                realm_communication,
                 realm: None,
                 root_oprf_key,
             },
@@ -508,6 +537,9 @@ impl<P: Platform> Hsm<P> {
                 self.dispatch_request(metrics, r, Self::handle_complete_transfer)
             }
             HsmRequest::AppRequest(r) => self.dispatch_request(metrics, r, Self::handle_app),
+            HsmRequest::HandshakeRequest(r) => {
+                self.dispatch_request(metrics, r, Self::handle_handshake)
+            }
         }
     }
 
@@ -601,6 +633,7 @@ impl<P: Platform> Hsm<P> {
                         self.options.tree_overlay_size,
                     )
                 }),
+                sessions: Cache::new(usize::from(self.options.max_sessions)),
             },
         );
 
@@ -922,6 +955,7 @@ impl<P: Platform> Hsm<P> {
                     committed: None,
                     incoming: None,
                     tree,
+                    sessions: Cache::new(usize::from(self.options.max_sessions)),
                 });
             Response::Ok
         })();
@@ -1471,13 +1505,74 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
+    fn handle_handshake(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: HandshakeRequest,
+    ) -> HandshakeResponse {
+        type Response = HandshakeResponse;
+        trace!(hsm = self.options.name, ?request);
+
+        let response = match &self.persistent.realm {
+            Some(realm) if realm.id == request.realm => {
+                if realm.groups.contains_key(&request.group) {
+                    if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
+                        if (leader.log.last().unwrap().entry)
+                            .partition
+                            .as_ref()
+                            .filter(|partition| partition.range.contains(&request.record_id))
+                            .is_some()
+                        {
+                            match noise::Handshake::start(
+                                (
+                                    &self.persistent.realm_communication.0,
+                                    &self.persistent.realm_communication.1,
+                                ),
+                                &request.handshake,
+                                &mut self.platform,
+                            ) {
+                                Ok((handshake, payload)) if payload.is_empty() => {
+                                    match handshake.finish(&[]) {
+                                        Ok((transport, response)) => {
+                                            leader.sessions.insert(
+                                                (request.record_id, request.session_id),
+                                                transport,
+                                            );
+                                            Response::Ok {
+                                                noise: response,
+                                                session_lifetime_millis: SESSION_LIFETIME_MILLIS,
+                                            }
+                                        }
+                                        Err(_) => Response::SessionError,
+                                    }
+                                }
+                                _ => Response::SessionError,
+                            }
+                        } else {
+                            Response::NotOwner
+                        }
+                    } else {
+                        Response::NotLeader
+                    }
+                } else {
+                    Response::InvalidGroup
+                }
+            }
+
+            None | Some(_) => Response::InvalidRealm,
+        };
+
+        trace!(hsm = self.options.name, ?response);
+        response
+    }
+
     fn handle_app(&mut self, metrics: &mut Metrics<P>, request: AppRequest) -> AppResponse {
         type Response = AppResponse;
         trace!(hsm = self.options.name, ?request);
         let hsm_name = &self.options.name;
 
         let start = metrics.now();
-        let app_req_name = app_req_name(&request);
+        let mut app_req_name = None;
 
         let response = match &self.persistent.realm {
             Some(realm) if realm.id == request.realm => {
@@ -1499,6 +1594,8 @@ impl<P: Platform> Hsm<P> {
                                 &self.volatile.record_key,
                                 &self.persistent,
                                 leader,
+                                &mut app_req_name,
+                                &mut self.platform,
                             )
                         } else {
                             Response::NotOwner
@@ -1514,14 +1611,14 @@ impl<P: Platform> Hsm<P> {
             None | Some(_) => Response::InvalidRealm,
         };
 
-        metrics.record(app_req_name, start);
+        metrics.record(app_req_name.unwrap_or("App::unknown"), start);
         trace!(hsm = self.options.name, ?response);
         response
     }
 }
 
-fn app_req_name(r: &AppRequest) -> &'static str {
-    match &r.request {
+fn secrets_req_name(r: &SecretsRequest) -> &'static str {
+    match r {
         SecretsRequest::Register1(_) => "App::Register1",
         SecretsRequest::Register2(_) => "App::Register2",
         SecretsRequest::Recover1(_) => "App::Recover1",
@@ -1536,93 +1633,270 @@ fn handle_app_request(
     leaf_key: &RecordEncryptionKey,
     persistent: &PersistentState,
     leader: &mut LeaderVolatileGroupState,
+    req_name_out: &mut Option<&'static str>,
+    rng: &mut dyn CryptoRng,
 ) -> AppResponse {
-    type Response = AppResponse;
-    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
-
     let tree = leader
         .tree
         .as_mut()
-        .expect("caller verified we're the leader");
+        .expect("caller should have checked that this leader owns a partition");
 
-    let tree_latest_proof = match tree.latest_proof(request.proof.clone()) {
-        Ok(v) => v,
-        Err(ProofError::Stale) => {
-            info!(
-                r = ?request.proof.key,
-                root = ?request.proof.root_hash,
-                "stale proof trying to get current value"
-            );
-            return Response::StaleProof;
-        }
-        Err(ProofError::Invalid) => {
-            warn!("proof was flagged as invalid");
-            return Response::InvalidProof;
-        }
+    let (merkle, record) = match MerkleHelper::get_record(request.proof, leaf_key, tree) {
+        Ok(record) => record,
+        Err(response) => return response.into(),
     };
-    let latest_value = match &tree_latest_proof.leaf {
-        None => None,
-        Some(l) => {
-            let cipher = Aes256Gcm::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
-            let nonce = Nonce::from_slice(&tree_latest_proof.key.0[..12]);
-            let cipher_text: &[u8] = &l.value;
-            match cipher.decrypt(nonce, cipher_text) {
-                Ok(plain_text) => Some(plain_text),
-                Err(e) => {
-                    warn!(?e, "failed to decrypt leaf value");
-                    return Response::InvalidRecordData;
-                }
+
+    let (noise, secrets_request) = match NoiseHelper::decode(
+        request.record_id.clone(),
+        request.session_id,
+        &request.encrypted,
+        &mut leader.sessions,
+        &persistent.realm_communication,
+        rng,
+    ) {
+        Ok(secrets_request) => secrets_request,
+        Err(response) => return response.into(),
+    };
+
+    req_name_out.replace(secrets_req_name(&secrets_request));
+
+    let (secrets_response, change) = app::process(
+        app_ctx,
+        &request.record_id,
+        secrets_request,
+        record.as_deref(),
+    );
+
+    let secrets_response = noise.encode(secrets_response, &mut leader.sessions);
+
+    let (root_hash, store_delta) = merkle.update_overlay(change);
+
+    let new_entry = make_next_log_entry(
+        leader,
+        request.realm,
+        request.group,
+        root_hash,
+        &persistent.realm_key,
+    );
+    leader.log.push(LeaderLogEntry {
+        entry: new_entry.clone(),
+        response: Some(secrets_response),
+    });
+    AppResponse::Ok {
+        entry: new_entry,
+        delta: store_delta,
+    }
+}
+
+/// Used in [`handle_app_request`].
+struct MerkleHelper<'a> {
+    tree: &'a mut Tree<MerkleHasher, DataHash>,
+    leaf_key: &'a RecordEncryptionKey,
+    latest_proof: VerifiedProof<DataHash>,
+    update_num: u64,
+}
+
+impl<'a> MerkleHelper<'a> {
+    fn get_record(
+        request_proof: ReadProof<DataHash>,
+        leaf_key: &'a RecordEncryptionKey,
+        tree: &'a mut Tree<MerkleHasher, DataHash>,
+    ) -> Result<(Self, Option<Vec<u8>>), AppError> {
+        use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+
+        // TODO: do we check anywhere that `request_proof.key` matches `request.record_id`?
+
+        let latest_proof = match tree.latest_proof(request_proof) {
+            Ok(v) => v,
+            Err(ProofError::Stale) => {
+                info!("stale proof trying to get current value");
+                return Err(AppError::StaleProof);
             }
-        }
-    };
-    let last_entry = leader.log.last().unwrap();
+            Err(ProofError::Invalid) => {
+                warn!("proof was flagged as invalid");
+                return Err(AppError::InvalidProof);
+            }
+        };
 
-    // The last 8 bytes of the value are a sequential update number to stop leaf
-    // hashes repeating.
-    let (update_num, value) = match &latest_value {
-        Some(v) => {
-            let (record, update_num) = v.split_at(
-                v.len()
-                    .checked_sub(8)
-                    .expect("node should be at least 8 bytes"),
-            );
-            (
-                u64::from_be_bytes(update_num.try_into().unwrap()),
-                Some(record),
-            )
-        }
-        None => (0, None),
-    };
-    let (client_response, change) =
-        app::process(app_ctx, &request.record_id, request.request, value);
-    let (root_hash, delta) = match change {
-        Some(change) => match change {
-            RecordChange::Update(mut record) => {
+        let latest_value = match &latest_proof.leaf {
+            None => None,
+            Some(l) => {
                 let cipher =
                     Aes256Gcm::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
-                // TODO: can we use this nonce to help generate unique leaf hashes?
-                // TODO: can we use or add the previous root hash into this? (this seems hard as you need the same nonce to decode it)
-                let nonce = Nonce::from_slice(&tree_latest_proof.key.0[..12]);
-                record.extend_from_slice(&update_num.checked_add(1).unwrap().to_be_bytes());
-                let plain_text: &[u8] = &record;
-
-                // TODO: An optimization we could do is to use the authentication tag as the leaf's hash. Right now this is checking
-                // the integrity of the record twice: once in the Merkle tree hash and once in the AES GCM tag.
-                // We may also want to use the AD part of AEAD. For example, the generation number in the user's record isn't necessarily
-                // private and could allow the agent to reply to some queries without the HSM getting involved.
-                let cipher_text = cipher
-                    .encrypt(nonce, plain_text)
-                    .expect("couldn't encrypt record");
-
-                match tree.insert(tree_latest_proof, cipher_text) {
-                    Ok((root_hash, delta)) => (root_hash, delta),
-                    Err(ProofError::Stale) => return Response::StaleProof,
-                    Err(ProofError::Invalid) => return Response::InvalidProof,
+                let nonce = Nonce::from_slice(&latest_proof.key.0[..12]);
+                match cipher.decrypt(nonce, l.value.as_slice()) {
+                    Ok(plain_text) => Some(plain_text),
+                    Err(e) => {
+                        warn!(?e, "failed to decrypt leaf value");
+                        return Err(AppError::InvalidRecordData);
+                    }
                 }
             }
-        },
-        None => (*tree_latest_proof.root_hash(), StoreDelta::default()),
-    };
+        };
+
+        // The last 8 bytes of the value are a sequential update number to stop
+        // leaf hashes repeating.
+        let (update_num, latest_value) = match latest_value {
+            Some(mut v) => {
+                let split_at = v
+                    .len()
+                    .checked_sub(8)
+                    .expect("node should be at least 8 bytes");
+
+                let update_num = u64::from_be_bytes(v[split_at..].try_into().unwrap());
+                v.truncate(split_at);
+                (update_num, Some(v))
+            }
+            None => (0, None),
+        };
+
+        Ok((
+            MerkleHelper {
+                leaf_key,
+                tree,
+                latest_proof,
+                update_num,
+            },
+            latest_value,
+        ))
+    }
+
+    fn update_overlay(self, change: Option<RecordChange>) -> (DataHash, StoreDelta<DataHash>) {
+        use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+
+        match change {
+            Some(change) => match change {
+                RecordChange::Update(mut record) => {
+                    let cipher = Aes256Gcm::new_from_slice(&self.leaf_key.0)
+                        .expect("couldn't create cipher");
+                    // TODO: can we use this nonce to help generate unique leaf hashes?
+                    // TODO: can we use or add the previous root hash into this? (this seems hard as you need the same nonce to decode it)
+                    let nonce = Nonce::from_slice(&self.latest_proof.key.0[..12]);
+                    record
+                        .extend_from_slice(&self.update_num.checked_add(1).unwrap().to_be_bytes());
+                    let plain_text: &[u8] = &record;
+
+                    // TODO: An optimization we could do is to use the authentication tag as the leaf's hash. Right now this is checking
+                    // the integrity of the record twice: once in the Merkle tree hash and once in the AES GCM tag.
+                    // We may also want to use the AD part of AEAD. For example, the generation number in the user's record isn't necessarily
+                    // private and could allow the agent to reply to some queries without the HSM getting involved.
+                    let cipher_text = cipher
+                        .encrypt(nonce, plain_text)
+                        .expect("couldn't encrypt record");
+
+                    self.tree
+                        .insert(self.latest_proof, cipher_text)
+                        .expect("proof should be valid and current")
+                }
+            },
+            None => (*self.latest_proof.root_hash(), StoreDelta::default()),
+        }
+    }
+}
+
+/// Used in [`handle_app_request`].
+struct NoiseHelper {
+    record_id: RecordId,
+    session_id: SessionId,
+    state: NoiseHelperState,
+}
+
+enum NoiseHelperState {
+    Handshake(noise::Handshake),
+    Transport(noise::Transport),
+}
+
+impl NoiseHelper {
+    fn decode(
+        record_id: RecordId,
+        session_id: SessionId,
+        encrypted: &NoiseRequest,
+        sessions: &mut Cache<(RecordId, SessionId), noise::Transport>,
+        realm_communication: &(x25519::StaticSecret, x25519::PublicKey),
+        rng: &mut dyn CryptoRng,
+    ) -> Result<(Self, SecretsRequest), AppError> {
+        let (message, secrets_request) = match encrypted {
+            NoiseRequest::Handshake(handshake) => {
+                let (handshake, payload) = noise::Handshake::start(
+                    (&realm_communication.0, &realm_communication.1),
+                    handshake,
+                    rng,
+                )
+                .map_err(|_| AppError::SessionError)?;
+
+                let secrets_request = marshalling::from_slice::<SecretsRequest>(&payload)
+                    .map_err(|_| AppError::DecodingError)?;
+                if secrets_request.needs_forward_secrecy() {
+                    return Err(AppError::SessionError);
+                }
+                (NoiseHelperState::Handshake(handshake), secrets_request)
+            }
+
+            NoiseRequest::Transport(ciphertext) => {
+                let mut transport = sessions
+                    .remove(&(record_id.clone(), session_id))
+                    .ok_or(AppError::MissingSession)?;
+                let plaintext = transport
+                    .decrypt(ciphertext)
+                    .map_err(|_| AppError::SessionError)?;
+                let secrets_request = marshalling::from_slice::<SecretsRequest>(&plaintext)
+                    .map_err(|_| AppError::DecodingError)?;
+                (NoiseHelperState::Transport(transport), secrets_request)
+            }
+        };
+        Ok((
+            Self {
+                record_id,
+                session_id,
+                state: message,
+            },
+            secrets_request,
+        ))
+    }
+
+    fn encode(
+        self,
+        response: SecretsResponse,
+        sessions: &mut Cache<(RecordId, SessionId), noise::Transport>,
+    ) -> NoiseResponse {
+        // It might not be safe to back out at this point, since some Merkle
+        // state has already been modified. Since we don't expect to see
+        // encoding and encryption errors, it's probably OK to panic here.
+        let response = marshalling::to_vec(&response).expect("SecretsResponse serialization error");
+        let (response, transport) = match self.state {
+            NoiseHelperState::Handshake(handshake) => {
+                let (transport, handshake_response) = handshake
+                    .finish(&response)
+                    .expect("Noise handshake encryption error");
+                (
+                    NoiseResponse::Handshake {
+                        noise: handshake_response,
+                        session_lifetime_millis: SESSION_LIFETIME_MILLIS,
+                    },
+                    transport,
+                )
+            }
+            NoiseHelperState::Transport(mut transport) => {
+                let ciphertext = transport
+                    .encrypt(&response)
+                    .expect("Noise transport encryption error");
+                (NoiseResponse::Transport(ciphertext), transport)
+            }
+        };
+
+        sessions.insert((self.record_id, self.session_id), transport);
+        response
+    }
+}
+
+fn make_next_log_entry(
+    leader: &LeaderVolatileGroupState,
+    realm: RealmId,
+    group: GroupId,
+    root_hash: DataHash,
+    realm_key: &RealmKey,
+) -> LogEntry {
+    let last_entry = leader.log.last().unwrap();
 
     let index = last_entry.entry.index.next();
     let partition = Some(Partition {
@@ -1634,30 +1908,21 @@ fn handle_app_request(
     let prev_hmac = last_entry.entry.entry_hmac.clone();
 
     let entry_hmac = EntryHmacBuilder {
-        realm: request.realm,
-        group: request.group,
+        realm,
+        group,
         index,
         partition: &partition,
         transferring_out: &transferring_out,
         prev_hmac: &prev_hmac,
     }
-    .build(&persistent.realm_key);
+    .build(realm_key);
 
-    let new_entry = LogEntry {
+    LogEntry {
         index,
         partition,
         transferring_out,
         prev_hmac,
         entry_hmac,
-    };
-
-    leader.log.push(LeaderLogEntry {
-        entry: new_entry.clone(),
-        response: Some(client_response),
-    });
-    Response::Ok {
-        entry: new_entry,
-        delta,
     }
 }
 

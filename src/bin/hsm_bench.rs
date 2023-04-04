@@ -119,7 +119,7 @@ async fn main() {
                 Configuration {
                     realms: vec![Realm {
                         address: load_balancer.clone(),
-                        public_key: b"qwer".to_vec(),
+                        public_key: hsm_generator.public_communication_key(),
                         id: realm_id,
                     }],
                     register_threshold: 1,
