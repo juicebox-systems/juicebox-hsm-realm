@@ -376,9 +376,7 @@ impl<T: Transport + 'static> Agent<T> {
         let listener = TcpListener::bind(address).await?;
         let url = Url::parse(&format!("http://{address}")).unwrap();
 
-        // Wait for the HSM to be up and register it.
         self.start_service_registration(url.clone());
-
         Ok((
             url,
             tokio::spawn(async move {
