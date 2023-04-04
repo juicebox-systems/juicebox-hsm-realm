@@ -14,8 +14,16 @@ System dependencies:
 Then:
 
 * `cargo test --all` to run the unit tests
-* `cargo build && cargo run --bin demo_runner -- --demo target/debug/demo` to run the demo aka "integration test"
-
+* `cargo build && cargo run --bin demo_runner -- --demo target/debug/demo` to run the rust demo aka "integration test"
+* to run the swift demo:
+```sh
+cd sdk/swift
+./build-ffi.sh
+cd demo
+swift build
+cd ../../..
+cargo run --bin demo_runner -- --demo sdk/swift/demo/.build/debug/demo
+```
 
 ### Cross Compile
 

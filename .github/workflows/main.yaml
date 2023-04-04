@@ -18,8 +18,40 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  build:
-    name: Build & check
+  rust_ppc:
+    name: Build PPC
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Check out sources
+      uses: actions/checkout@v2
+      with:
+        submodules: recursive
+        token: ${{ secrets.ACCESS_TOKEN }}
+
+    - name: Free up some space on image
+      # see https://github.com/actions/runner-images/issues/2840
+      run: |
+        sudo rm -rf /usr/share/dotnet
+      shell: bash
+
+    - name: Install latest nightly
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: false
+        components: rust-src
+
+    - name: Install PowerPC cross-compile dependencies
+      run: sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
+
+    - name: Cross Compile PowerPC
+      run: ./build-ppc.sh
+
+    - name: Run unit tests on PowerPC
+      run: ./test-ppc.sh
+
+  rust_x86:
+    name: Build x86 + Demo
     runs-on: ubuntu-20.04
     steps:
     - name: Check out sources
@@ -77,6 +109,123 @@ jobs:
       with:
         command: build
 
+    - name: Run demo
+      run: |
+        emulator -host localhost -port 9000 &
+        BIGTABLE_EMULATOR_HOST=localhost:9000 \
+          cbt -creds /dev/null -project prj -instance inst \
+          createtable tab families=fam
+        pid=$!
+        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo target/debug/demo
+        kill $pid
+      shell: bash
+
+  swift_demo:
+    name: Swift Demo
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Check out sources
+      uses: actions/checkout@v2
+      with:
+        submodules: recursive
+        token: ${{ secrets.ACCESS_TOKEN }}
+
+    - name: Free up some space on image
+      # see https://github.com/actions/runner-images/issues/2840
+      run: |
+        sudo rm -rf /usr/share/dotnet
+      shell: bash
+
+    - name: Install Rust stable toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        components: rustfmt, clippy
+        override: 'true'
+        profile: minimal
+        toolchain: stable
+
+    - name: Use Go cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/go/bin
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Use Go path
+      # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
+      run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+    - name: Install Bigtable tools
+      run: |
+        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
+        command -V cbt || go install cloud.google.com/go/cbt@latest
+
+    - name: Install Protobuf Compiler
+      run: sudo apt install protobuf-compiler
+
+    - name: Use Rust/Cargo cache
+      uses: actions/cache@v3
+      with:
+        key: cargo-ubuntu-20.04-stable-${{ hashFiles('Cargo.lock') }}
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git/
+        restore-keys: cargo-ubuntu-20.04-stable-
+
+    - name: Run cargo build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+
+    - name: Build FFI
+      run: cd sdk && ./swift/build-ffi.sh
+
+    - name: Build Swift Demo
+      run: cd sdk/swift/demo && swift build --verbose
+
+    - name: Run demo
+      run: |
+        emulator -host localhost -port 9000 &
+        BIGTABLE_EMULATOR_HOST=localhost:9000 \
+          cbt -creds /dev/null -project prj -instance inst \
+          createtable tab families=fam
+        pid=$!
+        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/swift/demo/.build/debug/demo
+        kill $pid
+      shell: bash
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Check out sources
+      uses: actions/checkout@v2
+      with:
+        submodules: recursive
+        token: ${{ secrets.ACCESS_TOKEN }}
+
+    - name: Install Rust stable toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        components: rustfmt, clippy
+        override: 'true'
+        profile: minimal
+        toolchain: stable
+
+    - name: Install Protobuf Compiler
+      run: sudo apt install protobuf-compiler
+
+    - name: Use Rust/Cargo cache
+      uses: actions/cache@v3
+      with:
+        key: cargo-ubuntu-20.04-stable-${{ hashFiles('Cargo.lock') }}
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git/
+        restore-keys: cargo-ubuntu-20.04-stable-
+
     - name: Run cargo test
       uses: actions-rs/cargo@v1
       with:
@@ -107,30 +256,3 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: audit
-
-    - name: Run main
-      run: |
-        emulator -host localhost -port 9000 &
-        BIGTABLE_EMULATOR_HOST=localhost:9000 \
-          cbt -creds /dev/null -project prj -instance inst \
-          createtable tab families=fam
-        pid=$!
-        RUST_BACKTRACE=1 cargo run --bin demo
-        kill $pid
-      shell: bash
-
-    - name: Install latest nightly
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        override: false
-        components: rust-src
-
-    - name: Install PowerPC cross-compile dependencies
-      run: sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
-
-    - name: Cross Compile PowerPC
-      run: ./build-ppc.sh
-
-    - name: Run unit tests on PowerPC
-      run: ./test-ppc.sh
