@@ -96,11 +96,11 @@ jobs:
     - name: Use Rust/Cargo cache
       uses: actions/cache@v3
       with:
-        key: cargo-ubuntu-20.04-stable-${{ hashFiles('Cargo.lock') }}
+        key: cargo-${{ runner.os }}-stable-${{ hashFiles('Cargo.lock') }}
         path: |
           ~/.cargo/registry
           ~/.cargo/git/
-        restore-keys: cargo-ubuntu-20.04-stable-
+        restore-keys: cargo-${{ runner.os }}-stable-
 
     - name: Run cargo build
       uses: actions-rs/cargo@v1
@@ -155,6 +155,7 @@ jobs:
 
     - name: Install Bigtable tools
       run: |
+        rm /Users/runner/Library/Android/sdk/tools/emulator || true
         command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
         command -V cbt || go install cloud.google.com/go/cbt@latest
 
@@ -164,11 +165,11 @@ jobs:
     - name: Use Rust/Cargo cache
       uses: actions/cache@v3
       with:
-        key: cargo-macOS-stable-${{ hashFiles('Cargo.lock') }}
+        key: cargo-${{ runner.os }}-stable-${{ hashFiles('Cargo.lock') }}
         path: |
           ~/.cargo/registry
           ~/.cargo/git/
-        restore-keys: cargo-macOS-stable-
+        restore-keys: cargo-${{ runner.os }}-stable-
 
     - name: Run cargo build
       uses: actions-rs/cargo@v1
@@ -192,8 +193,8 @@ jobs:
         kill $pid
       shell: bash
 
-  lint:
-    name: Lint
+  lint_and_test:
+    name: Lint & Test
     runs-on: ubuntu-20.04
     steps:
     - name: Check out sources
@@ -210,17 +211,35 @@ jobs:
         profile: minimal
         toolchain: stable
 
+    - name: Use Go cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/go/bin
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Use Go path
+      # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
+      run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+    - name: Install Bigtable tools
+      run: |
+        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
+        command -V cbt || go install cloud.google.com/go/cbt@latest
+
     - name: Install Protobuf Compiler
       run: sudo apt install protobuf-compiler
 
     - name: Use Rust/Cargo cache
       uses: actions/cache@v3
       with:
-        key: cargo-ubuntu-20.04-stable-${{ hashFiles('Cargo.lock') }}
+        key: cargo-${{ runner.os }}-stable-${{ hashFiles('Cargo.lock') }}
         path: |
           ~/.cargo/registry
           ~/.cargo/git/
-        restore-keys: cargo-ubuntu-20.04-stable-
+        restore-keys: cargo-${{ runner.os }}-stable-
 
     - name: Run cargo test
       uses: actions-rs/cargo@v1
