@@ -169,7 +169,7 @@ jobs:
         command: build
 
     - name: Build FFI
-      run: cd sdk && ./swift/build-ffi.sh
+      run: cd sdk && ./swift/ffi.sh
 
     - name: Build Swift Demo
       run: cd sdk/swift/demo && swift build --verbose

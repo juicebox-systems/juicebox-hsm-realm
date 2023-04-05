@@ -18,7 +18,7 @@ Then:
 * to run the swift demo:
 ```sh
 cd sdk/swift
-./build-ffi.sh
+./ffi.sh
 cd demo
 swift build
 cd ../../..
