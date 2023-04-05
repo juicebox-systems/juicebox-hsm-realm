@@ -87,7 +87,7 @@ jobs:
 
     - name: Install Bigtable tools
       run: |
-        command -V cbtemulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
+        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
     - name: Install Protobuf Compiler
       run: sudo apt install protobuf-compiler
@@ -148,7 +148,8 @@ jobs:
 
     - name: Install Bigtable tools
       run: |
-        command -V cbtemulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
+        rm /Users/runner/Library/Android/sdk/tools/emulator || true
+        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
     - name: Install Protobuf Compiler
       run: brew install protobuf
@@ -211,7 +212,7 @@ jobs:
 
     - name: Install Bigtable tools
       run: |
-        command -V cbtemulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
+        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
     - name: Install Protobuf Compiler
       run: sudo apt install protobuf-compiler

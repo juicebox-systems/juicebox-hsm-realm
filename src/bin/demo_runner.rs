@@ -50,7 +50,7 @@ async fn main() {
     .expect("error setting signal handler");
 
     info!("starting bigtable emulator");
-    let mut cmd = Command::new("cbtemulator");
+    let mut cmd = Command::new("emulator");
     cmd.arg("-host").arg("localhost").arg("-port").arg("9000");
     process_group.spawn(&mut cmd);
 
