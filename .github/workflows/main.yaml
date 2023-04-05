@@ -94,10 +94,6 @@ jobs:
 
     - name: Use Rust Cache
       uses: Swatinem/rust-cache@v2
-      with:
-        workspaces: |
-          .
-          sdk
 
     - name: Run cargo build
       uses: actions-rs/cargo@v1
@@ -215,10 +211,6 @@ jobs:
 
     - name: Use Rust Cache
       uses: Swatinem/rust-cache@v2
-      with:
-        workspaces: |
-          .
-          sdk
 
     - name: Run cargo test
       uses: actions-rs/cargo@v1
