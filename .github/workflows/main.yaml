@@ -92,14 +92,8 @@ jobs:
     - name: Install Protobuf Compiler
       run: sudo apt install protobuf-compiler
 
-    - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
-      with:
-        key: cargo-${{ runner.os }}-stable-${{ hashFiles('Cargo.lock') }}
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git/
-        restore-keys: cargo-${{ runner.os }}-stable-
+    - name: Use Rust Cache
+      uses: Swatinem/rust-cache@v2
 
     - name: Run cargo build
       uses: actions-rs/cargo@v1
@@ -154,14 +148,12 @@ jobs:
     - name: Install Protobuf Compiler
       run: brew install protobuf
 
-    - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
+    - name: Use Rust Cache
+      uses: Swatinem/rust-cache@v2
       with:
-        key: cargo-${{ runner.os }}-stable-${{ hashFiles('Cargo.lock') }}
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git/
-        restore-keys: cargo-${{ runner.os }}-stable-
+        workspaces: |
+          .
+          sdk
 
     - name: Run cargo build
       uses: actions-rs/cargo@v1
@@ -170,6 +162,14 @@ jobs:
 
     - name: Build FFI
       run: cd sdk && ./swift/ffi.sh
+
+    - name: Use Swift Cache
+      uses: actions/cache@v3
+      with:
+        path: sdk/swift/demo/.build
+        key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+        restore-keys: |
+          ${{ runner.os }}-spm-
 
     - name: Build Swift Demo
       run: cd sdk/swift/demo && swift build --verbose
@@ -217,14 +217,8 @@ jobs:
     - name: Install Protobuf Compiler
       run: sudo apt install protobuf-compiler
 
-    - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
-      with:
-        key: cargo-${{ runner.os }}-stable-${{ hashFiles('Cargo.lock') }}
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git/
-        restore-keys: cargo-${{ runner.os }}-stable-
+    - name: Use Rust Cache
+      uses: Swatinem/rust-cache@v2
 
     - name: Run cargo test
       uses: actions-rs/cargo@v1
