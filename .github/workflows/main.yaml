@@ -92,14 +92,12 @@ jobs:
     - name: Install Protobuf Compiler
       run: sudo apt install protobuf-compiler
 
-    - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
+    - name: Use Rust Cache
+      uses: Swatinem/rust-cache@v2
       with:
-        key: cargo-${{ runner.os }}-stable-${{ hashFiles('Cargo.lock') }}
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git/
-        restore-keys: cargo-${{ runner.os }}-stable-
+        workspaces: |
+          .
+          sdk
 
     - name: Run cargo build
       uses: actions-rs/cargo@v1
@@ -154,14 +152,12 @@ jobs:
     - name: Install Protobuf Compiler
       run: brew install protobuf
 
-    - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
+    - name: Use Rust Cache
+      uses: Swatinem/rust-cache@v2
       with:
-        key: cargo-${{ runner.os }}-stable-${{ hashFiles('Cargo.lock') }}
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git/
-        restore-keys: cargo-${{ runner.os }}-stable-
+        workspaces: |
+          .
+          sdk
 
     - name: Run cargo build
       uses: actions-rs/cargo@v1
@@ -217,14 +213,12 @@ jobs:
     - name: Install Protobuf Compiler
       run: sudo apt install protobuf-compiler
 
-    - name: Use Rust/Cargo cache
-      uses: actions/cache@v3
+    - name: Use Rust Cache
+      uses: Swatinem/rust-cache@v2
       with:
-        key: cargo-${{ runner.os }}-stable-${{ hashFiles('Cargo.lock') }}
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git/
-        restore-keys: cargo-${{ runner.os }}-stable-
+        workspaces: |
+          .
+          sdk
 
     - name: Run cargo test
       uses: actions-rs/cargo@v1
