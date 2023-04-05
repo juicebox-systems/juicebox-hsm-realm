@@ -14,7 +14,7 @@ use hsmcore::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::logging;
 use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
-use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::realm::store::bigtable::{BigTableArgs, BigTableRunner};
 use loam_sdk::{Configuration, Realm};
 
 mod common;
@@ -49,28 +49,15 @@ async fn main() {
     })
     .expect("error setting signal handler");
 
-    info!("starting bigtable emulator");
-    let mut cmd = Command::new("emulator");
-    cmd.arg("-host").arg("localhost").arg("-port").arg("9000");
-    process_group.spawn(&mut cmd);
-
-    info!("waiting for bigtable emulator to start");
-    std::thread::sleep(std::time::Duration::from_millis(10));
-
     let bt_args = BigTableArgs {
         inst: String::from("inst"),
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),
     };
-    let store = bt_args
-        .connect_data()
-        .await
-        .expect("Unable to connect to Bigtable");
 
-    let store_admin = bt_args
-        .connect_admin()
-        .await
-        .expect("Unable to connect to Bigtable admin");
+    info!("starting bigtable emulator");
+
+    let (store_admin, store) = BigTableRunner::run(&mut process_group, &bt_args).await;
 
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");

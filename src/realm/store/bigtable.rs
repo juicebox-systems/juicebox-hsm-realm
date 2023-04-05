@@ -1,4 +1,6 @@
 use crate::autogen::google;
+use crate::process_group::ProcessGroup;
+
 use async_trait::async_trait;
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
@@ -898,6 +900,46 @@ impl TreeStoreReader<DataHash> for StoreClient {
 
         trace!(realm = ?realm, key = ?key, ok = node.is_ok(), "read_node completed");
         node
+    }
+}
+
+pub struct BigTableRunner;
+
+impl BigTableRunner {
+    pub async fn run(
+        pg: &mut ProcessGroup,
+        args: &BigTableArgs,
+    ) -> (StoreAdminClient, StoreClient) {
+        if let Some(emulator_url) = &args.url {
+            pg.spawn(
+                Command::new("emulator")
+                    .arg("-port")
+                    .arg(emulator_url.port().unwrap().as_str()),
+            );
+        }
+        async fn admin(args: &BigTableArgs) -> StoreAdminClient {
+            for _ in 0..100 {
+                match args.connect_admin().await {
+                    Ok(admin) => return admin,
+                    Err(_e) => {
+                        sleep(Duration::from_millis(1)).await;
+                    }
+                };
+            }
+            panic!("repeatedly failed to connect to bigtable admin service");
+        }
+        async fn data(args: &BigTableArgs) -> StoreClient {
+            for _ in 0..100 {
+                match args.connect_data().await {
+                    Ok(data) => return data,
+                    Err(_e) => {
+                        sleep(Duration::from_millis(1)).await;
+                    }
+                }
+            }
+            panic!("repeatedly failed to connect to bigtable data service");
+        }
+        (admin(args).await, data(args).await)
     }
 }
 

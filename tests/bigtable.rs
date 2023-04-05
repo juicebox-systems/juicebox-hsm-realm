@@ -1,10 +1,9 @@
 use reqwest::Url;
 use std::{
-    process::Command,
     sync::atomic::{AtomicU16, Ordering},
     time::{Duration, SystemTime},
 };
-use tokio::time::{self, sleep};
+use tokio::time::{self};
 
 use hsmcore::{
     bitvec::BitVec,
@@ -22,7 +21,8 @@ use loam_mvp::{
     realm::{
         merkle::agent::{self, TreeStoreReader},
         store::bigtable::{
-            self, AppendError::LogPrecondition, BigTableArgs, StoreAdminClient, StoreClient,
+            self, AppendError::LogPrecondition, BigTableArgs, BigTableRunner, StoreAdminClient,
+            StoreClient,
         },
     },
 };
@@ -48,42 +48,14 @@ fn emulator() -> BigTableArgs {
 }
 
 async fn init_bt(pg: &mut ProcessGroup, args: BigTableArgs) -> (StoreAdminClient, StoreClient) {
-    if let Some(emulator_url) = &args.url {
-        pg.spawn(
-            Command::new("emulator")
-                .arg("-port")
-                .arg(emulator_url.port().unwrap().as_str()),
-        );
-    }
-    async fn admin(args: &BigTableArgs) -> StoreAdminClient {
-        for _ in 0..100 {
-            match args.connect_admin().await {
-                Ok(admin) => return admin,
-                Err(_e) => {
-                    sleep(Duration::from_millis(1)).await;
-                }
-            };
-        }
-        panic!("repeatedly failed to connect to bigtable admin service");
-    }
-    async fn data(args: &BigTableArgs) -> StoreClient {
-        for _ in 0..100 {
-            match args.connect_data().await {
-                Ok(data) => return data,
-                Err(_e) => {
-                    sleep(Duration::from_millis(1)).await;
-                }
-            }
-        }
-        panic!("repeatedly failed to connect to bigtable data service");
-    }
-    let admin_client = admin(&args).await;
-    admin_client
+    let (store_admin, store) = BigTableRunner::run(pg, &args).await;
+
+    store_admin
         .initialize_realm(&REALM)
         .await
         .expect("failed to initialize realm tables");
 
-    (admin_client, data(&args).await)
+    (store_admin, store)
 }
 
 #[tokio::test]
