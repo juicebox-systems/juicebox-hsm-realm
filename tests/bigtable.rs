@@ -50,7 +50,7 @@ fn emulator() -> BigTableArgs {
 async fn init_bt(pg: &mut ProcessGroup, args: BigTableArgs) -> (StoreAdminClient, StoreClient) {
     if let Some(emulator_url) = &args.url {
         pg.spawn(
-            Command::new("emulator")
+            Command::new("cbtemulator")
                 .arg("-port")
                 .arg(emulator_url.port().unwrap().as_str()),
         );

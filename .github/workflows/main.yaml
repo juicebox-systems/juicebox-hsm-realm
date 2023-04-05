@@ -87,8 +87,7 @@ jobs:
 
     - name: Install Bigtable tools
       run: |
-        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
-        command -V cbt || go install cloud.google.com/go/cbt@latest
+        command -V cbtemulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
     - name: Install Protobuf Compiler
       run: sudo apt install protobuf-compiler
@@ -109,13 +108,7 @@ jobs:
 
     - name: Run demo
       run: |
-        emulator -host localhost -port 9000 &
-        BIGTABLE_EMULATOR_HOST=localhost:9000 \
-          cbt -creds /dev/null -project prj -instance inst \
-          createtable tab families=fam
-        pid=$!
         RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo target/debug/demo
-        kill $pid
       shell: bash
 
   swift_demo:
@@ -155,9 +148,7 @@ jobs:
 
     - name: Install Bigtable tools
       run: |
-        rm /Users/runner/Library/Android/sdk/tools/emulator || true
-        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
-        command -V cbt || go install cloud.google.com/go/cbt@latest
+        command -V cbtemulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
     - name: Install Protobuf Compiler
       run: brew install protobuf
@@ -184,13 +175,7 @@ jobs:
 
     - name: Run demo
       run: |
-        emulator -host localhost -port 9000 &
-        BIGTABLE_EMULATOR_HOST=localhost:9000 \
-          cbt -creds /dev/null -project prj -instance inst \
-          createtable tab families=fam
-        pid=$!
         RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/swift/demo/.build/debug/demo
-        kill $pid
       shell: bash
 
   lint_and_test:
@@ -226,8 +211,7 @@ jobs:
 
     - name: Install Bigtable tools
       run: |
-        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
-        command -V cbt || go install cloud.google.com/go/cbt@latest
+        command -V cbtemulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
     - name: Install Protobuf Compiler
       run: sudo apt install protobuf-compiler

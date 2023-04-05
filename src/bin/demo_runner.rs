@@ -49,6 +49,14 @@ async fn main() {
     })
     .expect("error setting signal handler");
 
+    info!("starting bigtable emulator");
+    let mut cmd = Command::new("cbtemulator");
+    cmd.arg("-host").arg("localhost").arg("-port").arg("9000");
+    process_group.spawn(&mut cmd);
+
+    info!("waiting for bigtable emulator to start");
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
     let bt_args = BigTableArgs {
         inst: String::from("inst"),
         project: String::from("prj"),
