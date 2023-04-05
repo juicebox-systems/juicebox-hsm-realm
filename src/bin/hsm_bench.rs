@@ -72,12 +72,13 @@ async fn main() {
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
 
-    let (key_file, cert_file, _) = create_localhost_key_and_cert("target".into())
+    let certificates = create_localhost_key_and_cert("target".into())
         .expect("Failed to create TLS key/cert for load balancer");
 
-    let lb_cert =
-        Certificate::from_pem(&fs::read(&cert_file).expect("failed to read certificate file"))
-            .expect("failed to decode certificate file");
+    let lb_cert = Certificate::from_pem(
+        &fs::read(&certificates.cert_file_pem).expect("failed to read certificate file"),
+    )
+    .expect("failed to decode certificate file");
 
     info!("creating load balancer");
     let load_balancer: Url = {
@@ -91,9 +92,9 @@ async fn main() {
             }
         ));
         cmd.arg("--tls-cert")
-            .arg(cert_file)
+            .arg(certificates.cert_file_pem)
             .arg("--tls-key")
-            .arg(key_file)
+            .arg(certificates.key_file_pem)
             .arg("--listen")
             .arg(address.to_string());
         args.bigtable.add_to_cmd(&mut cmd);

@@ -75,9 +75,8 @@ async fn main() {
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
 
-    let (key_file, cert_file, cert_der_file) =
-        create_localhost_key_and_cert(current_dir().unwrap().join("target"))
-            .expect("Failed to create TLS key/cert for load balancer");
+    let certificates = create_localhost_key_and_cert(current_dir().unwrap().join("target"))
+        .expect("Failed to create TLS key/cert for load balancer");
 
     let num_load_balancers = 2;
     info!(count = num_load_balancers, "creating load balancers");
@@ -93,9 +92,9 @@ async fn main() {
                 }
             ));
             cmd.arg("--tls-cert")
-                .arg(cert_file.clone())
+                .arg(certificates.cert_file_pem.clone())
                 .arg("--tls-key")
-                .arg(key_file.clone())
+                .arg(certificates.key_file_pem.clone())
                 .arg("--listen")
                 .arg(address.to_string());
             bt_args.add_to_cmd(&mut cmd);
@@ -247,7 +246,7 @@ async fn main() {
 
     Command::new(args.demo)
         .arg("--tls-certificate")
-        .arg(cert_der_file.clone())
+        .arg(certificates.cert_file_der.clone())
         .arg("--configuration")
         .arg(serde_json::to_string(&configuration).unwrap())
         .arg("--auth-token")

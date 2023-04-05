@@ -1,8 +1,13 @@
 use std::{fs, io, path::PathBuf, process::Command};
 
+pub struct Certificates {
+    pub key_file_pem: PathBuf,
+    pub cert_file_pem: PathBuf,
+    pub cert_file_der: PathBuf,
+}
+
 /// Creates a self signed cert & key for localhost in the specified directory.
-/// Returns the key file & cert file in PEM format, as well as the cert file in DER format.
-pub fn create_localhost_key_and_cert(dir: PathBuf) -> io::Result<(PathBuf, PathBuf, PathBuf)> {
+pub fn create_localhost_key_and_cert(dir: PathBuf) -> io::Result<Certificates> {
     let cfg = include_str!("openssl_req.txt");
     let config_file = dir.join("openssl_req.txt");
     fs::write(config_file, cfg.as_bytes())?;
@@ -47,9 +52,9 @@ pub fn create_localhost_key_and_cert(dir: PathBuf) -> io::Result<(PathBuf, PathB
         .status()
         .expect("couldn't covert cert PEM to DER");
 
-    Ok((
-        dir.join("localhost.key"),
-        dir.join("localhost.cert"),
-        dir.join("localhost.cert.der"),
-    ))
+    Ok(Certificates {
+        key_file_pem: dir.join("localhost.key"),
+        cert_file_pem: dir.join("localhost.cert"),
+        cert_file_der: dir.join("localhost.cert.der"),
+    })
 }
