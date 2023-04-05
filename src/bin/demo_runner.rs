@@ -231,7 +231,7 @@ async fn main() {
 
     info!(pid = std::process::id(), "runner: executing demo");
 
-    Command::new(args.demo)
+    let demo_status = Command::new(args.demo)
         .arg("--tls-certificate")
         .arg(certificates.cert_file_der.clone())
         .arg("--configuration")
@@ -245,4 +245,6 @@ async fn main() {
     process_group.kill();
     logging::flush();
     info!(pid = std::process::id(), "runner: exiting");
+
+    assert!(demo_status.success());
 }
