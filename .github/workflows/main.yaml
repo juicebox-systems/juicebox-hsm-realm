@@ -163,6 +163,14 @@ jobs:
     - name: Build FFI
       run: cd sdk && ./swift/ffi.sh
 
+    - name: Use Swift Cache
+      uses: actions/cache@v3
+      with:
+        path: sdk/swift/demo/.build
+        key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+        restore-keys: |
+          ${{ runner.os }}-spm-
+
     - name: Build Swift Demo
       run: cd sdk/swift/demo && swift build --verbose
 
