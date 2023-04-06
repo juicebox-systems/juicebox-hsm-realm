@@ -1,15 +1,17 @@
 use bytes::Bytes;
 use futures::Future;
-use hsmcore::hal::{Clock, Nanos};
-use hsmcore::hsm::{Hsm, HsmError, HsmOptions, RealmKey};
+use hsmcore::hal::{Clock, IOError, NVRam, Nanos, MAX_NVRAM_SIZE};
+use hsmcore::hsm::{Hsm, HsmError, HsmOptions, PersistenceError, RealmKey};
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use rand::rngs::OsRng;
 use rand::RngCore;
+use std::fs;
 use std::net::SocketAddr;
 use std::ops::Sub;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -34,7 +36,10 @@ impl Sub for HalInstant {
 }
 
 #[derive(Clone)]
-struct StdPlatform;
+struct StdPlatform {
+    // The location of the backing file for 'NVRam'
+    state: PathBuf,
+}
 
 impl Clock for StdPlatform {
     type Instant = HalInstant;
@@ -67,20 +72,49 @@ impl RngCore for StdPlatform {
 }
 impl rand::CryptoRng for StdPlatform {}
 
+impl NVRam for StdPlatform {
+    fn read(&self) -> Result<Vec<u8>, IOError> {
+        match fs::read(&self.state) {
+            Ok(data) => Ok(data),
+            Err(e) => {
+                if !self.state.exists() {
+                    return Ok(Vec::new());
+                }
+                Err(IOError(format!("IO Error reading state: {e}")))
+            }
+        }
+    }
+
+    fn write(&self, data: Vec<u8>) -> Result<(), IOError> {
+        if data.len() > MAX_NVRAM_SIZE {
+            return Err(IOError(format!(
+                "data is larger than allowed maximum of {MAX_NVRAM_SIZE}"
+            )));
+        }
+        fs::write(&self.state, data)
+            .map_err(|e| IOError(format!("IO Error writing to state file: {e}")))
+    }
+}
+
 #[derive(Clone)]
 pub struct HttpHsm(Arc<Mutex<Hsm<StdPlatform>>>);
 
 impl HttpHsm {
-    pub fn new(name: String, realm_key: RealmKey) -> Self {
-        HttpHsm(Arc::new(Mutex::new(Hsm::new(
+    pub fn new(
+        state_dir: PathBuf,
+        name: String,
+        realm_key: RealmKey,
+    ) -> Result<Self, PersistenceError> {
+        let state_file = state_dir.join(&name);
+        Ok(HttpHsm(Arc::new(Mutex::new(Hsm::new(
             HsmOptions {
                 name,
                 tree_overlay_size: 511,
                 max_sessions: 511,
             },
-            StdPlatform,
+            StdPlatform { state: state_file },
             realm_key,
-        ))))
+        )?))))
     }
 
     pub async fn listen(

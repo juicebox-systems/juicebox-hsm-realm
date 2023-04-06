@@ -8,21 +8,22 @@ mod seelib;
 
 extern crate alloc;
 
-use alloc::{string::String, vec};
+use alloc::{format, string::String, vec, vec::Vec};
 use core::{ops::Sub, slice};
 use hsmcore::{
-    hal::{Clock, Nanos},
+    hal::{Clock, IOError, NVRam, Nanos, MAX_NVRAM_SIZE},
     hsm::{Hsm, HsmOptions, RealmKey},
 };
 use seelib::{
-    Cmd_GenerateRandom, M_ByteBlock, M_Cmd_GenerateRandom_Args, M_Command, M_Reply, M_Status,
-    M_Word, SEElib_AwaitJobEx, SEElib_FreeReply, SEElib_InitComplete, SEElib_ReturnJob,
-    SEElib_Transact, Status_BufferFull, Status_OK, SEELIB_JOB_REQUEUE,
+    Cmd_GenerateRandom, Cmd_NVMemOp, M_ByteBlock, M_Cmd_GenerateRandom_Args, M_Command, M_FileID,
+    M_NVMemOpType_Write_OpVal, M_Reply, M_Status, M_Word, NVMemOpType_Read, NVMemOpType_Write,
+    SEElib_AwaitJobEx, SEElib_FreeReply, SEElib_InitComplete, SEElib_ReturnJob, SEElib_Transact,
+    Status_BufferFull, Status_OK, SEELIB_JOB_REQUEUE,
 };
 
 #[no_mangle]
 pub extern "C" fn rust_main() -> isize {
-    let mut hsm = Hsm::new(
+    let mut hsm = match Hsm::new(
         HsmOptions {
             name: String::from("entrust"),
             tree_overlay_size: 511,
@@ -30,7 +31,15 @@ pub extern "C" fn rust_main() -> isize {
         },
         NCipher,
         RealmKey::derive_from("010203".as_bytes()),
-    );
+    ) {
+        Ok(hsm) => hsm,
+        Err(_) => {
+            unsafe {
+                SEElib_InitComplete(1);
+            }
+            return -1;
+        }
+    };
     let mut buf = vec![0; 32 * 1024];
     let mut tag: M_Word = 0;
     let mut len: M_Word;
@@ -168,6 +177,98 @@ impl Clock for NCipher {
 
     fn elapsed(&self, start: TimeSpec) -> Option<Nanos> {
         Some(self.now()? - start)
+    }
+}
+
+const NVRAM_FILENAME: M_FileID = M_FileID {
+    // state
+    bytes: [b's', b't', b'a', b't', b'e', 0, 0, 0, 0, 0, 0],
+};
+
+impl NVRam for NCipher {
+    // The admin needs to allocate an nvram area called 'state' with a size of
+    // 2048. The nvram-sw tool can do this.
+    // /opt/nfast/bin/nvram-sw --alloc -b 2048 -n state
+    //
+    // For production we need something that will correctly set the acl on this
+    // nvram file.
+    //
+    // read will always return the full 2048 bytes, and writes need to send a
+    // full 2048 bytes. The last 4 bytes in the 2048 bytes hold the size of the
+    // data that was written. This is extracted during read to correctly size
+    // the returned data.
+
+    fn read(&self) -> Result<Vec<u8>, IOError> {
+        let mut cmd = M_Command {
+            cmd: Cmd_NVMemOp,
+            ..M_Command::default()
+        };
+        cmd.args.nvmemop.op = NVMemOpType_Read;
+        cmd.args.nvmemop.name = NVRAM_FILENAME;
+
+        let mut reply = M_Reply::default();
+        unsafe {
+            let rc = SEElib_Transact(&mut cmd, &mut reply);
+            assert_eq!(rc, 0);
+        }
+        assert_eq!(cmd.cmd, reply.cmd);
+        let result: Result<Vec<u8>, IOError> = {
+            if reply.status == Status_OK {
+                let mut data = unsafe { reply.reply.nvmemop.res.read.data.as_slice().to_vec() };
+                // The first read after the NVRam entry was initialized will be
+                // all zeros. Which conveniently says the length is zero.
+                let len = u32::from_be_bytes(data[2044..].try_into().unwrap());
+                data.truncate(len as usize);
+                Ok(data)
+            } else {
+                Err(IOError(format!("error {}", reply.status)))
+            }
+        };
+        unsafe {
+            SEElib_FreeReply(&mut reply);
+        }
+        result
+    }
+
+    fn write(&self, mut data: Vec<u8>) -> Result<(), IOError> {
+        if data.len() > MAX_NVRAM_SIZE {
+            return Err(IOError(format!(
+                "data is larger than allowed maximum of {MAX_NVRAM_SIZE}"
+            )));
+        }
+        let len = (data.len() as u32).to_be_bytes();
+        data.resize(2044, 0);
+        data.extend(&len);
+
+        let mut cmd = M_Command {
+            cmd: Cmd_NVMemOp,
+            ..M_Command::default()
+        };
+        cmd.args.nvmemop.op = NVMemOpType_Write;
+        cmd.args.nvmemop.name = NVRAM_FILENAME;
+        cmd.args.nvmemop.val.write = M_NVMemOpType_Write_OpVal {
+            data: M_ByteBlock {
+                len: data.len() as M_Word,
+                ptr: data.as_ptr() as *mut u8,
+            },
+        };
+
+        let mut reply = M_Reply::default();
+        unsafe {
+            let rc = SEElib_Transact(&mut cmd, &mut reply);
+            assert_eq!(0, rc);
+        }
+        assert_eq!(cmd.cmd, reply.cmd);
+        let result = if reply.status == Status_OK {
+            Ok(())
+        } else {
+            Err(IOError(format!("error {}", reply.status)))
+        };
+
+        unsafe {
+            SEElib_FreeReply(&mut reply);
+        }
+        result
     }
 }
 
