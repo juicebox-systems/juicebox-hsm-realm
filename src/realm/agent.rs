@@ -114,6 +114,23 @@ impl<T: Transport + 'static> Agent<T> {
         }))
     }
 
+    /// Called at service startup, start watching for any groups that the HSM is already a member of.
+    async fn restart_watching(&self) {
+        let status = self.0.hsm.send(hsm_types::StatusRequest {}).await;
+        if let Ok(sr) = status {
+            if let Some(realm) = sr.realm {
+                for g in &realm.groups {
+                    let idx = match g.captured {
+                        Some((index, _)) => index.next(),
+                        None => LogIndex::FIRST,
+                    };
+                    info!(agent=?self.0.name, realm=?realm.id, group=?g.id, index=?idx, "restarted watching log");
+                    self.start_watching(realm.id, g.id, idx);
+                }
+            }
+        }
+    }
+
     fn start_watching(&self, realm: RealmId, group: GroupId, next_index: LogIndex) {
         let state = self.0.clone();
 
@@ -376,6 +393,8 @@ impl<T: Transport + 'static> Agent<T> {
         let url = Url::parse(&format!("http://{address}")).unwrap();
 
         self.start_service_registration(url.clone());
+        self.restart_watching().await;
+
         Ok((
             url,
             tokio::spawn(async move {
@@ -581,13 +600,18 @@ impl<T: Transport + 'static> Agent<T> {
     }
 
     fn finish_new_group(&self, realm: RealmId, group: GroupId) {
-        let index = LogIndex::FIRST;
-        self.start_watching(realm, group, index);
+        self.start_watching(realm, group, LogIndex::FIRST);
+        self.start_leading(realm, group, LogIndex::FIRST);
+    }
+
+    fn start_leading(&self, realm: RealmId, group: GroupId, starting_index: LogIndex) {
         let existing = self.0.state.lock().unwrap().leader.insert(
             (realm, group),
             LeaderState {
                 append_queue: HashMap::new(),
-                appending: NotAppending { next: index.next() },
+                appending: NotAppending {
+                    next: starting_index.next(),
+                },
                 response_channels: HashMap::new(),
             },
         );
@@ -724,6 +748,7 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(Some(entry)) => entry,
             Ok(None) => todo!(),
         };
+        let last_entry_index = last_entry.index;
 
         match hsm
             .send(hsm_types::BecomeLeaderRequest {
@@ -734,7 +759,10 @@ impl<T: Transport + 'static> Agent<T> {
             .await
         {
             Err(_) => Ok(Response::NoHsm),
-            Ok(HsmResponse::Ok) => Ok(Response::Ok),
+            Ok(HsmResponse::Ok) => {
+                self.start_leading(request.realm, request.group, last_entry_index);
+                Ok(Response::Ok)
+            }
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
             Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
             Ok(HsmResponse::InvalidHmac) => panic!(),
@@ -1128,7 +1156,7 @@ impl<T: Transport + 'static> Agent<T> {
                 {
                     let mut locked = self.0.state.lock().unwrap();
                     let Some(leader) = locked.leader.get_mut(&(realm, group)) else {
-                        todo!();
+                        return Ok(Response::NotLeader);
                     };
                     leader
                         .response_channels
