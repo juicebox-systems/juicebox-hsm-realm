@@ -11,6 +11,7 @@ use digest::Digest;
 use hashbrown::HashMap; // TODO: randomize hasher
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use tracing::{info, trace, warn};
 use x25519_dalek as x25519;
@@ -20,7 +21,7 @@ mod cache;
 pub mod rpc;
 pub mod types;
 
-use super::hal::{Clock, CryptoRng, Nanos, Platform};
+use super::hal::{Clock, CryptoRng, IOError, NVRam, Nanos, Platform};
 use super::merkle::{
     agent::StoreDelta,
     proof::{ProofError, ReadProof, VerifiedProof},
@@ -29,9 +30,9 @@ use super::merkle::{
 use app::{RecordChange, RootOprfKey};
 use cache::Cache;
 use loam_sdk_core::{
-    marshalling,
     requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse},
     types::{RealmId, SessionId},
+    {marshalling, marshalling::DeserializationError},
 };
 use loam_sdk_noise::server as noise;
 use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
@@ -56,7 +57,7 @@ use types::{
 /// sophisticated estimate, so it's OK for this to be a constant here.
 const SESSION_LIFETIME: Duration = Duration::from_secs(5);
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct RealmKey(digest::Key<Hmac<Sha256>>);
 
 impl fmt::Debug for RealmKey {
@@ -359,6 +360,7 @@ pub struct HsmOptions {
     pub max_sessions: u16,
 }
 
+#[derive(Deserialize, Serialize)]
 struct PersistentState {
     id: HsmId,
     realm_key: RealmKey, // TODO: rename. This is used for MACs.
@@ -367,11 +369,13 @@ struct PersistentState {
     root_oprf_key: RootOprfKey, // TODO: switch to random per-generation OPRF keys.
 }
 
+#[derive(Deserialize, Serialize)]
 struct PersistentRealmState {
     id: RealmId,
     groups: HashMap<GroupId, PersistentGroupState>,
 }
 
+#[derive(Deserialize, Serialize)]
 struct PersistentGroupState {
     configuration: Configuration,
     captured: Option<(LogIndex, EntryHmac)>,
@@ -402,6 +406,19 @@ struct LeaderLogEntry {
 pub enum HsmError {
     Deserialization(marshalling::DeserializationError),
     Serialization(marshalling::SerializationError),
+}
+
+#[derive(Debug)]
+pub enum PersistenceError {
+    IOError(IOError),
+    Deserialization(DeserializationError),
+    InvalidSignature,
+}
+
+impl From<IOError> for PersistenceError {
+    fn from(value: IOError) -> Self {
+        PersistenceError::IOError(value)
+    }
 }
 
 struct Metrics<'a, C: Clock> {
@@ -463,36 +480,49 @@ impl<'a, C: Clock> Metrics<'a, C> {
 }
 
 impl<P: Platform> Hsm<P> {
-    pub fn new(options: HsmOptions, mut platform: P, realm_key: RealmKey) -> Self {
-        let root_oprf_key = RootOprfKey::from(&realm_key);
-        let record_key = RecordEncryptionKey::from(&realm_key);
-        let hsm_id = HsmId::random(&mut platform);
+    pub fn new(
+        options: HsmOptions,
+        mut platform: P,
+        realm_key: RealmKey,
+    ) -> Result<Self, PersistenceError> {
+        let persistent = match Self::read_persisted_state(&platform)? {
+            Some(state) => state,
+            None => {
+                let root_oprf_key = RootOprfKey::from(&realm_key);
+                let hsm_id = HsmId::random(&mut platform);
 
-        let realm_communication = {
-            // TODO: This is an insecure placeholder.
-            let mut buf = [0u8; 32];
-            buf.copy_from_slice(&realm_key.0[..32]);
-            let secret = x25519::StaticSecret::from(buf);
-            let public = x25519::PublicKey::from(&secret);
-            (secret, public)
+                let realm_communication = {
+                    // TODO: This is an insecure placeholder.
+                    let mut buf = [0u8; 32];
+                    buf.copy_from_slice(&realm_key.0[..32]);
+                    let secret = x25519::StaticSecret::from(buf);
+                    let public = x25519::PublicKey::from(&secret);
+                    (secret, public)
+                };
+                let state = PersistentState {
+                    id: hsm_id,
+                    realm_key,
+                    realm_communication,
+                    realm: None,
+                    root_oprf_key,
+                };
+                Self::persist_state(&platform, &state)?;
+                state
+            }
         };
 
-        Hsm {
+        let record_key = RecordEncryptionKey::from(&persistent.realm_key);
+        Ok(Hsm {
             options,
             platform,
-            persistent: PersistentState {
-                id: hsm_id,
-                realm_key,
-                realm_communication,
-                realm: None,
-                root_oprf_key,
-            },
+            persistent,
             volatile: VolatileState {
                 leader: HashMap::new(),
                 record_key,
             },
-        }
+        })
     }
+
     pub fn handle_request(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, HsmError> {
         let request: HsmRequestContainer = match marshalling::from_slice(request_bytes) {
             Ok(request) => request,
@@ -559,6 +589,38 @@ impl<P: Platform> Hsm<P> {
         marshalling::to_vec(&resp).map_err(HsmError::Serialization)
     }
 
+    fn persist_state(nvram: &impl NVRam, state: &PersistentState) -> Result<(), IOError> {
+        // TODO, which if any of the keys in self.persistent should be written out here vs read from the HSM
+        // key store at initialization time.
+        let mut data = marshalling::to_vec(&state).expect("failed to serialize state");
+        let d = Sha256::digest(&data);
+        data.extend(d);
+        nvram.write(data)
+    }
+
+    fn read_persisted_state(
+        nvram: &impl NVRam,
+    ) -> Result<Option<PersistentState>, PersistenceError> {
+        let d = nvram.read()?;
+        if d.is_empty() {
+            return Ok(None);
+        }
+        if d.len() < Sha256::output_size() {
+            return Err(PersistenceError::InvalidSignature);
+        }
+        let digest_start = d.len() - Sha256::output_size();
+        let stored_digest = &d[digest_start..];
+        let calced_digest = Sha256::digest(&d[..digest_start]);
+        if stored_digest == &*calced_digest {
+            match marshalling::from_slice(&d[..digest_start]) {
+                Ok(state) => Ok(Some(state)),
+                Err(e) => Err(PersistenceError::Deserialization(e)),
+            }
+        } else {
+            Err(PersistenceError::InvalidSignature)
+        }
+    }
+
     fn create_new_group(
         &mut self,
         realm: RealmId,
@@ -581,6 +643,7 @@ impl<P: Platform> Hsm<P> {
             },
         );
         assert!(existing.is_none());
+        Self::persist_state(&self.platform, &self.persistent).expect("failed to write to NVRam");
 
         let index = LogIndex::FIRST;
         let (partition, data) = match &owned_range {
@@ -739,6 +802,8 @@ impl<P: Platform> Hsm<P> {
                     id: request.realm,
                     groups: HashMap::new(),
                 });
+                Self::persist_state(&self.platform, &self.persistent)
+                    .expect("failed to write to NVRam");
                 JoinRealmResponse::Ok {
                     hsm: self.persistent.id,
                 }
@@ -812,6 +877,8 @@ impl<P: Platform> Hsm<P> {
                             configuration: request.configuration,
                             captured: None,
                         });
+                    Self::persist_state(&self.platform, &self.persistent)
+                        .expect("failed to write to NVRam");
                     Response::Ok
                 }
             }
@@ -879,6 +946,8 @@ impl<P: Platform> Hsm<P> {
                         }
                         .build(&self.persistent.realm_key);
                         group.captured = Some((request.entry.index, request.entry.entry_hmac));
+                        Self::persist_state(&self.platform, &self.persistent)
+                            .expect("failed to write to NVRam");
                         Response::Ok {
                             hsm_id: self.persistent.id,
                             captured: statement,
