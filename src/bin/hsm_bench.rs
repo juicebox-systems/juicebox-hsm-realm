@@ -1,14 +1,26 @@
 use clap::Parser;
+use futures::future::try_join_all;
 use futures::StreamExt;
+use hsmcore::hsm::types::GroupId;
+use loam_mvp::http_client::ClientOptions;
+use loam_mvp::realm::agent::types::AgentService;
+use loam_mvp::realm::agent::types::StatusRequest;
+use loam_mvp::realm::agent::types::StatusResponse;
+use loam_mvp::realm::cluster::NewRealmError;
+use loam_sdk::RealmId;
 use loam_sdk_core::types::{AuthToken, Policy};
+use loam_sdk_networking::rpc;
 use loam_sdk_networking::rpc::LoadBalancerService;
 use reqwest::{Certificate, Url};
 use std::fs;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::Mutex;
+use tokio::time::sleep;
 use tracing::{debug, info};
 
 use loam_mvp::http_client;
@@ -43,6 +55,12 @@ struct Args {
     /// Report metrics from HSMs. Options are Leader, All, None.
     #[arg(long, value_parser=MetricsParticipants::parse, default_value_t=MetricsParticipants::None)]
     metrics: MetricsParticipants,
+
+    /// A directory to read/write HSM state to. This allows for testing with a
+    /// realm that was created by a previous run. You need to keep the bigtable
+    /// state between runs for this to be useful.
+    #[arg(long)]
+    state: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -51,11 +69,9 @@ async fn main() {
 
     let mut process_group = ProcessGroup::new();
 
-    let mut process_group_alias = process_group.clone();
     ctrlc::set_handler(move || {
         info!(pid = std::process::id(), "received termination signal");
         logging::flush();
-        process_group_alias.kill();
         info!(pid = std::process::id(), "exiting");
         std::process::exit(0);
     })
@@ -71,6 +87,12 @@ async fn main() {
         .expect("Unable to connect to Bigtable admin");
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
+
+    let store = args
+        .bigtable
+        .connect_data()
+        .await
+        .expect("Unable to connect to Bigtable data");
 
     let certificates = create_localhost_key_and_cert("target".into())
         .expect("Failed to create TLS key/cert for load balancer");
@@ -107,10 +129,27 @@ async fn main() {
     let num_hsms = 5;
     info!(count = num_hsms, "creating HSMs and agents");
     let group = hsm_generator
-        .create_hsms(num_hsms, args.metrics, &mut process_group, &args.bigtable)
+        .create_hsms(
+            num_hsms,
+            args.metrics,
+            &mut process_group,
+            &args.bigtable,
+            args.state.clone(),
+        )
         .await;
-    let (realm_id, group_id) = cluster::new_realm(&group).await.unwrap();
-    info!(?realm_id, ?group_id, "initialized cluster");
+
+    let (realm_id, _group_id, realm_public_key) = match group_has_realm(&group).await.unwrap() {
+        Some((realm_id, group_id, public_key)) => {
+            info!(?realm_id, ?group_id, "using existing realm/group");
+            let _ = cluster::ensure_has_leader(&store).await;
+            (realm_id, group_id, public_key)
+        }
+        None => {
+            let (realm_id, group_id) = cluster::new_realm(&group).await.unwrap();
+            info!(?realm_id, ?group_id, "initialized cluster");
+            (realm_id, group_id, hsm_generator.public_communication_key())
+        }
+    };
 
     info!(clients = args.concurrency, "creating clients");
     let clients: Vec<Arc<Mutex<Client<http_client::Client<LoadBalancerService>>>>> = (0..args
@@ -120,7 +159,7 @@ async fn main() {
                 Configuration {
                     realms: vec![Realm {
                         address: load_balancer.clone(),
-                        public_key: hsm_generator.public_communication_key(),
+                        public_key: realm_public_key.clone(),
                         id: realm_id,
                     }],
                     register_threshold: 1,
@@ -190,7 +229,46 @@ async fn main() {
     );
 
     info!("main: done");
+    if args.state.is_some() {
+        info!("letting agents drain their delete queue");
+        sleep(Duration::from_secs(6)).await;
+    }
     process_group.kill();
     logging::flush();
     info!("main: exiting");
+}
+
+// If all members of the group are part of the same realm and have a single group, returns the realmId & groupId.
+async fn group_has_realm(
+    group: &[Url],
+) -> Result<Option<(RealmId, GroupId, Vec<u8>)>, NewRealmError> {
+    //
+    let agent_client = http_client::Client::<AgentService>::new(ClientOptions::default());
+
+    let hsms = try_join_all(
+        group
+            .iter()
+            .map(|agent| rpc::send(&agent_client, agent, StatusRequest {})),
+    )
+    .await
+    .map_err(NewRealmError::NetworkError)?;
+
+    fn realm_group(sr: &StatusResponse) -> Option<(RealmId, GroupId, Vec<u8>)> {
+        if let Some(s) = &sr.hsm {
+            if let Some(r) = &s.realm {
+                if r.groups.len() == 1 {
+                    return Some((r.id, r.groups[0].id, s.public_key.clone()));
+                }
+            }
+        }
+        None
+    }
+
+    let first = realm_group(&hsms[0]);
+    for other in &hsms[1..] {
+        if realm_group(other) != first {
+            return Ok(None);
+        }
+    }
+    Ok(first)
 }

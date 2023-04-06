@@ -719,6 +719,7 @@ impl<P: Platform> Hsm<P> {
         let response =
             StatusResponse {
                 id: self.persistent.id,
+                public_key: self.persistent.realm_communication.1.as_bytes().to_vec(),
                 realm: self.persistent.realm.as_ref().map(|realm| RealmStatus {
                     id: realm.id,
                     groups: realm

@@ -11,6 +11,7 @@ use std::fmt::{Display, Write};
 use std::iter;
 use std::net::SocketAddr;
 use std::ops::RangeFrom;
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -73,6 +74,7 @@ impl HsmGenerator {
         metrics: MetricsParticipants,
         process_group: &mut ProcessGroup,
         bigtable: &BigTableArgs,
+        hsm_dir: Option<PathBuf>,
     ) -> Vec<Url> {
         let mut agent_urls = Vec::with_capacity(count);
         let mut next_is_leader = true;
@@ -103,20 +105,23 @@ impl HsmGenerator {
             let agent_port = self.port.next().unwrap();
             let hsm_address = SocketAddr::from(([127, 0, 0, 1], hsm_port));
             let hsm_url = Url::parse(&format!("http://{hsm_address}")).unwrap();
-            process_group.spawn(
-                Command::new(format!(
-                    "target/{}/http_hsm",
-                    if cfg!(debug_assertions) {
-                        "debug"
-                    } else {
-                        "release"
-                    }
-                ))
-                .arg("--listen")
+            let mut cmd = Command::new(format!(
+                "target/{}/http_hsm",
+                if cfg!(debug_assertions) {
+                    "debug"
+                } else {
+                    "release"
+                }
+            ));
+            cmd.arg("--listen")
                 .arg(hsm_address.to_string())
                 .arg("--key")
-                .arg(&self.secret),
-            );
+                .arg(&self.secret);
+            if let Some(d) = &hsm_dir {
+                cmd.arg("--dir").arg(d.as_os_str());
+            }
+            process_group.spawn(&mut cmd);
+
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
             let mut cmd = Command::new(format!(

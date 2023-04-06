@@ -322,6 +322,7 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(hsm_types::StatusResponse {
                     id: hsm_id,
                     realm: Some(realm),
+                    public_key: _,
                 }) => {
                     if realm.id != realm_id {
                         todo!();
