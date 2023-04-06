@@ -125,14 +125,11 @@ async fn main() {
     );
 
     info!("Deleting secret");
-    match client.delete_all().await {
-        Ok(()) => {
-            info!("delete succeeded");
-        }
-        Err(e) => {
-            info!(error = ?e, "delete failed");
-        }
-    }
+    client
+        .delete_all()
+        .await
+        .expect("delete unexpectedly failed");
+    info!("delete succeeded");
 
     logging::flush();
     info!(pid = std::process::id(), "exiting");
