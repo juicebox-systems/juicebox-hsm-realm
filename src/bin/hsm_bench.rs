@@ -124,7 +124,7 @@ async fn main() {
 
     let num_hsms = 5;
     info!(count = num_hsms, "creating HSMs and agents");
-    let group = hsm_generator
+    let (group, realm_public_key) = hsm_generator
         .create_hsms(
             num_hsms,
             args.metrics,
@@ -134,16 +134,16 @@ async fn main() {
         )
         .await;
 
-    let (realm_id, _group_id, realm_public_key) = match group_has_realm(&group).await.unwrap() {
-        Some((realm_id, group_id, public_key)) => {
+    let (realm_id, _group_id) = match group_has_realm(&group).await.unwrap() {
+        Some((realm_id, group_id)) => {
             info!(?realm_id, ?group_id, "using existing realm/group");
             let _ = cluster::ensure_has_leader(&store).await;
-            (realm_id, group_id, public_key)
+            (realm_id, group_id)
         }
         None => {
             let (realm_id, group_id) = cluster::new_realm(&group).await.unwrap();
             info!(?realm_id, ?group_id, "initialized cluster");
-            (realm_id, group_id, hsm_generator.public_communication_key())
+            (realm_id, group_id)
         }
     };
 
@@ -234,10 +234,8 @@ async fn main() {
     info!("main: exiting");
 }
 
-// If all members of the group are part of the same realm and have a single group, returns the realmId, groupId & public key.
-async fn group_has_realm(
-    group: &[Url],
-) -> Result<Option<(RealmId, GroupId, Vec<u8>)>, NewRealmError> {
+// If all members of the group are part of the same realm and have a single group, returns the realmId, groupId.
+async fn group_has_realm(group: &[Url]) -> Result<Option<(RealmId, GroupId)>, NewRealmError> {
     let agent_client = http_client::Client::<AgentService>::new(ClientOptions::default());
 
     let hsms = try_join_all(
@@ -248,11 +246,11 @@ async fn group_has_realm(
     .await
     .map_err(NewRealmError::NetworkError)?;
 
-    fn realm_group(sr: &StatusResponse) -> Option<(RealmId, GroupId, Vec<u8>)> {
+    fn realm_group(sr: &StatusResponse) -> Option<(RealmId, GroupId)> {
         if let Some(s) = &sr.hsm {
             if let Some(r) = &s.realm {
                 if r.groups.len() == 1 {
-                    return Some((r.id, r.groups[0].id, s.public_key.clone()));
+                    return Some((r.id, r.groups[0].id));
                 }
             }
         }

@@ -16,7 +16,6 @@ use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
 use url::Url;
-use x25519_dalek as x25519;
 
 use loam_mvp::http_client::{self, ClientOptions};
 use loam_mvp::process_group::ProcessGroup;
@@ -52,22 +51,7 @@ impl HsmGenerator {
         }
     }
 
-    pub fn public_communication_key(&self) -> Vec<u8> {
-        // TODO: This is all an insecure placeholder.
-        use hmac::Hmac;
-        use hmac::Mac;
-        let mut mac = Hmac::<sha2::Sha512>::new_from_slice(b"worlds worst secret").expect("TODO");
-        mac.update(self.secret.as_bytes());
-        let realm_key = mac.finalize().into_bytes();
-
-        let secret = {
-            let mut buf = [0u8; 32];
-            buf.copy_from_slice(&realm_key.as_slice()[..32]);
-            x25519::StaticSecret::from(buf)
-        };
-        x25519::PublicKey::from(&secret).to_bytes().to_vec()
-    }
-
+    // Returns the URL(s) to the agents along with the communication public key.
     pub async fn create_hsms(
         &mut self,
         mut count: usize,
@@ -75,7 +59,7 @@ impl HsmGenerator {
         process_group: &mut ProcessGroup,
         bigtable: &BigTableArgs,
         hsm_dir: Option<PathBuf>,
-    ) -> Vec<Url> {
+    ) -> (Vec<Url>, Vec<u8>) {
         let mut agent_urls = Vec::with_capacity(count);
         let mut next_is_leader = true;
         if self.entrust.0 {
@@ -147,11 +131,12 @@ impl HsmGenerator {
         .take(count)
         .for_each(|url| agent_urls.push(url));
 
-        self.wait_for_agents(&agent_urls).await;
-        agent_urls
+        let public_key = self.wait_for_agents(&agent_urls).await;
+        (agent_urls, public_key)
     }
 
-    async fn wait_for_agents(&self, agents: &[Url]) {
+    // Returns the realm public key.
+    async fn wait_for_agents(&self, agents: &[Url]) -> Vec<u8> {
         // Wait for the agent to be up, which in turn waits for the HSM
         // to be up.
         //
@@ -161,8 +146,8 @@ impl HsmGenerator {
             let agent_client = AgentClient::new(ClientOptions::default());
             for attempt in 1.. {
                 if let Ok(response) = rpc::send(&agent_client, agent_url, StatusRequest {}).await {
-                    if response.hsm.is_some() {
-                        break;
+                    if let Some(hsm) = response.hsm {
+                        return hsm.public_key;
                     }
                 }
                 if attempt >= 1000 {
@@ -170,9 +155,9 @@ impl HsmGenerator {
                 }
                 sleep(Duration::from_millis(1)).await;
             }
-            agent_url
+            unreachable!()
         });
-        join_all(waiters).await;
+        join_all(waiters).await.pop().unwrap()
     }
 }
 
