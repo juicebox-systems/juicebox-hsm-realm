@@ -1,4 +1,5 @@
 use futures::future::{join_all, try_join_all};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::iter::zip;
 use std::time::Duration;
@@ -469,44 +470,63 @@ async fn find_leaders(
     Ok(leaders)
 }
 
-pub async fn ensure_has_leader(store: &StoreClient) -> Result<(), tonic::Status> {
+pub async fn ensure_groups_have_leader(
+    agent_client: &Client<AgentService>,
+    store: &StoreClient,
+) -> Result<(), tonic::Status> {
     trace!("checking that all groups have a leader");
-    let agent_client = Client::<AgentService>::new(ClientOptions::default());
     let addresses = store.get_addresses().await?;
 
     let mut groups: HashMap<GroupId, (Configuration, RealmId, Option<HsmId>)> = HashMap::new();
 
-    join_all(
+    let hsm_status: HashMap<HsmId, hsm_types::StatusResponse> = join_all(
         addresses
             .iter()
-            .map(|(_, address)| rpc::send(&agent_client, address, StatusRequest {})),
+            .map(|(_, address)| rpc::send(agent_client, address, StatusRequest {})),
     )
     .await
-    .iter()
-    .filter_map(|r| r.as_ref().ok())
-    .for_each(|r| {
-        if let Some(hsm) = &r.hsm {
-            if let Some(realm) = &hsm.realm {
-                for g in &realm.groups {
-                    groups
-                        .entry(g.id)
-                        .or_insert_with(|| (g.configuration.clone(), realm.id, None));
-                    if let Some(_leader) = &g.leader {
-                        groups.entry(g.id).and_modify(|v| v.2 = Some(hsm.id));
-                    }
+    .into_iter()
+    .filter_map(|r| r.ok().and_then(|s| s.hsm).map(|s| (s.id, s)))
+    .collect();
+
+    for hsm in hsm_status.values() {
+        if let Some(realm) = &hsm.realm {
+            for g in &realm.groups {
+                groups
+                    .entry(g.id)
+                    .or_insert_with(|| (g.configuration.clone(), realm.id, None));
+                if let Some(_leader) = &g.leader {
+                    groups.entry(g.id).and_modify(|v| v.2 = Some(hsm.id));
                 }
             }
         }
-    });
+    }
+
+    trace!(count=?groups.len(), "found groups");
+
     for (group_id, (config, realm_id, _)) in groups
         .into_iter()
         .filter(|(_, (_, _, leader))| leader.is_none())
     {
-        for hsm_id in &config.0 {
-            if let Some((_, url)) = addresses.iter().find(|a| a.0 == *hsm_id) {
+        // This group doesn't have a leader, we'll pick one and ask it to become leader.
+        info!(?group_id, ?realm_id, "Group has no leader");
+
+        // We calculate a score for each group member based on how much work we
+        // think its doing. Then use that to control the order in which we try to
+        // make a member the leader.
+        let mut scored: Vec<_> = config
+            .0
+            .into_iter()
+            .filter_map(|id| hsm_status.get(&id))
+            .map(|m| score(&group_id, m))
+            .collect();
+        scored.sort();
+
+        for hsm_id in scored.into_iter().map(|s| s.id) {
+            if let Some((_, url)) = addresses.iter().find(|a| a.0 == hsm_id) {
                 info!(?hsm_id, ?realm_id, ?group_id, "Asking hsm to become leader");
                 match rpc::send(
-                    &agent_client,
+                    agent_client,
                     url,
                     BecomeLeaderRequest {
                         realm: realm_id,
@@ -530,4 +550,83 @@ pub async fn ensure_has_leader(store: &StoreClient) -> Result<(), tonic::Status>
         }
     }
     Ok(())
+}
+
+fn score(group: &GroupId, m: &hsm_types::StatusResponse) -> Score {
+    let mut work = 0;
+    let mut last_captured = None;
+    if let Some(r) = &m.realm {
+        // group member scores +1, leader scores + 10
+        for g in &r.groups {
+            work += 1;
+            if g.leader.is_some() {
+                work += 10;
+            }
+            if g.id == *group {
+                last_captured = g.captured.as_ref().map(|(index, _)| *index);
+            }
+        }
+    }
+    Score {
+        work,
+        last_captured,
+        id: m.id,
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Score {
+    // larger is busier
+    work: usize,
+    last_captured: Option<LogIndex>,
+    id: HsmId,
+}
+
+impl Ord for Score {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.work.cmp(&other.work) {
+            Ordering::Equal => {}
+            ord => return ord,
+        }
+        other.last_captured.cmp(&self.last_captured)
+    }
+}
+
+impl PartialOrd for Score {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Score;
+    use hsmcore::hsm::types::{HsmId, LogIndex};
+
+    #[test]
+    fn score_order() {
+        let a = Score {
+            work: 20,
+            last_captured: Some(LogIndex(14)),
+            id: HsmId([1; 16]),
+        };
+        let b = Score {
+            work: 10,
+            last_captured: Some(LogIndex(13)),
+            id: HsmId([2; 16]),
+        };
+        let c = Score {
+            work: 10,
+            last_captured: Some(LogIndex(1)),
+            id: HsmId([3; 16]),
+        };
+        let d = Score {
+            work: 10,
+            last_captured: None,
+            id: HsmId([4; 16]),
+        };
+        let mut scores = vec![a.clone(), b.clone(), c.clone(), d.clone()];
+        scores.sort();
+        assert_eq!(vec![b, c, d, a], scores);
+    }
 }
