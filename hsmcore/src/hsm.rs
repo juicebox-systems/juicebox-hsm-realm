@@ -620,6 +620,26 @@ impl<P: Platform> Hsm<P> {
         }
     }
 
+    // Mutate the persisted state. If the closure returns OK(_) NVRAM is updated, if it returns Err
+    // it is not. The embedded R in Ok or Err is returned as the result from this function. Which
+    // is weird but works with the way errors are returned out of the HSM.
+    //
+    // Depending on types & scope, the PARAM value can let you get values into the closure where
+    // trying to capture it with the closure would fail the borrow checker.
+    fn mut_persisted_state<F, PARAM, R>(&mut self, param: PARAM, mut f: F) -> R
+    where
+        F: FnMut(&mut PersistentState, PARAM) -> Result<R, R>,
+    {
+        match f(&mut self.persistent, param) {
+            Ok(r) => {
+                Self::persist_state(&self.platform, &self.persistent)
+                    .expect("Failed to write to NVRAM");
+                r
+            }
+            Err(r) => r,
+        }
+    }
+
     fn create_new_group(
         &mut self,
         realm: RealmId,
@@ -634,15 +654,17 @@ impl<P: Platform> Hsm<P> {
         }
         .build(&self.persistent.realm_key);
 
-        let existing = self.persistent.realm.as_mut().unwrap().groups.insert(
-            group,
-            PersistentGroupState {
-                configuration,
-                captured: None,
-            },
-        );
-        assert!(existing.is_none());
-        Self::persist_state(&self.platform, &self.persistent).expect("failed to write to NVRam");
+        self.mut_persisted_state(configuration, |persistent, configuration| {
+            let existing = persistent.realm.as_mut().unwrap().groups.insert(
+                group,
+                PersistentGroupState {
+                    configuration,
+                    captured: None,
+                },
+            );
+            assert!(existing.is_none());
+            Ok(())
+        });
 
         let index = LogIndex::FIRST;
         let (partition, data) = match &owned_range {
@@ -797,17 +819,13 @@ impl<P: Platform> Hsm<P> {
                     JoinRealmResponse::HaveOtherRealm
                 }
             }
-            None => {
-                self.persistent.realm = Some(PersistentRealmState {
-                    id: request.realm,
+            None => self.mut_persisted_state(request.realm, |persistent, realm| {
+                persistent.realm = Some(PersistentRealmState {
+                    id: realm,
                     groups: HashMap::new(),
                 });
-                Self::persist_state(&self.platform, &self.persistent)
-                    .expect("failed to write to NVRam");
-                JoinRealmResponse::Ok {
-                    hsm: self.persistent.id,
-                }
-            }
+                Ok(JoinRealmResponse::Ok { hsm: persistent.id })
+            }),
         };
 
         trace!(hsm = self.options.name, ?response);
@@ -822,7 +840,7 @@ impl<P: Platform> Hsm<P> {
         type Response = NewGroupResponse;
         trace!(hsm = self.options.name, ?request);
 
-        let Some(realm) = &mut self.persistent.realm else {
+        let Some(realm) = &self.persistent.realm else {
             trace!(hsm = self.options.name, response = ?Response::InvalidRealm);
             return Response::InvalidRealm;
         };
@@ -850,39 +868,39 @@ impl<P: Platform> Hsm<P> {
     ) -> JoinGroupResponse {
         type Response = JoinGroupResponse;
         trace!(hsm = self.options.name, ?request);
-        let response = match &mut self.persistent.realm {
-            None => Response::InvalidRealm,
+        let response =
+            self.mut_persisted_state(request, |persistent, request| match &mut persistent.realm {
+                None => Err(Response::InvalidRealm),
 
-            Some(realm) => {
-                if realm.id != request.realm {
-                    Response::InvalidRealm
-                } else if (GroupConfigurationStatementBuilder {
-                    realm: request.realm,
-                    group: request.group,
-                    configuration: &request.configuration,
-                })
-                .verify(&self.persistent.realm_key, &request.statement)
-                .is_err()
-                {
-                    Response::InvalidStatement
-                } else if !request.configuration.is_ok()
-                    || !request.configuration.0.contains(&self.persistent.id)
-                {
-                    Response::InvalidConfiguration
-                } else {
-                    realm
-                        .groups
-                        .entry(request.group)
-                        .or_insert(PersistentGroupState {
-                            configuration: request.configuration,
-                            captured: None,
-                        });
-                    Self::persist_state(&self.platform, &self.persistent)
-                        .expect("failed to write to NVRam");
-                    Response::Ok
+                Some(realm) => {
+                    if realm.id != request.realm {
+                        Err(Response::InvalidRealm)
+                    } else if (GroupConfigurationStatementBuilder {
+                        realm: request.realm,
+                        group: request.group,
+                        configuration: &request.configuration,
+                    })
+                    .verify(&persistent.realm_key, &request.statement)
+                    .is_err()
+                    {
+                        Err(Response::InvalidStatement)
+                    } else if !request.configuration.is_ok()
+                        || !request.configuration.0.contains(&persistent.id)
+                    {
+                        Err(Response::InvalidConfiguration)
+                    } else {
+                        realm
+                            .groups
+                            .entry(request.group)
+                            .or_insert(PersistentGroupState {
+                                configuration: request.configuration,
+                                captured: None,
+                            });
+                        Ok(Response::Ok)
+                    }
                 }
-            }
-        };
+            });
+
         trace!(hsm = self.options.name, ?response);
         response
     }
@@ -895,67 +913,66 @@ impl<P: Platform> Hsm<P> {
         type Response = CaptureNextResponse;
         trace!(hsm = self.options.name, ?request);
 
-        let response = (|| match &mut self.persistent.realm {
-            None => Response::InvalidRealm,
+        let response =
+            self.mut_persisted_state(request, |persistent, request| match &mut persistent.realm {
+                None => Err(Response::InvalidRealm),
 
-            Some(realm) => {
-                if realm.id != request.realm {
-                    return Response::InvalidRealm;
-                }
+                Some(realm) => {
+                    if realm.id != request.realm {
+                        return Err(Response::InvalidRealm);
+                    }
 
-                if EntryHmacBuilder::verify_entry(
-                    &self.persistent.realm_key,
-                    request.realm,
-                    request.group,
-                    &request.entry,
-                )
-                .is_err()
-                {
-                    return Response::InvalidHmac;
-                }
+                    if EntryHmacBuilder::verify_entry(
+                        &persistent.realm_key,
+                        request.realm,
+                        request.group,
+                        &request.entry,
+                    )
+                    .is_err()
+                    {
+                        return Err(Response::InvalidHmac);
+                    }
 
-                match realm.groups.get_mut(&request.group) {
-                    None => Response::InvalidGroup,
+                    match realm.groups.get_mut(&request.group) {
+                        None => Err(Response::InvalidGroup),
 
-                    Some(group) => {
-                        match &group.captured {
-                            None => {
-                                if request.entry.index != LogIndex::FIRST {
-                                    return Response::MissingPrev;
+                        Some(group) => {
+                            match &group.captured {
+                                None => {
+                                    if request.entry.index != LogIndex::FIRST {
+                                        return Err(Response::MissingPrev);
+                                    }
+                                    if request.entry.prev_hmac != EntryHmac::zero() {
+                                        return Err(Response::InvalidChain);
+                                    }
                                 }
-                                if request.entry.prev_hmac != EntryHmac::zero() {
-                                    return Response::InvalidChain;
+                                Some((captured_index, captured_hmac)) => {
+                                    if request.entry.index != captured_index.next() {
+                                        return Err(Response::MissingPrev);
+                                    }
+                                    if request.entry.prev_hmac != *captured_hmac {
+                                        return Err(Response::InvalidChain);
+                                    }
                                 }
                             }
-                            Some((captured_index, captured_hmac)) => {
-                                if request.entry.index != captured_index.next() {
-                                    return Response::MissingPrev;
-                                }
-                                if request.entry.prev_hmac != *captured_hmac {
-                                    return Response::InvalidChain;
-                                }
-                            }
-                        }
 
-                        let statement = CapturedStatementBuilder {
-                            hsm: self.persistent.id,
-                            realm: request.realm,
-                            group: request.group,
-                            index: request.entry.index,
-                            entry_hmac: &request.entry.entry_hmac,
-                        }
-                        .build(&self.persistent.realm_key);
-                        group.captured = Some((request.entry.index, request.entry.entry_hmac));
-                        Self::persist_state(&self.platform, &self.persistent)
-                            .expect("failed to write to NVRam");
-                        Response::Ok {
-                            hsm_id: self.persistent.id,
-                            captured: statement,
+                            let statement = CapturedStatementBuilder {
+                                hsm: persistent.id,
+                                realm: request.realm,
+                                group: request.group,
+                                index: request.entry.index,
+                                entry_hmac: &request.entry.entry_hmac,
+                            }
+                            .build(&persistent.realm_key);
+                            group.captured = Some((request.entry.index, request.entry.entry_hmac));
+                            Ok(Response::Ok {
+                                hsm_id: persistent.id,
+                                captured: statement,
+                            })
                         }
                     }
                 }
-            }
-        })();
+            });
 
         trace!(hsm = self.options.name, ?response);
         response
