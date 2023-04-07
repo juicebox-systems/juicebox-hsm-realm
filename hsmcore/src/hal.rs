@@ -33,14 +33,14 @@ pub const MAX_NVRAM_SIZE: usize = 2000;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct IOError(pub String);
 
-// Persistent storage of up to 2000 bytes of data.
+// Persistent storage of up to 'MAX_NVRAM_SIZE' bytes of data.
 pub trait NVRam {
     // Returns the last written data, or an empty Vec if nothing has been written yet.
     fn read(&self) -> Result<Vec<u8>, IOError>;
 
     // Write 'data' to NVRam. If this is writing to flash this may be depressingly slow.
     // e.g. on the Entrust SoloXC this takes about 1ms. Returns an error if data is larger
-    // than 2000 bytes.
+    // than MAX_NVRAM_SIZE bytes.
     fn write(&self, data: Vec<u8>) -> Result<(), IOError>;
 }
 

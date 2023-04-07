@@ -185,6 +185,8 @@ const NVRAM_FILENAME: M_FileID = M_FileID {
     bytes: [b's', b't', b'a', b't', b'e', 0, 0, 0, 0, 0, 0],
 };
 
+const NVRAM_LEN_OFFSET: usize = 2044;
+
 impl NVRam for NCipher {
     // The admin needs to allocate an nvram area called 'state' with a size of
     // 2048. The nvram-sw tool can do this.
@@ -217,7 +219,7 @@ impl NVRam for NCipher {
                 let mut data = unsafe { reply.reply.nvmemop.res.read.data.as_slice().to_vec() };
                 // The first read after the NVRam entry was initialized will be
                 // all zeros. Which conveniently says the length is zero.
-                let len = u32::from_be_bytes(data[2044..].try_into().unwrap());
+                let len = u32::from_be_bytes(data[NVRAM_LEN_OFFSET..].try_into().unwrap());
                 data.truncate(len as usize);
                 Ok(data)
             } else {
@@ -241,7 +243,7 @@ impl NVRam for NCipher {
             )));
         }
         let len = (data.len() as u32).to_be_bytes();
-        data.resize(2044, 0);
+        data.resize(NVRAM_LEN_OFFSET, 0);
         data.extend(&len);
 
         let mut cmd = M_Command {
