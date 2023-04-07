@@ -608,11 +608,10 @@ impl<P: Platform> Hsm<P> {
         if d.len() < Sha256::output_size() {
             return Err(PersistenceError::InvalidSignature);
         }
-        let digest_start = d.len() - Sha256::output_size();
-        let stored_digest = &d[digest_start..];
-        let calced_digest = Sha256::digest(&d[..digest_start]);
-        if stored_digest == &*calced_digest {
-            match marshalling::from_slice(&d[..digest_start]) {
+        let (data, stored_digest) = d.split_at(d.len() - Sha256::output_size());
+        let calced_digest = Sha256::digest(data);
+        if stored_digest == calced_digest.as_slice() {
+            match marshalling::from_slice(data) {
                 Ok(state) => Ok(Some(state)),
                 Err(e) => Err(PersistenceError::Deserialization(e)),
             }
