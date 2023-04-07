@@ -94,24 +94,36 @@ async fn main() {
 
     let num_hsms = 5;
     info!(count = num_hsms, "creating initial HSMs and agents");
-    let group1 = hsm_generator
+    let (group1, realm1_public_key) = hsm_generator
         .create_hsms(
             num_hsms,
             MetricsParticipants::None,
             &mut process_group,
             &bt_args,
+            None,
         )
         .await;
     let (realm_id, group_id1) = cluster::new_realm(&group1).await.unwrap();
     info!(?realm_id, group_id = ?group_id1, "initialized cluster");
-    let realm1_public_key = hsm_generator.public_communication_key();
 
     info!("creating additional groups");
-    let group2 = hsm_generator
-        .create_hsms(5, MetricsParticipants::None, &mut process_group, &bt_args)
+    let (group2, _) = hsm_generator
+        .create_hsms(
+            5,
+            MetricsParticipants::None,
+            &mut process_group,
+            &bt_args,
+            None,
+        )
         .await;
-    let group3 = hsm_generator
-        .create_hsms(4, MetricsParticipants::None, &mut process_group, &bt_args)
+    let (group3, _) = hsm_generator
+        .create_hsms(
+            4,
+            MetricsParticipants::None,
+            &mut process_group,
+            &bt_args,
+            None,
+        )
         .await;
 
     let mut groups = try_join_all([
@@ -193,16 +205,16 @@ async fn main() {
         let mut process_group = process_group.clone();
         let bigtable = bt_args.clone();
         async move {
-            let agents = hsm_generator
+            let (agents, public_key) = hsm_generator
                 .create_hsms(
                     num_hsms,
                     MetricsParticipants::None,
                     &mut process_group,
                     &bigtable,
+                    None,
                 )
                 .await;
             let realm_id = cluster::new_realm(&agents).await.unwrap().0;
-            let public_key = hsm_generator.public_communication_key();
             (realm_id, public_key)
         }
     }))

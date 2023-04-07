@@ -301,6 +301,7 @@ pub struct StatusRequest {}
 pub struct StatusResponse {
     pub id: HsmId,
     pub realm: Option<RealmStatus>,
+    pub public_key: Vec<u8>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
