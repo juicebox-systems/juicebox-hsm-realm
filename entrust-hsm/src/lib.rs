@@ -185,20 +185,20 @@ const NVRAM_FILENAME: M_FileID = M_FileID {
     bytes: [b's', b't', b'a', b't', b'e', 0, 0, 0, 0, 0, 0],
 };
 
-const NVRAM_LEN_OFFSET: usize = 2044;
+const NVRAM_LEN_OFFSET: usize = MAX_NVRAM_SIZE - 4;
 
 impl NVRam for NCipher {
     // The admin needs to allocate an nvram area called 'state' with a size of
-    // 2048. The nvram-sw tool can do this.
-    // /opt/nfast/bin/nvram-sw --alloc -b 2048 -n state
+    // 4096 bytes. The nvram-sw tool can do this.
+    // /opt/nfast/bin/nvram-sw --alloc -b 4096 -n state
     //
     // For production we need something that will correctly set the acl on this
     // nvram file.
     //
-    // read will always return the full 2048 bytes, and writes need to send a
-    // full 2048 bytes. The last 4 bytes in the 2048 bytes hold the size of the
-    // data that was written. This is extracted during read to correctly size
-    // the returned data.
+    // read will always return the full 4096 bytes, and writes need to send a
+    // full 4096 bytes. The last 4 bytes hold the size of the data that was
+    // written. This is extracted during read to correctly size the returned
+    // data.
 
     fn read(&self) -> Result<Vec<u8>, IOError> {
         let mut cmd = M_Command {

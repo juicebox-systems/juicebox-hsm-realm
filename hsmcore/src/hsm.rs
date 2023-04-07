@@ -375,7 +375,7 @@ struct PersistentRealmState {
     groups: HashMap<GroupId, PersistentGroupState>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 struct PersistentGroupState {
     configuration: Configuration,
     captured: Option<(LogIndex, EntryHmac)>,
@@ -2065,11 +2065,18 @@ impl Debug for HsmElectionOutcome {
 
 #[cfg(test)]
 mod test {
+    use hashbrown::HashMap;
+    use loam_sdk_core::{marshalling, types::RealmId};
+    use x25519_dalek as x25519;
+
     use super::{
         super::bitvec,
+        super::hal::MAX_NVRAM_SIZE,
         super::merkle::{agent::StoreKey, NodeHasher},
-        types::{DataHash, HsmId},
-        HsmElection, HsmElectionOutcome, MerkleHasher,
+        app::RootOprfKey,
+        types::{Configuration, DataHash, EntryHmac, GroupId, HsmId, LogIndex},
+        HsmElection, HsmElectionOutcome, MerkleHasher, PersistentGroupState, PersistentRealmState,
+        PersistentState, RealmKey,
     };
 
     #[test]
@@ -2175,5 +2182,54 @@ mod test {
                 assert_eq!(h, hash);
             }
         }
+    }
+
+    #[test]
+    fn persistent_data_size() {
+        // Verify that a PersistentState with 16 groups with 8 HSMs each fits in the NVRAM limit.
+
+        let realm_key = RealmKey::derive_from("its a test".as_bytes());
+        let root_oprf_key = RootOprfKey::from(&realm_key);
+
+        let realm_communication = {
+            let mut buf = [0u8; 32];
+            buf.copy_from_slice(&realm_key.0[..32]);
+            let secret = x25519::StaticSecret::from(buf);
+            let public = x25519::PublicKey::from(&secret);
+            (secret, public)
+        };
+        let group = PersistentGroupState {
+            configuration: Configuration(vec![
+                HsmId([10; 16]),
+                HsmId([11; 16]),
+                HsmId([12; 16]),
+                HsmId([13; 16]),
+                HsmId([14; 16]),
+                HsmId([15; 16]),
+                HsmId([16; 16]),
+                HsmId([17; 16]),
+            ]),
+            captured: Some((LogIndex(u64::MAX - 1), EntryHmac([3; 32].into()))),
+        };
+        let mut groups = HashMap::new();
+        for id in 0..16 {
+            groups.insert(GroupId([id; 16]), group.clone());
+        }
+        let p = PersistentState {
+            id: HsmId([1; 16]),
+            realm_key,
+            realm_communication,
+            realm: Some(PersistentRealmState {
+                id: RealmId([2; 16]),
+                groups,
+            }),
+            root_oprf_key,
+        };
+        let s = marshalling::to_vec(&p).unwrap();
+        assert!(
+            s.len() < MAX_NVRAM_SIZE,
+            "serialized persistent state is {} bytes",
+            s.len()
+        );
     }
 }

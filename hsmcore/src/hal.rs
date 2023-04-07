@@ -28,7 +28,7 @@ pub trait Clock {
     fn elapsed(&self, start: Self::Instant) -> Option<Nanos>;
 }
 
-pub const MAX_NVRAM_SIZE: usize = 2000;
+pub const MAX_NVRAM_SIZE: usize = 4000;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct IOError(pub String);
