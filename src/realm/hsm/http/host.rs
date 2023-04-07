@@ -9,6 +9,7 @@ use hyper::{body::Incoming as IncomingBody, Request, Response};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::fs;
+use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::ops::Sub;
 use std::path::PathBuf;
@@ -77,7 +78,7 @@ impl NVRam for StdPlatform {
         match fs::read(&self.state_file) {
             Ok(data) => Ok(data),
             Err(e) => {
-                if !self.state_file.exists() {
+                if e.kind() == ErrorKind::NotFound {
                     return Ok(Vec::new());
                 }
                 Err(IOError(format!(
