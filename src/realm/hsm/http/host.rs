@@ -80,7 +80,10 @@ impl NVRam for StdPlatform {
                 if !self.state.exists() {
                     return Ok(Vec::new());
                 }
-                Err(IOError(format!("IO Error reading state: {e}")))
+                Err(IOError(format!(
+                    "IO Error reading state from {}: {e}",
+                    self.state.display()
+                )))
             }
         }
     }
@@ -88,11 +91,16 @@ impl NVRam for StdPlatform {
     fn write(&self, data: Vec<u8>) -> Result<(), IOError> {
         if data.len() > MAX_NVRAM_SIZE {
             return Err(IOError(format!(
-                "data is larger than allowed maximum of {MAX_NVRAM_SIZE}"
+                "data with {} bytes is larger than allowed maximum of {MAX_NVRAM_SIZE}",
+                data.len()
             )));
         }
-        fs::write(&self.state, data)
-            .map_err(|e| IOError(format!("IO Error writing to state file: {e}")))
+        fs::write(&self.state, data).map_err(|e| {
+            IOError(format!(
+                "IO Error writing to state file {}: {e}",
+                self.state.display()
+            ))
+        })
     }
 }
 

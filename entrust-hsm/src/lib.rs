@@ -221,7 +221,10 @@ impl NVRam for NCipher {
                 data.truncate(len as usize);
                 Ok(data)
             } else {
-                Err(IOError(format!("error {}", reply.status)))
+                Err(IOError(format!(
+                    "error reading from NVRAM: {}",
+                    reply.status
+                )))
             }
         };
         unsafe {
@@ -233,7 +236,8 @@ impl NVRam for NCipher {
     fn write(&self, mut data: Vec<u8>) -> Result<(), IOError> {
         if data.len() > MAX_NVRAM_SIZE {
             return Err(IOError(format!(
-                "data is larger than allowed maximum of {MAX_NVRAM_SIZE}"
+                "data with {} bytes is larger than allowed maximum of {MAX_NVRAM_SIZE}",
+                data.len()
             )));
         }
         let len = (data.len() as u32).to_be_bytes();

@@ -43,11 +43,15 @@ async fn main() {
 
     let dir = args.dir.unwrap_or_else(random_tmp_dir);
     if !dir.exists() {
-        fs::create_dir_all(&dir)
-            .expect("failed to create specified directory for persistent state");
+        fs::create_dir_all(&dir).unwrap_or_else(|e| {
+            panic!(
+                "failed to create directory '{}' for persistent state: {e:?}",
+                dir.display()
+            )
+        });
     } else if dir.is_file() {
         println!(
-            "the --dir argument should be a directory, but {} is a file.",
+            "the --dir argument should be a directory, but '{}' is a file.",
             dir.display()
         );
         return;

@@ -522,7 +522,7 @@ pub async fn ensure_has_leader(store: &StoreClient) -> Result<(), tonic::Status>
                         break;
                     }
                     Ok(reply) => {
-                        warn!(?reply, "BecomeLeader replied");
+                        warn!(?reply, "BecomeLeader replied not okay");
                     }
                     Err(e) => {
                         warn!(err=?e, "BecomeLeader error");
