@@ -3,9 +3,7 @@ use futures::future::try_join_all;
 use futures::StreamExt;
 use hsmcore::hsm::types::GroupId;
 use loam_mvp::http_client::ClientOptions;
-use loam_mvp::realm::agent::types::AgentService;
-use loam_mvp::realm::agent::types::StatusRequest;
-use loam_mvp::realm::agent::types::StatusResponse;
+use loam_mvp::realm::agent::types::{AgentService, StatusRequest, StatusResponse};
 use loam_mvp::realm::cluster::NewRealmError;
 use loam_sdk::RealmId;
 use loam_sdk_core::types::{AuthToken, Policy};
@@ -17,17 +15,15 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::{debug, info};
 
-use loam_mvp::http_client;
-use loam_mvp::logging;
 use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::{http_client, logging};
 use loam_sdk::{Client, Configuration, Pin, Realm, UserSecret};
 
 mod common;
@@ -238,11 +234,10 @@ async fn main() {
     info!("main: exiting");
 }
 
-// If all members of the group are part of the same realm and have a single group, returns the realmId & groupId.
+// If all members of the group are part of the same realm and have a single group, returns the realmId, groupId & public key.
 async fn group_has_realm(
     group: &[Url],
 ) -> Result<Option<(RealmId, GroupId, Vec<u8>)>, NewRealmError> {
-    //
     let agent_client = http_client::Client::<AgentService>::new(ClientOptions::default());
 
     let hsms = try_join_all(
