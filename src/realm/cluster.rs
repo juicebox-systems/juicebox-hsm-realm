@@ -470,13 +470,11 @@ async fn find_leaders(
 }
 
 pub async fn ensure_has_leader(store: &StoreClient) -> Result<(), tonic::Status> {
-    //
     trace!("checking that all groups have a leader");
     let agent_client = Client::<AgentService>::new(ClientOptions::default());
     let addresses = store.get_addresses().await?;
 
-    let mut groups = HashMap::new();
-    let mut leaders = HashMap::new();
+    let mut groups: HashMap<GroupId, (Configuration, RealmId, Option<HsmId>)> = HashMap::new();
 
     join_all(
         addresses
@@ -492,18 +490,18 @@ pub async fn ensure_has_leader(store: &StoreClient) -> Result<(), tonic::Status>
                 for g in &realm.groups {
                     groups
                         .entry(g.id)
-                        .or_insert_with(|| (g.configuration.clone(), realm.id));
+                        .or_insert_with(|| (g.configuration.clone(), realm.id, None));
                     if let Some(_leader) = &g.leader {
-                        leaders.insert(g.id, hsm.id);
+                        groups.entry(g.id).and_modify(|v| v.2 = Some(hsm.id));
                     }
                 }
             }
         }
     });
-    for (group_id, (config, realm_id)) in groups {
-        if leaders.contains_key(&group_id) {
-            continue;
-        }
+    for (group_id, (config, realm_id, _)) in groups
+        .into_iter()
+        .filter(|(_, (_, _, leader))| leader.is_none())
+    {
         for hsm_id in &config.0 {
             if let Some((_, url)) = addresses.iter().find(|a| a.0 == *hsm_id) {
                 info!(?hsm_id, ?realm_id, ?group_id, "Asking hsm to become leader");
