@@ -9,6 +9,7 @@ use loam_sdk_core::marshalling;
 use loam_sdk_networking::rpc;
 use opentelemetry_http::HeaderExtractor;
 use rustls::server::ResolvesServerCert;
+use secrecy::SecretString;
 use std::collections::HashMap;
 use std::iter::zip;
 use std::net::SocketAddr;
@@ -27,6 +28,7 @@ use url::Url;
 use super::super::http_client::{Client, ClientOptions};
 use super::agent::types::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
 use super::store::bigtable::StoreClient;
+use crate::client_auth::{validation::Validator as AuthTokenValidator, AuthKey};
 use crate::logging::Spew;
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
@@ -253,14 +255,17 @@ async fn handle_client_request(
         return Response::Unavailable;
     };
 
-    let token = &request.auth_token;
-    // TODO: should use a more secure signature scheme
-    if token.signature != b"it's-a-me!" {
-        trace!(?token, "failed auth");
-        return Response::InvalidAuth;
-    }
-
-    let record_id = super::agent::types::make_record_id(&token.tenant, &token.user);
+    let validator = AuthTokenValidator::new();
+    let record_id = match validator.validate(
+        &request.auth_token,
+        &AuthKey::from(SecretString::from(String::from("it's-a-them!"))),
+    ) {
+        Ok(claims) => super::agent::types::make_record_id(&claims.issuer, &claims.subject),
+        Err(err) => {
+            trace!(?err, "failed auth");
+            return Response::InvalidAuth;
+        }
+    };
 
     for partition in partitions {
         if !partition.owned_range.contains(&record_id) {

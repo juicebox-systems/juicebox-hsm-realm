@@ -1219,6 +1219,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsonwebtoken"
+version = "8.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6971da4d9c3aa03c3d8f3ff0f4155b534aad021292003895a469716b2a230378"
+dependencies = [
+ "base64 0.21.0",
+ "ring",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1255,6 +1267,7 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
+ "jsonwebtoken",
  "libc",
  "loam-sdk",
  "loam-sdk-core",
@@ -1270,6 +1283,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "rustls-pemfile",
+ "secrecy",
  "serde",
  "serde_json",
  "sha2",
@@ -1313,6 +1327,7 @@ dependencies = [
  "ciborium",
  "digest 0.10.6",
  "loam-sdk-noise",
+ "secrecy",
  "serde",
  "subtle",
  "voprf",
@@ -2015,6 +2030,16 @@ dependencies = [
  "der",
  "generic-array",
  "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "secrecy"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9bd1c54ea06cfd2f6b63219704de0b9b4f72dcc2b8fdef820be6cd799780e91e"
+dependencies = [
+ "serde",
  "zeroize",
 ]
 
@@ -2926,9 +2951,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.5.7"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c394b5bd0c6f669e7275d9c20aa90ae064cb22e75a1cad54e1b34088034b149f"
+checksum = "2a0956f1ba7c7909bfb66c2e9e4124ab6f6482560f6628b5aaeba39207c9aad9"
 dependencies = [
  "zeroize_derive",
 ]

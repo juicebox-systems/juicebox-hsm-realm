@@ -1,9 +1,8 @@
 use clap::Parser;
 use futures::future::{join_all, try_join_all};
 use http::Uri;
-use loam_sdk_core::types::AuthToken;
 use reqwest::Url;
-
+use secrecy::SecretString;
 use std::env::current_dir;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -11,6 +10,7 @@ use std::process::Command;
 use tracing::info;
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
+use loam_mvp::client_auth::{creation::create_token, AuthKey, Claims};
 use loam_mvp::logging;
 use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
@@ -223,11 +223,13 @@ async fn main() {
         recover_threshold: 3,
     };
 
-    let auth_token = AuthToken {
-        tenant: String::from("test"),
-        user: String::from("mario"),
-        signature: b"it's-a-me!".to_vec(),
-    };
+    let auth_token = create_token(
+        &Claims {
+            issuer: String::from("test"),
+            subject: String::from("mario"),
+        },
+        &AuthKey::from(SecretString::from(String::from("it's-a-them!"))),
+    );
 
     info!(pid = std::process::id(), "runner: executing demo");
 

@@ -1,8 +1,9 @@
 use clap::Parser;
 use futures::StreamExt;
-use loam_sdk_core::types::{AuthToken, Policy};
+use loam_sdk_core::types::Policy;
 use loam_sdk_networking::rpc::LoadBalancerService;
 use reqwest::{Certificate, Url};
+use secrecy::SecretString;
 use std::fs;
 use std::net::SocketAddr;
 use std::process::Command;
@@ -11,6 +12,7 @@ use std::time::Instant;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
+use loam_mvp::client_auth::{creation::create_token, AuthKey, Claims};
 use loam_mvp::http_client;
 use loam_mvp::logging;
 use loam_mvp::process_group::ProcessGroup;
@@ -126,11 +128,13 @@ async fn main() {
                     register_threshold: 1,
                     recover_threshold: 1,
                 },
-                AuthToken {
-                    tenant: String::from("test"),
-                    user: format!("mario{i}"),
-                    signature: b"it's-a-me!".to_vec(),
-                },
+                create_token(
+                    &Claims {
+                        issuer: String::from("test"),
+                        subject: format!("mario{i}"),
+                    },
+                    &AuthKey::from(SecretString::from(String::from("it's-a-them!"))),
+                ),
                 http_client::Client::new(http_client::ClientOptions {
                     additional_root_certs: vec![lb_cert.clone()],
                 }),
