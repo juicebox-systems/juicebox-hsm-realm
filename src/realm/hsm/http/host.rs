@@ -38,7 +38,7 @@ impl Sub for HalInstant {
 #[derive(Clone)]
 struct StdPlatform {
     // The location of the backing file for 'NVRam'
-    state: PathBuf,
+    state_file: PathBuf,
 }
 
 impl Clock for StdPlatform {
@@ -74,15 +74,15 @@ impl rand::CryptoRng for StdPlatform {}
 
 impl NVRam for StdPlatform {
     fn read(&self) -> Result<Vec<u8>, IOError> {
-        match fs::read(&self.state) {
+        match fs::read(&self.state_file) {
             Ok(data) => Ok(data),
             Err(e) => {
-                if !self.state.exists() {
+                if !self.state_file.exists() {
                     return Ok(Vec::new());
                 }
                 Err(IOError(format!(
                     "IO Error reading state from {}: {e}",
-                    self.state.display()
+                    self.state_file.display()
                 )))
             }
         }
@@ -95,10 +95,10 @@ impl NVRam for StdPlatform {
                 data.len()
             )));
         }
-        fs::write(&self.state, data).map_err(|e| {
+        fs::write(&self.state_file, data).map_err(|e| {
             IOError(format!(
                 "IO Error writing to state file {}: {e}",
-                self.state.display()
+                self.state_file.display()
             ))
         })
     }
@@ -120,7 +120,7 @@ impl HttpHsm {
                 tree_overlay_size: 511,
                 max_sessions: 511,
             },
-            StdPlatform { state: state_file },
+            StdPlatform { state_file },
             realm_key,
         )?))))
     }

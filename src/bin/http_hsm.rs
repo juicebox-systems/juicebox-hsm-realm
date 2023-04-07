@@ -32,7 +32,7 @@ struct Args {
 
     /// Directory to store the persistent state file in [default: a random temp dir]
     #[arg(short, long)]
-    dir: Option<PathBuf>,
+    state_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -41,7 +41,7 @@ async fn main() {
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("hsm{}", args.listen));
 
-    let dir = args.dir.unwrap_or_else(random_tmp_dir);
+    let dir = args.state_dir.unwrap_or_else(random_tmp_dir);
     if !dir.exists() {
         fs::create_dir_all(&dir).unwrap_or_else(|e| {
             panic!(

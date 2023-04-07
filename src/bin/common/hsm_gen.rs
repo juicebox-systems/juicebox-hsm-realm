@@ -118,7 +118,7 @@ impl HsmGenerator {
                 .arg("--key")
                 .arg(&self.secret);
             if let Some(d) = &hsm_dir {
-                cmd.arg("--dir").arg(d.as_os_str());
+                cmd.arg("--state-dir").arg(d.as_os_str());
             }
             process_group.spawn(&mut cmd);
 
