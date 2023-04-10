@@ -8,7 +8,7 @@ use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
-use tracing::{info, trace};
+use tracing::trace;
 
 use super::types::RecordId;
 use super::RealmKey;
@@ -307,7 +307,7 @@ fn recover1(
         generation,
         &request.blinded_pin,
     );
-    info!(?record_id, %generation, "recover1 completed");
+    trace!(?record_id, %generation, "recover1 completed");
     (
         Recover1Response::Ok {
             generation,
