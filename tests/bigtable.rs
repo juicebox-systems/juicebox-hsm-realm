@@ -386,13 +386,10 @@ async fn service_discovery() {
     data.set_address(&hsm2, &url2, SystemTime::now())
         .await
         .unwrap();
-    let mut addresses = data.get_addresses().await.unwrap();
+    let addresses = data.get_addresses().await.unwrap();
     assert_eq!(2, addresses.len());
-    // addresses are returned in no specific order.
-    if addresses[0].0 != hsm1 {
-        addresses.swap(0, 1);
-    }
-    assert_eq!(vec![(hsm1, url1.clone()), (hsm2, url2.clone())], addresses);
+    // addresses are returned in HSM Id order.
+    assert_eq!(vec![(hsm2, url2.clone()), (hsm1, url1.clone())], addresses);
 
     // reading with an old timestamp should result in it being expired.
     data.set_address(
