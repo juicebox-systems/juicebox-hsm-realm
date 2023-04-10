@@ -1,15 +1,8 @@
 use clap::Parser;
 use futures::future::try_join_all;
 use futures::StreamExt;
-use hsmcore::hsm::types::GroupId;
-use loam_mvp::http_client::ClientOptions;
-use loam_mvp::realm::agent::types::{AgentService, StatusRequest, StatusResponse};
-use loam_mvp::realm::cluster::NewRealmError;
-use loam_sdk::RealmId;
-use loam_sdk_core::types::{AuthToken, Policy};
-use loam_sdk_networking::rpc;
-use loam_sdk_networking::rpc::LoadBalancerService;
 use reqwest::{Certificate, Url};
+use secrecy::SecretString;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -20,11 +13,17 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::{debug, info};
 
+use hsmcore::hsm::types::GroupId;
+use loam_mvp::client_auth::{creation::create_token, AuthKey, Claims};
+use loam_mvp::http_client::{self, ClientOptions};
+use loam_mvp::logging;
 use loam_mvp::process_group::ProcessGroup;
-use loam_mvp::realm::cluster;
+use loam_mvp::realm::agent::types::{AgentService, StatusRequest, StatusResponse};
+use loam_mvp::realm::cluster::{self, NewRealmError};
 use loam_mvp::realm::store::bigtable::BigTableArgs;
-use loam_mvp::{http_client, logging};
-use loam_sdk::{Client, Configuration, Pin, Realm, UserSecret};
+use loam_sdk::{Client, Configuration, Pin, Realm, RealmId, UserSecret};
+use loam_sdk_core::types::Policy;
+use loam_sdk_networking::rpc::{self, LoadBalancerService};
 
 mod common;
 use common::certs::create_localhost_key_and_cert;
@@ -161,11 +160,13 @@ async fn main() {
                     register_threshold: 1,
                     recover_threshold: 1,
                 },
-                AuthToken {
-                    tenant: String::from("test"),
-                    user: format!("mario{i}"),
-                    signature: b"it's-a-me!".to_vec(),
-                },
+                create_token(
+                    &Claims {
+                        issuer: String::from("test"),
+                        subject: format!("mario{i}"),
+                    },
+                    &AuthKey::from(SecretString::from(String::from("it's-a-them!"))),
+                ),
                 http_client::Client::new(http_client::ClientOptions {
                     additional_root_certs: vec![lb_cert.clone()],
                 }),

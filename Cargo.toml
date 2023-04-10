@@ -33,6 +33,7 @@ hsmcore = { path = "hsmcore" }
 http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
+jsonwebtoken = { version = "8.3.0", default-features = false }
 libc = { version = "0.2.139", default-features = false }
 loam-sdk = { path = "sdk/rust/sdk/client" }
 loam-sdk-core = { path = "sdk/rust/sdk/core" }
@@ -52,6 +53,7 @@ rustls-pemfile = "1.0"
 reqwest = { version = "0.11.14", default-features = false, features = [
     "rustls-tls",
 ] }
+secrecy = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.152", default-features = false, features = [
     "alloc",
     "derive",
@@ -62,7 +64,7 @@ signal-hook = "0.3.15"
 subtle = { version = "2.4.1", default-features = false }
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros"] }
 tokio-rustls = "0.23.4"
-tonic = { version = "0.8.3", features = [ "channel", "tls", "tls-webpki-roots" ] }
+tonic = { version = "0.8.3", features = ["channel", "tls", "tls-webpki-roots"] }
 tracing = { version = "0.2.0", default-features = false, features = [
     "alloc",
     "attributes",
@@ -93,6 +95,7 @@ hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
+jsonwebtoken = { workspace = true }
 libc = { workspace = true }
 loam-sdk = { workspace = true }
 loam-sdk-core = { workspace = true }
@@ -107,6 +110,7 @@ rand = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
+secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -123,6 +127,7 @@ x25519-dalek = { workspace = true }
 
 
 [patch.crates-io]
+secrecy = { git = "ssh://git@github.com/Loam-Security/secrecy.git", branch = "loam-main" }
 # We need https://github.com/tokio-rs/tracing/pull/2335 to quiet down error return
 # values in tokio::instrument, which is not yet unreleased.
 tracing = { git = "https://github.com/tokio-rs/tracing" }
