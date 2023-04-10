@@ -68,6 +68,7 @@ struct RegisteredUserRecord {
 }
 
 /// A private root key used to derive keys for each user-generation's OPRF.
+#[derive(Deserialize, Serialize)]
 pub struct RootOprfKey([u8; 32]);
 
 impl RootOprfKey {

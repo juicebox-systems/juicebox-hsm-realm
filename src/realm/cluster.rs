@@ -8,11 +8,12 @@ use url::Url;
 
 use super::super::http_client::{Client, ClientOptions};
 use super::agent::types::{
-    AgentService, CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
-    NewRealmRequest, NewRealmResponse, StatusRequest, StatusResponse, TransferInRequest,
-    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
-    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
+    AgentService, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
+    CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
+    JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
+    StatusRequest, StatusResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
+    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
+    TransferStatementResponse,
 };
 use super::store::bigtable::StoreClient;
 use hsm_types::{Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange};
@@ -466,4 +467,67 @@ async fn find_leaders(
     }
     trace!("done refreshing cluster information");
     Ok(leaders)
+}
+
+pub async fn ensure_has_leader(store: &StoreClient) -> Result<(), tonic::Status> {
+    trace!("checking that all groups have a leader");
+    let agent_client = Client::<AgentService>::new(ClientOptions::default());
+    let addresses = store.get_addresses().await?;
+
+    let mut groups: HashMap<GroupId, (Configuration, RealmId, Option<HsmId>)> = HashMap::new();
+
+    join_all(
+        addresses
+            .iter()
+            .map(|(_, address)| rpc::send(&agent_client, address, StatusRequest {})),
+    )
+    .await
+    .iter()
+    .filter_map(|r| r.as_ref().ok())
+    .for_each(|r| {
+        if let Some(hsm) = &r.hsm {
+            if let Some(realm) = &hsm.realm {
+                for g in &realm.groups {
+                    groups
+                        .entry(g.id)
+                        .or_insert_with(|| (g.configuration.clone(), realm.id, None));
+                    if let Some(_leader) = &g.leader {
+                        groups.entry(g.id).and_modify(|v| v.2 = Some(hsm.id));
+                    }
+                }
+            }
+        }
+    });
+    for (group_id, (config, realm_id, _)) in groups
+        .into_iter()
+        .filter(|(_, (_, _, leader))| leader.is_none())
+    {
+        for hsm_id in &config.0 {
+            if let Some((_, url)) = addresses.iter().find(|a| a.0 == *hsm_id) {
+                info!(?hsm_id, ?realm_id, ?group_id, "Asking hsm to become leader");
+                match rpc::send(
+                    &agent_client,
+                    url,
+                    BecomeLeaderRequest {
+                        realm: realm_id,
+                        group: group_id,
+                    },
+                )
+                .await
+                {
+                    Ok(BecomeLeaderResponse::Ok) => {
+                        info!(?hsm_id, ?realm_id, ?group_id, "Now leader");
+                        break;
+                    }
+                    Ok(reply) => {
+                        warn!(?reply, "BecomeLeader replied not okay");
+                    }
+                    Err(e) => {
+                        warn!(err=?e, "BecomeLeader error");
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }

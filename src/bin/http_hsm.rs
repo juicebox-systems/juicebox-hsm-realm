@@ -1,5 +1,9 @@
 use clap::Parser;
+use rand::{rngs::OsRng, RngCore};
+use std::fmt::Write;
+use std::fs;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use tracing::info;
 
 use hsmcore::hsm::RealmKey;
@@ -25,6 +29,10 @@ struct Args {
     /// Derive realm key from this input.
     #[arg(short, long, value_parser=parse_realm_key)]
     key: RealmKey,
+
+    /// Directory to store the persistent state file in [default: a random temp dir]
+    #[arg(short, long)]
+    state_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -32,9 +40,26 @@ async fn main() {
     logging::configure("loam-http-hsm");
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("hsm{}", args.listen));
-    let hsm = HttpHsm::new(name, args.key);
+
+    let dir = args.state_dir.unwrap_or_else(random_tmp_dir);
+    if !dir.exists() {
+        fs::create_dir_all(&dir).unwrap_or_else(|e| {
+            panic!(
+                "failed to create directory '{}' for persistent state: {e:?}",
+                dir.display()
+            )
+        });
+    } else if dir.is_file() {
+        println!(
+            "the --dir argument should be a directory, but '{}' is a file.",
+            dir.display()
+        );
+        return;
+    }
+    let hsm = HttpHsm::new(dir.clone(), name, args.key)
+        .expect("HttpHsm failed to initialize from prior state");
     let (url, join_handle) = hsm.listen(args.listen).await.unwrap();
-    info!(url = %url, "HSM started");
+    info!(url = %url, dir=%dir.display(), "HSM started");
     join_handle.await.unwrap();
 }
 
@@ -45,4 +70,15 @@ fn parse_listen(s: &str) -> Result<SocketAddr, String> {
 
 fn parse_realm_key(s: &str) -> Result<RealmKey, String> {
     Ok(RealmKey::derive_from(s.as_bytes()))
+}
+
+fn random_tmp_dir() -> PathBuf {
+    let tmp = std::env::temp_dir();
+    let mut n = [0u8; 10];
+    OsRng.fill_bytes(&mut n);
+    let mut dn = String::from("http_hsm_");
+    for b in n {
+        write!(dn, "{b:02x}").unwrap()
+    }
+    tmp.join(dn)
 }

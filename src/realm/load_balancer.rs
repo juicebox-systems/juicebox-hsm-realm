@@ -171,7 +171,11 @@ async fn refresh(
                     }
                 }
             }
-            trace!(load_balancer = name, "done refreshing cluster information");
+            trace!(
+                ?realms,
+                load_balancer = name,
+                "done refreshing cluster information"
+            );
             realms
         }
     }
@@ -306,7 +310,7 @@ async fn handle_client_request(
             ) => {
                 warn!(
                     load_balancer = name,
-                    agent = ?partition.leader,
+                    agent = %partition.leader,
                     realm = ?request.realm,
                     group = ?partition.group,
                     response = ?r,
