@@ -695,6 +695,140 @@ impl StoreClient {
         Ok(entry)
     }
 
+    /// Returns an Iterator style object that can read the log starting from the supplied
+    /// log index. max_entries indicates how large of a chunk to return. However due to the
+    /// variable batch size when appending you may get up to MAX_BATCH_SIZE-1
+    /// entries more returned than max_entries.
+    pub fn read_log_entries_iter(
+        &self,
+        realm: RealmId,
+        group: GroupId,
+        starting_at: LogIndex,
+        max_entries: u16,
+        append_max_batch_size: usize,
+    ) -> LogEntriesIter {
+        assert!(max_entries > 0);
+        let table_name = log_table(&self.instance, &realm);
+        LogEntriesIter {
+            realm,
+            group,
+            next: Position::LogIndex(starting_at),
+            max_entries: max_entries as u64,
+            append_max_batch_size: append_max_batch_size as u64,
+            client: self.clone(),
+            table_name,
+        }
+    }
+}
+
+enum Position {
+    // A log index, that may or may not be the first log index in a row.
+    LogIndex(LogIndex),
+    // A log index that is known to be the first log index in a row.
+    RowBoundary(LogIndex),
+}
+
+pub struct LogEntriesIter {
+    realm: RealmId,
+    group: GroupId,
+    next: Position,
+    max_entries: u64,
+    append_max_batch_size: u64,
+    client: StoreClient,
+    table_name: String,
+}
+
+impl LogEntriesIter {
+    /// Read the next chunk of log entries from the log. The returned Log
+    /// Entries are in increasing log index order. returns an empty Vec if
+    /// there's nothing new in the log since the last call to next.
+    #[instrument(level = "trace", skip(self))]
+    pub async fn next(&mut self) -> Result<Vec<LogEntry>, tonic::Status> {
+        let res = self.read_log_entries().await?;
+        if !res.is_empty() {
+            self.next = Position::RowBoundary(res.last().unwrap().index.next());
+        }
+        return Ok(res);
+    }
+
+    /// Read zero or more log entries starting with the entry at 'self.next'.
+    async fn read_log_entries(&self) -> Result<Vec<LogEntry>, tonic::Status> {
+        let (index, endkey) = match &self.next {
+            // If index is not the first log entry in the row, then we need to
+            // read extra an row to find it. There's no way to say read one row
+            // past X, so we have to calculate the worst case index and read to
+            // that. The ColumnRangeFilter will remove any columns that are for
+            // indexes before index.
+            Position::LogIndex(i) => (
+                *i,
+                log_key(
+                    &self.group,
+                    LogIndex(i.0.saturating_sub(self.append_max_batch_size.saturating_add(1))),
+                ),
+            ),
+            Position::RowBoundary(i) => (*i, log_key(&self.group, *i)),
+        };
+        let rows = read_rows(
+            &mut self.client.bigtable.clone(),
+            ReadRowsRequest {
+                table_name: self.table_name.clone(),
+                app_profile_id: String::new(),
+                rows: Some(RowSet {
+                    row_keys: Vec::new(),
+                    row_ranges: vec![RowRange {
+                        start_key: Some(StartKeyClosed(log_key(
+                            &self.group,
+                            LogIndex(index.0.saturating_add(self.max_entries - 1)),
+                        ))),
+                        end_key: Some(EndKeyClosed(endkey)),
+                    }],
+                }),
+                filter: Some(RowFilter {
+                    filter: Some(Filter::ColumnRangeFilter(ColumnRange {
+                        family_name: String::from("f"),
+                        start_qualifier: None,
+                        end_qualifier: Some(EndQualifier::EndQualifierClosed(
+                            DownwardLogIndex(index).bytes().to_vec(),
+                        )),
+                    })),
+                }),
+                rows_limit: 0,
+                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+            },
+        )
+        .await?;
+
+        let entries: Vec<LogEntry> = rows
+            .into_iter()
+            .rev()
+            .flat_map(|(_rowkey, cells)| {
+                cells
+                    .into_iter()
+                    .rev()
+                    .filter(|c| c.family == "f")
+                    .map(|c| marshalling::from_slice(&c.value).expect("TODO"))
+            })
+            .collect();
+
+        if !entries.is_empty() {
+            assert_eq!(entries[0].index, index);
+            assert!(entries
+                .as_slice()
+                .windows(2)
+                .all(|w| w[1].index == w[0].index.next()));
+        }
+        trace!(
+            realm = ?self.realm,
+            group = ?self.group,
+            index = ?index,
+            entries = ?entries.len(),
+            "read_log_entries completed",
+        );
+        Ok(entries)
+    }
+}
+
+impl StoreClient {
     #[instrument(level = "trace", skip(self))]
     pub async fn get_addresses(&self) -> Result<Vec<(HsmId, Url)>, tonic::Status> {
         let rows = read_rows(

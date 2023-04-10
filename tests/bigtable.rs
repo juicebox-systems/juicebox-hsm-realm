@@ -219,6 +219,70 @@ async fn last_log_entry_does_not_cross_groups() {
 }
 
 #[tokio::test]
+async fn read_log_entries() {
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator()).await;
+    let mut entries = create_log_batch(LogIndex::FIRST, EntryHmac([0; 32].into()), 4);
+    data.append(&REALM, &GROUP_1, &entries, StoreDelta::default())
+        .await
+        .unwrap();
+
+    let more_entries = create_log_batch(LogIndex(5), entries[3].entry_hmac.clone(), 6);
+    data.append(&REALM, &GROUP_1, &more_entries, StoreDelta::default())
+        .await
+        .unwrap();
+    entries.extend(more_entries);
+
+    // Read with chunk size > first log row should return both rows.
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 5, 100);
+    let r = it.next().await.unwrap();
+    assert_eq!(entries, r, "should of returned all log rows");
+    assert!(it.next().await.unwrap().is_empty());
+
+    // Read with chunk size < first log row should return first row, and then on the next call, the 2nd row.
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 3, 100);
+    let r = it.next().await.unwrap();
+    assert_eq!(&entries[0..4], &r, "should of returned entire log row");
+    let r = it.next().await.unwrap();
+    assert_eq!(&entries[4..], &r, "should of returned entire 2nd log row");
+    assert!(it.next().await.unwrap().is_empty());
+
+    // Read starting from an index that's not the first in the row should work.
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(2), 2, 100);
+    let r = it.next().await.unwrap();
+    assert_eq!(
+        &entries[1..4],
+        &r,
+        "should of returned tail of first log row"
+    );
+    let r = it.next().await.unwrap();
+    assert_eq!(&entries[4..], &r, "should of returned entire 2nd log row");
+    assert!(it.next().await.unwrap().is_empty());
+
+    // Read with chunk size > available rows should return all of them.
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 100, 100);
+    let r = it.next().await.unwrap();
+    assert_eq!(entries, r, "should of returned all log rows");
+    assert!(it.next().await.unwrap().is_empty());
+
+    // Read for a log index that doesn't yet exist should return an empty vec.
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(12), 100, 100);
+    assert!(it.next().await.unwrap().is_empty());
+
+    // Read to the tail, then write to the log, then read again should return the new entries.
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 100, 100);
+    let r = it.next().await.unwrap();
+    assert_eq!(entries, r, "should of returned all log rows");
+    let last = entries.last().unwrap();
+    let more_entries = create_log_batch(last.index.next(), last.entry_hmac.clone(), 2);
+    data.append(&REALM, &GROUP_1, &more_entries, StoreDelta::default())
+        .await
+        .unwrap();
+    let r = it.next().await.unwrap();
+    assert_eq!(more_entries, r);
+}
+
+#[tokio::test]
 async fn append_log_precondition() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator()).await;
