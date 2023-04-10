@@ -2,25 +2,24 @@ use clap::Parser;
 use loam_sdk_core::types::Policy;
 use loam_sdk_networking::rpc::LoadBalancerService;
 use reqwest::Certificate;
-
 use std::fs;
 use std::path::PathBuf;
 use tracing::info;
 
 use loam_mvp::http_client;
 use loam_mvp::logging;
-use loam_sdk::{Client, Pin, RecoverError, UserSecret};
+use loam_sdk::{AuthToken, Client, Pin, RecoverError, UserSecret};
 
 #[derive(Parser)]
 #[command(about = "A rust demo of the loam-sdk")]
 struct Args {
-    /// The SDK client configuration information, as a JSON string
+    /// The SDK client configuration information, as a JSON string.
     #[arg(short, long)]
     configuration: String,
 
-    /// The SDK client auth token, as a JSON string
+    /// The SDK client auth token, as a base64-encoded JWT.
     #[arg(short, long)]
-    auth_token: String,
+    auth_token: AuthToken,
 
     /// Name of the file containing the certificate(s) used by the load balancer for terminating TLS.
     #[arg(long)]
@@ -35,7 +34,6 @@ async fn main() {
 
     let configuration =
         serde_json::from_str(&args.configuration).expect("failed to parse configuration");
-    let auth_token = serde_json::from_str(&args.auth_token).expect("failed to parse auth_token");
 
     let lb_cert = Certificate::from_der(
         &fs::read(&args.tls_certificate).expect("failed to read certificate file"),
@@ -44,7 +42,7 @@ async fn main() {
 
     let client: Client<http_client::Client<LoadBalancerService>> = Client::new(
         configuration,
-        auth_token,
+        args.auth_token,
         http_client::Client::new(http_client::ClientOptions {
             additional_root_certs: vec![lb_cert],
         }),

@@ -2,7 +2,7 @@ use clap::Parser;
 use futures::future::{join_all, try_join_all};
 use http::Uri;
 use reqwest::Url;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use std::env::current_dir;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -251,7 +251,7 @@ async fn main() {
         .arg("--configuration")
         .arg(serde_json::to_string(&configuration).unwrap())
         .arg("--auth-token")
-        .arg(serde_json::to_string(&auth_token).unwrap())
+        .arg(auth_token.0.expose_secret())
         .status()
         .expect("Couldn't run demo executable");
 
