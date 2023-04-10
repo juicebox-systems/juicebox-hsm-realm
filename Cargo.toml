@@ -127,6 +127,7 @@ x25519-dalek = { workspace = true }
 
 
 [patch.crates-io]
+secrecy = { git = "ssh://git@github.com/Loam-Security/secrecy.git", branch = "loam-main" }
 # We need https://github.com/tokio-rs/tracing/pull/2335 to quiet down error return
 # values in tokio::instrument, which is not yet unreleased.
 tracing = { git = "https://github.com/tokio-rs/tracing" }
