@@ -400,8 +400,8 @@ impl StoreClient {
         delta: StoreDelta<DataHash>,
     ) -> Result<(), AppendError> {
         self.append_inner(realm, group, entries, delta, sleep(Duration::from_secs(5)))
-            .await
-            .map(|_| ())
+            .await?;
+        Ok(())
     }
 
     // broken out for testing. Returns the join handle of the delete task if one was started.
