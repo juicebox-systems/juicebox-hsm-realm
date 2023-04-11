@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use tracing::{info, warn};
 
+use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::realm::load_balancer::LoadBalancer;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
@@ -85,9 +86,19 @@ async fn main() {
         })
         .unwrap();
 
+    let auth_manager = if args.bigtable.needs_auth() {
+        Some(
+            google_auth::from_adc()
+                .await
+                .expect("failed to initialize Google Cloud auth"),
+        )
+    } else {
+        None
+    };
+
     let store = args
         .bigtable
-        .connect_data()
+        .connect_data(auth_manager)
         .await
         .expect("Unable to connect to Bigtable");
 

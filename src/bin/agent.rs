@@ -5,6 +5,7 @@ use tracing::info;
 use url::Url;
 
 use loam_mvp::clap_parsers::parse_duration;
+use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::realm::agent::Agent;
 use loam_mvp::realm::hsm::client::HsmClient;
@@ -54,15 +55,25 @@ async fn main() {
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
 
+    let auth_manager = if args.bigtable.needs_auth() {
+        Some(
+            google_auth::from_adc()
+                .await
+                .expect("failed to initialize Google Cloud auth"),
+        )
+    } else {
+        None
+    };
+
     let store = args
         .bigtable
-        .connect_data()
+        .connect_data(auth_manager.clone())
         .await
         .expect("Unable to connect to Bigtable");
 
     let store_admin = args
         .bigtable
-        .connect_admin()
+        .connect_admin(auth_manager)
         .await
         .expect("Unable to connect to Bigtable admin");
 

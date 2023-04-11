@@ -15,6 +15,7 @@ use tracing::{debug, info};
 
 use hsmcore::hsm::types::GroupId;
 use loam_mvp::client_auth::{creation::create_token, AuthKey, Claims};
+use loam_mvp::google_auth;
 use loam_mvp::http_client::{self, ClientOptions};
 use loam_mvp::logging;
 use loam_mvp::process_group::ProcessGroup;
@@ -75,17 +76,30 @@ async fn main() {
     let args = Args::parse();
     info!(?args, "Parsed command-line args");
 
+    let auth_manager = if args.bigtable.needs_auth() {
+        Some(
+            google_auth::from_adc()
+                .await
+                .expect("failed to initialize Google Cloud auth"),
+        )
+    } else {
+        None
+    };
+
     let store_admin = args
         .bigtable
-        .connect_admin()
+        .connect_admin(auth_manager.clone())
         .await
         .expect("Unable to connect to Bigtable admin");
     info!("initializing service discovery table");
-    store_admin.initialize_discovery().await.expect("TODO");
+    store_admin
+        .initialize_discovery()
+        .await
+        .expect("unable to initialize Bigtable service discovery");
 
     let store = args
         .bigtable
-        .connect_data()
+        .connect_data(auth_manager)
         .await
         .expect("Unable to connect to Bigtable data");
 

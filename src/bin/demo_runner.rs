@@ -56,7 +56,7 @@ async fn main() {
     .expect("error setting signal handler");
 
     let bt_args = BigTableArgs {
-        inst: String::from("inst"),
+        instance: String::from("inst"),
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),
     };

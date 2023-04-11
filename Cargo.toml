@@ -25,6 +25,7 @@ criterion = "0.4.0"
 ctrlc = "3.2.5"
 digest = "0.10.6"
 futures = "0.3.25"
+gcp_auth = "0.8.0"
 hdrhistogram = { version = "7.5.2", default-features = false }
 hex-literal = "0.3.4"
 hkdf = "0.12.3"
@@ -65,6 +66,7 @@ subtle = { version = "2.4.1", default-features = false }
 tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros"] }
 tokio-rustls = "0.23.4"
 tonic = { version = "0.8.3", features = ["channel", "tls", "tls-webpki-roots"] }
+tower = "0.4.13"
 tracing = { version = "0.2.0", default-features = false, features = [
     "alloc",
     "attributes",
@@ -89,6 +91,7 @@ clap = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
 digest = { workspace = true }
 futures = { workspace = true }
+gcp_auth = { workspace = true }
 hdrhistogram = { workspace = true }
 hmac = { workspace = true }
 hsmcore = { workspace = true }
@@ -118,6 +121,7 @@ signal-hook = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tonic = { workspace = true }
+tower = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
