@@ -1044,8 +1044,9 @@ impl<T: Transport + 'static> Agent<T> {
                     continue;
                 }
                 Ok(HsmResponse::Ok { entry, delta }) => {
+                    let index = entry.index;
                     self.append(request.realm, request.destination, Append { entry, delta });
-                    Ok(Response::Ok)
+                    Ok(Response::Ok(index))
                 }
             };
         }
@@ -1072,8 +1073,9 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
             Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
             Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
-            Ok(HsmResponse::NotTransferring) => Ok(Response::Ok),
+            Ok(HsmResponse::NotTransferring) => Ok(Response::NotTransferring),
             Ok(HsmResponse::Ok(entry)) => {
+                let index = entry.index;
                 self.append(
                     request.realm,
                     request.source,
@@ -1082,7 +1084,7 @@ impl<T: Transport + 'static> Agent<T> {
                         delta: StoreDelta::default(),
                     },
                 );
-                Ok(Response::Ok)
+                Ok(Response::Ok(index))
             }
         }
     }
