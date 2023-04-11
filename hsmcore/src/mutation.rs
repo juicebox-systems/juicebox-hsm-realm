@@ -1,27 +1,32 @@
 use core::ops::{Deref, DerefMut};
 
-pub trait OnMutationFinished<T> {
-    fn finished(&self, t: &T);
-}
-
 /// MutationTracker wraps a value and tracks mutations. When the mutation is
 /// complete a callback is executed. This uses Guards that trigger the callback
 /// when they're dropped, similar to have Mutex works.
-pub struct MutationTracker<T, F: OnMutationFinished<T>> {
+pub struct MutationTracker<T> {
     value: T,
-    on_finished: F,
+    dirty: bool,
 }
 
-impl<T, F: OnMutationFinished<T>> MutationTracker<T, F> {
-    pub fn new(value: T, on_finished: F) -> Self {
-        Self { value, on_finished }
+impl<T> MutationTracker<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value,
+            dirty: false,
+        }
     }
-    pub fn mutate(&mut self) -> MutationGuard<'_, T, F> {
+    pub fn mutate(&mut self) -> MutationGuard<'_, T> {
         MutationGuard { inner: self }
     }
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+    pub fn mark_clean(&mut self) {
+        self.dirty = false;
+    }
 }
 
-impl<T, F: OnMutationFinished<T>> Deref for MutationTracker<T, F> {
+impl<T> Deref for MutationTracker<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -29,11 +34,11 @@ impl<T, F: OnMutationFinished<T>> Deref for MutationTracker<T, F> {
     }
 }
 
-pub struct MutationGuard<'a, T, F: OnMutationFinished<T>> {
-    inner: &'a mut MutationTracker<T, F>,
+pub struct MutationGuard<'a, T> {
+    inner: &'a mut MutationTracker<T>,
 }
 
-impl<'a, T, F: OnMutationFinished<T>> MutationGuard<'a, T, F> {
+impl<'a, T> MutationGuard<'a, T> {
     // Generally deref_mut will do the right thing, but there are occasions
     // where it gets confused, and explicitly having the guard and then a
     // as_mut() from that will fix that.
@@ -42,7 +47,7 @@ impl<'a, T, F: OnMutationFinished<T>> MutationGuard<'a, T, F> {
     }
 }
 
-impl<'a, T, F: OnMutationFinished<T>> Deref for MutationGuard<'a, T, F> {
+impl<'a, T> Deref for MutationGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -50,14 +55,14 @@ impl<'a, T, F: OnMutationFinished<T>> Deref for MutationGuard<'a, T, F> {
     }
 }
 
-impl<'a, T, F: OnMutationFinished<T>> DerefMut for MutationGuard<'a, T, F> {
+impl<'a, T> DerefMut for MutationGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner.value
     }
 }
 
-impl<'a, T, F: OnMutationFinished<T>> Drop for MutationGuard<'a, T, F> {
+impl<'a, T> Drop for MutationGuard<'a, T> {
     fn drop(&mut self) {
-        self.inner.on_finished.finished(&self.inner.value);
+        self.inner.dirty = true;
     }
 }

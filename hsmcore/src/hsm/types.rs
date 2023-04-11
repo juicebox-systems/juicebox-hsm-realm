@@ -445,6 +445,23 @@ pub enum ReadCapturedResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct PersistStateRequest {}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum PersistStateResponse {
+    Ok {
+        hsm: HsmId,
+        captured: Option<(RealmId, Vec<Captured>)>,
+    },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Captured {
+    pub group: GroupId,
+    pub captured: Option<(LogIndex, EntryHmac, CapturedStatement)>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CommitRequest {
     pub realm: RealmId,
     pub group: GroupId,

@@ -27,7 +27,7 @@ use super::merkle::{
     proof::{ProofError, ReadProof, VerifiedProof},
     MergeError, NodeHasher, Tree,
 };
-use super::mutation::{MutationTracker, OnMutationFinished};
+use super::mutation::MutationTracker;
 use app::{RecordChange, RootOprfKey};
 use cache::Cache;
 use loam_sdk_core::{
@@ -39,12 +39,13 @@ use loam_sdk_noise::server as noise;
 use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use types::{
     AppError, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
-    CompleteTransferRequest, CompleteTransferResponse, Configuration, DataHash, EntryHmac,
-    GroupConfigurationStatement, GroupId, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId,
-    JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus,
-    LogEntry, LogIndex, NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest,
-    NewRealmResponse, OwnedRange, Partition, ReadCapturedRequest, ReadCapturedResponse,
+    CaptureNextRequest, CaptureNextResponse, Captured, CapturedStatement, CommitRequest,
+    CommitResponse, CompleteTransferRequest, CompleteTransferResponse, Configuration, DataHash,
+    EntryHmac, GroupConfigurationStatement, GroupId, GroupStatus, HandshakeRequest,
+    HandshakeResponse, HsmId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
+    JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupInfo, NewGroupRequest,
+    NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange, Partition,
+    PersistStateRequest, PersistStateResponse, ReadCapturedRequest, ReadCapturedResponse,
     RealmStatus, RecordId, StatusRequest, StatusResponse, TransferInRequest, TransferInResponse,
     TransferNonce, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
     TransferOutResponse, TransferStatement, TransferStatementRequest, TransferStatementResponse,
@@ -351,7 +352,7 @@ impl RecordEncryptionKey {
 pub struct Hsm<P: Platform> {
     platform: P,
     options: HsmOptions,
-    persistent: MutationTracker<PersistentState, NVRamWriter<P>>,
+    persistent: MutationTracker<PersistentState>,
     volatile: VolatileState,
 }
 
@@ -480,29 +481,12 @@ impl<'a, C: Clock> Metrics<'a, C> {
     }
 }
 
-struct NVRamWriter<N: NVRam> {
-    nvram: N,
-}
-impl<N: NVRam> OnMutationFinished<PersistentState> for NVRamWriter<N> {
-    fn finished(&self, state: &PersistentState) {
-        // TODO, which if any of the keys in self.persistent should be written out here vs read from the HSM
-        // key store at initialization time.
-        let mut data = marshalling::to_vec(&state).expect("failed to serialize state");
-        let d = Sha256::digest(&data);
-        data.extend(d);
-        self.nvram.write(data).expect("Write to NVRam failed")
-    }
-}
-
 impl<P: Platform> Hsm<P> {
     pub fn new(
         options: HsmOptions,
         mut platform: P,
         realm_key: RealmKey,
     ) -> Result<Self, PersistenceError> {
-        let writer = NVRamWriter {
-            nvram: platform.clone(),
-        };
         let persistent = match Self::read_persisted_state(&platform)? {
             Some(state) => state,
             None => {
@@ -524,7 +508,7 @@ impl<P: Platform> Hsm<P> {
                     realm: None,
                     root_oprf_key,
                 };
-                writer.finished(&state);
+                Self::write_persisted_state(&platform, &state);
                 state
             }
         };
@@ -533,7 +517,7 @@ impl<P: Platform> Hsm<P> {
         Ok(Hsm {
             options,
             platform,
-            persistent: MutationTracker::new(persistent, writer),
+            persistent: MutationTracker::new(persistent),
             volatile: VolatileState {
                 leader: HashMap::new(),
                 record_key,
@@ -565,6 +549,9 @@ impl<P: Platform> Hsm<P> {
             }
             HsmRequest::CaptureNext(r) => {
                 self.dispatch_request(metrics, r, Self::handle_capture_next)
+            }
+            HsmRequest::PersistState(r) => {
+                self.dispatch_request(metrics, r, Self::handle_persist_state)
             }
             HsmRequest::ReadCaptured(r) => {
                 self.dispatch_request(metrics, r, Self::handle_read_captured)
@@ -605,6 +592,13 @@ impl<P: Platform> Hsm<P> {
             metrics: metrics.finish(),
         };
         marshalling::to_vec(&resp).map_err(HsmError::Serialization)
+    }
+
+    fn write_persisted_state(nvram: &impl NVRam, state: &PersistentState) {
+        let mut data = marshalling::to_vec(&state).expect("failed to serialize state");
+        let d = Sha256::digest(&data);
+        data.extend(d);
+        nvram.write(data).expect("Write to NVRam failed");
     }
 
     fn read_persisted_state(
@@ -1053,6 +1047,48 @@ impl<P: Platform> Hsm<P> {
 
         trace!(hsm = self.options.name, ?response);
         response
+    }
+
+    fn handle_persist_state(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: PersistStateRequest,
+    ) -> PersistStateResponse {
+        type Response = PersistStateResponse;
+        trace!(hsm = self.options.name, ?request);
+
+        if self.persistent.is_dirty() {
+            let state = &*self.persistent;
+            Self::write_persisted_state(&self.platform, state);
+            self.persistent.mark_clean();
+        }
+        let state = &*self.persistent;
+        let captured = state.realm.as_ref().map(|r| {
+            (
+                r.id,
+                r.groups
+                    .iter()
+                    .map(|(group, group_state)| Captured {
+                        group: *group,
+                        captured: group_state.captured.as_ref().map(|(index, entry_hmac)| {
+                            let stmt = CapturedStatementBuilder {
+                                hsm: state.id,
+                                realm: r.id,
+                                group: *group,
+                                index: *index,
+                                entry_hmac,
+                            }
+                            .build(&state.realm_key);
+                            (*index, entry_hmac.clone(), stmt)
+                        }),
+                    })
+                    .collect(),
+            )
+        });
+        Response::Ok {
+            hsm: state.id,
+            captured,
+        }
     }
 
     fn handle_read_captured(

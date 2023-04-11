@@ -11,10 +11,10 @@ use super::types::{
     CaptureNextResponse, CommitRequest, CommitResponse, CompleteTransferRequest,
     CompleteTransferResponse, HandshakeRequest, HandshakeResponse, JoinGroupRequest,
     JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
-    NewRealmRequest, NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest,
-    StatusResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
-    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
-    TransferStatementResponse,
+    NewRealmRequest, NewRealmResponse, PersistStateRequest, PersistStateResponse,
+    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse, TransferInRequest,
+    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
+    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
@@ -54,6 +54,7 @@ pub enum HsmRequest {
     BecomeLeader(BecomeLeaderRequest),
     CaptureNext(CaptureNextRequest),
     ReadCaptured(ReadCapturedRequest),
+    PersistState(PersistStateRequest),
     Commit(CommitRequest),
     TransferOut(TransferOutRequest),
     TransferNonce(TransferNonceRequest),
@@ -75,6 +76,7 @@ impl HsmRequest {
             HsmRequest::BecomeLeader(_) => "BecomeLeader",
             HsmRequest::CaptureNext(_) => "CaptureNext",
             HsmRequest::ReadCaptured(_) => "ReadCaptured",
+            HsmRequest::PersistState(_) => "PersistState",
             HsmRequest::Commit(_) => "Commit",
             HsmRequest::TransferOut(_) => "TransferOut",
             HsmRequest::TransferNonce(_) => "TransferNonce",
@@ -129,6 +131,14 @@ impl HsmRpc for ReadCapturedRequest {
         HsmRequest::ReadCaptured(self)
     }
 }
+
+impl HsmRpc for PersistStateRequest {
+    type Response = PersistStateResponse;
+    fn to_req(self) -> HsmRequest {
+        HsmRequest::PersistState(self)
+    }
+}
+
 impl HsmRpc for BecomeLeaderRequest {
     type Response = BecomeLeaderResponse;
     fn to_req(self) -> HsmRequest {
