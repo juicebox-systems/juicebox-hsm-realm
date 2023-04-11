@@ -748,7 +748,7 @@ impl LogEntriesIter {
         if !res.is_empty() {
             self.next = Position::RowBoundary(res.last().unwrap().index.next());
         }
-        return Ok(res);
+        Ok(res)
     }
 
     /// Read zero or more log entries starting with the entry at 'self.next'.
