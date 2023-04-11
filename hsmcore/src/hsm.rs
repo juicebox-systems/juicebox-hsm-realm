@@ -908,7 +908,10 @@ impl<P: Platform> Hsm<P> {
         type Response = CaptureNextResponse;
         trace!(hsm = self.options.name, ?request);
 
-        let response = {
+        let response = (|| {
+            if request.entries.is_empty() {
+                return Response::MissingEntries;
+            }
             let mut guard = self.persistent.mutate();
             let persistent = guard.as_mut();
 
@@ -920,49 +923,51 @@ impl<P: Platform> Hsm<P> {
                         return Response::InvalidRealm;
                     }
 
-                    if EntryHmacBuilder::verify_entry(
-                        &persistent.realm_key,
-                        request.realm,
-                        request.group,
-                        &request.entry,
-                    )
-                    .is_err()
-                    {
-                        return Response::InvalidHmac;
-                    }
-
                     match realm.groups.get_mut(&request.group) {
                         None => Response::InvalidGroup,
 
                         Some(group) => {
-                            match &group.captured {
-                                None => {
-                                    if request.entry.index != LogIndex::FIRST {
-                                        return Response::MissingPrev;
-                                    }
-                                    if request.entry.prev_hmac != EntryHmac::zero() {
-                                        return Response::InvalidChain;
-                                    }
+                            for entry in request.entries {
+                                if EntryHmacBuilder::verify_entry(
+                                    &persistent.realm_key,
+                                    request.realm,
+                                    request.group,
+                                    &entry,
+                                )
+                                .is_err()
+                                {
+                                    return Response::InvalidHmac;
                                 }
-                                Some((captured_index, captured_hmac)) => {
-                                    if request.entry.index != captured_index.next() {
-                                        return Response::MissingPrev;
-                                    }
-                                    if request.entry.prev_hmac != *captured_hmac {
-                                        return Response::InvalidChain;
-                                    }
-                                }
-                            }
 
+                                match &group.captured {
+                                    None => {
+                                        if entry.index != LogIndex::FIRST {
+                                            return Response::MissingPrev;
+                                        }
+                                        if entry.prev_hmac != EntryHmac::zero() {
+                                            return Response::InvalidChain;
+                                        }
+                                    }
+                                    Some((captured_index, captured_hmac)) => {
+                                        if entry.index != captured_index.next() {
+                                            return Response::MissingPrev;
+                                        }
+                                        if entry.prev_hmac != *captured_hmac {
+                                            return Response::InvalidChain;
+                                        }
+                                    }
+                                }
+                                group.captured = Some((entry.index, entry.entry_hmac));
+                            }
+                            let captured = group.captured.as_ref().unwrap();
                             let statement = CapturedStatementBuilder {
                                 hsm: persistent.id,
                                 realm: request.realm,
                                 group: request.group,
-                                index: request.entry.index,
-                                entry_hmac: &request.entry.entry_hmac,
+                                index: captured.0,
+                                entry_hmac: &captured.1,
                             }
                             .build(&persistent.realm_key);
-                            group.captured = Some((request.entry.index, request.entry.entry_hmac));
                             Response::Ok {
                                 hsm_id: persistent.id,
                                 captured: statement,
@@ -971,7 +976,7 @@ impl<P: Platform> Hsm<P> {
                     }
                 }
             }
-        };
+        })();
 
         trace!(hsm = self.options.name, ?response);
         response
