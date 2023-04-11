@@ -1,6 +1,3 @@
-use crate::autogen::google;
-use crate::process_group::ProcessGroup;
-
 use async_trait::async_trait;
 use futures::Future;
 use google::bigtable::admin::v2::table::TimestampGranularity;
@@ -21,14 +18,11 @@ use std::fmt;
 use std::fmt::Write;
 use std::ops::Deref;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tonic::codegen::InterceptedService;
-use tonic::service::Interceptor;
-use tonic::transport::{Channel, Endpoint, Error};
-use tonic::Status;
+use tonic::transport::Endpoint;
 use tracing::{debug, info, instrument, trace, warn};
 use url::Url;
 
@@ -36,20 +30,21 @@ mod mutate;
 mod read;
 
 use super::super::merkle::agent::TreeStoreReader;
+use crate::autogen::google;
+use crate::google_auth::AuthMiddleware;
+use crate::process_group::ProcessGroup;
 use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RecordId};
 use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
 use loam_sdk_core::types::RealmId;
-
 use mutate::{mutate_rows, MutateRowsError};
 use read::read_rows;
 
+type AuthManager = Option<Arc<gcp_auth::AuthenticationManager>>;
 type BigtableTableAdminClient =
     google::bigtable::admin::v2::bigtable_table_admin_client::BigtableTableAdminClient<
-        InterceptedService<Channel, AuthInterceptor>,
+        AuthMiddleware,
     >;
-type BigtableClient = google::bigtable::v2::bigtable_client::BigtableClient<
-    InterceptedService<Channel, AuthInterceptor>,
->;
+type BigtableClient = google::bigtable::v2::bigtable_client::BigtableClient<AuthMiddleware>;
 
 /// Agents should register themselves with service discovery this often.
 pub const DISCOVERY_REGISTER_INTERVAL: Duration = Duration::from_secs(60 * 10);
@@ -64,8 +59,8 @@ pub struct BigTableArgs {
     pub project: String,
 
     /// The name of the bigtable instance to connect to.
-    #[arg(long = "bigtable-inst", default_value = "inst")]
-    pub inst: String,
+    #[arg(long = "bigtable-instance", default_value = "instance")]
+    pub instance: String,
 
     /// The url to the big table emulator [default uses GCP endpoints].
     #[arg(long = "bigtable-url")]
@@ -73,45 +68,61 @@ pub struct BigTableArgs {
 }
 
 impl BigTableArgs {
-    pub async fn connect_data(&self) -> Result<StoreClient, tonic::transport::Error> {
+    pub fn needs_auth(&self) -> bool {
+        match &self.url {
+            Some(url) => {
+                let host = url.host().expect("url should specify host");
+                host == "googleapis.com" || host.ends_with(".googleapis.com")
+            }
+            None => true,
+        }
+    }
+
+    pub async fn connect_data(
+        &self,
+        auth_manager: AuthManager,
+    ) -> Result<StoreClient, tonic::transport::Error> {
         let data_url = match &self.url {
             Some(u) => u.clone(),
             None => Uri::from_static("https://bigtable.googleapis.com"),
         };
         info!(
-            inst = self.inst,
+            instance = self.instance,
             project = self.project,
             %data_url,
             "Connecting to Bigtable Data"
         );
         let instance = Instance {
             project: self.project.clone(),
-            instance: self.inst.clone(),
+            instance: self.instance.clone(),
         };
-        StoreClient::new(data_url.clone(), instance).await
+        StoreClient::new(data_url.clone(), instance, auth_manager).await
     }
 
-    pub async fn connect_admin(&self) -> Result<StoreAdminClient, tonic::transport::Error> {
+    pub async fn connect_admin(
+        &self,
+        auth_manager: AuthManager,
+    ) -> Result<StoreAdminClient, tonic::transport::Error> {
         let admin_url = match &self.url {
             Some(u) => u.clone(),
             None => Uri::from_static("https://bigtableadmin.googleapis.com"),
         };
         info!(
-            inst = self.inst,
+            inst = self.instance,
             project = self.project,
              %admin_url,
             "Connecting to Bigtable Admin"
         );
         let instance = Instance {
             project: self.project.clone(),
-            instance: self.inst.clone(),
+            instance: self.instance.clone(),
         };
-        StoreAdminClient::new(admin_url.clone(), instance).await
+        StoreAdminClient::new(admin_url.clone(), instance, auth_manager).await
     }
 
     pub fn add_to_cmd(&self, cmd: &mut Command) {
-        cmd.arg("--bigtable-inst")
-            .arg(&self.inst)
+        cmd.arg("--bigtable-instance")
+            .arg(&self.instance)
             .arg("--bigtable-project")
             .arg(&self.project);
         if let Some(u) = &self.url {
@@ -214,30 +225,6 @@ fn log_key(group: &GroupId, index: LogIndex) -> Vec<u8> {
         .cloned()
         .collect()
 }
-
-async fn configure_channel(
-    url: Uri,
-) -> Result<InterceptedService<Channel, AuthInterceptor>, Error> {
-    let endpoint = Endpoint::from(url);
-    let channel = endpoint.connect().await?;
-    let interceptor = AuthInterceptor {};
-    Ok(InterceptedService::new(channel, interceptor))
-}
-
-#[derive(Clone)]
-pub struct AuthInterceptor {
-    //
-}
-impl Interceptor for AuthInterceptor {
-    fn call(&mut self, req: tonic::Request<()>) -> Result<tonic::Request<()>, Status> {
-        // change req in func sig to mut
-        // gcloud auth print-access-token
-        // req.metadata_mut()
-        // .insert("authorization",MetadataValue::from_static("Bearer <access token>"));
-        Ok(req)
-    }
-}
-
 #[derive(Clone)]
 pub struct StoreAdminClient {
     // https://cloud.google.com/bigtable/docs/reference/admin/rpc/google.bigtable.admin.v2
@@ -254,9 +241,18 @@ impl fmt::Debug for StoreAdminClient {
 }
 
 impl StoreAdminClient {
-    pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
-        let auth_channel = configure_channel(url).await?;
-        let bigtable = BigtableTableAdminClient::new(auth_channel);
+    pub async fn new(
+        url: Uri,
+        instance: Instance,
+        auth_manager: AuthManager,
+    ) -> Result<Self, tonic::transport::Error> {
+        let channel = Endpoint::from(url).connect().await?;
+        let channel = AuthMiddleware::new(
+            channel,
+            auth_manager,
+            &["https://www.googleapis.com/auth/bigtable.admin.table"],
+        );
+        let bigtable = BigtableTableAdminClient::new(channel);
         Ok(Self { bigtable, instance })
     }
 
@@ -381,9 +377,18 @@ pub enum AppendError {
 }
 
 impl StoreClient {
-    pub async fn new(url: Uri, instance: Instance) -> Result<Self, tonic::transport::Error> {
-        let auth_channel = configure_channel(url).await?;
-        let bigtable = BigtableClient::new(auth_channel);
+    pub async fn new(
+        url: Uri,
+        instance: Instance,
+        auth_manager: AuthManager,
+    ) -> Result<Self, tonic::transport::Error> {
+        let channel = Endpoint::from(url).connect().await?;
+        let channel = AuthMiddleware::new(
+            channel,
+            auth_manager,
+            &["https://www.googleapis.com/auth/bigtable.data"],
+        );
+        let bigtable = BigtableClient::new(channel);
         Ok(Self {
             bigtable,
             instance,
@@ -928,16 +933,9 @@ impl BigTableRunner {
         pg: &mut ProcessGroup,
         args: &BigTableArgs,
     ) -> (StoreAdminClient, StoreClient) {
-        if let Some(emulator_url) = &args.url {
-            pg.spawn(
-                Command::new("emulator")
-                    .arg("-port")
-                    .arg(emulator_url.port().unwrap().as_str()),
-            );
-        }
         async fn admin(args: &BigTableArgs) -> StoreAdminClient {
             for _ in 0..100 {
-                match args.connect_admin().await {
+                match args.connect_admin(None).await {
                     Ok(admin) => return admin,
                     Err(_e) => {
                         sleep(Duration::from_millis(1)).await;
@@ -946,9 +944,10 @@ impl BigTableRunner {
             }
             panic!("repeatedly failed to connect to bigtable admin service");
         }
+
         async fn data(args: &BigTableArgs) -> StoreClient {
             for _ in 0..100 {
-                match args.connect_data().await {
+                match args.connect_data(None).await {
                     Ok(data) => return data,
                     Err(_e) => {
                         sleep(Duration::from_millis(1)).await;
@@ -957,6 +956,15 @@ impl BigTableRunner {
             }
             panic!("repeatedly failed to connect to bigtable data service");
         }
+
+        if let Some(emulator_url) = &args.url {
+            pg.spawn(
+                Command::new("emulator")
+                    .arg("-port")
+                    .arg(emulator_url.port().unwrap().as_str()),
+            );
+        }
+
         (admin(args).await, data(args).await)
     }
 }

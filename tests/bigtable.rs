@@ -41,7 +41,7 @@ fn emulator() -> BigTableArgs {
         .unwrap();
     BigTableArgs {
         project: String::from("prj"),
-        inst: String::from("inst"),
+        instance: String::from("inst"),
         url: Some(u),
     }
 }
