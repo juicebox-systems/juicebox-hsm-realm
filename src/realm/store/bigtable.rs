@@ -2,6 +2,7 @@ use crate::autogen::google;
 use crate::process_group::ProcessGroup;
 
 use async_trait::async_trait;
+use futures::Future;
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
 use google::bigtable::v2::column_range::{EndQualifier, StartQualifier};
@@ -22,6 +23,7 @@ use std::ops::Deref;
 use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tonic::codegen::InterceptedService;
 use tonic::service::Interceptor;
@@ -397,6 +399,20 @@ impl StoreClient {
         entries: &[LogEntry],
         delta: StoreDelta<DataHash>,
     ) -> Result<(), AppendError> {
+        self.append_inner(realm, group, entries, delta, sleep(Duration::from_secs(5)))
+            .await?;
+        Ok(())
+    }
+
+    // broken out for testing. Returns the join handle of the delete task if one was started.
+    pub async fn append_inner<F: Future + Send + 'static>(
+        &self,
+        realm: &RealmId,
+        group: &GroupId,
+        entries: &[LogEntry],
+        delta: StoreDelta<DataHash>,
+        delete_waiter: F,
+    ) -> Result<Option<JoinHandle<()>>, AppendError> {
         assert!(
             !entries.is_empty(),
             "append passed empty list of things to append."
@@ -535,14 +551,16 @@ impl StoreClient {
             .map(|k| k.store_key())
             .collect::<Vec<_>>();
 
-        if !to_remove.is_empty() {
+        let delete_handle = if !to_remove.is_empty() {
             let store = self.clone();
             let realm = *realm;
-            tokio::spawn(async move {
-                sleep(Duration::from_secs(5)).await;
+            Some(tokio::spawn(async move {
+                delete_waiter.await;
                 store.remove(&realm, to_remove).await.expect("TODO");
-            });
-        }
+            }))
+        } else {
+            None
+        };
 
         trace!(
             realm = ?realm,
@@ -551,7 +569,7 @@ impl StoreClient {
             entries = entries.len(),
             "append succeeded"
         );
-        Ok(())
+        Ok(delete_handle)
     }
 
     #[instrument(level = "trace", skip(self))]

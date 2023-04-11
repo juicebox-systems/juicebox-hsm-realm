@@ -3,7 +3,6 @@ use std::{
     sync::atomic::{AtomicU16, Ordering},
     time::{Duration, SystemTime},
 };
-use tokio::time::{self};
 
 use hsmcore::{
     bitvec::BitVec,
@@ -317,8 +316,10 @@ async fn append_store_delta() {
 
     // Apply the delta, the original root, and the new root should both be
     // readable until the deferred delete kicks in.
-    time::pause();
-    data.append(&REALM, &GROUP_3, &entries, delta)
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+    let delete_handle = data
+        .append_inner(&REALM, &GROUP_3, &entries, delta, rx)
         .await
         .unwrap();
 
@@ -329,13 +330,9 @@ async fn append_store_delta() {
         .await
         .unwrap();
 
-    // This is not as clean as it might first look. tokio::time will auto advance
-    // time when it thinks there's nothing to do. The read's above might trigger
-    // that condition. There's no way to turn auto-advance off. This sleep should
-    // ensure that the deferred delete was executed by now. But it may of already
-    // executed before now. Given all this, its important above that starting_root
-    // is read first.
-    time::sleep(Duration::from_secs(6)).await;
+    tx.send(()).unwrap();
+    delete_handle.unwrap().await.unwrap();
+
     // The deferred delete should have executed and the original root be deleted.
     data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
         .await
