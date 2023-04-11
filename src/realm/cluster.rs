@@ -386,7 +386,7 @@ pub async fn transfer(
         Ok(r) => todo!("{r:?}"),
     };
 
-    match rpc::send(
+    let dest_index = match rpc::send(
         &agent_client,
         dest_leader,
         TransferInRequest {
@@ -401,16 +401,16 @@ pub async fn transfer(
     .await
     {
         Err(e) => todo!("{e:?}"),
-        Ok(TransferInResponse::Ok) => {}
+        Ok(TransferInResponse::Ok(index)) => index,
         Ok(r) => todo!("{r:?}"),
-    }
+    };
 
     // TODO: This part is dangerous because TransferInRequest returns before
     // the transfer has committed (for now). If that log entry doesn't commit
     // and this calls CompleteTransferRequest, the keyspace will be lost
     // forever.
 
-    match rpc::send(
+    let src_index = match rpc::send(
         &agent_client,
         source_leader,
         CompleteTransferRequest {
@@ -423,9 +423,32 @@ pub async fn transfer(
     .await
     {
         Err(e) => todo!("{e:?}"),
-        Ok(CompleteTransferResponse::Ok) => Ok(()),
+        Ok(CompleteTransferResponse::Ok(index)) => index,
         Ok(r) => todo!("{r:?}"),
-    }
+    };
+    // At this point the agents have queued the log entry that contained
+    // the completed transfer but may or may not have actually written
+    // it to the store yet. So we need to wait for that to happen.
+    // TODO: this should really wait for commit, and handled in the agent
+    // to be resolved with the overall transfer review/update.
+    let wait_for_entry = |group, index| async move {
+        loop {
+            if let Some(e) = store
+                .read_last_log_entry(&realm, &group)
+                .await
+                .expect("TODO")
+            {
+                if e.index >= index {
+                    return;
+                }
+                sleep(Duration::from_millis(1)).await;
+            }
+        }
+    };
+    wait_for_entry(source, src_index).await;
+    wait_for_entry(destination, dest_index).await;
+
+    Ok(())
 }
 
 async fn find_leaders(

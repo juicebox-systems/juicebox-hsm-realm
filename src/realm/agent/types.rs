@@ -254,7 +254,7 @@ pub struct TransferInRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum TransferInResponse {
-    Ok,
+    Ok(LogIndex),
     NoHsm,
     InvalidRealm,
     InvalidGroup,
@@ -281,11 +281,12 @@ pub struct CompleteTransferRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CompleteTransferResponse {
-    Ok,
+    Ok(LogIndex),
     NoHsm,
     InvalidRealm,
     InvalidGroup,
     NotLeader,
+    NotTransferring,
 }
 
 impl Rpc<AgentService> for AppRequest {
