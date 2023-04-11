@@ -8,3 +8,5 @@ extendedKeyUsage=serverAuth
 [alt_names]
 DNS.1 = localhost
 IP.1 = 127.0.0.1
+# the ip that an android emulator maps to its host
+IP.2 = 10.0.2.2
