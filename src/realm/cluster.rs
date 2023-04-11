@@ -477,8 +477,6 @@ pub async fn ensure_groups_have_leader(
     trace!("checking that all groups have a leader");
     let addresses = store.get_addresses().await?;
 
-    let mut groups: HashMap<GroupId, (Configuration, RealmId, Option<HsmId>)> = HashMap::new();
-
     let hsm_status: HashMap<HsmId, hsm_types::StatusResponse> = join_all(
         addresses
             .iter()
@@ -489,6 +487,7 @@ pub async fn ensure_groups_have_leader(
     .filter_map(|r| r.ok().and_then(|s| s.hsm).map(|s| (s.id, s)))
     .collect();
 
+    let mut groups: HashMap<GroupId, (Configuration, RealmId, Option<HsmId>)> = HashMap::new();
     for hsm in hsm_status.values() {
         if let Some(realm) = &hsm.realm {
             for g in &realm.groups {
@@ -568,7 +567,7 @@ fn score(group: &GroupId, m: &hsm_types::StatusResponse) -> Score {
         }
     }
     Score {
-        work,
+        workload: work,
         last_captured,
         id: m.id,
     }
@@ -577,14 +576,14 @@ fn score(group: &GroupId, m: &hsm_types::StatusResponse) -> Score {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Score {
     // larger is busier
-    work: usize,
+    workload: usize,
     last_captured: Option<LogIndex>,
     id: HsmId,
 }
 
 impl Ord for Score {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.work.cmp(&other.work) {
+        match self.workload.cmp(&other.workload) {
             Ordering::Equal => {}
             ord => return ord,
         }
@@ -606,27 +605,32 @@ mod test {
     #[test]
     fn score_order() {
         let a = Score {
-            work: 20,
+            workload: 20,
             last_captured: Some(LogIndex(14)),
             id: HsmId([1; 16]),
         };
         let b = Score {
-            work: 10,
+            workload: 10,
             last_captured: Some(LogIndex(13)),
             id: HsmId([2; 16]),
         };
         let c = Score {
-            work: 10,
+            workload: 10,
             last_captured: Some(LogIndex(1)),
             id: HsmId([3; 16]),
         };
         let d = Score {
-            work: 10,
+            workload: 10,
             last_captured: None,
             id: HsmId([4; 16]),
         };
-        let mut scores = vec![a.clone(), b.clone(), c.clone(), d.clone()];
+        let e = Score {
+            workload: 42,
+            last_captured: Some(LogIndex(1)),
+            id: HsmId([5; 16]),
+        };
+        let mut scores = vec![a.clone(), b.clone(), c.clone(), d.clone(), e.clone()];
         scores.sort();
-        assert_eq!(vec![b, c, d, a], scores);
+        assert_eq!(vec![b, c, d, a, e], scores);
     }
 }

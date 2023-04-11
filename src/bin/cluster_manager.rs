@@ -20,7 +20,7 @@ struct Args {
     bigtable: BigTableArgs,
 
     /// Interval for checking the cluster state in milliseconds.
-    #[arg(short,long, default_value="2000",value_parser=parse_duration)]
+    #[arg(short, long, default_value="2000", value_parser=parse_duration)]
     interval: Duration,
 }
 
