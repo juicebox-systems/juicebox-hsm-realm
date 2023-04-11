@@ -136,7 +136,8 @@ async fn main() {
     let (realm_id, _group_id) = match group_has_realm(&group).await.unwrap() {
         Some((realm_id, group_id)) => {
             info!(?realm_id, ?group_id, "using existing realm/group");
-            let _ = cluster::ensure_has_leader(&store).await;
+            let agents = http_client::Client::<AgentService>::new(ClientOptions::default());
+            let _ = cluster::ensure_groups_have_leader(&agents, &store).await;
             (realm_id, group_id)
         }
         None => {
