@@ -6,8 +6,10 @@ use secrecy::{ExposeSecret, SecretString};
 use std::env::current_dir;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::process::Command;
-use tracing::info;
+use std::process::{Command, ExitStatus};
+use std::thread::sleep;
+use std::time::Duration;
+use tracing::{info, warn};
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::client_auth::{creation::create_token, AuthKey, Claims};
@@ -28,7 +30,11 @@ use common::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 struct Args {
     /// Path to the demo binary to execute
     #[arg(long)]
-    demo: PathBuf,
+    demo: Option<PathBuf>,
+
+    /// Keep the demo stack alive until Ctrl-C is input
+    #[arg(short, long, default_value = "false")]
+    keep_alive: bool,
 }
 
 #[tokio::main]
@@ -243,22 +249,40 @@ async fn main() {
         &AuthKey::from(SecretString::from(String::from("it's-a-them!"))),
     );
 
-    info!(pid = std::process::id(), "runner: executing demo");
+    let mut demo_status: Option<ExitStatus> = None;
 
-    let demo_status = Command::new(args.demo)
-        .arg("--tls-certificate")
-        .arg(certificates.cert_file_der.clone())
-        .arg("--configuration")
-        .arg(serde_json::to_string(&configuration).unwrap())
-        .arg("--auth-token")
-        .arg(auth_token.0.expose_secret())
-        .status()
-        .expect("Couldn't run demo executable");
+    if let Some(demo) = args.demo {
+        info!(pid = std::process::id(), "runner: executing demo");
+        demo_status = Some(
+            Command::new(demo)
+                .arg("--tls-certificate")
+                .arg(certificates.cert_file_der.clone())
+                .arg("--configuration")
+                .arg(serde_json::to_string(&configuration).unwrap())
+                .arg("--auth-token")
+                .arg(auth_token.0.expose_secret())
+                .status()
+                .expect("Couldn't run demo executable"),
+        );
+    }
+
+    if args.keep_alive {
+        warn!(
+            configuration = serde_json::to_string(&configuration).unwrap(),
+            auth_token = auth_token.0.expose_secret(),
+            tls_certificate = ?certificates.cert_file_der.clone(),
+            "runner: stack is active, press ctrl-c to shutdown"
+        );
+
+        sleep(Duration::MAX);
+    }
 
     info!(pid = std::process::id(), "runner: done");
     process_group.kill();
     logging::flush();
     info!(pid = std::process::id(), "runner: exiting");
 
-    assert!(demo_status.success());
+    if let Some(demo_status) = demo_status {
+        assert!(demo_status.success());
+    }
 }
