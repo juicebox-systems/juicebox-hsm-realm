@@ -37,7 +37,7 @@ use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogInde
 use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
 use loam_sdk_core::types::RealmId;
 use mutate::{mutate_rows, MutateRowsError};
-use read::read_rows;
+use read::{read_rows, Cell, RowKey};
 
 type AuthManager = Option<Arc<gcp_auth::AuthenticationManager>>;
 type BigtableTableAdminClient =
@@ -700,6 +700,161 @@ impl StoreClient {
         Ok(entry)
     }
 
+    /// Returns an Iterator style object that can read the log starting from the supplied
+    /// log index. max_entries indicates how large of a chunk to return. However due to the
+    /// variable batch size when appending you may get up to MAX_BATCH_SIZE-1
+    /// entries more returned than max_entries.
+    pub fn read_log_entries_iter(
+        &self,
+        realm: RealmId,
+        group: GroupId,
+        starting_at: LogIndex,
+        max_entries: u16,
+    ) -> LogEntriesIter {
+        assert!(max_entries > 0);
+        let table_name = log_table(&self.instance, &realm);
+        LogEntriesIter {
+            realm,
+            group,
+            next: Position::LogIndex(starting_at),
+            max_entries: max_entries as u64,
+            client: self.clone(),
+            table_name,
+        }
+    }
+}
+
+enum Position {
+    // A log index, that may or may not be the first log index in a row.
+    LogIndex(LogIndex),
+    // A log index that is known to be the first log index in a row.
+    RowBoundary(LogIndex),
+}
+
+pub struct LogEntriesIter {
+    realm: RealmId,
+    group: GroupId,
+    next: Position,
+    max_entries: u64,
+    client: StoreClient,
+    table_name: String,
+}
+
+impl LogEntriesIter {
+    /// Read the next chunk of log entries from the log. The returned Log
+    /// Entries are in increasing log index order. returns an empty Vec if
+    /// there's nothing new in the log since the last call to next.
+    #[instrument(level = "trace", skip(self))]
+    pub async fn next(&mut self) -> Result<Vec<LogEntry>, tonic::Status> {
+        let rows = match self.next {
+            Position::LogIndex(i) => self.read_for_log_index(i).await?,
+            Position::RowBoundary(i) => self.read_for_row_boundary(i).await?,
+        };
+
+        let entries: Vec<LogEntry> = rows
+            .into_iter()
+            .rev()
+            .flat_map(|(_rowkey, cells)| {
+                cells
+                    .into_iter()
+                    .rev()
+                    .filter(|c| c.family == "f")
+                    .map(|c| marshalling::from_slice(&c.value).expect("TODO"))
+            })
+            .collect();
+
+        let index = match self.next {
+            Position::LogIndex(i) => i,
+            Position::RowBoundary(i) => i,
+        };
+        if !entries.is_empty() {
+            assert_eq!(entries[0].index, index);
+            assert!(entries
+                .as_slice()
+                .windows(2)
+                .all(|w| w[1].index == w[0].index.next()));
+            self.next = Position::RowBoundary(entries.last().unwrap().index.next());
+        }
+
+        trace!(
+            realm = ?self.realm,
+            group = ?self.group,
+            index = ?index,
+            entries = ?entries.len(),
+            "read_log_entries::next completed",
+        );
+        Ok(entries)
+    }
+
+    async fn read_for_log_index(
+        &self,
+        index: LogIndex,
+    ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
+        read_rows(
+            &mut self.client.bigtable.clone(),
+            ReadRowsRequest {
+                table_name: self.table_name.clone(),
+                app_profile_id: String::new(),
+                rows: Some(RowSet {
+                    row_keys: Vec::new(),
+                    row_ranges: vec![RowRange {
+                        start_key: Some(StartKeyClosed(log_key(&self.group, index))),
+                        end_key: Some(EndKeyClosed(log_key(&self.group, LogIndex::FIRST))),
+                    }],
+                }),
+                filter: Some(RowFilter {
+                    filter: Some(Filter::ColumnRangeFilter(ColumnRange {
+                        family_name: String::from("f"),
+                        start_qualifier: None,
+                        end_qualifier: Some(EndQualifier::EndQualifierClosed(
+                            DownwardLogIndex(index).bytes().to_vec(),
+                        )),
+                    })),
+                }),
+                rows_limit: 1,
+                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+            },
+        )
+        .await
+    }
+
+    async fn read_for_row_boundary(
+        &self,
+        index: LogIndex,
+    ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
+        read_rows(
+            &mut self.client.bigtable.clone(),
+            ReadRowsRequest {
+                table_name: self.table_name.clone(),
+                app_profile_id: String::new(),
+                rows: Some(RowSet {
+                    row_keys: Vec::new(),
+                    row_ranges: vec![RowRange {
+                        start_key: Some(StartKeyClosed(log_key(
+                            &self.group,
+                            LogIndex(index.0.saturating_add(self.max_entries - 1)),
+                        ))),
+                        end_key: Some(EndKeyClosed(log_key(&self.group, index))),
+                    }],
+                }),
+                filter: Some(RowFilter {
+                    filter: Some(Filter::ColumnRangeFilter(ColumnRange {
+                        family_name: String::from("f"),
+                        start_qualifier: None,
+                        end_qualifier: Some(EndQualifier::EndQualifierClosed(
+                            DownwardLogIndex(index).bytes().to_vec(),
+                        )),
+                    })),
+                }),
+                rows_limit: 0,
+                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+            },
+        )
+        .await
+    }
+}
+
+impl StoreClient {
     #[instrument(level = "trace", skip(self))]
     pub async fn get_addresses(&self) -> Result<Vec<(HsmId, Url)>, tonic::Status> {
         let rows = read_rows(

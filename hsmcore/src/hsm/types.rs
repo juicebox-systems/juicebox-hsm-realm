@@ -392,7 +392,7 @@ pub enum JoinGroupResponse {
 pub struct CaptureNextRequest {
     pub realm: RealmId,
     pub group: GroupId,
-    pub entry: LogEntry,
+    pub entries: Vec<LogEntry>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -406,6 +406,7 @@ pub enum CaptureNextResponse {
     InvalidHmac,
     InvalidChain,
     MissingPrev,
+    MissingEntries,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

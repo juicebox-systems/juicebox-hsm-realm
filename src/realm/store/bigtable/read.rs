@@ -2,7 +2,6 @@ use crate::autogen::google;
 use google::bigtable::v2::read_rows_response::cell_chunk::RowStatus;
 use google::bigtable::v2::read_rows_response::CellChunk;
 use google::bigtable::v2::ReadRowsRequest;
-use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
 use tonic::Code;
@@ -57,11 +56,11 @@ static STREAM_SPEW: Spew = Spew::new();
 pub async fn read_rows(
     bigtable: &mut BigtableClient,
     request: ReadRowsRequest,
-) -> Result<HashMap<RowKey, Vec<Cell>>, tonic::Status> {
+) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
     let mut retry_count = 0;
     'outer: loop {
         let mut stream = bigtable.read_rows(request.clone()).await?.into_inner();
-        let mut rows = HashMap::new();
+        let mut rows = Vec::new();
         let mut active_row: Option<RowBuffer> = None;
         loop {
             match stream.message().await {
@@ -86,7 +85,7 @@ pub async fn read_rows(
                         let complete_row;
                         (active_row, complete_row) = process_read_chunk(chunk, active_row);
                         if let Some((key, row)) = complete_row {
-                            rows.insert(key, row);
+                            rows.push((key, row));
                         }
                     }
                 }

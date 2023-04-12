@@ -219,6 +219,95 @@ async fn last_log_entry_does_not_cross_groups() {
 }
 
 #[tokio::test]
+async fn read_log_entries() {
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator()).await;
+    let mut entries = create_log_batch(LogIndex::FIRST, EntryHmac([0; 32].into()), 4);
+    data.append(&REALM, &GROUP_1, &entries, StoreDelta::default())
+        .await
+        .unwrap();
+
+    let more_entries = create_log_batch(LogIndex(5), entries[3].entry_hmac.clone(), 6);
+    data.append(&REALM, &GROUP_1, &more_entries, StoreDelta::default())
+        .await
+        .unwrap();
+    entries.extend(more_entries);
+
+    let more_entries = create_log_batch(LogIndex(11), entries[9].entry_hmac.clone(), 5);
+    data.append(&REALM, &GROUP_1, &more_entries, StoreDelta::default())
+        .await
+        .unwrap();
+    entries.extend(more_entries);
+
+    // first read will return the entries from the first row only, even if
+    // subsequent rows would fit in the chunk size. reads after that can span
+    // multiple rows
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 10);
+    let r = it.next().await.unwrap();
+    assert_eq!(entries[..4], r, "should have returned first log row");
+    let r = it.next().await.unwrap();
+    assert_eq!(
+        entries[4..],
+        r,
+        "should have returned all remaining log rows"
+    );
+    assert!(it.next().await.unwrap().is_empty());
+
+    // Read with chunk size < log row sizes should return one row at a time
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 2);
+    let r = it.next().await.unwrap();
+    assert_eq!(&entries[0..4], &r, "should have returned entire log row");
+    let r = it.next().await.unwrap();
+    assert_eq!(
+        &entries[4..10],
+        &r,
+        "should have returned entire 2nd log row"
+    );
+    let r = it.next().await.unwrap();
+    assert_eq!(
+        &entries[10..],
+        &r,
+        "should have returned entire 2nd log row"
+    );
+    assert!(it.next().await.unwrap().is_empty());
+
+    // Read starting from an index that's not the first in the row should work.
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(2), 12);
+    let r = it.next().await.unwrap();
+    assert_eq!(
+        &entries[1..4],
+        &r,
+        "should have returned tail of first log row"
+    );
+    let r = it.next().await.unwrap();
+    assert_eq!(
+        &entries[4..],
+        &r,
+        "should have returned entire remaining rows"
+    );
+    assert!(it.next().await.unwrap().is_empty());
+
+    // Read for a log index that doesn't yet exist should return an empty vec.
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(22), 100);
+    assert!(it.next().await.unwrap().is_empty());
+
+    // Read to the tail, then write to the log, then read again should return the new entries.
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 100);
+    let r = it.next().await.unwrap();
+    assert_eq!(&entries[0..4], &r, "should have returned entire log row");
+    let r = it.next().await.unwrap();
+    assert_eq!(&entries[4..], &r, "should have returned remaining log rows");
+
+    let last = entries.last().unwrap();
+    let more_entries = create_log_batch(last.index.next(), last.entry_hmac.clone(), 2);
+    data.append(&REALM, &GROUP_1, &more_entries, StoreDelta::default())
+        .await
+        .unwrap();
+    let r = it.next().await.unwrap();
+    assert_eq!(more_entries, r);
+}
+
+#[tokio::test]
 async fn append_log_precondition() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator()).await;
@@ -386,13 +475,10 @@ async fn service_discovery() {
     data.set_address(&hsm2, &url2, SystemTime::now())
         .await
         .unwrap();
-    let mut addresses = data.get_addresses().await.unwrap();
+    let addresses = data.get_addresses().await.unwrap();
     assert_eq!(2, addresses.len());
-    // addresses are returned in no specific order.
-    if addresses[0].0 != hsm1 {
-        addresses.swap(0, 1);
-    }
-    assert_eq!(vec![(hsm1, url1.clone()), (hsm2, url2.clone())], addresses);
+    // addresses are returned in HSM Id order.
+    assert_eq!(vec![(hsm2, url2.clone()), (hsm1, url1.clone())], addresses);
 
     // reading with an old timestamp should result in it being expired.
     data.set_address(

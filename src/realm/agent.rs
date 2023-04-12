@@ -137,38 +137,45 @@ impl<T: Transport + 'static> Agent<T> {
         trace!(agent = state.name, realm = ?realm, group = ?group, ?next_index, "start watching log");
 
         tokio::spawn(async move {
-            let mut next_index = next_index;
+            let mut it = state.store.read_log_entries_iter(
+                realm,
+                group,
+                next_index,
+                (Self::MAX_APPEND_BATCH_SIZE * 2).try_into().unwrap(),
+            );
             loop {
-                match state.store.read_log_entry(&realm, &group, next_index).await {
-                    Err(e) => todo!("{e:?}"),
-                    Ok(None) => {
+                match it.next().await {
+                    Err(e) => {
+                        warn!(err=?e, "error reading log");
+                        sleep(Duration::from_millis(25)).await;
+                    }
+                    Ok(entries) if entries.is_empty() => {
                         // TODO: how would we tell if the log was truncated?
                         sleep(Duration::from_millis(1)).await;
                     }
-                    Ok(Some(entry)) => {
-                        let index = entry.index;
+                    Ok(entries) => {
+                        let index = entries[0].index;
                         trace!(
                             agent = state.name,
                             ?realm,
                             ?group,
-                            ?index,
-                            "found log entry"
+                            first_index=?index,
+                            num=?entries.len(),
+                            "found log entries"
                         );
                         match state
                             .hsm
                             .send(CaptureNextRequest {
                                 realm,
                                 group,
-                                entry,
+                                entries,
                             })
                             .await
                         {
                             Err(_) => todo!(),
                             Ok(CaptureNextResponse::Ok { hsm_id, .. }) => {
                                 trace!(agent = state.name, ?realm, ?group, hsm=?hsm_id, ?index,
-                                    "HSM captured entry");
-                                // TODO: cache capture statement
-                                next_index = next_index.next();
+                                    "HSM captured entries");
                             }
                             Ok(r) => todo!("{r:#?}"),
                         }
@@ -1289,12 +1296,14 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
+    const MAX_APPEND_BATCH_SIZE: usize = 100;
+
     /// Precondition: `leader.appending` is Appending because this task is the one
     /// doing the appending.
     async fn keep_appending(&self, realm: RealmId, group: GroupId, next: LogIndex) {
         let mut next = next;
         let mut batch = Vec::new();
-        const MAX_BATCH_SIZE: usize = 100;
+
         loop {
             let mut delta = StoreDelta::default();
             batch.clear();
@@ -1312,7 +1321,7 @@ impl<T: Transport + 'static> Agent<T> {
                         delta.squash(request.delta);
                     }
                     next = next.next();
-                    if batch.len() >= MAX_BATCH_SIZE {
+                    if batch.len() >= Self::MAX_APPEND_BATCH_SIZE {
                         break;
                     }
                 }
