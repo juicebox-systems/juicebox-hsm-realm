@@ -12,6 +12,13 @@ pub mod google {
             include!("google.bigtable.v2.rs");
         }
     }
+    pub mod cloud {
+        pub mod secretmanager {
+            pub mod v1 {
+                include!("google.cloud.secretmanager.v1.rs");
+            }
+        }
+    }
     pub mod iam {
         pub mod v1 {
             include!("google.iam.v1.rs");
