@@ -41,7 +41,7 @@ use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, T
 use loam_sdk_core::types::RealmId;
 
 use mutate::{mutate_rows, MutateRowsError};
-use read::read_rows;
+use read::{read_rows, Cell, RowKey};
 
 type BigtableTableAdminClient =
     google::bigtable::admin::v2::bigtable_table_admin_client::BigtableTableAdminClient<
@@ -705,7 +705,6 @@ impl StoreClient {
         group: GroupId,
         starting_at: LogIndex,
         max_entries: u16,
-        append_max_batch_size: usize,
     ) -> LogEntriesIter {
         assert!(max_entries > 0);
         let table_name = log_table(&self.instance, &realm);
@@ -714,7 +713,6 @@ impl StoreClient {
             group,
             next: Position::LogIndex(starting_at),
             max_entries: max_entries as u64,
-            append_max_batch_size: append_max_batch_size as u64,
             client: self.clone(),
             table_name,
         }
@@ -733,7 +731,6 @@ pub struct LogEntriesIter {
     group: GroupId,
     next: Position,
     max_entries: u64,
-    append_max_batch_size: u64,
     client: StoreClient,
     table_name: String,
 }
@@ -744,31 +741,83 @@ impl LogEntriesIter {
     /// there's nothing new in the log since the last call to next.
     #[instrument(level = "trace", skip(self))]
     pub async fn next(&mut self) -> Result<Vec<LogEntry>, tonic::Status> {
-        let res = self.read_log_entries().await?;
-        if !res.is_empty() {
-            self.next = Position::RowBoundary(res.last().unwrap().index.next());
+        let rows = match self.next {
+            Position::LogIndex(i) => self.read_for_log_index(i).await?,
+            Position::RowBoundary(i) => self.read_for_row_boundary(i).await?,
+        };
+
+        let entries: Vec<LogEntry> = rows
+            .into_iter()
+            .rev()
+            .flat_map(|(_rowkey, cells)| {
+                cells
+                    .into_iter()
+                    .rev()
+                    .filter(|c| c.family == "f")
+                    .map(|c| marshalling::from_slice(&c.value).expect("TODO"))
+            })
+            .collect();
+
+        let index = match self.next {
+            Position::LogIndex(i) => i,
+            Position::RowBoundary(i) => i,
+        };
+        if !entries.is_empty() {
+            assert_eq!(entries[0].index, index);
+            assert!(entries
+                .as_slice()
+                .windows(2)
+                .all(|w| w[1].index == w[0].index.next()));
+            self.next = Position::RowBoundary(entries.last().unwrap().index.next());
         }
-        Ok(res)
+
+        trace!(
+            realm = ?self.realm,
+            group = ?self.group,
+            index = ?index,
+            entries = ?entries.len(),
+            "read_log_entries::next completed",
+        );
+        Ok(entries)
     }
 
-    /// Read zero or more log entries starting with the entry at 'self.next'.
-    async fn read_log_entries(&self) -> Result<Vec<LogEntry>, tonic::Status> {
-        let (index, endkey) = match &self.next {
-            // If index is not the first log entry in the row, then we need to
-            // read extra an row to find it. There's no way to say read one row
-            // past X, so we have to calculate the worst case index and read to
-            // that. The ColumnRangeFilter will remove any columns that are for
-            // indexes before index.
-            Position::LogIndex(i) => (
-                *i,
-                log_key(
-                    &self.group,
-                    LogIndex(i.0.saturating_sub(self.append_max_batch_size.saturating_add(1))),
-                ),
-            ),
-            Position::RowBoundary(i) => (*i, log_key(&self.group, *i)),
-        };
-        let rows = read_rows(
+    async fn read_for_log_index(
+        &self,
+        index: LogIndex,
+    ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
+        read_rows(
+            &mut self.client.bigtable.clone(),
+            ReadRowsRequest {
+                table_name: self.table_name.clone(),
+                app_profile_id: String::new(),
+                rows: Some(RowSet {
+                    row_keys: Vec::new(),
+                    row_ranges: vec![RowRange {
+                        start_key: Some(StartKeyClosed(log_key(&self.group, index))),
+                        end_key: Some(EndKeyClosed(log_key(&self.group, LogIndex::FIRST))),
+                    }],
+                }),
+                filter: Some(RowFilter {
+                    filter: Some(Filter::ColumnRangeFilter(ColumnRange {
+                        family_name: String::from("f"),
+                        start_qualifier: None,
+                        end_qualifier: Some(EndQualifier::EndQualifierClosed(
+                            DownwardLogIndex(index).bytes().to_vec(),
+                        )),
+                    })),
+                }),
+                rows_limit: 1,
+                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+            },
+        )
+        .await
+    }
+
+    async fn read_for_row_boundary(
+        &self,
+        index: LogIndex,
+    ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
+        read_rows(
             &mut self.client.bigtable.clone(),
             ReadRowsRequest {
                 table_name: self.table_name.clone(),
@@ -780,7 +829,7 @@ impl LogEntriesIter {
                             &self.group,
                             LogIndex(index.0.saturating_add(self.max_entries - 1)),
                         ))),
-                        end_key: Some(EndKeyClosed(endkey)),
+                        end_key: Some(EndKeyClosed(log_key(&self.group, index))),
                     }],
                 }),
                 filter: Some(RowFilter {
@@ -796,35 +845,7 @@ impl LogEntriesIter {
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
             },
         )
-        .await?;
-
-        let entries: Vec<LogEntry> = rows
-            .into_iter()
-            .rev()
-            .flat_map(|(_rowkey, cells)| {
-                cells
-                    .into_iter()
-                    .rev()
-                    .filter(|c| c.family == "f")
-                    .map(|c| marshalling::from_slice(&c.value).expect("TODO"))
-            })
-            .collect();
-
-        if !entries.is_empty() {
-            assert_eq!(entries[0].index, index);
-            assert!(entries
-                .as_slice()
-                .windows(2)
-                .all(|w| w[1].index == w[0].index.next()));
-        }
-        trace!(
-            realm = ?self.realm,
-            group = ?self.group,
-            index = ?index,
-            entries = ?entries.len(),
-            "read_log_entries completed",
-        );
-        Ok(entries)
+        .await
     }
 }
 

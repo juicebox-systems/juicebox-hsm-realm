@@ -142,7 +142,6 @@ impl<T: Transport + 'static> Agent<T> {
                 group,
                 next_index,
                 (Self::MAX_APPEND_BATCH_SIZE * 2).try_into().unwrap(),
-                Self::MAX_APPEND_BATCH_SIZE,
             );
             loop {
                 match it.next().await {

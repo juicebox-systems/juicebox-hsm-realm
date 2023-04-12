@@ -233,22 +233,34 @@ async fn read_log_entries() {
         .unwrap();
     entries.extend(more_entries);
 
-    // Read with chunk size > first log row should return both rows.
-    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 5, 100);
+    let more_entries = create_log_batch(LogIndex(11), entries[9].entry_hmac.clone(), 5);
+    data.append(&REALM, &GROUP_1, &more_entries, StoreDelta::default())
+        .await
+        .unwrap();
+    entries.extend(more_entries);
+
+    // first read will return the entries from the first row only, even if
+    // subsequent rows would fit in the chunk size. reads after that can span
+    // multiple rows
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 10);
     let r = it.next().await.unwrap();
-    assert_eq!(entries, r, "should of returned all log rows");
+    assert_eq!(entries[..4], r, "should of returned first log row");
+    let r = it.next().await.unwrap();
+    assert_eq!(entries[4..], r, "should of returned all remaining log rows");
     assert!(it.next().await.unwrap().is_empty());
 
-    // Read with chunk size < first log row should return first row, and then on the next call, the 2nd row.
-    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 3, 100);
+    // Read with chunk size < log row sizes should return one row at a time
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 2);
     let r = it.next().await.unwrap();
     assert_eq!(&entries[0..4], &r, "should of returned entire log row");
     let r = it.next().await.unwrap();
-    assert_eq!(&entries[4..], &r, "should of returned entire 2nd log row");
+    assert_eq!(&entries[4..10], &r, "should of returned entire 2nd log row");
+    let r = it.next().await.unwrap();
+    assert_eq!(&entries[10..], &r, "should of returned entire 2nd log row");
     assert!(it.next().await.unwrap().is_empty());
 
     // Read starting from an index that's not the first in the row should work.
-    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(2), 2, 100);
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(2), 12);
     let r = it.next().await.unwrap();
     assert_eq!(
         &entries[1..4],
@@ -256,23 +268,24 @@ async fn read_log_entries() {
         "should of returned tail of first log row"
     );
     let r = it.next().await.unwrap();
-    assert_eq!(&entries[4..], &r, "should of returned entire 2nd log row");
-    assert!(it.next().await.unwrap().is_empty());
-
-    // Read with chunk size > available rows should return all of them.
-    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 100, 100);
-    let r = it.next().await.unwrap();
-    assert_eq!(entries, r, "should of returned all log rows");
+    assert_eq!(
+        &entries[4..],
+        &r,
+        "should of returned entire remaining rows"
+    );
     assert!(it.next().await.unwrap().is_empty());
 
     // Read for a log index that doesn't yet exist should return an empty vec.
-    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(12), 100, 100);
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(22), 100);
     assert!(it.next().await.unwrap().is_empty());
 
     // Read to the tail, then write to the log, then read again should return the new entries.
-    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 100, 100);
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 100);
     let r = it.next().await.unwrap();
-    assert_eq!(entries, r, "should of returned all log rows");
+    assert_eq!(&entries[0..4], &r, "should of returned entire log row");
+    let r = it.next().await.unwrap();
+    assert_eq!(&entries[4..], &r, "should of returned remaining log rows");
+
     let last = entries.last().unwrap();
     let more_entries = create_log_batch(last.index.next(), last.entry_hmac.clone(), 2);
     data.append(&REALM, &GROUP_1, &more_entries, StoreDelta::default())
