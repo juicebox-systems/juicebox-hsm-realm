@@ -39,17 +39,16 @@ use loam_sdk_noise::server as noise;
 use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use types::{
     AppError, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CaptureNextRequest, CaptureNextResponse, Captured, CapturedStatement, CommitRequest,
-    CommitResponse, CompleteTransferRequest, CompleteTransferResponse, Configuration, DataHash,
-    EntryHmac, GroupConfigurationStatement, GroupId, GroupStatus, HandshakeRequest,
-    HandshakeResponse, HsmId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
-    JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupInfo, NewGroupRequest,
-    NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange, Partition,
-    PersistStateRequest, PersistStateResponse, ReadCapturedRequest, ReadCapturedResponse,
-    RealmStatus, RecordId, StatusRequest, StatusResponse, TransferInRequest, TransferInResponse,
-    TransferNonce, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
-    TransferOutResponse, TransferStatement, TransferStatementRequest, TransferStatementResponse,
-    TransferringOut,
+    CaptureNextRequest, CaptureNextResponse, Captured, CapturedStatement, CommitGroupResponse,
+    CommitRequest, CommitResponse, CompleteTransferRequest, CompleteTransferResponse,
+    Configuration, DataHash, EntryHmac, GroupConfigurationStatement, GroupId, GroupStatus,
+    HandshakeRequest, HandshakeResponse, HsmId, JoinGroupRequest, JoinGroupResponse,
+    JoinRealmRequest, JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupInfo,
+    NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange, Partition,
+    PersistStateRequest, PersistStateResponse, RealmStatus, RecordId, StatusRequest,
+    StatusResponse, TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
+    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatement,
+    TransferStatementRequest, TransferStatementResponse, TransferringOut,
 };
 
 /// Returned in Noise handshake requests as a hint to the client of how long
@@ -553,9 +552,6 @@ impl<P: Platform> Hsm<P> {
             HsmRequest::PersistState(r) => {
                 self.dispatch_request(metrics, r, Self::handle_persist_state)
             }
-            HsmRequest::ReadCaptured(r) => {
-                self.dispatch_request(metrics, r, Self::handle_read_captured)
-            }
             HsmRequest::Commit(r) => self.dispatch_request(metrics, r, Self::handle_commit),
             HsmRequest::TransferOut(r) => {
                 self.dispatch_request(metrics, r, Self::handle_transfer_out)
@@ -953,18 +949,8 @@ impl<P: Platform> Hsm<P> {
                                 }
                                 group.captured = Some((entry.index, entry.entry_hmac));
                             }
-                            let captured = group.captured.as_ref().unwrap();
-                            let statement = CapturedStatementBuilder {
-                                hsm: persistent.id,
-                                realm: request.realm,
-                                group: request.group,
-                                index: captured.0,
-                                entry_hmac: &captured.1,
-                            }
-                            .build(&persistent.realm_key);
                             Response::Ok {
                                 hsm_id: persistent.id,
-                                captured: statement,
                             }
                         }
                     }
@@ -985,7 +971,7 @@ impl<P: Platform> Hsm<P> {
         trace!(hsm = self.options.name, ?request);
 
         let response = (|| {
-            match &self.persistent.realm {
+            let config = match &self.persistent.realm {
                 None => return Response::InvalidRealm,
 
                 Some(realm) => {
@@ -1016,11 +1002,12 @@ impl<P: Platform> Hsm<P> {
                                 {
                                     return Response::InvalidHmac;
                                 }
+                                &group.configuration
                             }
                         },
                     }
                 }
-            }
+            };
 
             let tree = request.last_entry.partition.as_ref().map(|p| {
                 Tree::with_existing_root(
@@ -1042,7 +1029,7 @@ impl<P: Platform> Hsm<P> {
                     tree,
                     sessions: Cache::new(usize::from(self.options.max_sessions)),
                 });
-            Response::Ok
+            Response::Ok(config.clone())
         })();
 
         trace!(hsm = self.options.name, ?response);
@@ -1063,73 +1050,34 @@ impl<P: Platform> Hsm<P> {
             self.persistent.mark_clean();
         }
         let state = &*self.persistent;
-        let captured = state.realm.as_ref().map(|r| {
-            (
-                r.id,
-                r.groups
-                    .iter()
-                    .map(|(group, group_state)| Captured {
-                        group: *group,
-                        captured: group_state.captured.as_ref().map(|(index, entry_hmac)| {
-                            let stmt = CapturedStatementBuilder {
-                                hsm: state.id,
-                                realm: r.id,
-                                group: *group,
-                                index: *index,
-                                entry_hmac,
-                            }
-                            .build(&state.realm_key);
-                            (*index, entry_hmac.clone(), stmt)
-                        }),
-                    })
-                    .collect(),
-            )
-        });
-        Response::Ok {
-            hsm: state.id,
-            captured,
-        }
-    }
-
-    fn handle_read_captured(
-        &mut self,
-        _metrics: &mut Metrics<P>,
-        request: ReadCapturedRequest,
-    ) -> ReadCapturedResponse {
-        type Response = ReadCapturedResponse;
-        trace!(hsm = self.options.name, ?request);
-        let response = match &self.persistent.realm {
-            None => Response::InvalidRealm,
-
-            Some(realm) => {
-                if realm.id != request.realm {
-                    return Response::InvalidRealm;
-                }
-
-                match realm.groups.get(&request.group) {
-                    None => Response::InvalidGroup,
-
-                    Some(group) => match &group.captured {
-                        None => Response::None,
-                        Some((index, entry_hmac)) => Response::Ok {
-                            hsm_id: self.persistent.id,
+        let captured = match &state.realm {
+            None => Vec::new(),
+            Some(r) => r
+                .groups
+                .iter()
+                .filter_map(|(group, group_state)| {
+                    group_state.captured.as_ref().map(|(index, entry_hmac)| {
+                        let statement = CapturedStatementBuilder {
+                            hsm: state.id,
+                            realm: r.id,
+                            group: *group,
                             index: *index,
-                            entry_hmac: entry_hmac.clone(),
-                            statement: CapturedStatementBuilder {
-                                hsm: self.persistent.id,
-                                realm: request.realm,
-                                group: request.group,
-                                index: *index,
-                                entry_hmac,
-                            }
-                            .build(&self.persistent.realm_key),
-                        },
-                    },
-                }
-            }
+                            entry_hmac,
+                        }
+                        .build(&state.realm_key);
+                        Captured {
+                            group: *group,
+                            hsm: state.id,
+                            realm: r.id,
+                            index: *index,
+                            hmac: entry_hmac.clone(),
+                            stmt: statement,
+                        }
+                    })
+                })
+                .collect(),
         };
-        trace!(hsm = self.options.name, ?response);
-        response
+        Response::Ok { captured }
     }
 
     fn handle_commit(
@@ -1148,68 +1096,76 @@ impl<P: Platform> Hsm<P> {
                 return Response::InvalidRealm;
             }
 
-            let Some(group) = realm.groups.get(&request.group) else {
-                return Response::InvalidGroup;
-            };
-
-            let Some(leader) = self.volatile.leader.get_mut(&request.group) else {
-                return Response::NotLeader;
-            };
-
-            if let Some(committed) = leader.committed {
-                if committed >= request.index {
-                    return Response::AlreadyCommitted { committed };
-                }
-            }
-
-            let mut election = HsmElection::new(&group.configuration.0);
-            for (hsm_id, captured_statement) in request.captures {
-                if (CapturedStatementBuilder {
-                    hsm: hsm_id,
-                    realm: request.realm,
-                    group: request.group,
-                    index: request.index,
-                    entry_hmac: &request.entry_hmac,
-                }
-                .verify(&self.persistent.realm_key, &captured_statement)
-                .is_ok())
-                {
-                    election.vote(hsm_id);
+            let group_results = request.groups.into_iter().map(|request| {
+                let Some(group) = realm.groups.get(&request.group) else {
+                    return (request.group, CommitGroupResponse::InvalidGroup);
                 };
-            }
-            if let Some((index, entry_hmac)) = &group.captured {
-                if *index == request.index && *entry_hmac == request.entry_hmac {
-                    election.vote(self.persistent.id);
-                }
-            };
 
-            let election_outcome = election.outcome();
-            if election_outcome.has_quorum {
-                trace!(hsm = self.options.name, index = ?request.index, "leader committed entry");
-                // todo: skip already committed entries
-                let responses = leader
-                    .log
-                    .iter_mut()
-                    .filter(|entry| entry.entry.index <= request.index)
-                    .filter_map(|entry| {
-                        entry
-                            .response
-                            .take()
-                            .map(|r| (entry.entry.entry_hmac.clone(), r))
-                    })
-                    .collect();
-                leader.committed = Some(request.index);
-                CommitResponse::Ok {
-                    committed: leader.committed,
-                    responses,
+                let Some(leader) = self.volatile.leader.get_mut(&request.group) else {
+                    return (request.group, CommitGroupResponse::NotLeader);
+                };
+
+                if let Some(committed) = leader.committed {
+                    if committed >= request.commit_index {
+                        return (request.group, CommitGroupResponse::AlreadyCommitted { committed });
+                    }
                 }
-            } else {
-                warn!(
-                    hsm = self.options.name,
-                    election = ?election_outcome,
-                    "no quorum. buggy caller?"
-                );
-                CommitResponse::NoQuorum
+
+                let mut election = HsmElection::new(&group.configuration.0);
+                for (hsm_id, index, hmac, captured_statement) in &request.captures {
+                    if *index >= request.commit_index && (CapturedStatementBuilder {
+                        hsm: *hsm_id,
+                        realm: realm.id,
+                        group: request.group,
+                        index: *index,
+                        entry_hmac: hmac,
+                    }
+                    .verify(&self.persistent.realm_key, captured_statement)
+                    .map_err(|e|warn!(err=?e, hsm=?hsm_id, group=?request.group, ?index, "failed to verify capture statement"))
+                    .is_ok())
+                    {
+                        // Ensure the entry hmac matches, so that we know this is a vote for a log entry we wrote.
+                        // For a new leader this won't be able to commit until the witnesses catch up to a log entry written by the new leader.
+                        if let Ok(offset) = leader.log.binary_search_by_key(index, |e|e.entry.index) {
+                            if leader.log[offset].entry.entry_hmac == *hmac {
+                                election.vote(*hsm_id);
+                            }
+                        }
+                    }
+                }
+
+                let election_outcome = election.outcome();
+                if election_outcome.has_quorum {
+                    trace!(hsm = self.options.name, group=?request.group, index = ?request.commit_index, "leader committed entry");
+                    // todo: skip already committed entries
+                    let responses = leader
+                        .log
+                        .iter_mut()
+                        .filter(|entry| entry.entry.index <= request.commit_index)
+                        .filter_map(|entry| {
+                            entry
+                                .response
+                                .take()
+                                .map(|r| (entry.entry.entry_hmac.clone(), r))
+                        })
+                        .collect();
+                    leader.committed = Some(request.commit_index);
+                    (request.group, CommitGroupResponse::Ok {
+                        committed: request.commit_index,
+                        responses,
+                    })
+                } else {
+                    warn!(
+                        hsm = self.options.name,
+                        election = ?election_outcome,
+                        commit_request = ?request,
+                        "no quorum. buggy caller?"
+                    );
+                    (request.group, CommitGroupResponse::NoQuorum)
+                }
+            }).collect();
+            CommitResponse::Ok {
+                groups: group_results,
             }
         })();
 

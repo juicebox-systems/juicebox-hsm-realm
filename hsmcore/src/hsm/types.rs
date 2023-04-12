@@ -397,10 +397,7 @@ pub struct CaptureNextRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CaptureNextResponse {
-    Ok {
-        hsm_id: HsmId,
-        captured: CapturedStatement,
-    },
+    Ok { hsm_id: HsmId },
     InvalidRealm,
     InvalidGroup,
     InvalidHmac,
@@ -418,7 +415,7 @@ pub struct BecomeLeaderRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum BecomeLeaderResponse {
-    Ok,
+    Ok(Configuration),
     InvalidRealm,
     InvalidGroup,
     InvalidHmac,
@@ -426,61 +423,54 @@ pub enum BecomeLeaderResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct ReadCapturedRequest {
-    pub realm: RealmId,
-    pub group: GroupId,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub enum ReadCapturedResponse {
-    Ok {
-        hsm_id: HsmId,
-        index: LogIndex,
-        entry_hmac: EntryHmac,
-        statement: CapturedStatement,
-    },
-    InvalidRealm,
-    InvalidGroup,
-    None,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 pub struct PersistStateRequest {}
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum PersistStateResponse {
-    Ok {
-        hsm: HsmId,
-        captured: Option<(RealmId, Vec<Captured>)>,
-    },
+    Ok { captured: Vec<Captured> },
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Captured {
+    pub hsm: HsmId,
+    pub realm: RealmId,
     pub group: GroupId,
-    pub captured: Option<(LogIndex, EntryHmac, CapturedStatement)>,
+    pub index: LogIndex,
+    pub hmac: EntryHmac,
+    pub stmt: CapturedStatement,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitRequest {
     pub realm: RealmId,
+    pub groups: Vec<CommitGroup>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CommitGroup {
     pub group: GroupId,
-    pub index: LogIndex,
-    pub entry_hmac: EntryHmac,
-    pub captures: Vec<(HsmId, CapturedStatement)>,
+    pub commit_index: LogIndex,
+    pub captures: Vec<(HsmId, LogIndex, EntryHmac, CapturedStatement)>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CommitResponse {
     Ok {
-        committed: Option<LogIndex>,
+        groups: Vec<(GroupId, CommitGroupResponse)>,
+    },
+    InvalidRealm,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum CommitGroupResponse {
+    Ok {
+        committed: LogIndex,
         responses: Vec<(EntryHmac, NoiseResponse)>,
     },
     AlreadyCommitted {
         committed: LogIndex,
     },
     NoQuorum,
-    InvalidRealm,
     InvalidGroup,
     NotLeader,
 }

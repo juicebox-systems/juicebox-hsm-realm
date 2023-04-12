@@ -11,10 +11,10 @@ use super::types::{
     CaptureNextResponse, CommitRequest, CommitResponse, CompleteTransferRequest,
     CompleteTransferResponse, HandshakeRequest, HandshakeResponse, JoinGroupRequest,
     JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
-    NewRealmRequest, NewRealmResponse, PersistStateRequest, PersistStateResponse,
-    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse, TransferInRequest,
-    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
-    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
+    NewRealmRequest, NewRealmResponse, PersistStateRequest, PersistStateResponse, StatusRequest,
+    StatusResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
+    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
+    TransferStatementResponse,
 };
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
@@ -53,7 +53,6 @@ pub enum HsmRequest {
     JoinGroup(JoinGroupRequest),
     BecomeLeader(BecomeLeaderRequest),
     CaptureNext(CaptureNextRequest),
-    ReadCaptured(ReadCapturedRequest),
     PersistState(PersistStateRequest),
     Commit(CommitRequest),
     TransferOut(TransferOutRequest),
@@ -75,7 +74,6 @@ impl HsmRequest {
             HsmRequest::JoinGroup(_) => "JoinGroup",
             HsmRequest::BecomeLeader(_) => "BecomeLeader",
             HsmRequest::CaptureNext(_) => "CaptureNext",
-            HsmRequest::ReadCaptured(_) => "ReadCaptured",
             HsmRequest::PersistState(_) => "PersistState",
             HsmRequest::Commit(_) => "Commit",
             HsmRequest::TransferOut(_) => "TransferOut",
@@ -123,12 +121,6 @@ impl HsmRpc for CaptureNextRequest {
     type Response = CaptureNextResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::CaptureNext(self)
-    }
-}
-impl HsmRpc for ReadCapturedRequest {
-    type Response = ReadCapturedResponse;
-    fn to_req(self) -> HsmRequest {
-        HsmRequest::ReadCaptured(self)
     }
 }
 
