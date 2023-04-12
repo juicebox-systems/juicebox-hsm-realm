@@ -244,19 +244,31 @@ async fn read_log_entries() {
     // multiple rows
     let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 10);
     let r = it.next().await.unwrap();
-    assert_eq!(entries[..4], r, "should of returned first log row");
+    assert_eq!(entries[..4], r, "should have returned first log row");
     let r = it.next().await.unwrap();
-    assert_eq!(entries[4..], r, "should of returned all remaining log rows");
+    assert_eq!(
+        entries[4..],
+        r,
+        "should have returned all remaining log rows"
+    );
     assert!(it.next().await.unwrap().is_empty());
 
     // Read with chunk size < log row sizes should return one row at a time
     let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 2);
     let r = it.next().await.unwrap();
-    assert_eq!(&entries[0..4], &r, "should of returned entire log row");
+    assert_eq!(&entries[0..4], &r, "should have returned entire log row");
     let r = it.next().await.unwrap();
-    assert_eq!(&entries[4..10], &r, "should of returned entire 2nd log row");
+    assert_eq!(
+        &entries[4..10],
+        &r,
+        "should have returned entire 2nd log row"
+    );
     let r = it.next().await.unwrap();
-    assert_eq!(&entries[10..], &r, "should of returned entire 2nd log row");
+    assert_eq!(
+        &entries[10..],
+        &r,
+        "should have returned entire 2nd log row"
+    );
     assert!(it.next().await.unwrap().is_empty());
 
     // Read starting from an index that's not the first in the row should work.
@@ -265,13 +277,13 @@ async fn read_log_entries() {
     assert_eq!(
         &entries[1..4],
         &r,
-        "should of returned tail of first log row"
+        "should have returned tail of first log row"
     );
     let r = it.next().await.unwrap();
     assert_eq!(
         &entries[4..],
         &r,
-        "should of returned entire remaining rows"
+        "should have returned entire remaining rows"
     );
     assert!(it.next().await.unwrap().is_empty());
 
@@ -282,9 +294,9 @@ async fn read_log_entries() {
     // Read to the tail, then write to the log, then read again should return the new entries.
     let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 100);
     let r = it.next().await.unwrap();
-    assert_eq!(&entries[0..4], &r, "should of returned entire log row");
+    assert_eq!(&entries[0..4], &r, "should have returned entire log row");
     let r = it.next().await.unwrap();
-    assert_eq!(&entries[4..], &r, "should of returned remaining log rows");
+    assert_eq!(&entries[4..], &r, "should have returned remaining log rows");
 
     let last = entries.last().unwrap();
     let more_entries = create_log_batch(last.index.next(), last.entry_hmac.clone(), 2);
