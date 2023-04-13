@@ -1,8 +1,8 @@
-use jsonwebtoken::{self, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{self, Algorithm, DecodingKey, TokenData, Validation};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 
-use super::{AuthKey, AuthToken, Claims};
+use super::{AuthKey, AuthToken, Claims, SecretVersion};
 
 #[derive(Debug, Deserialize)]
 struct InternalClaims {
@@ -16,6 +16,7 @@ struct InternalClaims {
 pub enum Error {
     Jwt(jsonwebtoken::errors::Error),
     LifetimeTooLong,
+    BadKeyId,
 }
 
 pub struct Validator {
@@ -35,13 +36,30 @@ impl Validator {
         }
     }
 
-    pub fn validate(&self, token: &AuthToken, key: &AuthKey) -> Result<Claims, Error> {
-        let key = DecodingKey::from_secret(key.0.expose_secret().as_bytes());
+    pub fn parse_key_id(&self, token: &AuthToken) -> Result<(String, SecretVersion), Error> {
+        let header = jsonwebtoken::decode_header(token.0.expose_secret()).map_err(Error::Jwt)?;
+        match header.kid.as_deref().and_then(parse_key_id) {
+            Some((tenant, version)) => Ok((tenant, version)),
+            None => Err(Error::BadKeyId),
+        }
+    }
 
-        let claims =
+    pub fn validate(&self, token: &AuthToken, key: &AuthKey) -> Result<Claims, Error> {
+        let key = DecodingKey::from_secret(key.0 .0.expose_secret());
+
+        let TokenData { header, claims } =
             jsonwebtoken::decode::<InternalClaims>(token.0.expose_secret(), &key, &self.validation)
-                .map_err(Error::Jwt)?
-                .claims;
+                .map_err(Error::Jwt)?;
+
+        if header
+            .kid
+            .as_deref()
+            .and_then(parse_key_id)
+            .filter(|(tenant, _version)| tenant == &claims.iss)
+            .is_none()
+        {
+            return Err(Error::BadKeyId);
+        }
 
         if let Some(max) = self.max_lifetime_seconds {
             if claims.exp - claims.nbf > max {
@@ -60,5 +78,28 @@ impl Validator {
 impl Default for Validator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Returns tenant and version.
+fn parse_key_id(key_id: &str) -> Option<(String, SecretVersion)> {
+    let (tenant, version) = key_id.split_once(':')?;
+    let version = version.parse::<u64>().ok()?;
+    Some((tenant.to_owned(), SecretVersion(version)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_key_id() {
+        assert_eq!(
+            parse_key_id("acme:99"),
+            Some((String::from("acme"), SecretVersion(99)))
+        );
+        assert_eq!(parse_key_id("acme-99"), None);
+        assert_eq!(parse_key_id("tenant-acme"), None);
+        assert_eq!(parse_key_id("tenant-acme:latest"), None);
     }
 }

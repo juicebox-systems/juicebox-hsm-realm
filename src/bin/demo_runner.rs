@@ -2,7 +2,7 @@ use clap::Parser;
 use futures::future::{join_all, try_join_all};
 use http::Uri;
 use reqwest::Url;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::ExposeSecret;
 use std::env::current_dir;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -12,11 +12,12 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
-use loam_mvp::client_auth::{creation::create_token, AuthKey, Claims};
+use loam_mvp::client_auth::{creation::create_token, tenant_secret_name, AuthKey, Claims};
 use loam_mvp::logging;
 use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::{BigTableArgs, BigTableRunner};
+use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretsFile};
 use loam_sdk::{Configuration, Realm};
 
 mod common;
@@ -35,6 +36,10 @@ struct Args {
     /// Keep the demo stack alive until Ctrl-C is input
     #[arg(short, long, default_value = "false")]
     keep_alive: bool,
+
+    /// Name of JSON file containing per-tenant keys for authentication.
+    #[arg(long, default_value = "secrets-demo.json")]
+    secrets_file: PathBuf,
 }
 
 #[tokio::main]
@@ -60,6 +65,14 @@ async fn main() {
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),
     };
+
+    info!(path = ?args.secrets_file, "loading secrets from JSON file");
+    let secret_manager = Box::new(
+        SecretsFile::new(args.secrets_file.clone())
+            .load_all()
+            .await
+            .expect("failed to load secrets from JSON file"),
+    );
 
     info!("starting bigtable emulator");
 
@@ -89,7 +102,9 @@ async fn main() {
                 .arg("--tls-key")
                 .arg(certificates.key_file_pem.clone())
                 .arg("--listen")
-                .arg(address.to_string());
+                .arg(address.to_string())
+                .arg("--secrets-file")
+                .arg(&args.secrets_file);
             bt_args.add_to_cmd(&mut cmd);
             process_group.spawn(&mut cmd);
             Url::parse(&format!("https://localhost:{}", address.port())).unwrap()
@@ -241,12 +256,23 @@ async fn main() {
         recover_threshold: 3,
     };
 
+    let tenant = "test";
+    let (auth_key_version, auth_key) = secret_manager
+        .get_secrets(&tenant_secret_name(tenant))
+        .await
+        .expect("failed to get test tenant auth key")
+        .into_iter()
+        .map(|(version, key)| (version, AuthKey::from(key)))
+        .next()
+        .expect("test tenant has no secrets");
+
     let auth_token = create_token(
         &Claims {
-            issuer: String::from("test"),
+            issuer: tenant.to_owned(),
             subject: String::from("mario"),
         },
-        &AuthKey::from(SecretString::from(String::from("it's-a-them!"))),
+        &auth_key,
+        auth_key_version,
     );
 
     let mut demo_status: Option<ExitStatus> = None;

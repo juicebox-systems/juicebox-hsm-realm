@@ -9,7 +9,6 @@ use loam_sdk_core::marshalling;
 use loam_sdk_networking::rpc;
 use opentelemetry_http::HeaderExtractor;
 use rustls::server::ResolvesServerCert;
-use secrecy::SecretString;
 use std::collections::HashMap;
 use std::iter::zip;
 use std::net::SocketAddr;
@@ -28,8 +27,11 @@ use url::Url;
 use super::super::http_client::{Client, ClientOptions};
 use super::agent::types::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
 use super::store::bigtable::StoreClient;
-use crate::client_auth::{validation::Validator as AuthTokenValidator, AuthKey};
+use crate::client_auth::{
+    tenant_secret_name, validation::Validator as AuthTokenValidator, AuthKey,
+};
 use crate::logging::Spew;
+use crate::secret_manager::SecretManager;
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
 use loam_sdk_core::requests::{ClientRequest, ClientResponse};
@@ -41,15 +43,17 @@ pub struct LoadBalancer(Arc<State>);
 struct State {
     name: String,
     store: StoreClient,
+    secret_manager: Box<dyn SecretManager>,
     agent_client: Client<AgentService>,
     realms: Mutex<Arc<HashMap<RealmId, Vec<Partition>>>>,
 }
 
 impl LoadBalancer {
-    pub fn new(name: String, store: StoreClient) -> Self {
+    pub fn new(name: String, store: StoreClient, secret_manager: Box<dyn SecretManager>) -> Self {
         Self(Arc::new(State {
             name,
             store,
+            secret_manager,
             agent_client: Client::new(ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
         }))
@@ -207,6 +211,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                                 &request,
                                 &state.name,
                                 &realms,
+                                state.secret_manager.as_ref(),
                                 &state.agent_client,
                             )
                             .await
@@ -223,6 +228,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                                         &request,
                                         &state.name,
                                         &refreshed_realms,
+                                        state.secret_manager.as_ref(),
                                         &state.agent_client,
                                     )
                                     .await
@@ -251,6 +257,7 @@ async fn handle_client_request(
     request: &ClientRequest,
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
+    secret_manager: &dyn SecretManager,
     agent_client: &Client<AgentService>,
 ) -> ClientResponse {
     type Response = ClientResponse;
@@ -260,16 +267,26 @@ async fn handle_client_request(
     };
 
     let validator = AuthTokenValidator::new();
-    let record_id = match validator.validate(
-        &request.auth_token,
-        &AuthKey::from(SecretString::from(String::from("it's-a-them!"))),
-    ) {
-        Ok(claims) => super::agent::types::make_record_id(&claims.issuer, &claims.subject),
-        Err(err) => {
-            trace!(?err, "failed auth");
+    let Ok((tenant, version)) = validator.parse_key_id(&request.auth_token) else {
+        return Response::InvalidAuth;
+    };
+    let claims = match secret_manager
+        .get_secret_version(&tenant_secret_name(&tenant), version)
+        .await
+    {
+        Ok(Some(key)) => match validator.validate(&request.auth_token, &AuthKey::from(key)) {
+            Ok(claims) => claims,
+            Err(_) => return Response::InvalidAuth,
+        },
+        Ok(None) => {
             return Response::InvalidAuth;
         }
+        Err(err) => {
+            warn!(?tenant, ?version, ?err, "failed to get tenant key secret");
+            return Response::Unavailable;
+        }
     };
+    let record_id = super::agent::types::make_record_id(&claims.issuer, &claims.subject);
 
     for partition in partitions {
         if !partition.owned_range.contains(&record_id) {

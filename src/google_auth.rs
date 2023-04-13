@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tonic::body::BoxBody;
 use tonic::transport::{Body, Channel};
 use tower::Service;
+use tracing::info;
 
 // TODO: gcp_auth will log the user's credentials.
 // https://github.com/hrvolapeter/gcp_auth/issues/55 was a specific example but I'm seeing others.
@@ -20,6 +21,7 @@ use tower::Service;
 /// <https://cloud.google.com/docs/authentication/application-default-credentials>
 /// and the [`gcp_auth`] library for details.
 pub async fn from_adc() -> Result<Arc<AuthenticationManager>, gcp_auth::Error> {
+    info!("initializing Google Cloud authentication with Application Default Credentials");
     AuthenticationManager::new().await.map(Arc::new)
 }
 
@@ -42,6 +44,9 @@ impl AuthMiddleware {
     /// Constructor.
     ///
     /// Pass `None` for `auth_manager` to make this middleware have no effect.
+    ///
+    /// See <https://developers.google.com/identity/protocols/oauth2/scopes>
+    /// for a list of possible scopes.
     pub fn new(
         channel: Channel,
         auth_manager: Option<Arc<AuthenticationManager>>,

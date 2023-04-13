@@ -2,7 +2,6 @@ use clap::Parser;
 use futures::future::try_join_all;
 use futures::StreamExt;
 use reqwest::{Certificate, Url};
-use secrecy::SecretString;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -14,7 +13,9 @@ use tokio::time::sleep;
 use tracing::{debug, info};
 
 use hsmcore::hsm::types::GroupId;
-use loam_mvp::client_auth::{creation::create_token, AuthKey, Claims};
+use loam_mvp::client_auth::{
+    creation::create_token, new_google_secret_manager, tenant_secret_name, AuthKey, Claims,
+};
 use loam_mvp::google_auth;
 use loam_mvp::http_client::{self, ClientOptions};
 use loam_mvp::logging;
@@ -22,6 +23,7 @@ use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::agent::types::{AgentService, StatusRequest, StatusResponse};
 use loam_mvp::realm::cluster::{self, NewRealmError};
 use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretsFile};
 use loam_sdk::{Client, Configuration, Pin, Realm, RealmId, UserSecret};
 use loam_sdk_core::types::Policy;
 use loam_sdk_networking::rpc::{self, LoadBalancerService};
@@ -52,6 +54,11 @@ struct Args {
     #[arg(long, value_parser=MetricsParticipants::parse, default_value_t=MetricsParticipants::None)]
     metrics: MetricsParticipants,
 
+    /// Name of JSON file containing per-tenant keys for authentication. The
+    /// default is to fetch these from Google Secret Manager.
+    #[arg(long)]
+    secrets_file: Option<PathBuf>,
+
     /// A directory to read/write HSM state to. This allows for testing with a
     /// realm that was created by a previous run. You need to keep the bigtable
     /// state between runs for this to be useful.
@@ -76,7 +83,7 @@ async fn main() {
     let args = Args::parse();
     info!(?args, "Parsed command-line args");
 
-    let auth_manager = if args.bigtable.needs_auth() {
+    let auth_manager = if args.bigtable.needs_auth() || args.secrets_file.is_none() {
         Some(
             google_auth::from_adc()
                 .await
@@ -99,9 +106,44 @@ async fn main() {
 
     let store = args
         .bigtable
-        .connect_data(auth_manager)
+        .connect_data(auth_manager.clone())
         .await
         .expect("Unable to connect to Bigtable data");
+
+    let secret_manager: Box<dyn SecretManager> = match &args.secrets_file {
+        Some(secrets_file) => {
+            info!(path = ?secrets_file, "loading secrets from JSON file");
+            Box::new(
+                SecretsFile::new(secrets_file.clone())
+                    .load_all()
+                    .await
+                    .expect("failed to load secrets from JSON file"),
+            )
+        }
+
+        None => {
+            info!("connecting to Google Cloud Secret Manager");
+            Box::new(
+                new_google_secret_manager(
+                    &args.bigtable.project,
+                    auth_manager.unwrap(),
+                    Duration::MAX,
+                )
+                .await
+                .expect("failed to load secrets from Google Secret Manager"),
+            )
+        }
+    };
+
+    let tenant = "test";
+    let (auth_key_version, auth_key) = secret_manager
+        .get_secrets(&tenant_secret_name(tenant))
+        .await
+        .expect("failed to get test tenant auth key")
+        .into_iter()
+        .map(|(version, key)| (version, AuthKey::from(key)))
+        .next()
+        .expect("test tenant has no secrets");
 
     let certificates = create_localhost_key_and_cert("target".into())
         .expect("Failed to create TLS key/cert for load balancer");
@@ -128,6 +170,9 @@ async fn main() {
             .arg(certificates.key_file_pem)
             .arg("--listen")
             .arg(address.to_string());
+        if let Some(secrets_file) = args.secrets_file {
+            cmd.arg("--secrets-file").arg(&secrets_file);
+        }
         args.bigtable.add_to_cmd(&mut cmd);
         process_group.spawn(&mut cmd);
         Url::parse("https://localhost:3000/").unwrap()
@@ -177,10 +222,11 @@ async fn main() {
                 },
                 create_token(
                     &Claims {
-                        issuer: String::from("test"),
+                        issuer: tenant.to_owned(),
                         subject: format!("mario{i}"),
                     },
-                    &AuthKey::from(SecretString::from(String::from("it's-a-them!"))),
+                    &auth_key,
+                    auth_key_version,
                 ),
                 http_client::Client::new(http_client::ClientOptions {
                     additional_root_certs: vec![lb_cert.clone()],
