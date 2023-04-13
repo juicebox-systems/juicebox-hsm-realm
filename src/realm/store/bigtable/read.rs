@@ -173,7 +173,10 @@ fn process_read_chunk(
             Cell {
                 family: chunk
                     .family_name
-                    .expect("CellChunk missing column family name"),
+                    // TODO: Diego has seen this panic with Google Cloud Bigtable:
+                    //     .expect("CellChunk missing column family name"),
+                    // Default to "f" as a poor workaround:
+                    .unwrap_or_else(|| String::from("f")),
                 qualifier,
                 timestamp: chunk.timestamp_micros,
                 value,

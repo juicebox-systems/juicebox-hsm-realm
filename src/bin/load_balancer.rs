@@ -10,12 +10,15 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 use tracing::{info, warn};
 
+use loam_mvp::client_auth::new_google_secret_manager;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::realm::load_balancer::LoadBalancer;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::secret_manager::{Periodic, SecretManager, SecretsFile};
 
 #[derive(Parser)]
 #[command(about = "An HTTP load balancer for one or more realms")]
@@ -35,6 +38,11 @@ struct Args {
     /// Name of the load balancer in logging [default: lb{listen}]
     #[arg(short, long)]
     name: Option<String>,
+
+    /// Name of JSON file containing per-tenant keys for authentication. The
+    /// default is to fetch these from Google Secret Manager.
+    #[arg(long)]
+    secrets_file: Option<PathBuf>,
 
     /// Name of the file containing the private key for terminating TLS.
     #[arg(long)]
@@ -86,7 +94,7 @@ async fn main() {
         })
         .unwrap();
 
-    let auth_manager = if args.bigtable.needs_auth() {
+    let auth_manager = if args.bigtable.needs_auth() || args.secrets_file.is_none() {
         Some(
             google_auth::from_adc()
                 .await
@@ -98,11 +106,35 @@ async fn main() {
 
     let store = args
         .bigtable
-        .connect_data(auth_manager)
+        .connect_data(auth_manager.clone())
         .await
         .expect("Unable to connect to Bigtable");
 
-    let lb = LoadBalancer::new(name, store);
+    let secret_manager: Box<dyn SecretManager> = match args.secrets_file {
+        Some(secrets_file) => {
+            info!(path = ?secrets_file, "loading secrets from JSON file");
+            Box::new(
+                Periodic::new(SecretsFile::new(secrets_file), Duration::from_secs(5))
+                    .await
+                    .expect("failed to load secrets from JSON file"),
+            )
+        }
+
+        None => {
+            info!("connecting to Google Cloud Secret Manager");
+            Box::new(
+                new_google_secret_manager(
+                    &args.bigtable.project,
+                    auth_manager.unwrap(),
+                    Duration::from_secs(5),
+                )
+                .await
+                .expect("failed to load Google SecretManager secrets"),
+            )
+        }
+    };
+
+    let lb = LoadBalancer::new(name, store, secret_manager);
     let (url, join_handle) = lb.listen(args.listen, cert_resolver).await.expect("TODO");
     info!(url = %url, "Load balancer started");
     join_handle.await.unwrap();
