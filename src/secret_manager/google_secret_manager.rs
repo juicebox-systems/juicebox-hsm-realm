@@ -148,6 +148,8 @@ impl Client {
     }
 }
 
+// TODO: This fetches all the secrets every time. Using a notification system
+// to fetch only changed secrets would be more efficient at scale.
 #[async_trait]
 impl BulkLoad for Client {
     async fn load_all(&self) -> Result<HashMap<SecretName, HashMap<SecretVersion, Secret>>, Error> {
@@ -155,6 +157,9 @@ impl BulkLoad for Client {
 
         let secret_resources: Vec<SecretResource> = client.list_secrets().await?;
 
+        // TODO: This kicks off a lot of futures concurrently. At scale, that
+        // could potentially cause problems, so the number of concurrent
+        // requests may need to be limited.
         let secret_versions: Vec<(SecretName, HashMap<SecretVersion, Secret>)> =
             try_join_all(secret_resources.iter().map(|secret| async {
                 let versions = client.list_secret_versions(secret).await?;

@@ -27,7 +27,8 @@ type Cache = Arc<Mutex<HashMap<SecretName, HashMap<SecretVersion, Secret>>>>;
 pub struct Periodic {
     cache: Cache,
 
-    // This is included for its `Drop` implementation.
+    // This is included for its `Drop` implementation, which aborts the
+    // background task(s).
     #[allow(unused)]
     tasks: JoinSet<()>,
 }
