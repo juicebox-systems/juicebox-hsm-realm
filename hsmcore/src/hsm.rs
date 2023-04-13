@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use core::fmt::{self, Debug};
 use core::time::Duration;
 use digest::Digest;
-use hashbrown::HashMap; // TODO: randomize hasher
+use hashbrown::{hash_map::Entry, HashMap}; // TODO: randomize hasher
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -27,7 +27,7 @@ use super::merkle::{
     proof::{ProofError, ReadProof, VerifiedProof},
     MergeError, NodeHasher, Tree,
 };
-use super::mutation::MutationTracker;
+use super::mutation::{MutationTracker, OnMutationFinished};
 use app::{RecordChange, RootOprfKey};
 use cache::Cache;
 use loam_sdk_core::{
@@ -351,7 +351,7 @@ impl RecordEncryptionKey {
 pub struct Hsm<P: Platform> {
     platform: P,
     options: HsmOptions,
-    persistent: MutationTracker<PersistentState>,
+    persistent: MutationTracker<PersistentState, NVRamWriter<P>>,
     volatile: VolatileState,
 }
 
@@ -385,6 +385,7 @@ struct PersistentGroupState {
 struct VolatileState {
     leader: HashMap<GroupId, LeaderVolatileGroupState>,
     record_key: RecordEncryptionKey,
+    captured: HashMap<GroupId, (LogIndex, EntryHmac)>,
 }
 
 struct LeaderVolatileGroupState {
@@ -480,12 +481,29 @@ impl<'a, C: Clock> Metrics<'a, C> {
     }
 }
 
+struct NVRamWriter<N: NVRam> {
+    nvram: N,
+}
+impl<N: NVRam> OnMutationFinished<PersistentState> for NVRamWriter<N> {
+    fn finished(&self, state: &PersistentState) {
+        // TODO, which if any of the keys in self.persistent should be written out here vs read from the HSM
+        // key store at initialization time.
+        let mut data = marshalling::to_vec(&state).expect("failed to serialize state");
+        let d = Sha256::digest(&data);
+        data.extend(d);
+        self.nvram.write(data).expect("Write to NVRam failed")
+    }
+}
+
 impl<P: Platform> Hsm<P> {
     pub fn new(
         options: HsmOptions,
         mut platform: P,
         realm_key: RealmKey,
     ) -> Result<Self, PersistenceError> {
+        let writer = NVRamWriter {
+            nvram: platform.clone(),
+        };
         let persistent = match Self::read_persisted_state(&platform)? {
             Some(state) => state,
             None => {
@@ -507,18 +525,31 @@ impl<P: Platform> Hsm<P> {
                     realm: None,
                     root_oprf_key,
                 };
-                Self::write_persisted_state(&platform, &state);
+                writer.finished(&state);
                 state
             }
         };
+
+        let captured: HashMap<GroupId, (LogIndex, EntryHmac)> = persistent
+            .realm
+            .iter()
+            .flat_map(|r| r.groups.iter())
+            .filter_map(|(group_id, group_state)| {
+                group_state
+                    .captured
+                    .as_ref()
+                    .map(|c| (*group_id, c.clone()))
+            })
+            .collect();
 
         let record_key = RecordEncryptionKey::from(&persistent.realm_key);
         Ok(Hsm {
             options,
             platform,
-            persistent: MutationTracker::new(persistent),
+            persistent: MutationTracker::new(persistent, writer),
             volatile: VolatileState {
                 leader: HashMap::new(),
+                captured,
                 record_key,
             },
         })
@@ -588,13 +619,6 @@ impl<P: Platform> Hsm<P> {
             metrics: metrics.finish(),
         };
         marshalling::to_vec(&resp).map_err(HsmError::Serialization)
-    }
-
-    fn write_persisted_state(nvram: &impl NVRam, state: &PersistentState) {
-        let mut data = marshalling::to_vec(&state).expect("failed to serialize state");
-        let d = Sha256::digest(&data);
-        data.extend(d);
-        nvram.write(data).expect("Write to NVRam failed");
     }
 
     fn read_persisted_state(
@@ -902,10 +926,8 @@ impl<P: Platform> Hsm<P> {
             if request.entries.is_empty() {
                 return Response::MissingEntries;
             }
-            let mut guard = self.persistent.mutate();
-            let persistent = guard.as_mut();
 
-            match &mut persistent.realm {
+            match &self.persistent.realm {
                 None => Response::InvalidRealm,
 
                 Some(realm) => {
@@ -913,46 +935,46 @@ impl<P: Platform> Hsm<P> {
                         return Response::InvalidRealm;
                     }
 
-                    match realm.groups.get_mut(&request.group) {
-                        None => Response::InvalidGroup,
+                    if realm.groups.get(&request.group).is_none() {
+                        return Response::InvalidGroup;
+                    }
 
-                        Some(group) => {
-                            for entry in request.entries {
-                                if EntryHmacBuilder::verify_entry(
-                                    &persistent.realm_key,
-                                    request.realm,
-                                    request.group,
-                                    &entry,
-                                )
-                                .is_err()
-                                {
-                                    return Response::InvalidHmac;
-                                }
+                    for entry in request.entries {
+                        if EntryHmacBuilder::verify_entry(
+                            &self.persistent.realm_key,
+                            request.realm,
+                            request.group,
+                            &entry,
+                        )
+                        .is_err()
+                        {
+                            return Response::InvalidHmac;
+                        }
 
-                                match &group.captured {
-                                    None => {
-                                        if entry.index != LogIndex::FIRST {
-                                            return Response::MissingPrev;
-                                        }
-                                        if entry.prev_hmac != EntryHmac::zero() {
-                                            return Response::InvalidChain;
-                                        }
-                                    }
-                                    Some((captured_index, captured_hmac)) => {
-                                        if entry.index != captured_index.next() {
-                                            return Response::MissingPrev;
-                                        }
-                                        if entry.prev_hmac != *captured_hmac {
-                                            return Response::InvalidChain;
-                                        }
-                                    }
+                        let e = self.volatile.captured.entry(request.group);
+                        match &e {
+                            Entry::Vacant(_) => {
+                                if entry.index != LogIndex::FIRST {
+                                    return Response::MissingPrev;
                                 }
-                                group.captured = Some((entry.index, entry.entry_hmac));
+                                if entry.prev_hmac != EntryHmac::zero() {
+                                    return Response::InvalidChain;
+                                }
                             }
-                            Response::Ok {
-                                hsm_id: persistent.id,
+                            Entry::Occupied(v) => {
+                                let (captured_index, captured_hmac) = v.get();
+                                if entry.index != captured_index.next() {
+                                    return Response::MissingPrev;
+                                }
+                                if entry.prev_hmac != *captured_hmac {
+                                    return Response::InvalidChain;
+                                }
                             }
                         }
+                        e.insert((entry.index, entry.entry_hmac));
+                    }
+                    Response::Ok {
+                        hsm_id: self.persistent.id,
                     }
                 }
             }
@@ -1044,11 +1066,18 @@ impl<P: Platform> Hsm<P> {
         type Response = PersistStateResponse;
         trace!(hsm = self.options.name, ?request);
 
-        if self.persistent.is_dirty() {
-            let state = &*self.persistent;
-            Self::write_persisted_state(&self.platform, state);
-            self.persistent.mark_clean();
+        if !self.volatile.captured.is_empty() {
+            let mut state = self.persistent.mutate();
+            if let Some(realm) = &mut state.realm {
+                // copy captured over to persist it
+                for (group_id, (index, hmac)) in &self.volatile.captured {
+                    if let Some(g) = realm.groups.get_mut(group_id) {
+                        g.captured = Some((*index, hmac.clone()));
+                    }
+                }
+            }
         }
+
         let state = &*self.persistent;
         let captured = match &state.realm {
             None => Vec::new(),
