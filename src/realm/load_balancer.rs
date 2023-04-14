@@ -240,6 +240,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
 
                 trace!(load_balancer = state.name, ?response);
                 Ok(Response::builder()
+                    .header("Access-Control-Allow-Origin", "*")
                     .body(Full::new(Bytes::from(
                         marshalling::to_vec(&response).expect("TODO"),
                     )))
