@@ -240,6 +240,7 @@ impl HashOutput for DataHash {
 ///
 /// The vector must be sorted by HSM ID, must not contain duplicates, and must
 /// contain at least 1 HSM.
+/// TODO: Verify this is enforced.
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct Configuration(pub Vec<HsmId>);
 
@@ -444,6 +445,7 @@ pub struct Captured {
 pub struct CommitRequest {
     pub realm: RealmId,
     pub group: GroupId,
+    // Captures just for this realm/group
     pub captures: Vec<Captured>,
 }
 

@@ -50,20 +50,23 @@ impl<T: Transport + 'static> Agent<T> {
         group: GroupId,
         config: Configuration,
     ) {
-        info!(?realm, ?group, "Starting group committer");
+        info!(name=?self.0.name, ?realm, ?group, "Starting group committer");
 
         let agent = self.clone();
 
         tokio::spawn(async move {
             let interval = Duration::from_millis(2);
-            let mut committed: Option<LogIndex> = None;
+            let mut last_committed: Option<LogIndex> = None;
             loop {
-                committed = match agent.commit_maybe(realm, group, &config, committed).await {
+                match agent
+                    .commit_maybe(realm, group, &config, last_committed)
+                    .await
+                {
                     CommitterStatus::NoLongerLeader => {
-                        info!(?realm, ?group, "No longer leader, stopping committer");
+                        info!(name=?agent.0.name, ?realm, ?group, "No longer leader, stopping committer");
                         return;
                     }
-                    CommitterStatus::Committing { committed: c } => c,
+                    CommitterStatus::Committing { committed: c } => last_committed = c,
                 };
                 sleep(interval).await;
             }
@@ -75,7 +78,7 @@ impl<T: Transport + 'static> Agent<T> {
         realm: RealmId,
         group: GroupId,
         config: &Configuration,
-        committed: Option<LogIndex>,
+        last_committed: Option<LogIndex>,
     ) -> CommitterStatus {
         if self
             .0
@@ -96,7 +99,9 @@ impl<T: Transport + 'static> Agent<T> {
         let addresses = match self.0.store.get_addresses().await {
             Err(e) => {
                 warn!(err=?e, "failed to get peer addresses from service discovery");
-                return CommitterStatus::Committing { committed };
+                return CommitterStatus::Committing {
+                    committed: last_committed,
+                };
             }
             Ok(addresses) => addresses,
         };
@@ -127,12 +132,16 @@ impl<T: Transport + 'static> Agent<T> {
         }
         let outcome = election.outcome();
         if !outcome.has_quorum || outcome.index.is_none() {
-            return CommitterStatus::Committing { committed };
+            return CommitterStatus::Committing {
+                committed: last_committed,
+            };
         }
-        if let Some(commit) = committed {
+        if let Some(commit) = last_committed {
             // We've already committed this.
             if outcome.index.unwrap() <= commit {
-                return CommitterStatus::Committing { committed };
+                return CommitterStatus::Committing {
+                    committed: last_committed,
+                };
             }
         }
         trace!(?group, index=?outcome.index.unwrap(), "election has quorum");
@@ -167,7 +176,9 @@ impl<T: Transport + 'static> Agent<T> {
             }
             _ => {
                 warn!(agent = self.0.name, ?response, "commit response not ok");
-                return CommitterStatus::Committing { committed };
+                return CommitterStatus::Committing {
+                    committed: last_committed,
+                };
             }
         };
 
