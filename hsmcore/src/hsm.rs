@@ -1157,8 +1157,9 @@ impl<P: Platform> Hsm<P> {
                     {
                         // Ensure the entry hmac matches, so that we know this is a vote for a log entry we wrote.
                         // For a new leader this won't be able to commit until the witnesses catch up to a log entry written by the new leader.
-                        if let Ok(offset) = leader.log.binary_search_by_key(&captured.index, |e|e.entry.index) {
-                            if leader.log[offset].entry.entry_hmac == captured.hmac {
+                        if let Some(offset) = captured.index.0.checked_sub(leader.log[0].entry.index.0) {
+                            let offset = usize::try_from(offset).unwrap();
+                            if offset < leader.log.len() && leader.log[offset].entry.entry_hmac == captured.hmac {
                                 election.vote(captured.hsm);
                             }
                         }
