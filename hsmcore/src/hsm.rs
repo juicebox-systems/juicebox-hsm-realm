@@ -1024,7 +1024,7 @@ impl<P: Platform> Hsm<P> {
                                 {
                                     return Response::InvalidHmac;
                                 }
-                                &group.configuration
+                                group.configuration.clone()
                             }
                         },
                     }
@@ -1051,7 +1051,7 @@ impl<P: Platform> Hsm<P> {
                     tree,
                     sessions: Cache::new(usize::from(self.options.max_sessions)),
                 });
-            Response::Ok(config.clone())
+            Response::Ok(config)
         })();
 
         trace!(hsm = self.options.name, ?response);

@@ -263,7 +263,7 @@ impl<T: Transport + 'static> Agent<T> {
         }
 
         // We're still leader for this group, go collect up all the capture results from all the group members.
-        let peers = config.0.iter().collect::<HashSet<_>>();
+        let peers: HashSet<&HsmId> = config.0.iter().collect();
 
         // TODO, we need to cache the peer mapping
         let addresses = match self.0.store.get_addresses().await {
