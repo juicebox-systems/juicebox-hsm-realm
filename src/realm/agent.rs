@@ -28,9 +28,8 @@ use super::merkle;
 use super::rpc::{handle_rpc, HandlerError};
 use super::store::bigtable::{self};
 use hsm_types::{
-    CaptureNextRequest, CaptureNextResponse, Captured, CommitGroup, CommitGroupResponse,
-    CommitRequest, CommitResponse, Configuration, EntryHmac, GroupId, HsmId, LogIndex,
-    TransferInProofs,
+    CaptureNextRequest, CaptureNextResponse, Captured, CommitRequest, CommitResponse,
+    Configuration, EntryHmac, GroupId, HsmId, LogIndex, TransferInProofs,
 };
 use hsmcore::hsm::{types as hsm_types, HsmElection};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
@@ -320,7 +319,8 @@ impl<T: Transport + 'static> Agent<T> {
                     }
                     if election.outcome().has_quorum {
                         trace!(group=?group_state.group, index=?target_index, "election has quorum");
-                        let commit_request = CommitGroup {
+                        let commit_request = CommitRequest {
+                            realm,
                             group: group_state.group,
                             commit_index: target_index,
                             captures: captures
@@ -333,81 +333,59 @@ impl<T: Transport + 'static> Agent<T> {
                 }
             }
             // Ask the HSM to do the commit(s)
-            if !commits.is_empty() {
-                match self
-                    .0
-                    .hsm
-                    .send(CommitRequest {
-                        realm,
-                        groups: commits,
-                    })
-                    .await
-                {
-                    Err(err) => warn!(?err, "error asking HSM to commit"),
-                    Ok(CommitResponse::InvalidRealm) => {
-                        warn!("HSM responded with InvalidRealm to commit request")
+            let mut released_count = 0;
+            for commit in commits {
+                let group = commit.group;
+                let response = self.0.hsm.send(commit).await;
+                let (committed, responses) = match response {
+                    Ok(CommitResponse::Ok {
+                        committed,
+                        responses,
+                    }) => {
+                        trace!(
+                            agent = self.0.name,
+                            ?committed,
+                            num_responses=?responses.len(),
+                            "HSM committed entry"
+                        );
+                        (committed, responses)
                     }
-                    Ok(CommitResponse::Ok { groups }) => {
-                        let mut released_count = 0;
-                        for (group, response) in groups {
-                            let (committed, client_responses) = match response {
-                                CommitGroupResponse::Ok {
-                                    committed,
-                                    responses,
-                                } => {
-                                    trace!(
-                                        agent = self.0.name,
-                                        ?group,
-                                        ?committed,
-                                        ?responses,
-                                        "HSM committed entry"
-                                    );
-                                    (committed, responses)
-                                }
-                                CommitGroupResponse::AlreadyCommitted { .. } => {
-                                    info!(
-                                        agent = self.0.name,
-                                        ?response,
-                                        ?group,
-                                        "commit response already committed"
-                                    );
-                                    continue;
-                                }
-                                _ => {
+                    Ok(CommitResponse::AlreadyCommitted { .. }) => {
+                        info!(
+                            agent = self.0.name,
+                            ?response,
+                            "commit response already committed"
+                        );
+                        continue;
+                    }
+                    _ => {
+                        warn!(agent = self.0.name, ?response, "commit response not ok");
+                        continue;
+                    }
+                };
+                {
+                    // Release responses to the clients.
+                    let mut locked = self.0.state.lock().unwrap();
+                    if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
+                        leader.committed = Some(committed);
+                        for (hmac, client_response) in responses {
+                            if let Some(sender) = leader.response_channels.remove(&hmac) {
+                                if sender.send(client_response).is_err() {
                                     warn!(
-                                        agent = self.0.name,
-                                        ?response,
-                                        ?group,
-                                        "commit response not ok"
+                                        "dropping response on the floor: client no longer waiting"
                                     );
-                                    continue;
                                 }
-                            };
-                            {
-                                // Release responses to the clients.
-                                let mut locked = self.0.state.lock().unwrap();
-                                if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
-                                    leader.committed = Some(committed);
-                                    for (hmac, client_response) in client_responses {
-                                        if let Some(sender) = leader.response_channels.remove(&hmac)
-                                        {
-                                            if sender.send(client_response).is_err() {
-                                                warn!("dropping response on the floor: client no longer waiting");
-                                            }
-                                            released_count += 1;
-                                        } else {
-                                            warn!("dropping response on the floor: client never waiting");
-                                        }
-                                    }
-                                } else if !client_responses.is_empty() {
-                                    warn!("dropping responses on the floor: no leader state");
-                                }
+                                released_count += 1;
+                            } else {
+                                warn!("dropping response on the floor: client never waiting");
                             }
                         }
-                        Span::current().record("released_count", released_count);
+                    } else if !responses.is_empty() {
+                        warn!("dropping responses on the floor: no leader state");
                     }
                 }
             }
+            Span::current().record("released_count", released_count);
         }
     }
 }

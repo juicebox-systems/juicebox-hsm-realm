@@ -39,12 +39,12 @@ use loam_sdk_noise::server as noise;
 use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use types::{
     AppError, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CaptureNextRequest, CaptureNextResponse, Captured, CapturedStatement, CommitGroupResponse,
-    CommitRequest, CommitResponse, CompleteTransferRequest, CompleteTransferResponse,
-    Configuration, DataHash, EntryHmac, GroupConfigurationStatement, GroupId, GroupStatus,
-    HandshakeRequest, HandshakeResponse, HsmId, JoinGroupRequest, JoinGroupResponse,
-    JoinRealmRequest, JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupInfo,
-    NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange, Partition,
+    CaptureNextRequest, CaptureNextResponse, Captured, CapturedStatement, CommitRequest,
+    CommitResponse, CompleteTransferRequest, CompleteTransferResponse, Configuration, DataHash,
+    EntryHmac, GroupConfigurationStatement, GroupId, GroupStatus, HandshakeRequest,
+    HandshakeResponse, HsmId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
+    JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupInfo, NewGroupRequest,
+    NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange, Partition,
     PersistStateRequest, PersistStateResponse, RealmStatus, RecordId, StatusRequest,
     StatusResponse, TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
     TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatement,
@@ -1125,24 +1125,23 @@ impl<P: Platform> Hsm<P> {
                 return Response::InvalidRealm;
             }
 
-            let group_results = request.groups.into_iter().map(|request| {
-                let Some(group) = realm.groups.get(&request.group) else {
-                    return (request.group, CommitGroupResponse::InvalidGroup);
-                };
+            let Some(group) = realm.groups.get(&request.group) else {
+                return CommitResponse::InvalidGroup;
+            };
 
-                let Some(leader) = self.volatile.leader.get_mut(&request.group) else {
-                    return (request.group, CommitGroupResponse::NotLeader);
-                };
+            let Some(leader) = self.volatile.leader.get_mut(&request.group) else {
+                return CommitResponse::NotLeader;
+            };
 
-                if let Some(committed) = leader.committed {
-                    if committed >= request.commit_index {
-                        return (request.group, CommitGroupResponse::AlreadyCommitted { committed });
-                    }
+            if let Some(committed) = leader.committed {
+                if committed >= request.commit_index {
+                    return CommitResponse::AlreadyCommitted { committed };
                 }
+            }
 
-                let mut election = HsmElection::new(&group.configuration.0);
-                for (hsm_id, index, hmac, captured_statement) in &request.captures {
-                    if *index >= request.commit_index && (CapturedStatementBuilder {
+            let mut election = HsmElection::new(&group.configuration.0);
+            for (hsm_id, index, hmac, captured_statement) in &request.captures {
+                if *index >= request.commit_index && (CapturedStatementBuilder {
                         hsm: *hsm_id,
                         realm: realm.id,
                         group: request.group,
@@ -1161,40 +1160,36 @@ impl<P: Platform> Hsm<P> {
                             }
                         }
                     }
-                }
+            }
 
-                let election_outcome = election.outcome();
-                if election_outcome.has_quorum {
-                    trace!(hsm = self.options.name, group=?request.group, index = ?request.commit_index, "leader committed entry");
-                    // todo: skip already committed entries
-                    let responses = leader
-                        .log
-                        .iter_mut()
-                        .filter(|entry| entry.entry.index <= request.commit_index)
-                        .filter_map(|entry| {
-                            entry
-                                .response
-                                .take()
-                                .map(|r| (entry.entry.entry_hmac.clone(), r))
-                        })
-                        .collect();
-                    leader.committed = Some(request.commit_index);
-                    (request.group, CommitGroupResponse::Ok {
-                        committed: request.commit_index,
-                        responses,
+            let election_outcome = election.outcome();
+            if election_outcome.has_quorum {
+                trace!(hsm = self.options.name, group=?request.group, index = ?request.commit_index, "leader committed entry");
+                // todo: skip already committed entries
+                let responses = leader
+                    .log
+                    .iter_mut()
+                    .filter(|entry| entry.entry.index <= request.commit_index)
+                    .filter_map(|entry| {
+                        entry
+                            .response
+                            .take()
+                            .map(|r| (entry.entry.entry_hmac.clone(), r))
                     })
-                } else {
-                    warn!(
-                        hsm = self.options.name,
-                        election = ?election_outcome,
-                        commit_request = ?request,
-                        "no quorum. buggy caller?"
-                    );
-                    (request.group, CommitGroupResponse::NoQuorum)
+                    .collect();
+                leader.committed = Some(request.commit_index);
+                CommitResponse::Ok {
+                    committed: request.commit_index,
+                    responses,
                 }
-            }).collect();
-            CommitResponse::Ok {
-                groups: group_results,
+            } else {
+                warn!(
+                    hsm = self.options.name,
+                    election = ?election_outcome,
+                    commit_request = ?request,
+                    "no quorum. buggy caller?"
+                );
+                CommitResponse::NoQuorum
             }
         })();
 

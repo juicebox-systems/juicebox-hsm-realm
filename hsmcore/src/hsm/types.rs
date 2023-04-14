@@ -443,11 +443,6 @@ pub struct Captured {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitRequest {
     pub realm: RealmId,
-    pub groups: Vec<CommitGroup>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CommitGroup {
     pub group: GroupId,
     pub commit_index: LogIndex,
     pub captures: Vec<(HsmId, LogIndex, EntryHmac, CapturedStatement)>,
@@ -456,14 +451,6 @@ pub struct CommitGroup {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CommitResponse {
     Ok {
-        groups: Vec<(GroupId, CommitGroupResponse)>,
-    },
-    InvalidRealm,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub enum CommitGroupResponse {
-    Ok {
         committed: LogIndex,
         responses: Vec<(EntryHmac, NoiseResponse)>,
     },
@@ -471,6 +458,7 @@ pub enum CommitGroupResponse {
         committed: LogIndex,
     },
     NoQuorum,
+    InvalidRealm,
     InvalidGroup,
     NotLeader,
 }
