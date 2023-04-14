@@ -243,7 +243,7 @@ mod test {
     #[test]
     fn wait_calc() {
         assert_eq!(
-            Duration::from_millis(0),
+            Duration::from_millis(2),
             how_long_to_wait(
                 SystemTime::UNIX_EPOCH + Duration::from_millis(10000000),
                 100

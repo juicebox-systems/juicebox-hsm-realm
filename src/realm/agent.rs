@@ -650,7 +650,7 @@ impl<T: Transport + 'static> Agent<T> {
             .captures
             .iter()
             .find(|c| c.group == request.group && c.realm == request.realm)
-            .map(|c| c.clone());
+            .cloned();
         Ok(Response::Ok(c))
     }
 
