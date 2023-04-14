@@ -292,32 +292,24 @@ impl<T: Transport + 'static> Agent<T> {
         .collect::<Vec<_>>();
 
         // Calculate a commit index.
-        let Some(target_index) = majority_index(
-            config.0.len(),
-            captures.iter().map(|c| c.index).collect(),
-        ) else {
-            return CommitterStatus::Committing{committed};
-        };
+        let mut election = HsmElection::new(&config.0);
+        for c in &captures {
+            election.vote(c.hsm, c.index);
+        }
+        let outcome = election.outcome();
+        if !outcome.has_quorum || outcome.index.is_none() {
+            return CommitterStatus::Committing { committed };
+        }
         if let Some(commit) = committed {
             // We've already committed this.
-            if target_index <= commit {
+            if outcome.index.unwrap() <= commit {
                 return CommitterStatus::Committing { committed };
             }
         }
-        let mut election = HsmElection::new(&config.0);
-        for c in &captures {
-            if c.index >= target_index {
-                election.vote(c.hsm);
-            }
-        }
-        if !election.outcome().has_quorum {
-            return CommitterStatus::Committing { committed };
-        }
-        trace!(?group, index=?target_index, "election has quorum");
+        trace!(?group, index=?outcome.index.unwrap(), "election has quorum");
         let commit_request = CommitRequest {
             realm,
             group,
-            commit_index: target_index,
             captures,
         };
 
@@ -349,6 +341,7 @@ impl<T: Transport + 'static> Agent<T> {
                 return CommitterStatus::Committing { committed };
             }
         };
+
         // Release responses to the clients.
         let mut released_count = 0;
         let mut locked = self.0.state.lock().unwrap();
@@ -371,20 +364,7 @@ impl<T: Transport + 'static> Agent<T> {
             committed: Some(new_committed),
         }
     }
-}
 
-fn majority_index(members: usize, mut indexes: Vec<LogIndex>) -> Option<LogIndex> {
-    assert!(indexes.len() <= members);
-    indexes.sort_by(|a, b| b.cmp(a));
-    let m = members / 2;
-    if indexes.len() > m {
-        Some(indexes[m])
-    } else {
-        None
-    }
-}
-
-impl<T: Transport + 'static> Agent<T> {
     #[instrument(level = "trace", skip(self))]
     async fn find_peers(
         &self,
@@ -1377,38 +1357,5 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(()) => {}
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::majority_index;
-    use hsmcore::hsm::types::LogIndex;
-
-    #[test]
-    fn majority_index_calc() {
-        let indexes = |i: Vec<u64>| i.into_iter().map(LogIndex).collect::<Vec<_>>();
-        assert_eq!(
-            Some(LogIndex(15)),
-            majority_index(5, indexes(vec![15, 15, 15, 14, 13]))
-        );
-        assert_eq!(
-            Some(LogIndex(14)),
-            majority_index(5, indexes(vec![15, 13, 15, 14, 13]))
-        );
-        assert_eq!(
-            Some(LogIndex(13)),
-            majority_index(5, indexes(vec![13, 15, 14]))
-        );
-        assert_eq!(None, majority_index(5, indexes(vec![15, 15])));
-        assert_eq!(
-            Some(LogIndex(14)),
-            majority_index(3, indexes(vec![15, 14, 13]))
-        );
-        assert_eq!(
-            Some(LogIndex(13)),
-            majority_index(4, indexes(vec![15, 14, 13, 12]))
-        );
-        assert_eq!(Some(LogIndex(13)), majority_index(2, indexes(vec![15, 13])));
     }
 }

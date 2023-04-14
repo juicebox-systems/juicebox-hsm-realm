@@ -444,7 +444,6 @@ pub struct Captured {
 pub struct CommitRequest {
     pub realm: RealmId,
     pub group: GroupId,
-    pub commit_index: LogIndex,
     pub captures: Vec<Captured>,
 }
 
