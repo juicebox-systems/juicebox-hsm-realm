@@ -143,11 +143,14 @@ impl Rpc<AgentService> for ReadCapturedRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct ReadCapturedRequest {}
+pub struct ReadCapturedRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ReadCapturedResponse {
-    Ok { groups: Vec<hsm_types::Captured> },
+    Ok(Option<hsm_types::Captured>),
 }
 
 impl Rpc<AgentService> for TransferOutRequest {

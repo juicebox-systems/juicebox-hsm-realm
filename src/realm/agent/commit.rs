@@ -102,20 +102,22 @@ impl<T: Transport + 'static> Agent<T> {
         };
 
         // Go get the captures, and filter them down to just this realm/group.
-        let captures = join_all(
-            addresses
-                .iter()
-                .filter(|(id, _)| peers.contains(id))
-                .map(|(_, url)| rpc::send(&self.0.peer_client, url, ReadCapturedRequest {})),
-        )
+        let captures = join_all(addresses.iter().filter(|(id, _)| peers.contains(id)).map(
+            |(_, url)| {
+                rpc::send(
+                    &self.0.peer_client,
+                    url,
+                    ReadCapturedRequest { realm, group },
+                )
+            },
+        ))
         .await
         .into_iter()
         // skip network failures
         .filter_map(|r| r.ok())
-        .flat_map(|r| match r {
-            ReadCapturedResponse::Ok { groups } => groups.into_iter(),
+        .filter_map(|r| match r {
+            ReadCapturedResponse::Ok(captured) => captured,
         })
-        .filter(|c| c.group == group && c.realm == realm)
         .collect::<Vec<_>>();
 
         // Calculate a commit index.

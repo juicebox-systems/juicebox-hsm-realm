@@ -641,14 +641,17 @@ impl<T: Transport + 'static> Agent<T> {
 
     async fn handle_read_captured(
         &self,
-        _request: ReadCapturedRequest,
+        request: ReadCapturedRequest,
     ) -> Result<ReadCapturedResponse, HandlerError> {
         type Response = ReadCapturedResponse;
 
         let state = self.0.state.lock().unwrap();
-        Ok(Response::Ok {
-            groups: state.captures.clone(),
-        })
+        let c = state
+            .captures
+            .iter()
+            .find(|c| c.group == request.group && c.realm == request.realm)
+            .map(|c| c.clone());
+        Ok(Response::Ok(c))
     }
 
     async fn handle_transfer_out(
