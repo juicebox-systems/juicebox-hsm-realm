@@ -37,8 +37,16 @@ pub trait Transport: fmt::Debug + Send + Sync {
     async fn send_rpc_msg(&self, msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, Self::Error>;
 }
 
-#[derive(Debug)]
 pub struct HsmClient<T>(Arc<HsmClientInner<T>>);
+
+impl<T: Debug> Debug for HsmClient<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HsmClient")
+            .field("name", &self.0.name)
+            .field("transport", &self.0.transport)
+            .finish_non_exhaustive()
+    }
+}
 
 #[derive(Debug)]
 struct HsmClientInner<T> {

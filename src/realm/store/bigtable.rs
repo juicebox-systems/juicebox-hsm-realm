@@ -935,7 +935,7 @@ impl StoreClient {
         Ok(addresses)
     }
 
-    #[instrument(level = "trace", skip(self))]
+    #[instrument(level = "trace", skip(self, address), fields(address = %address))]
     pub async fn set_address(
         &self,
         hsm: &HsmId,
