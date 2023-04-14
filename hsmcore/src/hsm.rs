@@ -992,6 +992,10 @@ impl<P: Platform> Hsm<P> {
         type Response = BecomeLeaderResponse;
         trace!(hsm = self.options.name, ?request);
 
+        // We need to check against the persisted captures for safety reasons,
+        // so make sure they're up to date.
+        self.persist_current_captures();
+
         let response = (|| {
             let config = match &self.persistent.realm {
                 None => return Response::InvalidRealm,
@@ -1066,17 +1070,7 @@ impl<P: Platform> Hsm<P> {
         type Response = PersistStateResponse;
         trace!(hsm = self.options.name, ?request);
 
-        if !self.volatile.captured.is_empty() {
-            let mut state = self.persistent.mutate();
-            if let Some(realm) = &mut state.realm {
-                // copy captured over to persist it
-                for (group_id, (index, hmac)) in &self.volatile.captured {
-                    if let Some(g) = realm.groups.get_mut(group_id) {
-                        g.captured = Some((*index, hmac.clone()));
-                    }
-                }
-            }
-        }
+        self.persist_current_captures();
 
         let state = &*self.persistent;
         let captured = match &state.realm {
@@ -1107,6 +1101,20 @@ impl<P: Platform> Hsm<P> {
                 .collect(),
         };
         Response::Ok { captured }
+    }
+
+    fn persist_current_captures(&mut self) {
+        if !self.volatile.captured.is_empty() {
+            let mut state = self.persistent.mutate();
+            if let Some(realm) = &mut state.realm {
+                // copy captured over to persist it
+                for (group_id, (index, hmac)) in &self.volatile.captured {
+                    if let Some(g) = realm.groups.get_mut(group_id) {
+                        g.captured = Some((*index, hmac.clone()));
+                    }
+                }
+            }
+        }
     }
 
     fn handle_transfer_out(
