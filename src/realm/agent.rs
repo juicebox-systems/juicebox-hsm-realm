@@ -75,10 +75,6 @@ struct LeaderState {
     /// store.
     appending: AppendingState,
     response_channels: HashMap<EntryHmac, oneshot::Sender<NoiseResponse>>,
-    /// The most recent commit index.
-    committed: Option<LogIndex>,
-    /// The group configuration.
-    configuration: Configuration,
 }
 
 #[derive(Debug)]
@@ -98,6 +94,12 @@ impl<T> Clone for Agent<T> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum CommitterStatus {
+    Committing { committed: Option<LogIndex> },
+    NoLongerLeader,
 }
 
 impl<T: Transport + 'static> Agent<T> {
@@ -218,174 +220,158 @@ impl<T: Transport + 'static> Agent<T> {
                 };
             }
         });
+    }
+
+    fn start_group_committer(&self, realm: RealmId, group: GroupId, config: Configuration) {
+        info!(?realm, ?group, "Starting group committer");
 
         let agent = self.clone();
+
         tokio::spawn(async move {
             let interval = Duration::from_millis(2);
+            let mut committed: Option<LogIndex> = None;
             loop {
-                agent.commit_maybe().await;
+                committed = match agent.commit_maybe(realm, group, &config, committed).await {
+                    CommitterStatus::NoLongerLeader => {
+                        info!(?realm, ?group, "No longer leader, stopping committer");
+                        return;
+                    }
+                    CommitterStatus::Committing { committed: c } => c,
+                };
                 sleep(interval).await;
             }
         });
     }
 
-    async fn commit_maybe(&self) {
-        struct GroupState {
-            realm: RealmId,
-            group: GroupId,
-            config: Configuration,
-            committed: Option<LogIndex>,
-        }
-        let leading: Vec<GroupState>;
+    async fn commit_maybe(
+        &self,
+        realm: RealmId,
+        group: GroupId,
+        config: &Configuration,
+        committed: Option<LogIndex>,
+    ) -> CommitterStatus {
+        if self
+            .0
+            .state
+            .lock()
+            .unwrap()
+            .leader
+            .get(&(realm, group))
+            .is_none()
         {
-            let state = self.0.state.lock().unwrap();
-            leading = state
-                .leader
-                .iter()
-                .map(|(k, v)| GroupState {
-                    realm: k.0,
-                    group: k.1,
-                    config: v.configuration.clone(),
-                    committed: v.committed,
-                })
-                .collect();
-            if leading.is_empty() {
-                return;
-            }
+            return CommitterStatus::NoLongerLeader;
         }
 
-        // We're leader for 1 or more groups, go collect up all the capture results from all the group members.
-        let peers = leading
-            .iter()
-            .flat_map(|g| g.config.0.iter())
-            .collect::<HashSet<_>>();
+        // We're still leader for this group, go collect up all the capture results from all the group members.
+        let peers = config.0.iter().collect::<HashSet<_>>();
 
         // TODO, we need to cache the peer mapping
-        if let Ok(addresses) = self.0.store.get_addresses().await {
-            let captured_it = join_all(
-                addresses
-                    .iter()
-                    .filter(|(id, _)| peers.contains(id))
-                    .map(|(_, url)| rpc::send(&self.0.peer_client, url, ReadCapturedRequest {})),
-            )
-            .await
-            .into_iter()
-            // skip network failures
-            .filter_map(|r| r.ok())
-            .flat_map(|r| match r {
-                ReadCapturedResponse::Ok { groups } => groups.into_iter(),
-            });
+        let addresses = match self.0.store.get_addresses().await {
+            Err(e) => {
+                warn!(err=?e, "failed to get peer addresses from service discovery");
+                return CommitterStatus::Committing { committed };
+            }
+            Ok(addresses) => addresses,
+        };
 
-            let mut group_captures: HashMap<(RealmId, GroupId), Vec<Captured>> = leading
+        // Go get the captures, and filter them down to just this realm/group.
+        let captures = join_all(
+            addresses
                 .iter()
-                .map(|g| ((g.realm, g.group), Vec::new()))
-                .collect();
+                .filter(|(id, _)| peers.contains(id))
+                .map(|(_, url)| rpc::send(&self.0.peer_client, url, ReadCapturedRequest {})),
+        )
+        .await
+        .into_iter()
+        // skip network failures
+        .filter_map(|r| r.ok())
+        .flat_map(|r| match r {
+            ReadCapturedResponse::Ok { groups } => groups.into_iter(),
+        })
+        .filter(|c| c.group == group && c.realm == realm)
+        .collect::<Vec<_>>();
 
-            for captured in captured_it {
-                group_captures
-                    .entry((captured.realm, captured.group))
-                    .and_modify(|v| {
-                        v.push(captured);
-                    });
+        // Calculate a commit index.
+        let Some(target_index) = majority_index(
+            config.0.len(),
+            captures.iter().map(|c| c.index).collect(),
+        ) else {
+            return CommitterStatus::Committing{committed};
+        };
+        if let Some(commit) = committed {
+            // We've already committed this.
+            if target_index <= commit {
+                return CommitterStatus::Committing { committed };
             }
+        }
+        let mut election = HsmElection::new(&config.0);
+        for c in &captures {
+            if c.index >= target_index {
+                election.vote(c.hsm);
+            }
+        }
+        if !election.outcome().has_quorum {
+            return CommitterStatus::Committing { committed };
+        }
+        trace!(?group, index=?target_index, "election has quorum");
+        let commit_request = CommitRequest {
+            realm,
+            group,
+            commit_index: target_index,
+            captures: captures
+                .into_iter()
+                .map(|c| (c.hsm, c.index, c.hmac, c.stmt))
+                .collect(),
+        };
 
-            // We now have all the captures for all the groups we're leading.
-            // Calculate commit indexes for them.
-            let realm = leading[0].realm;
-            let mut commits = Vec::new();
-            for group_state in leading {
-                let captures = match group_captures.remove(&(group_state.realm, group_state.group))
-                {
-                    None => {
-                        unreachable!("groups was originally built from the contents of leading")
+        // Ask the HSM to do the commit
+        let response = self.0.hsm.send(commit_request).await;
+        let (new_committed, responses) = match response {
+            Ok(CommitResponse::Ok {
+                committed,
+                responses,
+            }) => {
+                trace!(
+                    agent = self.0.name,
+                    ?committed,
+                    num_responses=?responses.len(),
+                    "HSM committed entry"
+                );
+                (committed, responses)
+            }
+            Ok(CommitResponse::AlreadyCommitted { committed: c }) => {
+                info!(
+                    agent = self.0.name,
+                    ?response,
+                    "commit response already committed"
+                );
+                return CommitterStatus::Committing { committed: Some(c) };
+            }
+            _ => {
+                warn!(agent = self.0.name, ?response, "commit response not ok");
+                return CommitterStatus::Committing { committed };
+            }
+        };
+        // Release responses to the clients.
+        let mut released_count = 0;
+        let mut locked = self.0.state.lock().unwrap();
+        if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
+            for (hmac, client_response) in responses {
+                if let Some(sender) = leader.response_channels.remove(&hmac) {
+                    if sender.send(client_response).is_err() {
+                        warn!("dropping response on the floor: client no longer waiting");
                     }
-                    Some(cap) => cap,
-                };
-                if let Some(target_index) = majority_index(
-                    group_state.config.0.len(),
-                    captures.iter().map(|c| c.index).collect(),
-                ) {
-                    if let Some(commit) = group_state.committed {
-                        // We've already committed this.
-                        if target_index <= commit {
-                            continue;
-                        }
-                    }
-                    let mut election = HsmElection::new(&group_state.config.0);
-                    for c in &captures {
-                        if c.index >= target_index {
-                            election.vote(c.hsm);
-                        }
-                    }
-                    if election.outcome().has_quorum {
-                        trace!(group=?group_state.group, index=?target_index, "election has quorum");
-                        let commit_request = CommitRequest {
-                            realm,
-                            group: group_state.group,
-                            commit_index: target_index,
-                            captures: captures
-                                .into_iter()
-                                .map(|c| (c.hsm, c.index, c.hmac, c.stmt))
-                                .collect(),
-                        };
-                        commits.push(commit_request);
-                    }
+                    released_count += 1;
+                } else {
+                    warn!("dropping response on the floor: client never waiting");
                 }
             }
-            // Ask the HSM to do the commit(s)
-            let mut released_count = 0;
-            for commit in commits {
-                let group = commit.group;
-                let response = self.0.hsm.send(commit).await;
-                let (committed, responses) = match response {
-                    Ok(CommitResponse::Ok {
-                        committed,
-                        responses,
-                    }) => {
-                        trace!(
-                            agent = self.0.name,
-                            ?committed,
-                            num_responses=?responses.len(),
-                            "HSM committed entry"
-                        );
-                        (committed, responses)
-                    }
-                    Ok(CommitResponse::AlreadyCommitted { .. }) => {
-                        info!(
-                            agent = self.0.name,
-                            ?response,
-                            "commit response already committed"
-                        );
-                        continue;
-                    }
-                    _ => {
-                        warn!(agent = self.0.name, ?response, "commit response not ok");
-                        continue;
-                    }
-                };
-                {
-                    // Release responses to the clients.
-                    let mut locked = self.0.state.lock().unwrap();
-                    if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
-                        leader.committed = Some(committed);
-                        for (hmac, client_response) in responses {
-                            if let Some(sender) = leader.response_channels.remove(&hmac) {
-                                if sender.send(client_response).is_err() {
-                                    warn!(
-                                        "dropping response on the floor: client no longer waiting"
-                                    );
-                                }
-                                released_count += 1;
-                            } else {
-                                warn!("dropping response on the floor: client never waiting");
-                            }
-                        }
-                    } else if !responses.is_empty() {
-                        warn!("dropping responses on the floor: no leader state");
-                    }
-                }
-            }
-            Span::current().record("released_count", released_count);
+        } else if !responses.is_empty() {
+            warn!("dropping responses on the floor: no leader state");
+        }
+        Span::current().record("released_count", released_count);
+        CommitterStatus::Committing {
+            committed: Some(new_committed),
         }
     }
 }
@@ -697,11 +683,10 @@ impl<T: Transport + 'static> Agent<T> {
                     next: starting_index.next(),
                 },
                 response_channels: HashMap::new(),
-                committed: None,
-                configuration: config,
             },
         );
         assert!(existing.is_none());
+        self.start_group_committer(realm, group, config);
     }
 
     async fn handle_join_realm(
