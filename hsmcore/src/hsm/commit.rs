@@ -6,7 +6,7 @@ use hashbrown::HashMap;
 use tracing::{trace, warn};
 
 use super::super::hal::Platform;
-use super::types::{CommitRequest, CommitResponse, HsmId, LogIndex};
+use super::types::{Captured, CommitRequest, CommitResponse, HsmId, LogIndex};
 use super::{CapturedStatementBuilder, Hsm, Metrics};
 
 impl<P: Platform> Hsm<P> {
@@ -35,29 +35,43 @@ impl<P: Platform> Hsm<P> {
             };
 
             let mut election = HsmElection::new(&group.configuration.0);
-            for captured in &request.captures {
-                if captured.group == request.group &&
-                    captured.realm == request.realm &&
-                    (CapturedStatementBuilder {
-                        hsm: captured.hsm,
-                        realm: captured.realm,
-                        group: captured.group,
-                        index: captured.index,
-                        entry_hmac: &captured.hmac,
+            let verify_capture = |captured: &Captured| -> bool {
+                match (CapturedStatementBuilder {
+                    hsm: captured.hsm,
+                    realm: captured.realm,
+                    group: captured.group,
+                    index: captured.index,
+                    entry_hmac: &captured.hmac,
+                }
+                .verify(&self.persistent.realm_key, &captured.statement))
+                {
+                    Ok(_) => true,
+                    Err(err) => {
+                        warn!(?err, ?captured, "failed to verify capture statement");
+                        false
                     }
-                    .verify(&self.persistent.realm_key, &captured.statement)
-                    .map_err(|e|warn!(err=?e, hsm=?captured.hsm, group=?captured.group, ?captured.index, "failed to verify capture statement"))
-                    .is_ok())
+                }
+            };
+            for captured in &request.captures {
+                if captured.group == request.group
+                    && captured.realm == request.realm
+                    && verify_capture(captured)
+                {
+                    // Ensure the entry HMAC is valid for this log by checking
+                    // it against entries we have. For a new leader this won't
+                    // be able to commit until the witnesses catch up to a log
+                    // entry written by the new leader.
+                    if let Some(offset) = captured.index.0.checked_sub(leader.log[0].entry.index.0)
                     {
-                        // Ensure the entry hmac matches, so that we know this is a vote for a log entry we wrote.
-                        // For a new leader this won't be able to commit until the witnesses catch up to a log entry written by the new leader.
-                        if let Some(offset) = captured.index.0.checked_sub(leader.log[0].entry.index.0) {
-                            let offset = usize::try_from(offset).unwrap();
-                            if offset < leader.log.len() && leader.log[offset].entry.entry_hmac == captured.hmac {
+                        if let Ok(offset) = usize::try_from(offset) {
+                            if offset < leader.log.len()
+                                && leader.log[offset].entry.entry_hmac == captured.hmac
+                            {
                                 election.vote(captured.hsm, captured.index);
                             }
                         }
                     }
+                }
             }
 
             let election_outcome = election.outcome();
@@ -78,7 +92,7 @@ impl<P: Platform> Hsm<P> {
                 }
             }
 
-            trace!(hsm = self.options.name, group=?request.group, index = ?commit_index, "leader committed entry");
+            trace!(hsm = self.options.name, group=?request.group, index = ?commit_index, prev_index=?leader.committed, "leader committed entries");
             // todo: skip already committed entries
             let responses = leader
                 .log
