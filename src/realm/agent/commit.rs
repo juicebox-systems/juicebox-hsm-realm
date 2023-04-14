@@ -204,7 +204,7 @@ fn how_long_to_wait(time: SystemTime, interval_millis: u64) -> Duration {
     let now = time.duration_since(SystemTime::UNIX_EPOCH).unwrap();
     let r = now.as_millis() % interval;
     if r == 0 {
-        Duration::ZERO
+        Duration::from_millis(2)
     } else {
         Duration::from_millis(u64::try_from(interval - r).expect(
             "the value can't be larger than supplied interval_millis value which was a u64",
