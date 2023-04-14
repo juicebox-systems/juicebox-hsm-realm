@@ -1,4 +1,6 @@
 use futures::future::join_all;
+use hsmcore::hsm::types::EntryHmac;
+use loam_sdk_core::requests::NoiseResponse;
 use loam_sdk_networking::rpc;
 use std::collections::HashSet;
 use std::time::{Duration, SystemTime};
@@ -182,7 +184,20 @@ impl<T: Transport + 'static> Agent<T> {
             }
         };
 
-        // Release responses to the clients.
+        let released_count = self.release_client_responses(realm, group, responses);
+        Span::current().record("released_count", released_count);
+        CommitterStatus::Committing {
+            committed: Some(new_committed),
+        }
+    }
+
+    // Returns the number of released responses.
+    fn release_client_responses(
+        &self,
+        realm: RealmId,
+        group: GroupId,
+        responses: Vec<(EntryHmac, NoiseResponse)>,
+    ) -> i32 {
         let mut released_count = 0;
         let mut locked = self.0.state.lock().unwrap();
         if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
@@ -199,10 +214,7 @@ impl<T: Transport + 'static> Agent<T> {
         } else if !responses.is_empty() {
             warn!("dropping responses on the floor: no leader state");
         }
-        Span::current().record("released_count", released_count);
-        CommitterStatus::Committing {
-            committed: Some(new_committed),
-        }
+        released_count
     }
 }
 
