@@ -1402,6 +1402,7 @@ dependencies = [
  "digest 0.10.6",
  "futures",
  "hmac",
+ "instant",
  "loam-sdk-core",
  "loam-sdk-networking",
  "loam-sdk-noise",
