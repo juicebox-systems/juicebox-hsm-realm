@@ -1,5 +1,6 @@
 use gcp_auth::AuthenticationManager;
 use http::HeaderValue;
+use secrecy::ExposeSecret;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
@@ -8,9 +9,6 @@ use tonic::body::BoxBody;
 use tonic::transport::{Body, Channel};
 use tower::Service;
 use tracing::info;
-
-// TODO: gcp_auth will log the user's credentials.
-// https://github.com/hrvolapeter/gcp_auth/issues/55 was a specific example but I'm seeing others.
 
 /// Initializes Google Cloud authentication from Application Default
 /// Credentials.
@@ -91,8 +89,9 @@ impl Service<http::Request<BoxBody>> for AuthMiddleware {
                     .await
                     .map_err(Self::Error::Auth)?;
 
-                let mut value = HeaderValue::try_from(format!("Bearer {}", token.as_str()))
-                    .expect("malformed gcp_auth token");
+                let mut value =
+                    HeaderValue::try_from(format!("Bearer {}", token.as_str().expose_secret()))
+                        .expect("malformed gcp_auth token");
                 value.set_sensitive(true);
 
                 request.headers_mut().append("authorization", value);
