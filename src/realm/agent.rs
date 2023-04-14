@@ -198,18 +198,9 @@ impl<T: Transport + 'static> Agent<T> {
         let agent = self.clone();
 
         tokio::spawn(async move {
-            const WRITE_INTERVAL_MILLIS: u32 = 100;
+            const WRITE_INTERVAL_MILLIS: u64 = 100;
             loop {
-                // We want to do the write/commit at the same time on each
-                // agent/hsm in the cluster so that we can commit as many log
-                // entries as possible.
-                let now = SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap();
-                let wait = Duration::from_millis(u64::from(
-                    WRITE_INTERVAL_MILLIS - (now.subsec_millis() % WRITE_INTERVAL_MILLIS),
-                ));
-                sleep(wait).await;
+                sleep(how_long_to_wait(SystemTime::now(), WRITE_INTERVAL_MILLIS)).await;
                 match agent.0.hsm.send(PersistStateRequest {}).await {
                     Err(err) => {
                         warn!(?err, "failed to request HSM to write to NVRAM");
@@ -1356,6 +1347,76 @@ impl<T: Transport + 'static> Agent<T> {
                 Err(_) => todo!(),
                 Ok(()) => {}
             }
+        }
+    }
+}
+
+// How long should we wait to do the next NVRAM write? We want to do the
+// write at the same time on each agent/hsm in the cluster so that we can
+// commit as many log entries as possible. Because of this they're aligned
+// to the clock rather than a rolling monotonic interval.
+fn how_long_to_wait(time: SystemTime, interval_millis: u64) -> Duration {
+    let interval = u128::from(interval_millis);
+    let now = time.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+    let r = now.as_millis() % interval;
+    if r == 0 {
+        Duration::ZERO
+    } else {
+        Duration::from_millis(u64::try_from(interval - r).expect(
+            "the value can't be larger than supplied interval_millis value which was a u64",
+        ))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::how_long_to_wait;
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn wait_calc() {
+        assert_eq!(
+            Duration::from_millis(0),
+            how_long_to_wait(
+                SystemTime::UNIX_EPOCH + Duration::from_millis(10000000),
+                100
+            )
+        );
+        assert_eq!(
+            Duration::from_millis(12),
+            how_long_to_wait(SystemTime::UNIX_EPOCH + Duration::from_millis(11088), 100)
+        );
+        assert_eq!(
+            Duration::from_millis(112),
+            how_long_to_wait(SystemTime::UNIX_EPOCH + Duration::from_millis(11088), 200)
+        );
+        assert_eq!(
+            Duration::from_millis(12),
+            how_long_to_wait(SystemTime::UNIX_EPOCH + Duration::from_millis(11088), 300)
+        );
+        assert_eq!(
+            Duration::from_millis(48),
+            how_long_to_wait(SystemTime::UNIX_EPOCH + Duration::from_millis(11052), 300)
+        );
+        assert_eq!(
+            Duration::from_millis(248),
+            how_long_to_wait(SystemTime::UNIX_EPOCH + Duration::from_millis(11152), 300)
+        );
+        assert_eq!(
+            Duration::from_millis(148),
+            how_long_to_wait(SystemTime::UNIX_EPOCH + Duration::from_millis(11252), 300)
+        );
+        assert_eq!(
+            Duration::from_millis(48),
+            how_long_to_wait(SystemTime::UNIX_EPOCH + Duration::from_millis(11352), 300)
+        );
+        assert_eq!(
+            Duration::from_millis(248),
+            how_long_to_wait(SystemTime::UNIX_EPOCH + Duration::from_millis(12352), 300)
+        );
+        for int in [50, 100, 150, 200, 250, 300, 350, 450, 650] {
+            let w = how_long_to_wait(SystemTime::now(), int);
+            assert!(w.as_millis() <= u128::from(int));
         }
     }
 }
