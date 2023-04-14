@@ -31,7 +31,7 @@ use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, Captured, CommitRequest, CommitResponse,
     Configuration, EntryHmac, GroupId, HsmId, LogIndex, TransferInProofs,
 };
-use hsmcore::hsm::{types as hsm_types, HsmElection};
+use hsmcore::hsm::{commit::HsmElection, types as hsm_types};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
 use loam_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
