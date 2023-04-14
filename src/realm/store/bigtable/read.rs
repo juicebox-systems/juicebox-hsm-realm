@@ -29,7 +29,7 @@ pub struct Cell {
 
 impl fmt::Debug for Cell {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Column")
+        f.debug_struct("Cell")
             .field("family", &self.family)
             .field("qualifier", &String::from_utf8_lossy(&self.qualifier))
             .field("timestamp", &self.timestamp)
@@ -102,6 +102,7 @@ pub async fn read_rows(
 
 // In between processing chunks, there's either an active row with an active
 // cell or there's no active row. This struct represents an active row.
+#[derive(Debug, Eq, PartialEq)]
 struct RowBuffer {
     row_key: RowKey,
     completed: Vec<Cell>, // done unless the row is reset
@@ -134,20 +135,20 @@ fn process_read_chunk(
     active_row: Option<RowBuffer>,
 ) -> (Option<RowBuffer>, Option<(RowKey, Vec<Cell>)>) {
     let (row_key, mut completed, old_cell) = match active_row {
-        // The chunk starts a new row.
-        None => {
-            assert!(!chunk.row_key.is_empty());
-            (RowKey(chunk.row_key), Vec::new(), None)
-        }
-
         // The chunk continues an existing row.
         Some(RowBuffer {
             row_key,
             completed,
             cell,
-        }) => {
+        }) if chunk.row_status != Some(RowStatus::ResetRow(true)) => {
             assert!(chunk.row_key.is_empty() || chunk.row_key == row_key.0);
             (row_key, completed, Some(cell))
+        }
+
+        // The chunk starts a new row or resets the current row.
+        _ => {
+            assert!(!chunk.row_key.is_empty());
+            (RowKey(chunk.row_key), Vec::new(), None)
         }
     };
 
@@ -157,6 +158,14 @@ fn process_read_chunk(
     let new_cell = match chunk.qualifier {
         // The chunk starts a new cell.
         Some(qualifier) => {
+            let family = match chunk.family_name {
+                Some(family) => family,
+                None => match &old_cell {
+                    Some(old_cell) => old_cell.family.clone(),
+                    None => panic!("CellChunk missing column family name (no previous cell)"),
+                },
+            };
+
             if let Some(old_cell) = old_cell {
                 completed.push(old_cell);
             }
@@ -171,12 +180,7 @@ fn process_read_chunk(
                 );
             }
             Cell {
-                family: chunk
-                    .family_name
-                    // TODO: Diego has seen this panic with Google Cloud Bigtable:
-                    //     .expect("CellChunk missing column family name"),
-                    // Default to "f" as a poor workaround:
-                    .unwrap_or_else(|| String::from("f")),
+                family,
                 qualifier,
                 timestamp: chunk.timestamp_micros,
                 value,
@@ -200,8 +204,6 @@ fn process_read_chunk(
             (None, Some((row_key, completed)))
         }
 
-        Some(RowStatus::ResetRow(true)) => (None, None),
-
         _ => (
             Some(RowBuffer {
                 row_key,
@@ -210,5 +212,185 @@ fn process_read_chunk(
             }),
             None,
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn process_read_chunks(
+        chunks: Vec<CellChunk>,
+    ) -> (Vec<(RowKey, Vec<Cell>)>, Option<RowBuffer>) {
+        let mut completed = Vec::new();
+        let mut active_row = None;
+        for chunk in chunks {
+            let complete_row;
+            (active_row, complete_row) = process_read_chunk(chunk, active_row);
+            if let Some((key, row)) = complete_row {
+                completed.push((key, row));
+            }
+        }
+        (completed, active_row)
+    }
+
+    #[test]
+    fn test_process_read_chunk() {
+        let (completed, active_row) = process_read_chunks(vec![
+            // Tests chunk starting new row.
+            CellChunk {
+                row_key: b"key1".to_vec(),
+                family_name: Some(String::from("f1")),
+                qualifier: Some(b"q1".to_vec()),
+                timestamp_micros: 12,
+                labels: Vec::new(),
+                value: b"val1".to_vec(),
+                value_size: 0,
+                row_status: None,
+            },
+            // Tests chunk continuing existing row with key and family carried
+            // over.
+            CellChunk {
+                row_key: Vec::new(),
+                family_name: None,
+                qualifier: Some(b"q2".to_vec()),
+                timestamp_micros: 11,
+                labels: Vec::new(),
+                value: b"val2".to_vec(),
+                value_size: 0,
+                row_status: None,
+            },
+            // Tests chunk containing the first part of a continued cell.
+            CellChunk {
+                row_key: b"key1".to_vec(),
+                family_name: Some(String::from("f1")),
+                qualifier: Some(b"q3".to_vec()),
+                timestamp_micros: 14,
+                labels: Vec::new(),
+                value: b"val4".to_vec(),
+                value_size: 12,
+                row_status: None,
+            },
+            // Tests chunk containing the middle part of a continued cell.
+            CellChunk {
+                row_key: Vec::new(),
+                family_name: None,
+                qualifier: None,
+                timestamp_micros: 0,
+                labels: Vec::new(),
+                value: b"5678".to_vec(),
+                value_size: 0,
+                row_status: None,
+            },
+            // Tests chunk containing the final part of a continued cell.
+            CellChunk {
+                row_key: Vec::new(),
+                family_name: None,
+                qualifier: None,
+                timestamp_micros: 0,
+                labels: Vec::new(),
+                value: b"9012".to_vec(),
+                value_size: 0,
+                row_status: None,
+            },
+            // Tests chunk continuing and committing existing row with explicit
+            // key and family.
+            CellChunk {
+                row_key: b"key1".to_vec(),
+                family_name: Some(String::from("f2")),
+                qualifier: Some(b"q3".to_vec()),
+                timestamp_micros: 13,
+                labels: Vec::new(),
+                value: b"val3".to_vec(),
+                value_size: 0,
+                row_status: Some(RowStatus::CommitRow(true)),
+            },
+            // Tests chunk that will be forgotten in a row reset.
+            CellChunk {
+                row_key: b"key2".to_vec(),
+                family_name: Some(String::from("f1")),
+                qualifier: Some(b"q1".to_vec()),
+                timestamp_micros: 16,
+                labels: Vec::new(),
+                value: b"val4".to_vec(),
+                value_size: 0,
+                row_status: None,
+            },
+            // Tests chunk that resets row.
+            CellChunk {
+                row_key: b"key2".to_vec(),
+                family_name: Some(String::from("f1")),
+                qualifier: Some(b"q2".to_vec()),
+                timestamp_micros: 16,
+                labels: Vec::new(),
+                value: b"val5".to_vec(),
+                value_size: 0,
+                row_status: Some(RowStatus::ResetRow(true)),
+            },
+            // Tests chunk after a reset.
+            CellChunk {
+                row_key: b"key2".to_vec(),
+                family_name: Some(String::from("f3")),
+                qualifier: Some(b"q6".to_vec()),
+                timestamp_micros: 18,
+                labels: Vec::new(),
+                value: b"val6".to_vec(),
+                value_size: 0,
+                row_status: Some(RowStatus::CommitRow(true)),
+            },
+        ]);
+
+        assert_eq!(active_row, None);
+        assert_eq!(
+            completed,
+            vec![
+                (
+                    RowKey(b"key1".to_vec()),
+                    vec![
+                        Cell {
+                            family: String::from("f1"),
+                            qualifier: b"q1".to_vec(),
+                            timestamp: 12,
+                            value: b"val1".to_vec(),
+                        },
+                        Cell {
+                            family: String::from("f1"),
+                            qualifier: b"q2".to_vec(),
+                            timestamp: 11,
+                            value: b"val2".to_vec(),
+                        },
+                        Cell {
+                            family: String::from("f1"),
+                            qualifier: b"q3".to_vec(),
+                            timestamp: 14,
+                            value: b"val456789012".to_vec(),
+                        },
+                        Cell {
+                            family: String::from("f2"),
+                            qualifier: b"q3".to_vec(),
+                            timestamp: 13,
+                            value: b"val3".to_vec(),
+                        }
+                    ]
+                ),
+                (
+                    RowKey(b"key2".to_vec()),
+                    vec![
+                        Cell {
+                            family: String::from("f1"),
+                            qualifier: b"q2".to_vec(),
+                            timestamp: 16,
+                            value: b"val5".to_vec(),
+                        },
+                        Cell {
+                            family: String::from("f3"),
+                            qualifier: b"q6".to_vec(),
+                            timestamp: 18,
+                            value: b"val6".to_vec(),
+                        }
+                    ]
+                )
+            ]
+        );
     }
 }
