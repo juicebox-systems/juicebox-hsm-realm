@@ -1100,7 +1100,7 @@ impl<P: Platform> Hsm<P> {
                             realm: r.id,
                             index: *index,
                             hmac: entry_hmac.clone(),
-                            stmt: statement,
+                            statement,
                         }
                     })
                 })
@@ -1140,23 +1140,26 @@ impl<P: Platform> Hsm<P> {
             }
 
             let mut election = HsmElection::new(&group.configuration.0);
-            for (hsm_id, index, hmac, captured_statement) in &request.captures {
-                if *index >= request.commit_index && (CapturedStatementBuilder {
-                        hsm: *hsm_id,
-                        realm: realm.id,
-                        group: request.group,
-                        index: *index,
-                        entry_hmac: hmac,
+            for captured in &request.captures {
+                if captured.index >= request.commit_index &&
+                    captured.group == request.group &&
+                    captured.realm == request.realm &&
+                    (CapturedStatementBuilder {
+                        hsm: captured.hsm,
+                        realm: captured.realm,
+                        group: captured.group,
+                        index: captured.index,
+                        entry_hmac: &captured.hmac,
                     }
-                    .verify(&self.persistent.realm_key, captured_statement)
-                    .map_err(|e|warn!(err=?e, hsm=?hsm_id, group=?request.group, ?index, "failed to verify capture statement"))
+                    .verify(&self.persistent.realm_key, &captured.statement)
+                    .map_err(|e|warn!(err=?e, hsm=?captured.hsm, group=?captured.group, ?captured.index, "failed to verify capture statement"))
                     .is_ok())
                     {
                         // Ensure the entry hmac matches, so that we know this is a vote for a log entry we wrote.
                         // For a new leader this won't be able to commit until the witnesses catch up to a log entry written by the new leader.
-                        if let Ok(offset) = leader.log.binary_search_by_key(index, |e|e.entry.index) {
-                            if leader.log[offset].entry.entry_hmac == *hmac {
-                                election.vote(*hsm_id);
+                        if let Ok(offset) = leader.log.binary_search_by_key(&captured.index, |e|e.entry.index) {
+                            if leader.log[offset].entry.entry_hmac == captured.hmac {
+                                election.vote(captured.hsm);
                             }
                         }
                     }

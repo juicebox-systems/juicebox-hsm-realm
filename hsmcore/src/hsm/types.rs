@@ -437,7 +437,7 @@ pub struct Captured {
     pub group: GroupId,
     pub index: LogIndex,
     pub hmac: EntryHmac,
-    pub stmt: CapturedStatement,
+    pub statement: CapturedStatement,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -445,7 +445,7 @@ pub struct CommitRequest {
     pub realm: RealmId,
     pub group: GroupId,
     pub commit_index: LogIndex,
-    pub captures: Vec<(HsmId, LogIndex, EntryHmac, CapturedStatement)>,
+    pub captures: Vec<Captured>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

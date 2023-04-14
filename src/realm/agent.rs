@@ -318,10 +318,7 @@ impl<T: Transport + 'static> Agent<T> {
             realm,
             group,
             commit_index: target_index,
-            captures: captures
-                .into_iter()
-                .map(|c| (c.hsm, c.index, c.hmac, c.stmt))
-                .collect(),
+            captures,
         };
 
         // Ask the HSM to do the commit
