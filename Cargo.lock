@@ -862,8 +862,7 @@ dependencies = [
 [[package]]
 name = "gcp_auth"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cae5c764ea4f66935163b36cc537e6487b53220d6b59eed31624ee5f9b47329"
+source = "git+ssh://git@github.com/Loam-Security/gcp_auth.git?branch=loam-main#579fae9ef2767a239fd6ac79454aa7f468cfc7ef"
 dependencies = [
  "async-trait",
  "base64 0.21.0",
@@ -873,6 +872,7 @@ dependencies = [
  "ring",
  "rustls 0.21.0",
  "rustls-pemfile",
+ "secrecy",
  "serde",
  "serde_json",
  "thiserror",

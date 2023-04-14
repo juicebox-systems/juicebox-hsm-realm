@@ -58,7 +58,14 @@ fn should_log(module_path: Option<&str>) -> bool {
         let module = module.split_once("::").map(|(l, _)| l).unwrap_or(module);
         if matches!(
             module,
-            "h2" | "hyper" | "mio" | "reqwest" | "tokio_util" | "tonic" | "tower" | "want"
+            "h2" | "hyper"
+                | "mio"
+                | "reqwest"
+                | "rustls"
+                | "tokio_util"
+                | "tonic"
+                | "tower"
+                | "want"
         ) {
             return false;
         }
