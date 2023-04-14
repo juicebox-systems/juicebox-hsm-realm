@@ -862,7 +862,7 @@ dependencies = [
 [[package]]
 name = "gcp_auth"
 version = "0.8.0"
-source = "git+ssh://git@github.com/Loam-Security/gcp_auth.git?branch=secret_logging#7bb2e568b818722c60514ed90209b49180ec5c61"
+source = "git+ssh://git@github.com/Loam-Security/gcp_auth.git?branch=loam-main#579fae9ef2767a239fd6ac79454aa7f468cfc7ef"
 dependencies = [
  "async-trait",
  "base64 0.21.0",
