@@ -11,7 +11,7 @@ use super::types::{
     CaptureNextResponse, CommitRequest, CommitResponse, CompleteTransferRequest,
     CompleteTransferResponse, HandshakeRequest, HandshakeResponse, JoinGroupRequest,
     JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
-    NewRealmRequest, NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest,
+    NewRealmRequest, NewRealmResponse, PersistStateRequest, PersistStateResponse, StatusRequest,
     StatusResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
     TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
     TransferStatementResponse,
@@ -53,7 +53,7 @@ pub enum HsmRequest {
     JoinGroup(JoinGroupRequest),
     BecomeLeader(BecomeLeaderRequest),
     CaptureNext(CaptureNextRequest),
-    ReadCaptured(ReadCapturedRequest),
+    PersistState(PersistStateRequest),
     Commit(CommitRequest),
     TransferOut(TransferOutRequest),
     TransferNonce(TransferNonceRequest),
@@ -74,7 +74,7 @@ impl HsmRequest {
             HsmRequest::JoinGroup(_) => "JoinGroup",
             HsmRequest::BecomeLeader(_) => "BecomeLeader",
             HsmRequest::CaptureNext(_) => "CaptureNext",
-            HsmRequest::ReadCaptured(_) => "ReadCaptured",
+            HsmRequest::PersistState(_) => "PersistState",
             HsmRequest::Commit(_) => "Commit",
             HsmRequest::TransferOut(_) => "TransferOut",
             HsmRequest::TransferNonce(_) => "TransferNonce",
@@ -123,12 +123,14 @@ impl HsmRpc for CaptureNextRequest {
         HsmRequest::CaptureNext(self)
     }
 }
-impl HsmRpc for ReadCapturedRequest {
-    type Response = ReadCapturedResponse;
+
+impl HsmRpc for PersistStateRequest {
+    type Response = PersistStateResponse;
     fn to_req(self) -> HsmRequest {
-        HsmRequest::ReadCaptured(self)
+        HsmRequest::PersistState(self)
     }
 }
+
 impl HsmRpc for BecomeLeaderRequest {
     type Response = BecomeLeaderResponse;
     fn to_req(self) -> HsmRequest {

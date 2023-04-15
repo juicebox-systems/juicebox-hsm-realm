@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use hsm_types::{
-    CapturedStatement, Configuration, EntryHmac, GroupConfigurationStatement, GroupId, HsmId,
-    LogIndex, OwnedRange, Partition, RecordId, TransferNonce, TransferStatement,
+    Configuration, GroupConfigurationStatement, GroupId, HsmId, LogIndex, OwnedRange, Partition,
+    RecordId, TransferNonce, TransferStatement,
 };
 use hsmcore::hsm::types as hsm_types;
 use loam_sdk_core::{
@@ -150,16 +150,7 @@ pub struct ReadCapturedRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ReadCapturedResponse {
-    Ok {
-        hsm_id: HsmId,
-        index: LogIndex,
-        entry_hmac: EntryHmac,
-        statement: CapturedStatement,
-    },
-    InvalidRealm,
-    InvalidGroup,
-    None,
-    NoHsm,
+    Ok(Option<hsm_types::Captured>),
 }
 
 impl Rpc<AgentService> for TransferOutRequest {

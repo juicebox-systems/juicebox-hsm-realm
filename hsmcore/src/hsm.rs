@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use core::fmt::{self, Debug};
 use core::time::Duration;
 use digest::Digest;
-use hashbrown::HashMap; // TODO: randomize hasher
+use hashbrown::{hash_map::Entry, HashMap}; // TODO: randomize hasher
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,7 @@ use x25519_dalek as x25519;
 
 mod app;
 mod cache;
+pub mod commit;
 pub mod rpc;
 pub mod types;
 
@@ -39,16 +40,15 @@ use loam_sdk_noise::server as noise;
 use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use types::{
     AppError, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
-    CompleteTransferRequest, CompleteTransferResponse, Configuration, DataHash, EntryHmac,
-    GroupConfigurationStatement, GroupId, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId,
-    JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus,
-    LogEntry, LogIndex, NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest,
-    NewRealmResponse, OwnedRange, Partition, ReadCapturedRequest, ReadCapturedResponse,
-    RealmStatus, RecordId, StatusRequest, StatusResponse, TransferInRequest, TransferInResponse,
-    TransferNonce, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
-    TransferOutResponse, TransferStatement, TransferStatementRequest, TransferStatementResponse,
-    TransferringOut,
+    CaptureNextRequest, CaptureNextResponse, Captured, CapturedStatement, CompleteTransferRequest,
+    CompleteTransferResponse, Configuration, DataHash, EntryHmac, GroupConfigurationStatement,
+    GroupId, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId, JoinGroupRequest,
+    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus, LogEntry, LogIndex,
+    NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange,
+    Partition, PersistStateRequest, PersistStateResponse, RealmStatus, RecordId, StatusRequest,
+    StatusResponse, TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
+    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatement,
+    TransferStatementRequest, TransferStatementResponse, TransferringOut,
 };
 
 /// Returned in Noise handshake requests as a hint to the client of how long
@@ -385,6 +385,7 @@ struct PersistentGroupState {
 struct VolatileState {
     leader: HashMap<GroupId, LeaderVolatileGroupState>,
     record_key: RecordEncryptionKey,
+    captured: HashMap<GroupId, (LogIndex, EntryHmac)>,
 }
 
 struct LeaderVolatileGroupState {
@@ -529,6 +530,18 @@ impl<P: Platform> Hsm<P> {
             }
         };
 
+        let captured: HashMap<GroupId, (LogIndex, EntryHmac)> = persistent
+            .realm
+            .iter()
+            .flat_map(|r| r.groups.iter())
+            .filter_map(|(group_id, group_state)| {
+                group_state
+                    .captured
+                    .as_ref()
+                    .map(|c| (*group_id, c.clone()))
+            })
+            .collect();
+
         let record_key = RecordEncryptionKey::from(&persistent.realm_key);
         Ok(Hsm {
             options,
@@ -536,6 +549,7 @@ impl<P: Platform> Hsm<P> {
             persistent: MutationTracker::new(persistent, writer),
             volatile: VolatileState {
                 leader: HashMap::new(),
+                captured,
                 record_key,
             },
         })
@@ -566,8 +580,8 @@ impl<P: Platform> Hsm<P> {
             HsmRequest::CaptureNext(r) => {
                 self.dispatch_request(metrics, r, Self::handle_capture_next)
             }
-            HsmRequest::ReadCaptured(r) => {
-                self.dispatch_request(metrics, r, Self::handle_read_captured)
+            HsmRequest::PersistState(r) => {
+                self.dispatch_request(metrics, r, Self::handle_persist_state)
             }
             HsmRequest::Commit(r) => self.dispatch_request(metrics, r, Self::handle_commit),
             HsmRequest::TransferOut(r) => {
@@ -912,10 +926,8 @@ impl<P: Platform> Hsm<P> {
             if request.entries.is_empty() {
                 return Response::MissingEntries;
             }
-            let mut guard = self.persistent.mutate();
-            let persistent = guard.as_mut();
 
-            match &mut persistent.realm {
+            match &self.persistent.realm {
                 None => Response::InvalidRealm,
 
                 Some(realm) => {
@@ -923,56 +935,46 @@ impl<P: Platform> Hsm<P> {
                         return Response::InvalidRealm;
                     }
 
-                    match realm.groups.get_mut(&request.group) {
-                        None => Response::InvalidGroup,
+                    if realm.groups.get(&request.group).is_none() {
+                        return Response::InvalidGroup;
+                    }
 
-                        Some(group) => {
-                            for entry in request.entries {
-                                if EntryHmacBuilder::verify_entry(
-                                    &persistent.realm_key,
-                                    request.realm,
-                                    request.group,
-                                    &entry,
-                                )
-                                .is_err()
-                                {
-                                    return Response::InvalidHmac;
-                                }
+                    for entry in request.entries {
+                        if EntryHmacBuilder::verify_entry(
+                            &self.persistent.realm_key,
+                            request.realm,
+                            request.group,
+                            &entry,
+                        )
+                        .is_err()
+                        {
+                            return Response::InvalidHmac;
+                        }
 
-                                match &group.captured {
-                                    None => {
-                                        if entry.index != LogIndex::FIRST {
-                                            return Response::MissingPrev;
-                                        }
-                                        if entry.prev_hmac != EntryHmac::zero() {
-                                            return Response::InvalidChain;
-                                        }
-                                    }
-                                    Some((captured_index, captured_hmac)) => {
-                                        if entry.index != captured_index.next() {
-                                            return Response::MissingPrev;
-                                        }
-                                        if entry.prev_hmac != *captured_hmac {
-                                            return Response::InvalidChain;
-                                        }
-                                    }
+                        let e = self.volatile.captured.entry(request.group);
+                        match &e {
+                            Entry::Vacant(_) => {
+                                if entry.index != LogIndex::FIRST {
+                                    return Response::MissingPrev;
                                 }
-                                group.captured = Some((entry.index, entry.entry_hmac));
+                                if entry.prev_hmac != EntryHmac::zero() {
+                                    return Response::InvalidChain;
+                                }
                             }
-                            let captured = group.captured.as_ref().unwrap();
-                            let statement = CapturedStatementBuilder {
-                                hsm: persistent.id,
-                                realm: request.realm,
-                                group: request.group,
-                                index: captured.0,
-                                entry_hmac: &captured.1,
-                            }
-                            .build(&persistent.realm_key);
-                            Response::Ok {
-                                hsm_id: persistent.id,
-                                captured: statement,
+                            Entry::Occupied(v) => {
+                                let (captured_index, captured_hmac) = v.get();
+                                if entry.index != captured_index.next() {
+                                    return Response::MissingPrev;
+                                }
+                                if entry.prev_hmac != *captured_hmac {
+                                    return Response::InvalidChain;
+                                }
                             }
                         }
+                        e.insert((entry.index, entry.entry_hmac));
+                    }
+                    Response::Ok {
+                        hsm_id: self.persistent.id,
                     }
                 }
             }
@@ -990,8 +992,12 @@ impl<P: Platform> Hsm<P> {
         type Response = BecomeLeaderResponse;
         trace!(hsm = self.options.name, ?request);
 
+        // We need to check against the persisted captures for safety reasons,
+        // so make sure they're up to date.
+        self.persist_current_captures();
+
         let response = (|| {
-            match &self.persistent.realm {
+            let config = match &self.persistent.realm {
                 None => return Response::InvalidRealm,
 
                 Some(realm) => {
@@ -1022,11 +1028,12 @@ impl<P: Platform> Hsm<P> {
                                 {
                                     return Response::InvalidHmac;
                                 }
+                                group.configuration.clone()
                             }
                         },
                     }
                 }
-            }
+            };
 
             let tree = request.last_entry.partition.as_ref().map(|p| {
                 Tree::with_existing_root(
@@ -1048,137 +1055,66 @@ impl<P: Platform> Hsm<P> {
                     tree,
                     sessions: Cache::new(usize::from(self.options.max_sessions)),
                 });
-            Response::Ok
+            Response::Ok(config)
         })();
 
         trace!(hsm = self.options.name, ?response);
         response
     }
 
-    fn handle_read_captured(
+    fn handle_persist_state(
         &mut self,
         _metrics: &mut Metrics<P>,
-        request: ReadCapturedRequest,
-    ) -> ReadCapturedResponse {
-        type Response = ReadCapturedResponse;
+        request: PersistStateRequest,
+    ) -> PersistStateResponse {
+        type Response = PersistStateResponse;
         trace!(hsm = self.options.name, ?request);
-        let response = match &self.persistent.realm {
-            None => Response::InvalidRealm,
 
-            Some(realm) => {
-                if realm.id != request.realm {
-                    return Response::InvalidRealm;
-                }
+        self.persist_current_captures();
 
-                match realm.groups.get(&request.group) {
-                    None => Response::InvalidGroup,
-
-                    Some(group) => match &group.captured {
-                        None => Response::None,
-                        Some((index, entry_hmac)) => Response::Ok {
-                            hsm_id: self.persistent.id,
+        let state = &*self.persistent;
+        let captured = match &state.realm {
+            None => Vec::new(),
+            Some(r) => r
+                .groups
+                .iter()
+                .filter_map(|(group, group_state)| {
+                    group_state.captured.as_ref().map(|(index, entry_hmac)| {
+                        let statement = CapturedStatementBuilder {
+                            hsm: state.id,
+                            realm: r.id,
+                            group: *group,
                             index: *index,
-                            entry_hmac: entry_hmac.clone(),
-                            statement: CapturedStatementBuilder {
-                                hsm: self.persistent.id,
-                                realm: request.realm,
-                                group: request.group,
-                                index: *index,
-                                entry_hmac,
-                            }
-                            .build(&self.persistent.realm_key),
-                        },
-                    },
-                }
-            }
+                            entry_hmac,
+                        }
+                        .build(&state.realm_key);
+                        Captured {
+                            group: *group,
+                            hsm: state.id,
+                            realm: r.id,
+                            index: *index,
+                            hmac: entry_hmac.clone(),
+                            statement,
+                        }
+                    })
+                })
+                .collect(),
         };
-        trace!(hsm = self.options.name, ?response);
-        response
+        Response::Ok { captured }
     }
 
-    fn handle_commit(
-        &mut self,
-        _metrics: &mut Metrics<P>,
-        request: CommitRequest,
-    ) -> CommitResponse {
-        type Response = CommitResponse;
-        trace!(hsm = self.options.name, ?request);
-
-        let response = (|| {
-            let Some(realm) = &self.persistent.realm else {
-                return Response::InvalidRealm;
-            };
-            if realm.id != request.realm {
-                return Response::InvalidRealm;
-            }
-
-            let Some(group) = realm.groups.get(&request.group) else {
-                return Response::InvalidGroup;
-            };
-
-            let Some(leader) = self.volatile.leader.get_mut(&request.group) else {
-                return Response::NotLeader;
-            };
-
-            if let Some(committed) = leader.committed {
-                if committed >= request.index {
-                    return Response::AlreadyCommitted { committed };
+    fn persist_current_captures(&mut self) {
+        if !self.volatile.captured.is_empty() {
+            let mut state = self.persistent.mutate();
+            if let Some(realm) = &mut state.realm {
+                // copy captured over to persist it
+                for (group_id, (index, hmac)) in &self.volatile.captured {
+                    if let Some(g) = realm.groups.get_mut(group_id) {
+                        g.captured = Some((*index, hmac.clone()));
+                    }
                 }
             }
-
-            let mut election = HsmElection::new(&group.configuration.0);
-            for (hsm_id, captured_statement) in request.captures {
-                if (CapturedStatementBuilder {
-                    hsm: hsm_id,
-                    realm: request.realm,
-                    group: request.group,
-                    index: request.index,
-                    entry_hmac: &request.entry_hmac,
-                }
-                .verify(&self.persistent.realm_key, &captured_statement)
-                .is_ok())
-                {
-                    election.vote(hsm_id);
-                };
-            }
-            if let Some((index, entry_hmac)) = &group.captured {
-                if *index == request.index && *entry_hmac == request.entry_hmac {
-                    election.vote(self.persistent.id);
-                }
-            };
-
-            let election_outcome = election.outcome();
-            if election_outcome.has_quorum {
-                trace!(hsm = self.options.name, index = ?request.index, "leader committed entry");
-                // todo: skip already committed entries
-                let responses = leader
-                    .log
-                    .iter_mut()
-                    .filter(|entry| entry.entry.index <= request.index)
-                    .filter_map(|entry| {
-                        entry
-                            .response
-                            .take()
-                            .map(|r| (entry.entry.entry_hmac.clone(), r))
-                    })
-                    .collect();
-                leader.committed = Some(request.index);
-                CommitResponse::Ok {
-                    committed: leader.committed,
-                    responses,
-                }
-            } else {
-                warn!(
-                    hsm = self.options.name,
-                    election = ?election_outcome,
-                    "no quorum. buggy caller?"
-                );
-                CommitResponse::NoQuorum
-            }
-        })();
-
-        trace!(hsm = self.options.name, ?response);
-        response
+        }
     }
 
     fn handle_transfer_out(
@@ -2017,56 +1953,6 @@ fn make_next_log_entry(
     }
 }
 
-pub struct HsmElection {
-    votes: HashMap<HsmId, bool>,
-}
-
-#[derive(PartialEq, Eq)]
-pub struct HsmElectionOutcome {
-    pub has_quorum: bool,
-    pub vote_count: usize,
-    pub member_count: usize,
-}
-
-impl HsmElection {
-    pub fn new(voters: &[HsmId]) -> HsmElection {
-        assert!(!voters.is_empty());
-        HsmElection {
-            votes: HashMap::from_iter(voters.iter().map(|id| (*id, false))),
-        }
-    }
-
-    pub fn vote(&mut self, voter: HsmId) {
-        self.votes.entry(voter).and_modify(|f| *f = true);
-    }
-
-    pub fn outcome(self) -> HsmElectionOutcome {
-        let yay = self.votes.iter().filter(|(_, v)| **v).count();
-        let all = self.votes.len();
-        HsmElectionOutcome {
-            has_quorum: yay * 2 > all,
-            vote_count: yay,
-            member_count: all,
-        }
-    }
-}
-
-impl Debug for HsmElectionOutcome {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "HsmElectionOutcome votes {} out of {}, {}",
-            self.vote_count,
-            self.member_count,
-            if self.has_quorum {
-                "Quorum"
-            } else {
-                "NoQuorum"
-            }
-        )
-    }
-}
-
 #[cfg(test)]
 mod test {
     use hashbrown::HashMap;
@@ -2079,99 +1965,8 @@ mod test {
         super::merkle::{agent::StoreKey, NodeHasher},
         app::RootOprfKey,
         types::{Configuration, DataHash, EntryHmac, GroupId, HsmId, LogIndex},
-        HsmElection, HsmElectionOutcome, MerkleHasher, PersistentGroupState, PersistentRealmState,
-        PersistentState, RealmKey,
+        MerkleHasher, PersistentGroupState, PersistentRealmState, PersistentState, RealmKey,
     };
-
-    #[test]
-    #[should_panic]
-    fn empty_election() {
-        HsmElection::new(&[]);
-    }
-
-    #[test]
-    fn election_voters() {
-        let ids = (0..6).map(|b| HsmId([b; 16])).collect::<Vec<_>>();
-        fn has_q(ids: &[HsmId], voters: &[HsmId]) -> bool {
-            let mut q = HsmElection::new(ids);
-            for v in voters.iter() {
-                q.vote(*v);
-            }
-            let o = q.outcome();
-            assert_eq!(voters.len(), o.vote_count);
-            assert_eq!(ids.len(), o.member_count);
-            o.has_quorum
-        }
-        // 1 member
-        assert!(has_q(&ids[..1], &ids[..1]));
-        assert!(!has_q(&ids[..1], &ids[..0]));
-        // 2 members
-        assert!(has_q(&ids[..2], &ids[..2]));
-        assert!(!has_q(&ids[..2], &ids[..1]));
-        assert!(!has_q(&ids[..2], &ids[..0]));
-        // 3 members
-        assert!(has_q(&ids[..3], &ids[..3]));
-        assert!(has_q(&ids[..3], &ids[..2]));
-        assert!(!has_q(&ids[..3], &ids[..1]));
-        assert!(!has_q(&ids[..3], &ids[..0]));
-        // 4
-        assert!(has_q(&ids[..4], &ids[..4]));
-        assert!(has_q(&ids[..4], &ids[..3]));
-        assert!(!has_q(&ids[..4], &ids[..2]));
-        assert!(!has_q(&ids[..4], &ids[..1]));
-        assert!(!has_q(&ids[..4], &ids[..0]));
-        // 5
-        assert!(has_q(&ids[..5], &ids[..5]));
-        assert!(has_q(&ids[..5], &ids[..4]));
-        assert!(has_q(&ids[..5], &ids[..3]));
-        assert!(!has_q(&ids[..5], &ids[..2]));
-        assert!(!has_q(&ids[..5], &ids[..1]));
-        assert!(!has_q(&ids[..5], &ids[..0]));
-        // 6
-        assert!(has_q(&ids[..6], &ids[..6]));
-        assert!(has_q(&ids[..6], &[ids[0], ids[4], ids[1], ids[5], ids[3]]));
-        assert!(has_q(&ids[..6], &[ids[5], ids[0], ids[2], ids[3]]));
-        assert!(!has_q(&ids[..6], &[ids[4], ids[0], ids[2]]));
-        assert!(!has_q(&ids[..6], &ids[3..5]));
-        assert!(!has_q(&ids[..6], &[ids[5], ids[1]]));
-        assert!(!has_q(&ids[..6], &ids[4..5]));
-        assert!(!has_q(&ids[..6], &ids[..0]));
-    }
-
-    #[test]
-    fn election_non_voters() {
-        let ids = (0..10).map(|b| HsmId([b; 16])).collect::<Vec<_>>();
-        let mut q = HsmElection::new(&ids[..5]);
-        for not_member in &ids[5..] {
-            q.vote(*not_member);
-        }
-        assert_eq!(
-            HsmElectionOutcome {
-                has_quorum: false,
-                vote_count: 0,
-                member_count: 5
-            },
-            q.outcome()
-        );
-    }
-
-    #[test]
-    fn election_vote_only_counts_once() {
-        let ids = (0..5).map(|b| HsmId([b; 16])).collect::<Vec<_>>();
-        let mut q = HsmElection::new(&ids);
-        q.vote(ids[0]);
-        q.vote(ids[0]);
-        q.vote(ids[0]);
-        q.vote(ids[1]);
-        assert_eq!(
-            HsmElectionOutcome {
-                has_quorum: false,
-                vote_count: 2,
-                member_count: 5
-            },
-            q.outcome()
-        );
-    }
 
     #[test]
     fn test_store_key_parse_data_hash() {

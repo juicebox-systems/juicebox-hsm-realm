@@ -1,26 +1,25 @@
 use bytes::Bytes;
-use future::join_all;
 use futures::channel::oneshot;
-use futures::{future, Future};
+use futures::Future;
 use hsmcore::hsm::types::{DataHash, LogEntry};
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
-use std::collections::btree_map::Entry::{Occupied, Vacant};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::time::{self, sleep};
+use tokio::time::sleep;
 use tracing::{info, instrument, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
+mod commit;
 pub mod types;
 
 use super::super::http_client::{Client, ClientOptions};
@@ -29,15 +28,15 @@ use super::merkle;
 use super::rpc::{handle_rpc, HandlerError};
 use super::store::bigtable::{self};
 use hsm_types::{
-    CaptureNextRequest, CaptureNextResponse, CapturedStatement, CommitRequest, CommitResponse,
-    Configuration, EntryHmac, GroupId, HsmId, LogIndex, TransferInProofs,
+    CaptureNextRequest, CaptureNextResponse, Captured, Configuration, EntryHmac, GroupId, HsmId,
+    LogIndex, TransferInProofs,
 };
-use hsmcore::hsm::{types as hsm_types, HsmElection};
+use hsmcore::hsm::types as hsm_types;
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
 use loam_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use loam_sdk_core::types::RealmId;
-use loam_sdk_networking::rpc::{self, Rpc, RpcError};
+use loam_sdk_networking::rpc::Rpc;
 use types::{
     AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
@@ -63,6 +62,8 @@ struct AgentInner<T> {
 #[derive(Debug)]
 struct State {
     leader: HashMap<(RealmId, GroupId), LeaderState>,
+    // Captures that have been persisted to NVRAM in the HSM.
+    captures: Vec<Captured>,
 }
 
 #[derive(Debug)]
@@ -110,6 +111,7 @@ impl<T: Transport + 'static> Agent<T> {
             peer_client: Client::new(ClientOptions::default()),
             state: Mutex::new(State {
                 leader: HashMap::new(),
+                captures: Vec::new(),
             }),
         }))
     }
@@ -185,134 +187,6 @@ impl<T: Transport + 'static> Agent<T> {
         });
     }
 
-    fn collect_captures(&self, realm_id: RealmId, group_id: GroupId) {
-        let name = self.0.name.clone();
-        let hsm = self.0.hsm.clone();
-        let agent = self.clone();
-        trace!(agent = name, realm = ?realm_id, group = ?group_id, "start collecting captures");
-
-        tokio::spawn(Box::pin(async move {
-            let mut interval = time::interval(Duration::from_millis(10));
-            interval.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
-            loop {
-                interval.tick().await;
-                agent
-                    .collect_captures_inner(&name, &hsm, realm_id, group_id)
-                    .await;
-            }
-        }));
-    }
-
-    async fn collect_captures_inner(
-        &self,
-        name: &str,
-        hsm: &HsmClient<T>,
-        realm_id: RealmId,
-        group_id: GroupId,
-    ) {
-        let (configuration, peers) = self.find_peers(realm_id, group_id).await.expect("todo");
-        let futures = peers.iter().filter_map(|(hsm_id, address)| {
-            address
-                .as_ref()
-                .map(|address| self.read_captured(realm_id, group_id, *hsm_id, address))
-        });
-        let captures = join_all(futures).await;
-        let mut map: BTreeMap<LogIndex, (EntryHmac, Vec<(HsmId, CapturedStatement)>)> =
-            BTreeMap::new();
-        #[allow(clippy::manual_flatten)]
-        for capture in captures {
-            if let Ok(ReadCapturedResponse::Ok {
-                hsm_id,
-                index,
-                entry_hmac,
-                statement,
-            }) = capture
-            {
-                match map.entry(index) {
-                    Occupied(mut entry) => {
-                        let value = entry.get_mut();
-                        if entry_hmac != value.0 {
-                            todo!();
-                        }
-                        value.1.push((hsm_id, statement));
-                    }
-                    Vacant(entry) => {
-                        entry.insert((entry_hmac, Vec::from([(hsm_id, statement)])));
-                    }
-                }
-            }
-        }
-
-        let mut commit_request: Option<CommitRequest> = None;
-        for (index, (entry_hmac, captures)) in map.into_iter() {
-            let mut election = HsmElection::new(&configuration.0);
-            for c in &captures {
-                election.vote(c.0);
-            }
-            if election.outcome().has_quorum {
-                commit_request = Some(CommitRequest {
-                    realm: realm_id,
-                    group: group_id,
-                    index,
-                    entry_hmac,
-                    captures,
-                });
-            }
-        }
-
-        let responses = if let Some(commit_request) = commit_request {
-            trace!(
-                    agent = name,
-                    index = ?commit_request.index,
-                    num_captures = commit_request.captures.len(),
-                    "requesting HSM to commit index");
-            let response = hsm.send(commit_request).await;
-            match response {
-                Ok(CommitResponse::Ok {
-                    committed,
-                    responses,
-                }) => {
-                    trace!(agent = name, ?committed, ?responses, "HSM committed entry");
-                    responses
-                }
-                Ok(CommitResponse::AlreadyCommitted { .. }) => {
-                    // TODO: this happens a lot now
-                    // because this doesn't remember
-                    // what it's already asked the HSM
-                    // to commit.
-                    trace!(agent = name, ?response, "commit response not ok");
-                    Vec::new()
-                }
-                _ => {
-                    warn!(agent = name, ?response, "commit response not ok");
-                    Vec::new()
-                }
-            }
-        } else {
-            Vec::new()
-        };
-
-        {
-            let mut count = 0;
-            let mut locked = self.0.state.lock().unwrap();
-            if let Some(leader) = locked.leader.get_mut(&(realm_id, group_id)) {
-                for (hmac, client_response) in responses {
-                    if let Some(sender) = leader.response_channels.remove(&hmac) {
-                        if sender.send(client_response).is_err() {
-                            warn!("dropping response on the floor: client no longer waiting");
-                        }
-                        count += 1;
-                    } else {
-                        warn!("dropping response on the floor: client never waiting");
-                    }
-                }
-            } else if !responses.is_empty() {
-                warn!("dropping responses on the floor: no leader state");
-            }
-            Span::current().record("released_count", count);
-        };
-    }
-
     #[instrument(level = "trace", skip(self))]
     async fn find_peers(
         &self,
@@ -369,30 +243,6 @@ impl<T: Transport + 'static> Agent<T> {
         Ok((configuration, peers))
     }
 
-    async fn read_captured(
-        &self,
-        realm_id: RealmId,
-        group_id: GroupId,
-        hsm_id: HsmId,
-        address: &Url,
-    ) -> Result<ReadCapturedResponse, RpcError> {
-        rpc::send(
-            &self.0.peer_client,
-            address,
-            ReadCapturedRequest {
-                realm: realm_id,
-                group: group_id,
-            },
-        )
-        .await
-        .map(|result| match result {
-            ReadCapturedResponse::Ok { hsm_id: id, .. } if id != hsm_id => {
-                ReadCapturedResponse::NoHsm
-            }
-            x => x,
-        })
-    }
-
     pub async fn listen(
         self,
         address: SocketAddr,
@@ -402,6 +252,7 @@ impl<T: Transport + 'static> Agent<T> {
 
         self.start_service_registration(url.clone());
         self.restart_watching().await;
+        self.start_nvram_writer();
 
         Ok((
             url,
@@ -548,7 +399,7 @@ impl<T: Transport + 'static> Agent<T> {
 
         let new_realm_response = match hsm
             .send(hsm_types::NewRealmRequest {
-                configuration: request.configuration,
+                configuration: request.configuration.clone(),
             })
             .await
         {
@@ -593,7 +444,11 @@ impl<T: Transport + 'static> Agent<T> {
             .await
         {
             Ok(()) => {
-                self.finish_new_group(new_realm_response.realm, new_realm_response.group);
+                self.finish_new_group(
+                    new_realm_response.realm,
+                    new_realm_response.group,
+                    request.configuration,
+                );
                 Ok(Response::Ok {
                     realm: new_realm_response.realm,
                     group: new_realm_response.group,
@@ -607,12 +462,18 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
-    fn finish_new_group(&self, realm: RealmId, group: GroupId) {
+    fn finish_new_group(&self, realm: RealmId, group: GroupId, config: Configuration) {
         self.start_watching(realm, group, LogIndex::FIRST);
-        self.start_leading(realm, group, LogIndex::FIRST);
+        self.start_leading(realm, group, config, LogIndex::FIRST);
     }
 
-    fn start_leading(&self, realm: RealmId, group: GroupId, starting_index: LogIndex) {
+    fn start_leading(
+        &self,
+        realm: RealmId,
+        group: GroupId,
+        config: Configuration,
+        starting_index: LogIndex,
+    ) {
         let existing = self.0.state.lock().unwrap().leader.insert(
             (realm, group),
             LeaderState {
@@ -624,7 +485,7 @@ impl<T: Transport + 'static> Agent<T> {
             },
         );
         assert!(existing.is_none());
-        self.collect_captures(realm, group);
+        self.start_group_committer(realm, group, config);
     }
 
     async fn handle_join_realm(
@@ -662,7 +523,7 @@ impl<T: Transport + 'static> Agent<T> {
         let new_group_response = match hsm
             .send(hsm_types::NewGroupRequest {
                 realm,
-                configuration: request.configuration,
+                configuration: request.configuration.clone(),
             })
             .await
         {
@@ -695,7 +556,7 @@ impl<T: Transport + 'static> Agent<T> {
             .await
         {
             Ok(()) => {
-                self.finish_new_group(realm, new_group_response.group);
+                self.finish_new_group(realm, new_group_response.group, request.configuration);
                 Ok(Response::Ok {
                     group: new_group_response.group,
                     statement: new_group_response.statement,
@@ -767,8 +628,8 @@ impl<T: Transport + 'static> Agent<T> {
             .await
         {
             Err(_) => Ok(Response::NoHsm),
-            Ok(HsmResponse::Ok) => {
-                self.start_leading(request.realm, request.group, last_entry_index);
+            Ok(HsmResponse::Ok(config)) => {
+                self.start_leading(request.realm, request.group, config, last_entry_index);
                 Ok(Response::Ok)
             }
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
@@ -783,32 +644,14 @@ impl<T: Transport + 'static> Agent<T> {
         request: ReadCapturedRequest,
     ) -> Result<ReadCapturedResponse, HandlerError> {
         type Response = ReadCapturedResponse;
-        type HsmResponse = hsm_types::ReadCapturedResponse;
-        match self
-            .0
-            .hsm
-            .send(hsm_types::ReadCapturedRequest {
-                realm: request.realm,
-                group: request.group,
-            })
-            .await
-        {
-            Err(_) => Ok(Response::NoHsm),
-            Ok(HsmResponse::Ok {
-                hsm_id,
-                index,
-                entry_hmac,
-                statement,
-            }) => Ok(Response::Ok {
-                hsm_id,
-                index,
-                entry_hmac,
-                statement,
-            }),
-            Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
-            Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
-            Ok(HsmResponse::None) => Ok(Response::None),
-        }
+
+        let state = self.0.state.lock().unwrap();
+        let c = state
+            .captures
+            .iter()
+            .find(|c| c.group == request.group && c.realm == request.realm)
+            .cloned();
+        Ok(Response::Ok(c))
     }
 
     async fn handle_transfer_out(

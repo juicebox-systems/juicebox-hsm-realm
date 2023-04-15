@@ -6,7 +6,7 @@ pub trait OnMutationFinished<T> {
 
 /// MutationTracker wraps a value and tracks mutations. When the mutation is
 /// complete a callback is executed. This uses Guards that trigger the callback
-/// when they're dropped, similar to have Mutex works.
+/// when they're dropped, similar to how Mutex works.
 pub struct MutationTracker<T, F: OnMutationFinished<T>> {
     value: T,
     on_finished: F,
@@ -31,15 +31,6 @@ impl<T, F: OnMutationFinished<T>> Deref for MutationTracker<T, F> {
 
 pub struct MutationGuard<'a, T, F: OnMutationFinished<T>> {
     inner: &'a mut MutationTracker<T, F>,
-}
-
-impl<'a, T, F: OnMutationFinished<T>> MutationGuard<'a, T, F> {
-    // Generally deref_mut will do the right thing, but there are occasions
-    // where it gets confused, and explicitly having the guard and then a
-    // as_mut() from that will fix that.
-    pub fn as_mut(&mut self) -> &mut T {
-        &mut self.inner.value
-    }
 }
 
 impl<'a, T, F: OnMutationFinished<T>> Deref for MutationGuard<'a, T, F> {

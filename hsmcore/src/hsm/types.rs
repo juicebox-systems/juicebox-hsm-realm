@@ -240,6 +240,7 @@ impl HashOutput for DataHash {
 ///
 /// The vector must be sorted by HSM ID, must not contain duplicates, and must
 /// contain at least 1 HSM.
+/// TODO: Verify this is enforced.
 #[derive(Clone, Deserialize, Debug, Serialize)]
 pub struct Configuration(pub Vec<HsmId>);
 
@@ -397,10 +398,7 @@ pub struct CaptureNextRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CaptureNextResponse {
-    Ok {
-        hsm_id: HsmId,
-        captured: CapturedStatement,
-    },
+    Ok { hsm_id: HsmId },
     InvalidRealm,
     InvalidGroup,
     InvalidHmac,
@@ -418,7 +416,7 @@ pub struct BecomeLeaderRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum BecomeLeaderResponse {
-    Ok,
+    Ok(Configuration),
     InvalidRealm,
     InvalidGroup,
     InvalidHmac,
@@ -426,37 +424,35 @@ pub enum BecomeLeaderResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct ReadCapturedRequest {
-    pub realm: RealmId,
-    pub group: GroupId,
+pub struct PersistStateRequest {}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum PersistStateResponse {
+    Ok { captured: Vec<Captured> },
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub enum ReadCapturedResponse {
-    Ok {
-        hsm_id: HsmId,
-        index: LogIndex,
-        entry_hmac: EntryHmac,
-        statement: CapturedStatement,
-    },
-    InvalidRealm,
-    InvalidGroup,
-    None,
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Captured {
+    pub hsm: HsmId,
+    pub realm: RealmId,
+    pub group: GroupId,
+    pub index: LogIndex,
+    pub hmac: EntryHmac,
+    pub statement: CapturedStatement,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CommitRequest {
     pub realm: RealmId,
     pub group: GroupId,
-    pub index: LogIndex,
-    pub entry_hmac: EntryHmac,
-    pub captures: Vec<(HsmId, CapturedStatement)>,
+    // Captures just for this realm/group
+    pub captures: Vec<Captured>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CommitResponse {
     Ok {
-        committed: Option<LogIndex>,
+        committed: LogIndex,
         responses: Vec<(EntryHmac, NoiseResponse)>,
     },
     AlreadyCommitted {
