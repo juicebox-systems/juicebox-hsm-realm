@@ -132,21 +132,20 @@ impl<T: Transport + 'static> Agent<T> {
         for c in &captures {
             election.vote(c.hsm, c.index);
         }
-        let outcome = election.outcome();
-        if !outcome.has_quorum || outcome.index.is_none() {
+        let Ok(commit_index) = election.outcome() else {
             return CommitterStatus::Committing {
                 committed: last_committed,
             };
-        }
+        };
         if let Some(commit) = last_committed {
             // We've already committed this.
-            if outcome.index.unwrap() <= commit {
+            if commit_index <= commit {
                 return CommitterStatus::Committing {
                     committed: last_committed,
                 };
             }
         }
-        trace!(?group, index=?outcome.index.unwrap(), "election has quorum");
+        trace!(?group, index=?commit_index, "election has quorum");
         let commit_request = CommitRequest {
             realm,
             group,

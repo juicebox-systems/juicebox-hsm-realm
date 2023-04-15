@@ -1,7 +1,6 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use core::fmt::{self, Debug};
 use hashbrown::HashMap;
 use tracing::{trace, warn};
 
@@ -74,18 +73,15 @@ impl<P: Platform> Hsm<P> {
                 }
             }
 
-            let election_outcome = election.outcome();
-            if !election_outcome.has_quorum || election_outcome.index.is_none() {
+            let Ok(commit_index) = election.outcome() else {
                 warn!(
                     hsm = self.options.name,
-                    election = ?election_outcome,
                     commit_request = ?request,
                     "no quorum. buggy caller?"
                 );
                 return CommitResponse::NoQuorum;
-            }
+            };
 
-            let commit_index = election_outcome.index.unwrap();
             if let Some(committed) = leader.committed {
                 if committed >= commit_index {
                     return CommitResponse::AlreadyCommitted { committed };
@@ -121,13 +117,8 @@ pub struct HsmElection {
     votes: HashMap<HsmId, Option<LogIndex>>,
 }
 
-#[derive(PartialEq, Eq)]
-pub struct HsmElectionOutcome {
-    pub has_quorum: bool,
-    pub vote_count: usize,
-    pub member_count: usize,
-    pub index: Option<LogIndex>,
-}
+#[derive(Debug, Eq, PartialEq)]
+pub struct ElectionNoQuorum;
 
 impl HsmElection {
     pub fn new(voters: &[HsmId]) -> HsmElection {
@@ -141,61 +132,20 @@ impl HsmElection {
         self.votes.entry(voter).and_modify(|f| *f = Some(index));
     }
 
-    pub fn outcome(self) -> HsmElectionOutcome {
+    pub fn outcome(self) -> Result<LogIndex, ElectionNoQuorum> {
         let mut indexes = self
             .votes
             .values()
             .filter_map(|v| *v)
             .collect::<Vec<LogIndex>>();
+        // largest to smallest
         indexes.sort_by(|a, b| b.cmp(a));
         let m = self.votes.len() / 2;
-        let index = if indexes.len() > m {
-            indexes[m]
+        if indexes.len() > m {
+            Ok(indexes[m])
         } else {
-            return HsmElectionOutcome {
-                has_quorum: false,
-                member_count: self.votes.len(),
-                vote_count: indexes.len(),
-                index: if indexes.is_empty() {
-                    None
-                } else {
-                    Some(indexes[0])
-                },
-            };
-        };
-
-        let yay = self
-            .votes
-            .iter()
-            .filter(|(_, v)| match v {
-                None => false,
-                Some(i) => *i >= index,
-            })
-            .count();
-        let all = self.votes.len();
-        HsmElectionOutcome {
-            has_quorum: yay * 2 > all,
-            vote_count: yay,
-            member_count: all,
-            index: Some(index),
+            Err(ElectionNoQuorum)
         }
-    }
-}
-
-impl Debug for HsmElectionOutcome {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "HsmElectionOutcome votes {} out of {} for index {:?}, {}",
-            self.vote_count,
-            self.member_count,
-            self.index,
-            if self.has_quorum {
-                "Quorum"
-            } else {
-                "NoQuorum"
-            }
-        )
     }
 }
 
@@ -205,7 +155,7 @@ mod test {
 
     use super::{
         super::types::{HsmId, LogIndex},
-        HsmElection, HsmElectionOutcome,
+        ElectionNoQuorum, HsmElection,
     };
 
     #[test]
@@ -216,103 +166,42 @@ mod test {
 
     #[test]
     fn election_index() {
+        fn run_election(members: &[HsmId], indexes: &[u64]) -> Result<LogIndex, ElectionNoQuorum> {
+            let mut e = HsmElection::new(members);
+            for (hsm, index) in zip(members, indexes) {
+                e.vote(*hsm, LogIndex(*index));
+            }
+            e.outcome()
+        }
         let ids = (0..5).map(|b| HsmId([b; 16])).collect::<Vec<_>>();
+        assert_eq!(run_election(&ids, &[15, 15, 15, 14, 13]), Ok(LogIndex(15)));
+        assert_eq!(run_election(&ids, &[13, 14, 15, 14, 13]), Ok(LogIndex(14)));
+        assert_eq!(run_election(&ids, &[13, 13, 15, 14, 13]), Ok(LogIndex(13)));
+        assert_eq!(run_election(&ids, &[13, 14, 15, 14]), Ok(LogIndex(14)));
+        assert_eq!(run_election(&ids, &[13, 15, 14]), Ok(LogIndex(13)));
+        assert_eq!(run_election(&ids, &[13, 15]), Err(ElectionNoQuorum));
+        assert_eq!(run_election(&ids, &[13]), Err(ElectionNoQuorum));
+        assert_eq!(run_election(&ids, &[]), Err(ElectionNoQuorum));
 
-        let mut e = HsmElection::new(&ids);
-        for (hsm, index) in zip(ids.iter(), [15, 15, 15, 14, 13]) {
-            e.vote(*hsm, LogIndex(index));
-        }
-        assert_eq!(
-            HsmElectionOutcome {
-                has_quorum: true,
-                vote_count: 3,
-                member_count: 5,
-                index: Some(LogIndex(15)),
-            },
-            e.outcome()
-        );
+        assert_eq!(run_election(&ids[..4], &[11, 12, 13, 14]), Ok(LogIndex(12)));
+        assert_eq!(run_election(&ids[..4], &[11, 12, 14]), Ok(LogIndex(11)));
+        assert_eq!(run_election(&ids[..4], &[11, 12]), Err(ElectionNoQuorum));
+        assert_eq!(run_election(&ids[..4], &[12]), Err(ElectionNoQuorum));
+        assert_eq!(run_election(&ids[..4], &[]), Err(ElectionNoQuorum));
 
-        let mut e = HsmElection::new(&ids);
-        for (hsm, index) in zip(ids.iter(), [15, 13, 15, 14, 13]) {
-            e.vote(*hsm, LogIndex(index));
-        }
-        assert_eq!(
-            HsmElectionOutcome {
-                has_quorum: true,
-                vote_count: 3,
-                member_count: 5,
-                index: Some(LogIndex(14))
-            },
-            e.outcome()
-        );
+        assert_eq!(run_election(&ids[..3], &[15, 13, 14]), Ok(LogIndex(14)));
+        assert_eq!(run_election(&ids[..3], &[15, 15, 15]), Ok(LogIndex(15)));
+        assert_eq!(run_election(&ids[..3], &[11, 11, 15]), Ok(LogIndex(11)));
+        assert_eq!(run_election(&ids[..3], &[11, 15]), Ok(LogIndex(11)));
+        assert_eq!(run_election(&ids[..3], &[11]), Err(ElectionNoQuorum));
+        assert_eq!(run_election(&ids[..3], &[]), Err(ElectionNoQuorum));
 
-        let mut e = HsmElection::new(&ids);
-        for (hsm, index) in zip(ids.iter(), [13, 15, 14]) {
-            e.vote(*hsm, LogIndex(index));
-        }
-        assert_eq!(
-            HsmElectionOutcome {
-                has_quorum: true,
-                vote_count: 3,
-                member_count: 5,
-                index: Some(LogIndex(13))
-            },
-            e.outcome()
-        );
+        assert_eq!(run_election(&ids[..2], &[13, 15]), Ok(LogIndex(13)));
+        assert_eq!(run_election(&ids[..2], &[13]), Err(ElectionNoQuorum));
+        assert_eq!(run_election(&ids[..2], &[]), Err(ElectionNoQuorum));
 
-        let mut e = HsmElection::new(&ids);
-        e.vote(ids[0], LogIndex(15));
-        e.vote(ids[2], LogIndex(15));
-        assert_eq!(
-            HsmElectionOutcome {
-                has_quorum: false,
-                vote_count: 2,
-                member_count: 5,
-                index: Some(LogIndex(15)),
-            },
-            e.outcome()
-        );
-
-        let mut e = HsmElection::new(&ids[..3]);
-        for (hsm, index) in zip(ids.iter(), [15, 14, 13]) {
-            e.vote(*hsm, LogIndex(index));
-        }
-        assert_eq!(
-            HsmElectionOutcome {
-                has_quorum: true,
-                vote_count: 2,
-                member_count: 3,
-                index: Some(LogIndex(14))
-            },
-            e.outcome()
-        );
-
-        let mut e = HsmElection::new(&ids[..4]);
-        for (hsm, index) in zip(ids.iter(), [15, 14, 13, 12]) {
-            e.vote(*hsm, LogIndex(index));
-        }
-        assert_eq!(
-            HsmElectionOutcome {
-                has_quorum: true,
-                vote_count: 3,
-                member_count: 4,
-                index: Some(LogIndex(13)),
-            },
-            e.outcome()
-        );
-
-        let mut e = HsmElection::new(&ids[..2]);
-        e.vote(ids[0], LogIndex(15));
-        e.vote(ids[1], LogIndex(13));
-        assert_eq!(
-            HsmElectionOutcome {
-                has_quorum: true,
-                vote_count: 2,
-                member_count: 2,
-                index: Some(LogIndex(13))
-            },
-            e.outcome()
-        );
+        assert_eq!(run_election(&ids[..1], &[42]), Ok(LogIndex(42)));
+        assert_eq!(run_election(&ids[..1], &[]), Err(ElectionNoQuorum));
     }
 
     #[test]
@@ -323,10 +212,7 @@ mod test {
             for v in voters.iter() {
                 q.vote(*v, LogIndex(42));
             }
-            let o = q.outcome();
-            assert_eq!(voters.len(), o.vote_count);
-            assert_eq!(ids.len(), o.member_count);
-            o.has_quorum
+            q.outcome().is_ok()
         }
         // 1 member
         assert!(has_q(&ids[..1], &ids[..1]));
@@ -371,15 +257,7 @@ mod test {
         for not_member in &ids[5..] {
             q.vote(*not_member, LogIndex(42));
         }
-        assert_eq!(
-            HsmElectionOutcome {
-                has_quorum: false,
-                vote_count: 0,
-                member_count: 5,
-                index: None,
-            },
-            q.outcome()
-        );
+        assert_eq!(Err(ElectionNoQuorum), q.outcome());
     }
 
     #[test]
@@ -390,14 +268,6 @@ mod test {
         q.vote(ids[0], LogIndex(13));
         q.vote(ids[0], LogIndex(13));
         q.vote(ids[1], LogIndex(13));
-        assert_eq!(
-            HsmElectionOutcome {
-                has_quorum: false,
-                vote_count: 2,
-                member_count: 5,
-                index: Some(LogIndex(13)),
-            },
-            q.outcome()
-        );
+        assert_eq!(Err(ElectionNoQuorum), q.outcome());
     }
 }
