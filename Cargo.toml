@@ -38,7 +38,7 @@ jsonwebtoken = { version = "8.3.0", default-features = false }
 libc = { version = "0.2.139", default-features = false }
 loam-sdk = { path = "sdk/rust/sdk/client" }
 loam-sdk-core = { path = "sdk/rust/sdk/core" }
-loam-sdk-networking = { path = "sdk/rust/sdk/networking", features = ["threadsafe-futures", "header-tracing"] }
+loam-sdk-networking = { path = "sdk/rust/sdk/networking", features = ["threadsafe-futures", "distributed-tracing"] }
 loam-sdk-noise = { path = "sdk/rust/sdk/noise" }
 nix = { version = "0.26.2", default-features = false, features = ["signal"] }
 opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
