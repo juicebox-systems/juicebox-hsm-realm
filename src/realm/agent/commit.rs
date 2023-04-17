@@ -2,12 +2,15 @@ use futures::future::join_all;
 use hsmcore::hsm::types::EntryHmac;
 use loam_sdk_core::requests::NoiseResponse;
 use loam_sdk_networking::rpc;
-use std::collections::HashSet;
+use reqwest::Url;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
+use tokio::task::JoinSet;
 use tokio::time::sleep;
 use tracing::{info, trace, warn, Span};
 
-use super::super::hsm::client::Transport;
+use super::super::{hsm::client::Transport, store::bigtable::StoreClient};
 use super::types::{ReadCapturedRequest, ReadCapturedResponse};
 use super::Agent;
 use hsmcore::hsm::{
@@ -59,9 +62,10 @@ impl<T: Transport + 'static> Agent<T> {
         tokio::spawn(async move {
             let interval = Duration::from_millis(2);
             let mut last_committed: Option<LogIndex> = None;
+            let peers = PeerCache::new(agent.0.store.clone(), Duration::from_secs(10)).await;
             loop {
                 match agent
-                    .commit_maybe(realm, group, &config, last_committed)
+                    .commit_maybe(realm, group, &config, &peers, last_committed)
                     .await
                 {
                     CommitterStatus::NoLongerLeader => {
@@ -80,6 +84,7 @@ impl<T: Transport + 'static> Agent<T> {
         realm: RealmId,
         group: GroupId,
         config: &Configuration,
+        peers: &PeerCache,
         last_committed: Option<LogIndex>,
     ) -> CommitterStatus {
         if self
@@ -94,30 +99,17 @@ impl<T: Transport + 'static> Agent<T> {
             return CommitterStatus::NoLongerLeader;
         }
 
-        // We're still leader for this group, go collect up all the capture results from all the group members.
-        let peers: HashSet<&HsmId> = config.0.iter().collect();
+        // We're still leader for this group. See if we can move the commit index forward.
 
-        // TODO, we need to cache the peer mapping
-        let addresses = match self.0.store.get_addresses().await {
-            Err(e) => {
-                warn!(err=?e, "failed to get peer addresses from service discovery");
-                return CommitterStatus::Committing {
-                    committed: last_committed,
-                };
-            }
-            Ok(addresses) => addresses,
-        };
-
-        // Go get the captures, and filter them down to just this realm/group.
-        let captures = join_all(addresses.iter().filter(|(id, _)| peers.contains(id)).map(
-            |(_, url)| {
-                rpc::send(
-                    &self.0.peer_client,
-                    url,
-                    ReadCapturedRequest { realm, group },
-                )
-            },
-        ))
+        // Go get the captures from all the group members for this realm/group.
+        let urls: Vec<Url> = config.0.iter().filter_map(|hsm| peers.url(hsm)).collect();
+        let captures = join_all(urls.iter().map(|url| {
+            rpc::send(
+                &self.0.peer_client,
+                url,
+                ReadCapturedRequest { realm, group },
+            )
+        }))
         .await
         .into_iter()
         // skip network failures
@@ -214,6 +206,51 @@ impl<T: Transport + 'static> Agent<T> {
             warn!("dropping responses on the floor: no leader state");
         }
         released_count
+    }
+}
+
+struct PeerCache {
+    peers: Arc<Mutex<HashMap<HsmId, Url>>>,
+    // This is included for its `Drop` implementation, which aborts the
+    // background task(s).
+    tasks: JoinSet<()>,
+}
+impl PeerCache {
+    async fn new(store: StoreClient, interval: Duration) -> Self {
+        let init_peers = store
+            .get_addresses()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        let mut c = Self {
+            peers: Arc::new(Mutex::new(init_peers)),
+            tasks: JoinSet::new(),
+        };
+        let peers = c.peers.clone();
+        c.tasks.spawn(async move {
+            let mut next_interval = interval;
+            loop {
+                sleep(next_interval).await;
+                match store.get_addresses().await {
+                    Ok(a) => {
+                        let mut locked = peers.lock().unwrap();
+                        for (id, url) in a {
+                            locked.insert(id, url);
+                        }
+                        next_interval = interval;
+                    }
+                    Err(err) => {
+                        warn!(?err, "failed to fetch service discovery info from bigtable");
+                        next_interval = interval / 10;
+                    }
+                }
+            }
+        });
+        c
+    }
+    fn url(&self, id: &HsmId) -> Option<Url> {
+        self.peers.lock().unwrap().get(id).cloned()
     }
 }
 
