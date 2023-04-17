@@ -333,7 +333,12 @@ fn recover2(
         Some(GenerationRecord::Registered(record)) => {
             if !bool::from(request.tag.ct_eq(&record.tag)) {
                 trace!(hsm = ctx.hsm_name, ?record_id, %request.generation, "can't recover: bad unlock tag");
-                (Recover2Response::BadUnlockTag, None)
+                (
+                    Recover2Response::BadUnlockTag {
+                        guesses_remaining: record.policy.num_guesses - record.guess_count,
+                    },
+                    None,
+                )
             } else {
                 record.guess_count = 0;
                 trace!(hsm = ctx.hsm_name, ?record_id, %request.generation, "recovered secret share successfully");
