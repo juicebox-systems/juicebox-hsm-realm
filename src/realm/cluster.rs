@@ -553,6 +553,7 @@ pub async fn ensure_groups_have_leader(
                     BecomeLeaderRequest {
                         realm: realm_id,
                         group: group_id,
+                        last: None,
                     },
                 )
                 .await

@@ -125,6 +125,8 @@ impl Rpc<AgentService> for BecomeLeaderRequest {
 pub struct BecomeLeaderRequest {
     pub realm: RealmId,
     pub group: GroupId,
+    // If known, the last log index written by the previous leader.
+    pub last: Option<LogIndex>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -659,13 +659,36 @@ impl<T: Transport + 'static> Agent<T> {
         let hsm = &self.0.hsm;
         let store = &self.0.store;
 
-        let last_entry = match store
-            .read_last_log_entry(&request.realm, &request.group)
-            .await
-        {
-            Err(_) => return Ok(Response::NoStore),
-            Ok(Some(entry)) => entry,
-            Ok(None) => todo!(),
+        let last_entry = match request.last {
+            None => match store
+                .read_last_log_entry(&request.realm, &request.group)
+                .await
+            {
+                Err(_) => return Ok(Response::NoStore),
+                Ok(Some(entry)) => entry,
+                Ok(None) => todo!(),
+            },
+            // If the cluster manager is doing a coordinated leadership handoff it
+            // knows what the last log index of the stepping down leader owned,
+            // we'll wait for that to be available.
+            Some(idx) => {
+                let entry: LogEntry;
+                loop {
+                    entry = match store
+                        .read_log_entry(&request.realm, &request.group, idx)
+                        .await
+                    {
+                        Err(_) => return Ok(Response::NoStore),
+                        Ok(Some(entry)) => entry,
+                        Ok(None) => {
+                            sleep(Duration::from_millis(2)).await;
+                            continue;
+                        }
+                    };
+                    break;
+                }
+                entry
+            }
         };
         let last_entry_index = last_entry.index;
 
