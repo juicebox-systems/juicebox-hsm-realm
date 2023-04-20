@@ -1,5 +1,5 @@
 use futures::future::join_all;
-use hsmcore::hsm::types::EntryHmac;
+use hsmcore::hsm::types::{Captured, EntryHmac};
 use loam_sdk_core::requests::NoiseResponse;
 use loam_sdk_networking::rpc;
 use reqwest::Url;
@@ -103,7 +103,7 @@ impl<T: Transport + 'static> Agent<T> {
 
         // Go get the captures from all the group members for this realm/group.
         let urls: Vec<Url> = config.0.iter().filter_map(|hsm| peers.url(hsm)).collect();
-        let captures = join_all(urls.iter().map(|url| {
+        let captures: Vec<Captured> = join_all(urls.iter().map(|url| {
             rpc::send(
                 &self.0.peer_client,
                 url,
@@ -117,7 +117,7 @@ impl<T: Transport + 'static> Agent<T> {
         .filter_map(|r| match r {
             ReadCapturedResponse::Ok(captured) => captured,
         })
-        .collect::<Vec<_>>();
+        .collect();
 
         // Calculate a commit index.
         let mut election = HsmElection::new(&config.0);
@@ -217,7 +217,7 @@ struct PeerCache {
 }
 impl PeerCache {
     async fn new(store: StoreClient, interval: Duration) -> Self {
-        let init_peers = store
+        let init_peers: HashMap<HsmId, Url> = store
             .get_addresses()
             .await
             .unwrap_or_default()
