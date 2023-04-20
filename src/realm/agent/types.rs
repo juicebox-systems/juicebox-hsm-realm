@@ -134,6 +134,7 @@ pub enum BecomeLeaderResponse {
     NoStore,
     InvalidRealm,
     InvalidGroup,
+    StepdownInProgress,
     NotCaptured { have: Option<LogIndex> },
 }
 

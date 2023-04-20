@@ -2,7 +2,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use hashbrown::HashMap;
-use tracing::{trace, warn};
+use tracing::{info, trace, warn};
 
 use super::super::hal::Platform;
 use super::types::{Captured, CommitRequest, CommitResponse, HsmId, LogIndex};
@@ -29,8 +29,12 @@ impl<P: Platform> Hsm<P> {
                 return CommitResponse::InvalidGroup;
             };
 
-            let Some(leader) = self.volatile.leader.get_mut(&request.group) else {
-                return CommitResponse::NotLeader;
+            let (leader_log, committed) = match self.volatile.leader.get_mut(&request.group) {
+                Some(leader) => (&mut leader.log, &mut leader.committed),
+                None => match self.volatile.stepping_down.get_mut(&request.group) {
+                    Some(leader) => (&mut leader.log, &mut leader.committed),
+                    None => return CommitResponse::NotLeader,
+                },
             };
 
             let mut election = HsmElection::new(&group.configuration.0);
@@ -60,11 +64,11 @@ impl<P: Platform> Hsm<P> {
                     // it against entries we have. For a new leader this won't
                     // be able to commit until the witnesses catch up to a log
                     // entry written by the new leader.
-                    if let Some(offset) = captured.index.0.checked_sub(leader.log[0].entry.index.0)
+                    if let Some(offset) = captured.index.0.checked_sub(leader_log[0].entry.index.0)
                     {
                         if let Ok(offset) = usize::try_from(offset) {
-                            if offset < leader.log.len()
-                                && leader.log[offset].entry.entry_hmac == captured.hmac
+                            if offset < leader_log.len()
+                                && leader_log[offset].entry.entry_hmac == captured.hmac
                             {
                                 election.vote(captured.hsm, captured.index);
                             }
@@ -82,17 +86,19 @@ impl<P: Platform> Hsm<P> {
                 return CommitResponse::NoQuorum;
             };
 
-            if let Some(committed) = leader.committed {
-                if committed >= commit_index {
-                    return CommitResponse::AlreadyCommitted { committed };
+            if let Some(committed) = committed {
+                if *committed >= commit_index {
+                    return CommitResponse::AlreadyCommitted {
+                        committed: *committed,
+                    };
                 }
             }
 
-            trace!(hsm = self.options.name, group=?request.group, index = ?commit_index, prev_index=?leader.committed, "leader committed entries");
+            trace!(hsm = self.options.name, group=?request.group, index = ?commit_index, prev_index=?committed, "leader committed entries");
             // trim the prefix of leader.log and collect up the responses
             let mut responses = Vec::new();
             loop {
-                match leader.log.pop_front() {
+                match leader_log.pop_front() {
                     None => panic!("We should never empty leader.log entirely"),
                     Some(e) if e.entry.index < commit_index => {
                         if let Some(r) = e.response {
@@ -108,12 +114,20 @@ impl<P: Platform> Hsm<P> {
                         // don't need to put this one back. But it seems
                         // safer to be consistent and always have this
                         // one in the log.
-                        leader.log.push_front(e);
+                        leader_log.push_front(e);
                         break;
                     }
                 }
             }
-            leader.committed = Some(commit_index);
+            *committed = Some(commit_index);
+
+            // See if we're finished stepping down.
+            if let Some(sd) = self.volatile.stepping_down.get(&request.group) {
+                if commit_index >= sd.stepdown_at {
+                    info!(group=?request.group, hsm=self.options.name, "Completed leader stepdown");
+                    self.volatile.stepping_down.remove(&request.group);
+                }
+            }
             CommitResponse::Ok {
                 committed: commit_index,
                 responses,

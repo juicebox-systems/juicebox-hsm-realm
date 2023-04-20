@@ -634,6 +634,7 @@ impl<T: Transport + 'static> Agent<T> {
             }
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
             Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
+            Ok(HsmResponse::StepdownInProgress) => Ok(Response::StepdownInProgress),
             Ok(HsmResponse::InvalidHmac) => panic!(),
             Ok(HsmResponse::NotCaptured { have }) => Ok(Response::NotCaptured { have }),
         }

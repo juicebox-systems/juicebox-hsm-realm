@@ -420,7 +420,35 @@ pub enum BecomeLeaderResponse {
     InvalidRealm,
     InvalidGroup,
     InvalidHmac,
-    NotCaptured { have: Option<LogIndex> },
+    NotCaptured {
+        have: Option<LogIndex>,
+    },
+    /// Can't become leader if we're in the middle of stepping down.
+    StepdownInProgress,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct StepdownAsLeaderRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum StepdownAsLeaderResponse {
+    // Stepdown is in progress, it won't be complete until the commit reaches 'last'.
+    InProgress {
+        // This is the last log index generated as leader. The agent needs to ensure
+        // that it continues to issue commit requests to the HSM until it reaches
+        // at least this index to ensure all the pending client responses are released.
+        last: LogIndex,
+    },
+    // Stepdown is fully complete.
+    Complete {
+        last: LogIndex,
+    },
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
