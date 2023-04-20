@@ -1321,7 +1321,24 @@ impl<T: Transport + 'static> Agent<T> {
 
             match self.0.store.append(&realm, &group, &batch, delta).await {
                 Err(bigtable::AppendError::LogPrecondition) => {
-                    todo!("stop leading")
+                    warn!(
+                        name = self.0.name,
+                        "detected dueling leaders, stepping down"
+                    );
+                    {
+                        let mut locked = self.0.state.lock().unwrap();
+                        // Empty the queue so we don't try and append anything else.
+                        if let Some(ls) = locked.leader.get_mut(&(realm, group)) {
+                            ls.append_queue.clear();
+                            ls.appending = NotAppending {
+                                next: LogIndex(u64::MAX),
+                            };
+                        }
+                    }
+                    self.handle_stepdown_as_leader(StepdownAsLeaderRequest { realm, group })
+                        .await
+                        .expect("error during leader stepdown");
+                    return;
                 }
                 Err(_) => todo!(),
                 Ok(()) => {}
