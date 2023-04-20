@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use clap::Parser;
 use core::slice;
-use loam_sdk_core::marshalling::{DeserializationError, SerializationError};
 use nfastapp::{
     Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
     Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_ErrorReturn, Cmd_LoadBuffer,
@@ -20,15 +19,18 @@ use std::ops::Deref;
 use std::ptr::null_mut;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::runtime::Handle;
 use tokio::time::Instant;
 use tracing::{debug, info, instrument, warn};
 
 use loam_mvp::clap_parsers::parse_duration;
+use loam_mvp::future_task::FutureTasks;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::realm::agent::Agent;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
 use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_sdk_core::marshalling::{DeserializationError, SerializationError};
 
 mod nfastapp;
 
@@ -78,8 +80,14 @@ struct Args {
 async fn main() {
     logging::configure("entrust-agent");
 
+    let mut shutdown_tasks = FutureTasks::new();
+    let mut shutdown_tasks_clone = shutdown_tasks.clone();
+    let rt = Handle::try_current().unwrap();
+
     ctrlc::set_handler(move || {
         info!(pid = std::process::id(), "received termination signal");
+        logging::flush();
+        rt.block_on(async { shutdown_tasks_clone.join_all().await });
         logging::flush();
         info!(pid = std::process::id(), "exiting");
         std::process::exit(0);
@@ -112,7 +120,13 @@ async fn main() {
 
     let hsm_t = EntrustSeeTransport::new(args.module, args.trace, args.image);
     let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);
+
     let agent = Agent::new(name, hsm, store, store_admin);
+    let agent_clone = agent.clone();
+    shutdown_tasks.add(Box::pin(async move {
+        agent_clone.shutdown(Duration::from_secs(10)).await;
+    }));
+
     let (url, join_handle) = agent.listen(args.listen).await.expect("TODO");
     info!(url = %url, "Agent started");
     join_handle.await.unwrap();

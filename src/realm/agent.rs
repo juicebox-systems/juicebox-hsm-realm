@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -42,8 +42,9 @@ use types::{
     CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
     JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest,
     NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse,
-    TransferInRequest, TransferInResponse, TransferNonceRequest, TransferNonceResponse,
-    TransferOutRequest, TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
+    StepdownAsLeaderRequest, StepdownAsLeaderResponse, TransferInRequest, TransferInResponse,
+    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
+    TransferStatementRequest, TransferStatementResponse,
 };
 
 #[derive(Debug)]
@@ -75,6 +76,9 @@ struct LeaderState {
     /// store.
     appending: AppendingState,
     response_channels: HashMap<EntryHmac, oneshot::Sender<NoiseResponse>>,
+    /// When set the leader is stepping down, and should stop processing once
+    /// this log entry is complete.
+    stepdown_at: Option<LogIndex>,
 }
 
 #[derive(Debug)]
@@ -277,6 +281,48 @@ impl<T: Transport + 'static> Agent<T> {
         ))
     }
 
+    /// Attempt a graceful shutdown, this includes having the HSM stepdown as leader
+    /// if its leading and wait for all the pending responses to be sent to the
+    /// client. Blocks until the shutdown is complete.
+    pub async fn shutdown(&self, timeout: Duration) {
+        // TODO: Should this stop new connections coming in?
+        let leading = {
+            let state = self.0.state.lock().unwrap();
+            if state.leader.is_empty() {
+                // easy case, we're not leader, job done.
+                return;
+            }
+            state.leader.keys().copied().collect::<Vec<_>>()
+        };
+        info!("Starting graceful agent shutdown");
+        let start = Instant::now();
+        for (realm, group) in leading {
+            if let Err(err) = self
+                .handle_stepdown_as_leader(StepdownAsLeaderRequest { realm, group })
+                .await
+            {
+                warn!(
+                    ?group,
+                    ?realm,
+                    ?err,
+                    "failed to request leadership stepdown"
+                )
+            }
+        }
+        // now wait til we're done stepping down.
+        info!("Waiting for leadership stepdown(s) to complete.");
+        loop {
+            if self.0.state.lock().unwrap().leader.is_empty() {
+                return;
+            }
+            if start.elapsed() > timeout {
+                warn!("Timed out waiting for stepdown to complete.");
+                return;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    }
+
     fn start_service_registration(&self, url: Url) {
         let agent = self.0.clone();
         tokio::spawn(async move {
@@ -334,6 +380,9 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                     AppRequest::PATH => handle_rpc(&agent, request, Self::handle_app).await,
                     BecomeLeaderRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_become_leader).await
+                    }
+                    StepdownAsLeaderRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_stepdown_as_leader).await
                     }
                     CompleteTransferRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_complete_transfer).await
@@ -482,6 +531,7 @@ impl<T: Transport + 'static> Agent<T> {
                     next: starting_index.next(),
                 },
                 response_channels: HashMap::new(),
+                stepdown_at: None,
             },
         );
         assert!(existing.is_none());
@@ -637,6 +687,66 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(HsmResponse::StepdownInProgress) => Ok(Response::StepdownInProgress),
             Ok(HsmResponse::InvalidHmac) => panic!(),
             Ok(HsmResponse::NotCaptured { have }) => Ok(Response::NotCaptured { have }),
+        }
+    }
+
+    async fn handle_stepdown_as_leader(
+        &self,
+        request: StepdownAsLeaderRequest,
+    ) -> Result<StepdownAsLeaderResponse, HandlerError> {
+        type Response = StepdownAsLeaderResponse;
+        type HsmResponse = hsm_types::StepdownAsLeaderResponse;
+
+        if self
+            .0
+            .state
+            .lock()
+            .unwrap()
+            .leader
+            .get(&(request.realm, request.group))
+            .is_none()
+        {
+            return Ok(Response::NotLeader);
+        };
+        match self
+            .0
+            .hsm
+            .send(hsm_types::StepdownAsLeaderRequest {
+                realm: request.realm,
+                group: request.group,
+            })
+            .await
+        {
+            Err(_) => Ok(Response::NoHsm),
+            Ok(HsmResponse::Complete { last }) => {
+                info!(group=?request.group, realm=?request.realm, "HSM Stepped down as leader");
+                self.0
+                    .state
+                    .lock()
+                    .unwrap()
+                    .leader
+                    .remove(&(request.realm, request.group));
+                Ok(Response::Ok { last })
+            }
+            Ok(HsmResponse::InProgress { last }) => {
+                info!(group=?request.group, realm=?request.realm, index=?last, "HSM will stepdown as leader");
+                // This is not as racy as it may appear as the HSM will only
+                // return Complete or InProgress when it atomically steps down
+                // as leader. So even if a bunch of step down requests came in
+                // at once, only one of them would get here. (or Complete)
+                self.0
+                    .state
+                    .lock()
+                    .unwrap()
+                    .leader
+                    .get_mut(&(request.realm, request.group))
+                    .unwrap()
+                    .stepdown_at = Some(last);
+                Ok(Response::Ok { last })
+            }
+            Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
+            Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
+            Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
         }
     }
 
@@ -1012,6 +1122,9 @@ impl<T: Transport + 'static> Agent<T> {
                     let Some(leader) = locked.leader.get_mut(&(realm, group)) else {
                         return Ok(Response::NotLeader);
                     };
+                    if leader.stepdown_at.is_some() {
+                        return Ok(Response::NotLeader);
+                    }
                     leader
                         .response_channels
                         .insert(append_request.entry.entry_hmac.clone(), sender);

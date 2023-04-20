@@ -1,6 +1,7 @@
 mod autogen;
 pub mod clap_parsers;
 pub mod client_auth;
+pub mod future_task;
 pub mod google_auth;
 pub mod http_client;
 pub mod logging;

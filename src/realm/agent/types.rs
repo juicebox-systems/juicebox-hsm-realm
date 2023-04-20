@@ -138,6 +138,26 @@ pub enum BecomeLeaderResponse {
     NotCaptured { have: Option<LogIndex> },
 }
 
+impl Rpc<AgentService> for StepdownAsLeaderRequest {
+    const PATH: &'static str = "stepdown";
+    type Response = StepdownAsLeaderResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct StepdownAsLeaderRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum StepdownAsLeaderResponse {
+    Ok { last: LogIndex },
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+    NoHsm,
+}
+
 impl Rpc<AgentService> for ReadCapturedRequest {
     const PATH: &'static str = "captured";
     type Response = ReadCapturedResponse;

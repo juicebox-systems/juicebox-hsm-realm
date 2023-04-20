@@ -177,6 +177,19 @@ impl<T: Transport + 'static> Agent<T> {
 
         let released_count = self.release_client_responses(realm, group, responses);
         Span::current().record("released_count", released_count);
+
+        // See if we're done stepping down
+        let mut locked = self.0.state.lock().unwrap();
+        if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
+            if let Some(stepdown) = leader.stepdown_at {
+                if new_committed >= stepdown {
+                    info!(?group, "Leader stepdown completed");
+                    locked.leader.remove(&(realm, group));
+                } else {
+                    info!(?group, at=?new_committed, ?stepdown, "committed, but not at stepdown point yet");
+                }
+            }
+        }
         CommitterStatus::Committing {
             committed: Some(new_committed),
         }
