@@ -2,8 +2,8 @@ extern crate alloc;
 
 use aes_gcm::aead::Aead;
 use alloc::borrow::Cow;
+use alloc::collections::VecDeque;
 use alloc::string::String;
-use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::{self, Debug};
 use core::time::Duration;
@@ -389,7 +389,7 @@ struct VolatileState {
 }
 
 struct LeaderVolatileGroupState {
-    log: Vec<LeaderLogEntry>, // never empty
+    log: VecDeque<LeaderLogEntry>, // never empty
     committed: Option<LogIndex>,
     incoming: Option<TransferNonce>,
     /// This is `Some` if and only if the last entry in `log` owns a partition.
@@ -708,10 +708,10 @@ impl<P: Platform> Hsm<P> {
         self.volatile.leader.insert(
             group,
             LeaderVolatileGroupState {
-                log: vec![LeaderLogEntry {
+                log: VecDeque::from([LeaderLogEntry {
                     entry: entry.clone(),
                     response: None,
-                }],
+                }]),
                 committed: None,
                 incoming: None,
                 tree: partition.as_ref().map(|p| {
@@ -761,7 +761,7 @@ impl<P: Platform> Hsm<P> {
                                         committed: leader.committed,
                                         owned_range: leader
                                             .log
-                                            .last()
+                                            .back()
                                             .expect("leader's log is never empty")
                                             .entry
                                             .partition
@@ -1046,10 +1046,10 @@ impl<P: Platform> Hsm<P> {
                 .leader
                 .entry(request.group)
                 .or_insert_with(|| LeaderVolatileGroupState {
-                    log: vec![LeaderLogEntry {
+                    log: VecDeque::from([LeaderLogEntry {
                         entry: request.last_entry,
                         response: None,
-                    }],
+                    }]),
                     committed: None,
                     incoming: None,
                     tree,
@@ -1141,7 +1141,7 @@ impl<P: Platform> Hsm<P> {
                 return Response::NotLeader;
             };
 
-            let last_entry = &leader.log.last().unwrap().entry;
+            let last_entry = &leader.log.back().unwrap().entry;
 
             // Note: The owned_range found in the last entry might not have
             // committed yet. We think that's OK. The source group won't
@@ -1241,7 +1241,7 @@ impl<P: Platform> Hsm<P> {
                 entry_hmac,
             };
 
-            leader.log.push(LeaderLogEntry {
+            leader.log.push_back(LeaderLogEntry {
                 entry: entry.clone(),
                 response: None,
             });
@@ -1313,7 +1313,7 @@ impl<P: Platform> Hsm<P> {
                 destination,
                 partition,
                 at: transferring_at,
-            }) = &leader.log.last().unwrap().entry.transferring_out else {
+            }) = &leader.log.back().unwrap().entry.transferring_out else {
                 return Response::NotTransferring;
             };
             if *destination != request.destination {
@@ -1367,7 +1367,7 @@ impl<P: Platform> Hsm<P> {
             }
             leader.incoming = None;
 
-            let last_entry = &leader.log.last().unwrap().entry;
+            let last_entry = &leader.log.back().unwrap().entry;
             let needs_merge = match &last_entry.partition {
                 None => false,
                 Some(part) => match part.range.join(&request.transferring.range) {
@@ -1445,7 +1445,7 @@ impl<P: Platform> Hsm<P> {
                 entry_hmac,
             };
 
-            leader.log.push(LeaderLogEntry {
+            leader.log.push_back(LeaderLogEntry {
                 entry: entry.clone(),
                 response: None,
             });
@@ -1486,7 +1486,7 @@ impl<P: Platform> Hsm<P> {
                 return Response::NotLeader;
             };
 
-            let last_entry = &leader.log.last().unwrap().entry;
+            let last_entry = &leader.log.back().unwrap().entry;
             if let Some(transferring_out) = &last_entry.transferring_out {
                 if transferring_out.destination != request.destination
                     || transferring_out.partition.range != request.range
@@ -1520,7 +1520,7 @@ impl<P: Platform> Hsm<P> {
                 entry_hmac,
             };
 
-            leader.log.push(LeaderLogEntry {
+            leader.log.push_back(LeaderLogEntry {
                 entry: entry.clone(),
                 response: None,
             });
@@ -1544,7 +1544,7 @@ impl<P: Platform> Hsm<P> {
             Some(realm) if realm.id == request.realm => {
                 if realm.groups.contains_key(&request.group) {
                     if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
-                        if (leader.log.last().unwrap().entry)
+                        if (leader.log.back().unwrap().entry)
                             .partition
                             .as_ref()
                             .filter(|partition| partition.range.contains(&request.record_id))
@@ -1605,7 +1605,7 @@ impl<P: Platform> Hsm<P> {
             Some(realm) if realm.id == request.realm => {
                 if realm.groups.contains_key(&request.group) {
                     if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
-                        if (leader.log.last().unwrap().entry)
+                        if (leader.log.back().unwrap().entry)
                             .partition
                             .as_ref()
                             .filter(|partition| partition.range.contains(&request.record_id))
@@ -1705,7 +1705,7 @@ fn handle_app_request(
         root_hash,
         &persistent.realm_key,
     );
-    leader.log.push(LeaderLogEntry {
+    leader.log.push_back(LeaderLogEntry {
         entry: new_entry.clone(),
         response: Some(secrets_response),
     });
@@ -1923,7 +1923,7 @@ fn make_next_log_entry(
     root_hash: DataHash,
     realm_key: &RealmKey,
 ) -> LogEntry {
-    let last_entry = leader.log.last().unwrap();
+    let last_entry = leader.log.back().unwrap();
 
     let index = last_entry.entry.index.next();
     let partition = Some(Partition {

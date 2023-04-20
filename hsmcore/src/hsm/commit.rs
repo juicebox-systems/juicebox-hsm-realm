@@ -89,18 +89,30 @@ impl<P: Platform> Hsm<P> {
             }
 
             trace!(hsm = self.options.name, group=?request.group, index = ?commit_index, prev_index=?leader.committed, "leader committed entries");
-            // todo: skip already committed entries
-            let responses = leader
-                .log
-                .iter_mut()
-                .filter(|entry| entry.entry.index <= commit_index)
-                .filter_map(|entry| {
-                    entry
-                        .response
-                        .take()
-                        .map(|r| (entry.entry.entry_hmac.clone(), r))
-                })
-                .collect();
+            // trim the prefix of leader.log and collect up the responses
+            let mut responses = Vec::new();
+            loop {
+                match leader.log.pop_front() {
+                    None => panic!("We should never empty leader.log entirely"),
+                    Some(e) if e.entry.index < commit_index => {
+                        if let Some(r) = e.response {
+                            responses.push((e.entry.entry_hmac, r));
+                        }
+                    }
+                    Some(mut e) => {
+                        assert!(e.entry.index == commit_index);
+                        if let Some(r) = e.response.take() {
+                            responses.push((e.entry.entry_hmac.clone(), r));
+                        }
+                        // If there's still something in the log then we
+                        // don't need to put this one back. But it seems
+                        // safer to be consistent and always have this
+                        // one in the log.
+                        leader.log.push_front(e);
+                        break;
+                    }
+                }
+            }
             leader.committed = Some(commit_index);
             CommitResponse::Ok {
                 committed: commit_index,
