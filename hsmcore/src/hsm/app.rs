@@ -2,11 +2,11 @@ extern crate alloc;
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use blake2::Blake2s256;
 use core::fmt::{self, Debug};
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
+use hmac::{Mac, SimpleHmac};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 use subtle::ConstantTimeEq;
 use tracing::trace;
 
@@ -80,7 +80,7 @@ impl RootOprfKey {
             0x2f, 0xd7, 0x3c, 0x10,
         ];
         let info = "oprf".as_bytes();
-        let hk = Hkdf::<Sha256>::new(Some(&salt), &realm_key.0);
+        let hk = Hkdf::<Blake2s256, SimpleHmac<Blake2s256>>::new(Some(&salt), &realm_key.0);
         let mut out = [0u8; 32];
         hk.expand(info, &mut out).unwrap();
         Self(out)
@@ -92,9 +92,9 @@ impl RootOprfKey {
         &self,
         record_id: &RecordId,
         generation: GenerationNumber,
-    ) -> digest::Output<Sha256> {
-        let mut mac =
-            <Hmac<Sha256> as Mac>::new_from_slice(&self.0).expect("failed to initialize HMAC");
+    ) -> digest::Output<Blake2s256> {
+        let mut mac = <SimpleHmac<Blake2s256> as Mac>::new_from_slice(&self.0)
+            .expect("failed to initialize HMAC");
         mac.update(record_id.0.as_slice());
         mac.update(&[0u8]);
         mac.update(&generation.0.to_be_bytes());

@@ -1,11 +1,11 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use blake2::Blake2s256;
 use core::fmt;
 use core::time::Duration;
-use hmac::Hmac;
+use hmac::SimpleHmac;
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 
 use super::super::bitvec::{BitVec, Bits};
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
@@ -147,11 +147,11 @@ pub struct TransferringOut {
 
 /// See [super::EntryHmacBuilder].
 #[derive(Clone, Eq, Deserialize, Hash, PartialEq, Serialize)]
-pub struct EntryHmac(pub digest::Output<Hmac<Sha256>>);
+pub struct EntryHmac(pub digest::Output<SimpleHmac<Blake2s256>>);
 
 impl EntryHmac {
     pub fn zero() -> Self {
-        Self(digest::Output::<Hmac<Sha256>>::default())
+        Self(digest::Output::<SimpleHmac<Blake2s256>>::default())
     }
 }
 
@@ -211,7 +211,7 @@ impl OwnedRange {
 }
 
 #[derive(Clone, Copy, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct DataHash(pub digest::Output<Sha256>);
+pub struct DataHash(pub digest::Output<Blake2s256>);
 
 impl fmt::Debug for DataHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -246,7 +246,7 @@ pub struct Configuration(pub Vec<HsmId>);
 
 /// See [super::GroupConfigurationStatementBuilder].
 #[derive(Clone, Deserialize, Serialize)]
-pub struct GroupConfigurationStatement(pub digest::Output<Hmac<Sha256>>);
+pub struct GroupConfigurationStatement(pub digest::Output<SimpleHmac<Blake2s256>>);
 
 impl fmt::Debug for GroupConfigurationStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -259,7 +259,7 @@ impl fmt::Debug for GroupConfigurationStatement {
 
 /// See [super::CapturedStatementBuilder].
 #[derive(Clone, Deserialize, Serialize)]
-pub struct CapturedStatement(pub digest::Output<Hmac<Sha256>>);
+pub struct CapturedStatement(pub digest::Output<SimpleHmac<Blake2s256>>);
 
 impl fmt::Debug for CapturedStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -284,7 +284,7 @@ impl fmt::Debug for TransferNonce {
 
 /// See [super::TransferStatementBuilder].
 #[derive(Clone, Deserialize, Serialize)]
-pub struct TransferStatement(pub digest::Output<Hmac<Sha256>>);
+pub struct TransferStatement(pub digest::Output<SimpleHmac<Blake2s256>>);
 
 impl fmt::Debug for TransferStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -14,6 +14,7 @@ edition = "2021"
 [workspace.dependencies]
 async-recursion = "1.0.2"
 async-trait = "0.1.64"
+blake2 = { version = "0.10.6", default-features = false }
 bytes = { version = "1.4.0", default-features = false }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
     "alloc",
@@ -63,7 +64,6 @@ serde = { version = "1.0.152", default-features = false, features = [
     "derive",
 ] }
 serde_json = "1.0.94"
-sha2 = { version = "0.10.6", default-features = false }
 signal-hook = "0.3.15"
 subtle = { version = "2.4.1", default-features = false }
 tempfile = "3.5.0"
@@ -90,6 +90,7 @@ x25519-dalek = { version = "2.0.0-pre.1", default-features = false, features = [
 
 [dependencies]
 async-trait = { workspace = true }
+blake2 = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
@@ -121,7 +122,6 @@ rustls-pemfile = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
 signal-hook = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
