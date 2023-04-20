@@ -12,13 +12,12 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
-aes-gcm = { version = "0.10.1", default-features = false, features = [
-    "aes",
-    "alloc",
-] }
 async-recursion = "1.0.2"
 async-trait = "0.1.64"
 bytes = { version = "1.4.0", default-features = false }
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
+    "alloc",
+] }
 ciborium = { version = "0.2.0", default-features = false }
 clap = { version = "4.1.6", features = ["derive"] }
 criterion = "0.4.0"
@@ -39,7 +38,10 @@ jsonwebtoken = { version = "8.3.0", default-features = false }
 libc = { version = "0.2.139", default-features = false }
 loam-sdk = { path = "sdk/rust/sdk/client" }
 loam-sdk-core = { path = "sdk/rust/sdk/core" }
-loam-sdk-networking = { path = "sdk/rust/sdk/networking", features = ["threadsafe-futures", "distributed-tracing"] }
+loam-sdk-networking = { path = "sdk/rust/sdk/networking", features = [
+    "threadsafe-futures",
+    "distributed-tracing",
+] }
 loam-sdk-noise = { path = "sdk/rust/sdk/noise" }
 nix = { version = "0.26.2", default-features = false, features = ["signal"] }
 opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }

@@ -1,10 +1,10 @@
 extern crate alloc;
 
-use aes_gcm::aead::Aead;
 use alloc::borrow::Cow;
 use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::vec::Vec;
+use chacha20poly1305::aead::Aead;
 use core::fmt::{self, Debug};
 use core::time::Duration;
 use digest::Digest;
@@ -1729,7 +1729,7 @@ impl<'a> MerkleHelper<'a> {
         leaf_key: &'a RecordEncryptionKey,
         tree: &'a mut Tree<MerkleHasher, DataHash>,
     ) -> Result<(Self, Option<Vec<u8>>), AppError> {
-        use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+        use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
 
         // TODO: do we check anywhere that `request_proof.key` matches `request.record_id`?
 
@@ -1749,7 +1749,7 @@ impl<'a> MerkleHelper<'a> {
             None => None,
             Some(l) => {
                 let cipher =
-                    Aes256Gcm::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
+                    ChaCha20Poly1305::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
                 let nonce = Nonce::from_slice(&latest_proof.key.0[..12]);
                 match cipher.decrypt(nonce, l.value.as_slice()) {
                     Ok(plain_text) => Some(plain_text),
@@ -1789,12 +1789,12 @@ impl<'a> MerkleHelper<'a> {
     }
 
     fn update_overlay(self, change: Option<RecordChange>) -> (DataHash, StoreDelta<DataHash>) {
-        use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+        use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
 
         match change {
             Some(change) => match change {
                 RecordChange::Update(mut record) => {
-                    let cipher = Aes256Gcm::new_from_slice(&self.leaf_key.0)
+                    let cipher = ChaCha20Poly1305::new_from_slice(&self.leaf_key.0)
                         .expect("couldn't create cipher");
                     // TODO: can we use this nonce to help generate unique leaf hashes?
                     // TODO: can we use or add the previous root hash into this? (this seems hard as you need the same nonce to decode it)
@@ -1804,7 +1804,7 @@ impl<'a> MerkleHelper<'a> {
                     let plain_text: &[u8] = &record;
 
                     // TODO: An optimization we could do is to use the authentication tag as the leaf's hash. Right now this is checking
-                    // the integrity of the record twice: once in the Merkle tree hash and once in the AES GCM tag.
+                    // the integrity of the record twice: once in the Merkle tree hash and once in the AEAD tag.
                     // We may also want to use the AD part of AEAD. For example, the generation number in the user's record isn't necessarily
                     // private and could allow the agent to reply to some queries without the HSM getting involved.
                     let cipher_text = cipher
