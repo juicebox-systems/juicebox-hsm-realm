@@ -415,8 +415,12 @@ pub struct BecomeLeaderRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum BecomeLeaderResponse {
-    Ok(Configuration),
+    Ok {
+        config: Configuration,
+        entry: LogEntry,
+    },
     InvalidRealm,
     InvalidGroup,
     InvalidHmac,

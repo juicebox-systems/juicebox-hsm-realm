@@ -1073,20 +1073,47 @@ impl<P: Platform> Hsm<P> {
                     self.options.tree_overlay_size,
                 )
             });
+
+            let entry_hmac = EntryHmacBuilder {
+                realm: request.realm,
+                group: request.group,
+                index: request.last_entry.index.next(),
+                partition: &request.last_entry.partition,
+                transferring_out: &request.last_entry.transferring_out,
+                prev_hmac: &request.last_entry.entry_hmac,
+            }
+            .build(&self.persistent.realm_key);
+            let next_entry = LogEntry {
+                index: request.last_entry.index.next(),
+                partition: request.last_entry.partition.clone(),
+                transferring_out: request.last_entry.transferring_out.clone(),
+                prev_hmac: request.last_entry.entry_hmac.clone(),
+                entry_hmac,
+            };
             self.volatile
                 .leader
                 .entry(request.group)
                 .or_insert_with(|| LeaderVolatileGroupState {
-                    log: VecDeque::from([LeaderLogEntry {
-                        entry: request.last_entry,
-                        response: None,
-                    }]),
+                    log: VecDeque::from([
+                        LeaderLogEntry {
+                            entry: request.last_entry,
+                            response: None,
+                        },
+                        LeaderLogEntry {
+                            entry: next_entry.clone(),
+                            response: None,
+                        },
+                    ]),
                     committed: None,
                     incoming: None,
                     tree,
                     sessions: Cache::new(usize::from(self.options.max_sessions)),
                 });
-            Response::Ok(config)
+
+            Response::Ok {
+                config,
+                entry: next_entry,
+            }
         })();
 
         trace!(hsm = self.options.name, ?response);
