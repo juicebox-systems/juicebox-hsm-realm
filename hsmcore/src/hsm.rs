@@ -1,18 +1,18 @@
 extern crate alloc;
 
-use aes_gcm::aead::Aead;
 use alloc::borrow::Cow;
 use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::vec::Vec;
+use blake2::Blake2s256;
+use chacha20poly1305::aead::Aead;
 use core::fmt::{self, Debug};
 use core::time::Duration;
 use digest::Digest;
 use hashbrown::{hash_map::Entry, HashMap}; // TODO: randomize hasher
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
+use hmac::{Mac, SimpleHmac};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 use tracing::{info, trace, warn};
 use x25519_dalek as x25519;
 
@@ -59,7 +59,7 @@ use types::{
 const SESSION_LIFETIME: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Deserialize, Serialize)]
-pub struct RealmKey(digest::Key<Hmac<Sha256>>);
+pub struct RealmKey(digest::Key<SimpleHmac<Blake2s256>>);
 
 impl fmt::Debug for RealmKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -69,16 +69,17 @@ impl fmt::Debug for RealmKey {
 
 impl RealmKey {
     pub fn random(rng: &mut impl CryptoRng) -> Self {
-        let mut key = digest::Key::<Hmac<Sha256>>::default();
+        let mut key = digest::Key::<SimpleHmac<Blake2s256>>::default();
         rng.fill_bytes(&mut key);
         Self(key)
     }
     // derive a realmKey from the supplied input.
     // TODO, ensure this goes away.
     pub fn derive_from(b: &[u8]) -> Self {
-        let mut mac = Hmac::<sha2::Sha512>::new_from_slice(b"worlds worst secret").expect("TODO");
-        mac.update(b);
-        Self(mac.finalize().into_bytes())
+        let kdf = Hkdf::<Blake2s256, SimpleHmac<Blake2s256>>::new(Some(b"worlds worst secret"), b);
+        let mut out = [0u8; 64];
+        kdf.expand(&[], &mut out).unwrap();
+        Self(out.into())
     }
 }
 
@@ -123,8 +124,8 @@ struct GroupConfigurationStatementBuilder<'a> {
 }
 
 impl<'a> GroupConfigurationStatementBuilder<'a> {
-    fn calculate(&self, key: &RealmKey) -> Hmac<Sha256> {
-        let mut mac = Hmac::<Sha256>::new(&key.0);
+    fn calculate(&self, key: &RealmKey) -> SimpleHmac<Blake2s256> {
+        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
         mac.update(b"group configuration|");
         mac.update(&self.realm.0);
         mac.update(b"|");
@@ -158,8 +159,8 @@ struct CapturedStatementBuilder<'a> {
 }
 
 impl<'a> CapturedStatementBuilder<'a> {
-    fn calculate(&self, key: &RealmKey) -> Hmac<Sha256> {
-        let mut mac = Hmac::<Sha256>::new(&key.0);
+    fn calculate(&self, key: &RealmKey) -> SimpleHmac<Blake2s256> {
+        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
         mac.update(b"captured|");
         mac.update(&self.hsm.0);
         mac.update(b"|");
@@ -196,8 +197,8 @@ struct EntryHmacBuilder<'a> {
 }
 
 impl<'a> EntryHmacBuilder<'a> {
-    fn calculate(&self, key: &RealmKey) -> Hmac<Sha256> {
-        let mut mac = Hmac::<Sha256>::new(&key.0);
+    fn calculate(&self, key: &RealmKey) -> SimpleHmac<Blake2s256> {
+        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
         mac.update(b"entry|");
         mac.update(&self.realm.0);
         mac.update(b"|");
@@ -287,8 +288,8 @@ struct TransferStatementBuilder<'a> {
 }
 
 impl<'a> TransferStatementBuilder<'a> {
-    fn calculate(&self, key: &RealmKey) -> Hmac<Sha256> {
-        let mut mac = Hmac::<Sha256>::new(&key.0);
+    fn calculate(&self, key: &RealmKey) -> SimpleHmac<Blake2s256> {
+        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
         mac.update(b"transfer|");
         mac.update(&self.realm.0);
         mac.update(b"|");
@@ -320,7 +321,7 @@ impl<'a> TransferStatementBuilder<'a> {
 pub struct MerkleHasher();
 impl NodeHasher<DataHash> for MerkleHasher {
     fn calc_hash(&self, parts: &[&[u8]]) -> DataHash {
-        let mut h = Sha256::new();
+        let mut h = Blake2s256::new();
         for p in parts {
             h.update([b'|']); //delim all the parts
             h.update(p);
@@ -341,7 +342,7 @@ impl RecordEncryptionKey {
             0x49, 0xa4, 0xd3, 0xd6,
         ];
         let info = "record".as_bytes();
-        let hk = Hkdf::<Sha256>::new(Some(&salt), &realm_key.0);
+        let hk = Hkdf::<Blake2s256, SimpleHmac<Blake2s256>>::new(Some(&salt), &realm_key.0);
         let mut out = [0u8; 32];
         hk.expand(info, &mut out).unwrap();
         Self(out)
@@ -489,7 +490,7 @@ impl<N: NVRam> OnMutationFinished<PersistentState> for NVRamWriter<N> {
         // TODO, which if any of the keys in self.persistent should be written out here vs read from the HSM
         // key store at initialization time.
         let mut data = marshalling::to_vec(&state).expect("failed to serialize state");
-        let d = Sha256::digest(&data);
+        let d = Blake2s256::digest(&data);
         data.extend(d);
         self.nvram.write(data).expect("Write to NVRam failed")
     }
@@ -628,11 +629,11 @@ impl<P: Platform> Hsm<P> {
         if d.is_empty() {
             return Ok(None);
         }
-        if d.len() < Sha256::output_size() {
+        if d.len() < Blake2s256::output_size() {
             return Err(PersistenceError::InvalidSignature);
         }
-        let (data, stored_digest) = d.split_at(d.len() - Sha256::output_size());
-        let calced_digest = Sha256::digest(data);
+        let (data, stored_digest) = d.split_at(d.len() - Blake2s256::output_size());
+        let calced_digest = Blake2s256::digest(data);
         if stored_digest == calced_digest.as_slice() {
             match marshalling::from_slice(data) {
                 Ok(state) => Ok(Some(state)),
@@ -1729,7 +1730,7 @@ impl<'a> MerkleHelper<'a> {
         leaf_key: &'a RecordEncryptionKey,
         tree: &'a mut Tree<MerkleHasher, DataHash>,
     ) -> Result<(Self, Option<Vec<u8>>), AppError> {
-        use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+        use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
 
         // TODO: do we check anywhere that `request_proof.key` matches `request.record_id`?
 
@@ -1749,7 +1750,7 @@ impl<'a> MerkleHelper<'a> {
             None => None,
             Some(l) => {
                 let cipher =
-                    Aes256Gcm::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
+                    ChaCha20Poly1305::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
                 let nonce = Nonce::from_slice(&latest_proof.key.0[..12]);
                 match cipher.decrypt(nonce, l.value.as_slice()) {
                     Ok(plain_text) => Some(plain_text),
@@ -1789,12 +1790,12 @@ impl<'a> MerkleHelper<'a> {
     }
 
     fn update_overlay(self, change: Option<RecordChange>) -> (DataHash, StoreDelta<DataHash>) {
-        use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+        use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
 
         match change {
             Some(change) => match change {
                 RecordChange::Update(mut record) => {
-                    let cipher = Aes256Gcm::new_from_slice(&self.leaf_key.0)
+                    let cipher = ChaCha20Poly1305::new_from_slice(&self.leaf_key.0)
                         .expect("couldn't create cipher");
                     // TODO: can we use this nonce to help generate unique leaf hashes?
                     // TODO: can we use or add the previous root hash into this? (this seems hard as you need the same nonce to decode it)
@@ -1804,7 +1805,7 @@ impl<'a> MerkleHelper<'a> {
                     let plain_text: &[u8] = &record;
 
                     // TODO: An optimization we could do is to use the authentication tag as the leaf's hash. Right now this is checking
-                    // the integrity of the record twice: once in the Merkle tree hash and once in the AES GCM tag.
+                    // the integrity of the record twice: once in the Merkle tree hash and once in the AEAD tag.
                     // We may also want to use the AD part of AEAD. For example, the generation number in the user's record isn't necessarily
                     // private and could allow the agent to reply to some queries without the HSM getting involved.
                     let cipher_text = cipher
