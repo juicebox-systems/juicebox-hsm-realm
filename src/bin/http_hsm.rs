@@ -83,7 +83,7 @@ async fn main() {
         let start = Instant::now();
         // give some time for the agent to shutdown before we do.
         // this is just for hsm_bench & demo_runner
-        sleep(Duration::from_millis(750)).await;
+        sleep(Duration::from_millis(50)).await;
         while hsm_clone.is_leader() {
             debug!(hsm = name, "is leader, waiting for shutdown");
             if start.elapsed() > Duration::from_secs(5) {
