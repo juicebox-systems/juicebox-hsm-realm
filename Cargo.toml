@@ -1,5 +1,5 @@
 [workspace]
-members = ["codegen", "entrust-agent", "entrust-hsm", "hsmcore"]
+members = ["codegen", "cluster-cli", "entrust-agent", "entrust-hsm", "hsmcore"]
 # This allows the sdk packages to reference their workspace (for dependencies
 # and such), rather than this one.
 exclude = ["sdk"]
@@ -21,6 +21,7 @@ async-trait = "0.1.64"
 bytes = { version = "1.4.0", default-features = false }
 ciborium = { version = "0.2.0", default-features = false }
 clap = { version = "4.1.6", features = ["derive"] }
+cli-table = { version = "0.4.7", default-features = false }
 criterion = "0.4.0"
 ctrlc = "3.2.5"
 digest = "0.10.6"
@@ -28,6 +29,7 @@ futures = "0.3.25"
 gcp_auth = "0.8.0"
 h2 = { version = "0.3.17" }
 hdrhistogram = { version = "7.5.2", default-features = false }
+hex = "0.4.3"
 hex-literal = "0.3.4"
 hkdf = "0.12.3"
 hmac = "0.12.1"
@@ -96,6 +98,7 @@ futures = { workspace = true }
 gcp_auth = { workspace = true }
 hdrhistogram = { workspace = true }
 h2 = { workspace = true }
+hex = { workspace = true }
 hmac = { workspace = true }
 hsmcore = { workspace = true }
 http = { workspace = true }

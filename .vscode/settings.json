@@ -16,6 +16,7 @@
         "Hkdf",
         "hmac",
         "hsmcore",
+        "Juicebox",
         "keyslice",
         "keyspace",
         "LOGLEVEL",

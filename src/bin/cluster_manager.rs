@@ -1,24 +1,27 @@
 use clap::Parser;
+use std::{net::SocketAddr, time::Duration};
+use tracing::info;
+
 use loam_mvp::{
-    clap_parsers::parse_duration,
-    google_auth,
-    http_client::{Client, ClientOptions},
-    logging,
-    realm::{
-        agent::types::AgentService,
-        cluster,
-        store::bigtable::{BigTableArgs, StoreClient},
-    },
+    clap_parsers::{parse_duration, parse_listen},
+    google_auth, logging,
+    realm::{cluster::Manager, store::bigtable::BigTableArgs},
 };
-use std::time::Duration;
-use tokio::time;
-use tracing::{info, warn};
 
 #[derive(Debug, Parser)]
-#[command(about = "Management controller for Loam Clusters")]
+#[command(about = "Management controller for Juicebox Clusters")]
 struct Args {
     #[command(flatten)]
     bigtable: BigTableArgs,
+
+    /// The IP/port to listen on.
+    #[arg(
+        short,
+        long,
+        default_value_t = SocketAddr::from(([127,0,0,1], 8079)),
+        value_parser=parse_listen,
+    )]
+    listen: SocketAddr,
 
     /// Interval for checking the cluster state in milliseconds.
     #[arg(short, long, default_value="2000", value_parser=parse_duration)]
@@ -28,6 +31,14 @@ struct Args {
 #[tokio::main]
 async fn main() {
     logging::configure("cluster-manager");
+
+    ctrlc::set_handler(move || {
+        info!(pid = std::process::id(), "received termination signal");
+        logging::flush();
+        info!(pid = std::process::id(), "exiting");
+        std::process::exit(0);
+    })
+    .expect("error setting signal handler");
 
     let args = Args::parse();
     info!(?args, "Parsed command-line args");
@@ -49,33 +60,23 @@ async fn main() {
         .expect("Unable to connect to Bigtable admin");
 
     info!("initializing service discovery table");
-    store_admin.initialize_discovery().await.expect("TODO");
+    store_admin
+        .initialize_discovery()
+        .await
+        .expect("Failed to initialize service discovery table");
 
-    let manager = Manager {
-        store: args
-            .bigtable
-            .connect_data(auth_manager)
-            .await
-            .expect("Unable to connect to Bigtable data"),
-        agent_client: Client::<AgentService>::new(ClientOptions::default()),
-    };
+    let store = args
+        .bigtable
+        .connect_data(auth_manager)
+        .await
+        .expect("Unable to connect to Bigtable data");
 
-    loop {
-        manager.manage().await;
-        time::sleep(args.interval).await;
-    }
-}
+    let manager = Manager::new(store, args.interval);
+    let (url, handle) = manager
+        .listen(args.listen)
+        .await
+        .expect("Failed to start server");
 
-struct Manager {
-    agent_client: Client<AgentService>,
-    store: StoreClient,
-}
-
-impl Manager {
-    async fn manage(&self) {
-        if let Err(err) = cluster::ensure_groups_have_leader(&self.agent_client, &self.store).await
-        {
-            warn!(?err, "GRPC error while checking cluster state")
-        }
-    }
+    info!(url=%url, "Cluster Manager started");
+    let _ = handle.await;
 }

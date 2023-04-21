@@ -2,6 +2,7 @@ use clap::Parser;
 use futures::future::try_join_all;
 use futures::StreamExt;
 use reqwest::{Certificate, Url};
+use std::collections::HashSet;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -196,7 +197,7 @@ async fn main() {
         Some((realm_id, group_id)) => {
             info!(?realm_id, ?group_id, "using existing realm/group");
             let agents = http_client::Client::<AgentService>::new(ClientOptions::default());
-            let _ = cluster::ensure_groups_have_leader(&agents, &store).await;
+            let _ = cluster::ensure_groups_have_leader(&agents, &store, HashSet::new()).await;
             (realm_id, group_id)
         }
         None => {

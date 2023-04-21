@@ -15,7 +15,7 @@ use loam_sdk_core::{
 };
 use loam_sdk_noise::server as noise;
 
-#[derive(Copy, Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Copy, Clone, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct GroupId(pub [u8; 16]);
 
 impl fmt::Debug for GroupId {
@@ -31,6 +31,11 @@ impl fmt::Debug for GroupId {
 pub struct HsmId(pub [u8; 16]);
 
 impl fmt::Debug for HsmId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+impl fmt::Display for HsmId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in self.0 {
             write!(f, "{byte:02x}")?;
@@ -114,6 +119,12 @@ impl LogIndex {
 
     pub fn next(&self) -> Self {
         Self(self.0.checked_add(1).unwrap())
+    }
+}
+
+impl fmt::Display for LogIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
