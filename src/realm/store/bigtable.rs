@@ -1086,11 +1086,12 @@ pub struct BigTableRunner;
 impl BigTableRunner {
     pub async fn run(
         pg: &mut ProcessGroup,
+        auth: AuthManager,
         args: &BigTableArgs,
     ) -> (StoreAdminClient, StoreClient) {
-        async fn admin(args: &BigTableArgs) -> StoreAdminClient {
+        async fn admin(args: &BigTableArgs, auth: AuthManager) -> StoreAdminClient {
             for _ in 0..100 {
-                match args.connect_admin(None).await {
+                match args.connect_admin(auth.clone()).await {
                     Ok(admin) => return admin,
                     Err(_e) => {
                         sleep(Duration::from_millis(1)).await;
@@ -1100,9 +1101,9 @@ impl BigTableRunner {
             panic!("repeatedly failed to connect to bigtable admin service");
         }
 
-        async fn data(args: &BigTableArgs) -> StoreClient {
+        async fn data(args: &BigTableArgs, auth: AuthManager) -> StoreClient {
             for _ in 0..100 {
-                match args.connect_data(None).await {
+                match args.connect_data(auth.clone()).await {
                     Ok(data) => return data,
                     Err(_e) => {
                         sleep(Duration::from_millis(1)).await;
@@ -1120,7 +1121,7 @@ impl BigTableRunner {
             );
         }
 
-        (admin(args).await, data(args).await)
+        (admin(args, auth.clone()).await, data(args, auth).await)
     }
 }
 

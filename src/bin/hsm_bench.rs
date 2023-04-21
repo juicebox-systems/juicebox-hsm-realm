@@ -1,37 +1,21 @@
 use clap::Parser;
-use futures::future::try_join_all;
 use futures::StreamExt;
-use reqwest::{Certificate, Url};
-use std::collections::HashSet;
-use std::fs;
-use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
-use hsmcore::hsm::types::GroupId;
-use loam_mvp::client_auth::{
-    creation::create_token, new_google_secret_manager, tenant_secret_name, AuthKey, Claims,
-};
-use loam_mvp::google_auth;
-use loam_mvp::http_client::{self, ClientOptions};
+use loam_mvp::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
+use loam_mvp::exec::hsm_gen::{Entrust, MetricsParticipants};
+use loam_mvp::http_client::{self};
 use loam_mvp::logging;
 use loam_mvp::process_group::ProcessGroup;
-use loam_mvp::realm::agent::types::{AgentService, StatusRequest, StatusResponse};
-use loam_mvp::realm::cluster::{self, NewRealmError};
 use loam_mvp::realm::store::bigtable::BigTableArgs;
-use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretsFile};
-use loam_sdk::{Client, Configuration, Pin, Realm, RealmId, UserSecret};
+use loam_sdk::{Client, Pin, UserSecret};
 use loam_sdk_core::types::Policy;
-use loam_sdk_networking::rpc::{self, LoadBalancerService};
-
-mod common;
-use common::certs::create_localhost_key_and_cert;
-use common::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
+use loam_sdk_networking::rpc::LoadBalancerService;
 
 #[derive(Debug, Parser)]
 #[command(about = "An end-to-end benchmark to stress an HSM")]
@@ -65,6 +49,10 @@ struct Args {
     /// state between runs for this to be useful.
     #[arg(long)]
     state: Option<PathBuf>,
+
+    /// Keep the cluster alive until Ctrl-C is input
+    #[arg(short, long, default_value_t = false)]
+    keep_alive: bool,
 }
 
 #[tokio::main]
@@ -84,157 +72,28 @@ async fn main() {
     let args = Args::parse();
     info!(?args, "Parsed command-line args");
 
-    let auth_manager = if args.bigtable.needs_auth() || args.secrets_file.is_none() {
-        Some(
-            google_auth::from_adc()
-                .await
-                .expect("failed to initialize Google Cloud auth"),
-        )
-    } else {
-        None
+    let config = ClusterConfig {
+        load_balancers: 1,
+        realms: vec![RealmConfig {
+            hsms: 5,
+            groups: 1,
+            metrics: args.metrics,
+            state_dir: args.state.clone(),
+        }],
+        bigtable: args.bigtable,
+        secrets_file: args.secrets_file,
+        entrust: Entrust(args.entrust),
     };
 
-    let store_admin = args
-        .bigtable
-        .connect_admin(auth_manager.clone())
+    let cluster = create_cluster(config, &mut process_group, 4000)
         .await
-        .expect("Unable to connect to Bigtable admin");
-    info!("initializing service discovery table");
-    store_admin
-        .initialize_discovery()
-        .await
-        .expect("unable to initialize Bigtable service discovery");
-
-    let store = args
-        .bigtable
-        .connect_data(auth_manager.clone())
-        .await
-        .expect("Unable to connect to Bigtable data");
-
-    let secret_manager: Box<dyn SecretManager> = match &args.secrets_file {
-        Some(secrets_file) => {
-            info!(path = ?secrets_file, "loading secrets from JSON file");
-            Box::new(
-                SecretsFile::new(secrets_file.clone())
-                    .load_all()
-                    .await
-                    .expect("failed to load secrets from JSON file"),
-            )
-        }
-
-        None => {
-            info!("connecting to Google Cloud Secret Manager");
-            Box::new(
-                new_google_secret_manager(
-                    &args.bigtable.project,
-                    auth_manager.unwrap(),
-                    Duration::MAX,
-                )
-                .await
-                .expect("failed to load secrets from Google Secret Manager"),
-            )
-        }
-    };
-
-    let tenant = "test";
-    let (auth_key_version, auth_key) = secret_manager
-        .get_secrets(&tenant_secret_name(tenant))
-        .await
-        .expect("failed to get test tenant auth key")
-        .into_iter()
-        .map(|(version, key)| (version, AuthKey::from(key)))
-        .next()
-        .expect("test tenant has no secrets");
-
-    let certificates = create_localhost_key_and_cert("target".into())
-        .expect("Failed to create TLS key/cert for load balancer");
-
-    let lb_cert = Certificate::from_pem(
-        &fs::read(&certificates.cert_file_pem).expect("failed to read certificate file"),
-    )
-    .expect("failed to decode certificate file");
-
-    info!("creating load balancer");
-    let load_balancer: Url = {
-        let address = SocketAddr::from(([127, 0, 0, 1], 3000));
-        let mut cmd = Command::new(format!(
-            "target/{}/load_balancer",
-            if cfg!(debug_assertions) {
-                "debug"
-            } else {
-                "release"
-            }
-        ));
-        cmd.arg("--tls-cert")
-            .arg(certificates.cert_file_pem)
-            .arg("--tls-key")
-            .arg(certificates.key_file_pem)
-            .arg("--listen")
-            .arg(address.to_string());
-        if let Some(secrets_file) = args.secrets_file {
-            cmd.arg("--secrets-file").arg(&secrets_file);
-        }
-        args.bigtable.add_to_cmd(&mut cmd);
-        process_group.spawn(&mut cmd);
-        Url::parse("https://localhost:3000/").unwrap()
-    };
-
-    let mut hsm_generator = HsmGenerator::new(Entrust(args.entrust), 4000);
-
-    let num_hsms = 5;
-    info!(count = num_hsms, "creating HSMs and agents");
-    let (group, realm_public_key) = hsm_generator
-        .create_hsms(
-            num_hsms,
-            args.metrics,
-            &mut process_group,
-            &args.bigtable,
-            args.state.clone(),
-        )
-        .await;
-
-    let (realm_id, _group_id) = match group_has_realm(&group).await.unwrap() {
-        Some((realm_id, group_id)) => {
-            info!(?realm_id, ?group_id, "using existing realm/group");
-            let agents = http_client::Client::<AgentService>::new(ClientOptions::default());
-            let _ = cluster::ensure_groups_have_leader(&agents, &store, HashSet::new()).await;
-            (realm_id, group_id)
-        }
-        None => {
-            let (realm_id, group_id) = cluster::new_realm(&group).await.unwrap();
-            info!(?realm_id, ?group_id, "initialized cluster");
-            (realm_id, group_id)
-        }
-    };
+        .unwrap();
 
     info!(clients = args.concurrency, "creating clients");
     let clients: Vec<Arc<Mutex<Client<http_client::Client<LoadBalancerService>>>>> = (0..args
         .concurrency)
-        .map(|i| {
-            Arc::new(Mutex::new(Client::new(
-                Configuration {
-                    realms: vec![Realm {
-                        address: load_balancer.clone(),
-                        public_key: realm_public_key.clone(),
-                        id: realm_id,
-                    }],
-                    register_threshold: 1,
-                    recover_threshold: 1,
-                },
-                create_token(
-                    &Claims {
-                        issuer: tenant.to_owned(),
-                        subject: format!("mario{i}"),
-                    },
-                    &auth_key,
-                    auth_key_version,
-                ),
-                http_client::Client::new(http_client::ClientOptions {
-                    additional_root_certs: vec![lb_cert.clone()],
-                }),
-            )))
-        })
-        .collect::<Vec<_>>();
+        .map(|i| Arc::new(Mutex::new(cluster.client(format!("mario{i}")))))
+        .collect();
 
     info!("main: Running test register");
     clients[0]
@@ -272,10 +131,18 @@ async fn main() {
     .buffer_unordered(args.concurrency);
 
     let mut completed = 0;
+    let mut errors = 0;
     while let Some(result) = stream.next().await {
-        result.unwrap();
-        completed += 1;
-        debug!(completed, "ok");
+        match result {
+            Ok(_) => {
+                debug!(completed, "ok");
+                completed += 1;
+            }
+            Err(e) => {
+                warn!(err=?e, "client got error");
+                errors += 1;
+            }
+        }
     }
 
     let elapsed = start.elapsed().as_secs_f64();
@@ -286,7 +153,12 @@ async fn main() {
         concurrency = args.concurrency,
         "completed benchmark"
     );
-
+    if errors > 0 {
+        warn!(errors, "There were errors reported by the client");
+    }
+    if args.keep_alive {
+        sleep(Duration::MAX).await;
+    }
     info!("main: done");
     if args.state.is_some() {
         info!("letting agents drain their delete queue");
@@ -295,36 +167,4 @@ async fn main() {
     process_group.kill();
     logging::flush();
     info!("main: exiting");
-}
-
-// If all members of the group are part of the same realm and have a single group, returns the realmId, groupId.
-async fn group_has_realm(group: &[Url]) -> Result<Option<(RealmId, GroupId)>, NewRealmError> {
-    let agent_client = http_client::Client::<AgentService>::new(ClientOptions::default());
-
-    let hsms = try_join_all(
-        group
-            .iter()
-            .map(|agent| rpc::send(&agent_client, agent, StatusRequest {})),
-    )
-    .await
-    .map_err(NewRealmError::NetworkError)?;
-
-    fn realm_group(sr: &StatusResponse) -> Option<(RealmId, GroupId)> {
-        if let Some(s) = &sr.hsm {
-            if let Some(r) = &s.realm {
-                if r.groups.len() == 1 {
-                    return Some((r.id, r.groups[0].id));
-                }
-            }
-        }
-        None
-    }
-
-    let first = realm_group(&hsms[0]);
-    for other in &hsms[1..] {
-        if realm_group(other) != first {
-            return Ok(None);
-        }
-    }
-    Ok(first)
 }

@@ -47,7 +47,7 @@ fn emulator() -> BigTableArgs {
 }
 
 async fn init_bt(pg: &mut ProcessGroup, args: BigTableArgs) -> (StoreAdminClient, StoreClient) {
-    let (store_admin, store) = BigTableRunner::run(pg, &args).await;
+    let (store_admin, store) = BigTableRunner::run(pg, None, &args).await;
 
     store_admin
         .initialize_realm(&REALM)
