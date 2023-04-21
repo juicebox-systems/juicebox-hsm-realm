@@ -35,6 +35,8 @@ struct Args {
 enum Commands {
     /// Ask the HSM to stepdown as leader for any groups that is leading.
     Stepdown { hsm: String },
+    /// Show the current status of all the reams/groups it can discover.
+    Status,
 }
 
 #[tokio::main]
@@ -58,15 +60,15 @@ async fn main() {
         .await
         .expect("Unable to connect to Bigtable");
 
-    let result = match &args.command {
-        Some(Commands::Stepdown { hsm }) => match resolve_hsm_id(&store, hsm).await {
+    let result = match &args.command.unwrap_or(Commands::Status) {
+        Commands::Stepdown { hsm } => match resolve_hsm_id(&store, hsm).await {
             Err(e) => {
                 println!("{}", e);
                 return;
             }
             Ok(id) => stepdown(&args.cluster, id).await,
         },
-        None => status(c, store).await,
+        Commands::Status => status(c, store).await,
     };
     if let Err(err) = result {
         println!("error: {:?}", err);
