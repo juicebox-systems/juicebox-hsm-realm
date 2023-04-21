@@ -26,11 +26,16 @@ impl ProcessGroup {
     pub fn kill(&mut self) {
         let children = self.0.lock().unwrap().split_off(0);
         info!("waiting for {} child processes to exit", children.len());
-        for mut child in children {
+        for mut child in children.into_iter().rev() {
             if let Err(e) = child.kill() {
                 warn!(?e, "failed to kill child process");
             }
         }
+    }
+}
+impl Drop for ProcessGroup {
+    fn drop(&mut self) {
+        self.kill();
     }
 }
 

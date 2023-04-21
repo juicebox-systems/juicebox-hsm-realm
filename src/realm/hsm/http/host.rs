@@ -155,6 +155,10 @@ impl HttpHsm {
             }),
         ))
     }
+
+    pub fn is_leader(&self) -> bool {
+        self.0.lock().unwrap().is_leader()
+    }
 }
 
 impl Service<Request<IncomingBody>> for HttpHsm {

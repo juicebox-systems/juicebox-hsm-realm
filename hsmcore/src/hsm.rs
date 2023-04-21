@@ -564,6 +564,10 @@ impl<P: Platform> Hsm<P> {
         })
     }
 
+    pub fn is_leader(&self) -> bool {
+        !(self.volatile.leader.is_empty() && self.volatile.stepping_down.is_empty())
+    }
+
     pub fn handle_request(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, HsmError> {
         let request: HsmRequestContainer = match marshalling::from_slice(request_bytes) {
             Ok(request) => request,
