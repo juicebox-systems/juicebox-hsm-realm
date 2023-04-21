@@ -156,3 +156,9 @@ doctest = false
 [[bench]]
 name = "voprf_benchmark"
 harness = false
+
+[profile.dev]
+panic = 'abort'
+
+[profile.release]
+panic = 'abort'
