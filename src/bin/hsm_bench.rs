@@ -221,6 +221,7 @@ async fn main() {
                     recover_threshold: 1,
                     pin_hashing_mode: PinHashingMode::None,
                 },
+                vec![],
                 create_token(
                     &Claims {
                         issuer: tenant.to_owned(),
