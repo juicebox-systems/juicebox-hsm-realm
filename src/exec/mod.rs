@@ -3,6 +3,7 @@ use std::sync::{
     Arc,
 };
 
+pub mod bigtable;
 pub mod certs;
 pub mod cluster_gen;
 pub mod hsm_gen;

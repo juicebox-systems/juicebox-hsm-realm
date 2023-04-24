@@ -14,13 +14,12 @@ use hsmcore::{
     },
 };
 use loam_mvp::{
-    exec::PortIssuer,
+    exec::{bigtable::BigTableRunner, PortIssuer},
     process_group::ProcessGroup,
     realm::{
         merkle::agent::{self, TreeStoreReader},
         store::bigtable::{
-            self, AppendError::LogPrecondition, BigTableArgs, BigTableRunner, StoreAdminClient,
-            StoreClient,
+            self, AppendError::LogPrecondition, BigTableArgs, StoreAdminClient, StoreClient,
         },
     },
 };
@@ -44,12 +43,22 @@ fn emulator() -> BigTableArgs {
 }
 
 async fn init_bt(pg: &mut ProcessGroup, args: BigTableArgs) -> (StoreAdminClient, StoreClient) {
-    let (store_admin, store) = BigTableRunner::run(pg, None, &args).await;
+    BigTableRunner::run(pg, &args).await;
+
+    let store_admin = args
+        .connect_admin(None)
+        .await
+        .expect("failed to connect to bigtable admin service");
 
     store_admin
         .initialize_realm(&REALM)
         .await
         .expect("failed to initialize realm tables");
+
+    let store = args
+        .connect_data(None)
+        .await
+        .expect("failed to connect to bigtable data service");
 
     (store_admin, store)
 }

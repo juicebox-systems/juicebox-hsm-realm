@@ -14,16 +14,18 @@ use crate::client_auth::Claims;
 use crate::http_client::{self, ClientOptions};
 use crate::realm::agent::types::{AgentService, StatusRequest};
 use crate::realm::cluster::{self, NewRealmError};
-use crate::realm::store::bigtable::{BigTableRunner, StoreClient};
+use crate::realm::store::bigtable::StoreClient;
 use crate::secret_manager::SecretVersion;
 
 use super::super::client_auth::{new_google_secret_manager, tenant_secret_name, AuthKey};
 use super::super::google_auth;
 use super::super::secret_manager::{BulkLoad, SecretManager, SecretsFile};
 use super::super::{process_group::ProcessGroup, realm::store::bigtable::BigTableArgs};
+use super::bigtable::BigTableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use super::PortIssuer;
+
 use hsmcore::hsm::types::GroupId;
 use loam_sdk::{Client, Configuration, Realm, RealmId};
 
@@ -121,13 +123,26 @@ pub async fn create_cluster(
         None
     };
 
-    let (store_admin, store) =
-        BigTableRunner::run(process_group, auth_manager.clone(), &args.bigtable).await;
+    if args.bigtable.url.is_some() {
+        BigTableRunner::run(process_group, &args.bigtable).await;
+    }
+    let store_admin = args
+        .bigtable
+        .connect_admin(auth_manager.clone())
+        .await
+        .expect("failed to connect to bigtable admin service");
+
     info!("initializing service discovery table");
     store_admin
         .initialize_discovery()
         .await
         .expect("unable to initialize Bigtable service discovery");
+
+    let store = args
+        .bigtable
+        .connect_data(auth_manager.clone())
+        .await
+        .expect("failed to connect to bigtable data service");
 
     let secret_manager: Box<dyn SecretManager> = match &args.secrets_file {
         Some(secrets_file) => {

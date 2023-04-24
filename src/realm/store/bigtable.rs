@@ -32,7 +32,6 @@ mod read;
 use super::super::merkle::agent::TreeStoreReader;
 use crate::autogen::google;
 use crate::google_auth::AuthMiddleware;
-use crate::process_group::ProcessGroup;
 use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RecordId};
 use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
 use loam_sdk_core::types::RealmId;
@@ -1078,50 +1077,6 @@ impl TreeStoreReader<DataHash> for StoreClient {
 
         trace!(realm = ?realm, key = ?key, ok = node.is_ok(), "read_node completed");
         node
-    }
-}
-
-pub struct BigTableRunner;
-
-impl BigTableRunner {
-    pub async fn run(
-        pg: &mut ProcessGroup,
-        auth: AuthManager,
-        args: &BigTableArgs,
-    ) -> (StoreAdminClient, StoreClient) {
-        async fn admin(args: &BigTableArgs, auth: AuthManager) -> StoreAdminClient {
-            for _ in 0..100 {
-                match args.connect_admin(auth.clone()).await {
-                    Ok(admin) => return admin,
-                    Err(_e) => {
-                        sleep(Duration::from_millis(1)).await;
-                    }
-                };
-            }
-            panic!("repeatedly failed to connect to bigtable admin service");
-        }
-
-        async fn data(args: &BigTableArgs, auth: AuthManager) -> StoreClient {
-            for _ in 0..100 {
-                match args.connect_data(auth.clone()).await {
-                    Ok(data) => return data,
-                    Err(_e) => {
-                        sleep(Duration::from_millis(1)).await;
-                    }
-                }
-            }
-            panic!("repeatedly failed to connect to bigtable data service");
-        }
-
-        if let Some(emulator_url) = &args.url {
-            pg.spawn(
-                Command::new("emulator")
-                    .arg("-port")
-                    .arg(emulator_url.port().unwrap().as_str()),
-            );
-        }
-
-        (admin(args, auth.clone()).await, data(args, auth).await)
     }
 }
 
