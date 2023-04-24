@@ -100,15 +100,14 @@ async fn leader_handover() {
                 Err(e) => failures.push(format!("{e:?}")),
             }
 
-            match rx.try_recv() {
-                Ok(WorkerReq::Report) => {
+            match rx.try_recv().unwrap() {
+                WorkerReq::Report => {
                     res_tx.send((success_count, failures.split_off(0))).unwrap();
                 }
-                Ok(WorkerReq::Shutdown) => {
+                WorkerReq::Shutdown => {
                     res_tx.send((success_count, failures.split_off(0))).unwrap();
                     return;
                 }
-                Err(_) => {}
             }
         }
     });
