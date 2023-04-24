@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::client_auth::creation::create_token;
 use crate::client_auth::Claims;
@@ -27,6 +27,7 @@ use super::PortIssuer;
 use hsmcore::hsm::types::GroupId;
 use loam_sdk::{Client, Configuration, Realm, RealmId};
 
+#[derive(Debug)]
 pub struct ClusterConfig {
     pub load_balancers: u8,
     pub realms: Vec<RealmConfig>,
@@ -35,6 +36,7 @@ pub struct ClusterConfig {
     pub entrust: Entrust,
 }
 
+#[derive(Debug)]
 pub struct RealmConfig {
     pub hsms: u8,
     pub groups: u8,
@@ -42,11 +44,72 @@ pub struct RealmConfig {
     pub state_dir: Option<PathBuf>,
 }
 
+pub struct ClusterResult {
+    pub load_balancers: Vec<Url>,
+    pub certs: Certificates,
+    pub realms: Vec<RealmResult>,
+
+    pub auth_key_version: SecretVersion,
+    pub auth_key: AuthKey,
+
+    pub store: StoreClient,
+    pub cluster_manager: Url,
+}
+
+impl ClusterResult {
+    pub fn lb_cert(&self) -> Certificate {
+        Certificate::from_pem(
+            &fs::read(&self.certs.cert_file_pem).expect("failed to read certificate file"),
+        )
+        .expect("failed to decode certificate file")
+    }
+
+    pub fn client_for_user(
+        &self,
+        user_id: String,
+    ) -> Client<http_client::Client<LoadBalancerService>> {
+        Client::new(
+            Configuration {
+                realms: self
+                    .realms
+                    .iter()
+                    .map(|r| Realm {
+                        address: self.load_balancers[0].clone(),
+                        public_key: r.communication_public_key.clone(),
+                        id: r.realm,
+                    })
+                    .collect(),
+                register_threshold: self.realms.len().try_into().unwrap(),
+                recover_threshold: self.realms.len().try_into().unwrap(),
+            },
+            create_token(
+                &Claims {
+                    issuer: "test".to_string(),
+                    subject: user_id,
+                },
+                &self.auth_key,
+                self.auth_key_version,
+            ),
+            http_client::Client::<LoadBalancerService>::new(http_client::ClientOptions {
+                additional_root_certs: vec![self.lb_cert()],
+            }),
+        )
+    }
+}
+
+pub struct RealmResult {
+    pub agents: Vec<Url>,
+    pub groups: Vec<GroupId>,
+    pub realm: RealmId,
+    pub communication_public_key: Vec<u8>,
+}
+
 pub async fn create_cluster(
     args: ClusterConfig,
     process_group: &mut ProcessGroup,
     ports: impl Into<PortIssuer>,
 ) -> Result<ClusterResult, String> {
+    debug!(config=?args, "creating cluster");
     let ports = ports.into();
     let auth_manager = if args.bigtable.needs_auth() || args.secrets_file.is_none() {
         Some(
@@ -182,7 +245,7 @@ fn start_cluster_manager(
     Url::parse(&format!("http://localhost:{port}/")).unwrap()
 }
 
-async fn create_realm<'a>(
+async fn create_realm(
     hsm_gen: &mut HsmGenerator,
     process_group: &mut ProcessGroup,
     r: &RealmConfig,
@@ -198,7 +261,6 @@ async fn create_realm<'a>(
         )
         .await;
 
-    // If we're restarting a realm from its persisted state, it might already have a realm/groups.
     match cluster::new_realm(&agents).await {
         Ok((realm, group_id)) => {
             let mut res = RealmResult {
@@ -214,6 +276,8 @@ async fn create_realm<'a>(
             }
             res
         }
+
+        // If we're restarting a realm from its persisted state, it might already have a realm/groups.
         Err(NewRealmError::HaveRealm { agent }) => {
             let c = http_client::Client::<AgentService>::new(ClientOptions::default());
             let sr = rpc::send(&c, &agent, StatusRequest {}).await.unwrap();
@@ -247,62 +311,5 @@ async fn create_realm<'a>(
         }
 
         Err(e) => panic!("failed to create new realm {e:?}"),
-    }
-}
-
-pub struct ClusterResult {
-    pub load_balancers: Vec<Url>,
-    pub certs: Certificates,
-    pub realms: Vec<RealmResult>,
-
-    pub auth_key_version: SecretVersion,
-    pub auth_key: AuthKey,
-
-    pub store: StoreClient,
-    pub cluster_manager: Url,
-}
-
-pub struct RealmResult {
-    pub agents: Vec<Url>,
-    pub groups: Vec<GroupId>,
-    pub realm: RealmId,
-    pub communication_public_key: Vec<u8>,
-}
-
-impl ClusterResult {
-    pub fn lb_cert(&self) -> Certificate {
-        Certificate::from_pem(
-            &fs::read(&self.certs.cert_file_pem).expect("failed to read certificate file"),
-        )
-        .expect("failed to decode certificate file")
-    }
-
-    pub fn client(&self, subject: String) -> Client<http_client::Client<LoadBalancerService>> {
-        Client::new(
-            Configuration {
-                realms: self
-                    .realms
-                    .iter()
-                    .map(|r| Realm {
-                        address: self.load_balancers[0].clone(),
-                        public_key: r.communication_public_key.clone(),
-                        id: r.realm,
-                    })
-                    .collect(),
-                register_threshold: 1,
-                recover_threshold: 1,
-            },
-            create_token(
-                &Claims {
-                    issuer: "test".to_string(),
-                    subject,
-                },
-                &self.auth_key,
-                self.auth_key_version,
-            ),
-            http_client::Client::<LoadBalancerService>::new(http_client::ClientOptions {
-                additional_root_certs: vec![self.lb_cert()],
-            }),
-        )
     }
 }

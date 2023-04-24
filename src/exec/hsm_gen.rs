@@ -25,6 +25,7 @@ use super::PortIssuer;
 
 type AgentClient = http_client::Client<AgentService>;
 
+#[derive(Debug)]
 pub struct Entrust(pub bool);
 
 pub struct HsmGenerator {

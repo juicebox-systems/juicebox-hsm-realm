@@ -92,7 +92,7 @@ async fn main() {
     info!(clients = args.concurrency, "creating clients");
     let clients: Vec<Arc<Mutex<Client<http_client::Client<LoadBalancerService>>>>> = (0..args
         .concurrency)
-        .map(|i| Arc::new(Mutex::new(cluster.client(format!("mario{i}")))))
+        .map(|i| Arc::new(Mutex::new(cluster.client_for_user(format!("mario{i}")))))
         .collect();
 
     info!("main: Running test register");

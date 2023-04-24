@@ -70,7 +70,7 @@ async fn leader_handover() {
         .await
         .unwrap();
 
-    let client = cluster.client(String::from("presso"));
+    let client = cluster.client_for_user(String::from("presso"));
 
     let (tx, rx) = channel();
     let (res_tx, res_rx) = channel();
