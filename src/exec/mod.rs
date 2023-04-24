@@ -7,6 +7,7 @@ pub mod certs;
 pub mod cluster_gen;
 pub mod hsm_gen;
 
+/// Used to sequentially assign network ports.
 #[derive(Clone)]
 pub struct PortIssuer(Arc<AtomicU16>);
 
