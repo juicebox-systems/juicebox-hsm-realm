@@ -51,8 +51,8 @@ async fn main() {
     info!("Starting register (allowing 2 guesses)");
     client
         .register(
-            &Pin(b"1234".to_vec()),
-            &UserSecret(b"teyla21".to_vec()),
+            &Pin::from(b"1234".to_vec()),
+            &UserSecret::from(b"teyla21".to_vec()),
             Policy { num_guesses: 2 },
         )
         .await
@@ -60,7 +60,7 @@ async fn main() {
     info!("Register succeeded");
 
     info!("Starting recover with wrong PIN (guess 1)");
-    match client.recover(&Pin(b"1212".to_vec())).await {
+    match client.recover(&Pin::from(b"1212".to_vec())).await {
         Err(RecoverError::Unsuccessful(_)) => {
             info!("Recover expectedly unsuccessful")
         }
@@ -69,16 +69,16 @@ async fn main() {
 
     info!("Starting recover with correct PIN (guess 2)");
     let secret = client
-        .recover(&Pin(b"1234".to_vec()))
+        .recover(&Pin::from(b"1234".to_vec()))
         .await
         .expect("recover failed");
     info!(
-        secret = String::from_utf8_lossy(&secret.0).to_string(),
+        secret = String::from_utf8_lossy(&secret.expose_secret()).to_string(),
         "Recovered secret"
     );
 
     info!("Starting recover with wrong PIN (guess 1)");
-    match client.recover(&Pin(b"1212".to_vec())).await {
+    match client.recover(&Pin::from(b"1212".to_vec())).await {
         Err(RecoverError::Unsuccessful(_)) => {
             info!("Recover expectedly unsuccessful")
         }
@@ -86,7 +86,7 @@ async fn main() {
     };
 
     info!("Starting recover with wrong PIN (guess 2)");
-    match client.recover(&Pin(b"1212".to_vec())).await {
+    match client.recover(&Pin::from(b"1212".to_vec())).await {
         Err(RecoverError::Unsuccessful(_)) => {
             info!("Recover expectedly unsuccessful")
         }
@@ -94,7 +94,7 @@ async fn main() {
     };
 
     info!("Starting recover with correct PIN (guess 3)");
-    match client.recover(&Pin(b"1234".to_vec())).await {
+    match client.recover(&Pin::from(b"1234".to_vec())).await {
         Err(RecoverError::Unsuccessful(_)) => {
             info!("Recover expectedly unsuccessful")
         }
@@ -104,8 +104,8 @@ async fn main() {
     info!("Starting register");
     client
         .register(
-            &Pin(b"4321".to_vec()),
-            &UserSecret(b"presso42".to_vec()),
+            &Pin::from(b"4321".to_vec()),
+            &UserSecret::from(b"presso42".to_vec()),
             Policy { num_guesses: 2 },
         )
         .await
@@ -114,11 +114,11 @@ async fn main() {
 
     info!("Starting recover with correct PIN (guess 1)");
     let secret = client
-        .recover(&Pin(b"4321".to_vec()))
+        .recover(&Pin::from(b"4321".to_vec()))
         .await
         .expect("recover failed");
     info!(
-        secret = String::from_utf8_lossy(&secret.0).to_string(),
+        secret = String::from_utf8_lossy(&secret.expose_secret()).to_string(),
         "Recovered secret"
     );
 

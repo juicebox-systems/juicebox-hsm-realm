@@ -24,7 +24,7 @@ use loam_mvp::realm::agent::types::{AgentService, StatusRequest, StatusResponse}
 use loam_mvp::realm::cluster::{self, NewRealmError};
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretsFile};
-use loam_sdk::{Client, Configuration, Pin, Realm, RealmId, UserSecret};
+use loam_sdk::{Client, Configuration, Pin, PinHashingMode, Realm, RealmId, UserSecret};
 use loam_sdk_core::types::Policy;
 use loam_sdk_networking::rpc::{self, LoadBalancerService};
 
@@ -219,6 +219,7 @@ async fn main() {
                     }],
                     register_threshold: 1,
                     recover_threshold: 1,
+                    pin_hashing_mode: PinHashingMode::None,
                 },
                 create_token(
                     &Claims {
@@ -240,8 +241,8 @@ async fn main() {
         .lock()
         .await
         .register(
-            &Pin(b"pin-test".to_vec()),
-            &UserSecret(b"secret-test".to_vec()),
+            &Pin::from(b"pin-test".to_vec()),
+            &UserSecret::from(b"secret-test".to_vec()),
             Policy { num_guesses: 2 },
         )
         .await
@@ -261,8 +262,8 @@ async fn main() {
                 .lock()
                 .await
                 .register(
-                    &Pin(format!("pin{i}").into_bytes()),
-                    &UserSecret(format!("secret{i}").into_bytes()),
+                    &Pin::from(format!("pin{i}").into_bytes()),
+                    &UserSecret::from(format!("secret{i}").into_bytes()),
                     Policy { num_guesses: 2 },
                 )
                 .await
