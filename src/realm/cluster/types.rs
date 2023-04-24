@@ -31,5 +31,7 @@ pub enum StepdownAsLeaderResponse {
     InvalidRealm,
     InvalidGroup,
     InvalidHsm,
+    // This group is busy with some other cluster management transition.
+    Busy { realm: RealmId, group: GroupId },
     RpcError(RpcError),
 }

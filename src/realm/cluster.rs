@@ -61,24 +61,24 @@ pub struct Manager(Arc<ManagerInner>);
 struct ManagerInner {
     store: StoreClient,
     agents: Client<AgentService>,
-    // Groups that are being managed by an external request, e.g. a leadership
-    // transfer. These should be ignored by the background management tasks.
-    external_ops: Mutex<HashSet<(RealmId, GroupId)>>,
+    // Groups that are being actively managed through some transition and other
+    // management operations on the group should be skipped.
+    busy_groups: Mutex<HashSet<(RealmId, GroupId)>>,
 }
 
-/// When drop'd will remove the realm/group from the managers external_ops set.
-struct ExternalOpGuard<'a> {
+/// When drop'd will remove the realm/group from the managers busy_groups set.
+struct ManagementGrant<'a> {
     mgr: &'a Manager,
     group: GroupId,
     realm: RealmId,
 }
 
-impl<'a> Drop for ExternalOpGuard<'a> {
+impl<'a> Drop for ManagementGrant<'a> {
     fn drop(&mut self) {
-        info!(group=?self.group, realm=?self.realm, "returning group to automated management");
+        info!(group=?self.group, realm=?self.realm, "management task completed");
         self.mgr
             .0
-            .external_ops
+            .busy_groups
             .lock()
             .unwrap()
             .remove(&(self.realm, self.group));
@@ -90,7 +90,7 @@ impl Manager {
         let m = Self(Arc::new(ManagerInner {
             store,
             agents: Client::new(ClientOptions::default()),
-            external_ops: Mutex::new(HashSet::new()),
+            busy_groups: Mutex::new(HashSet::new()),
         }));
         let manager = m.clone();
         tokio::spawn(async move {
@@ -174,22 +174,26 @@ impl Service<Request<IncomingBody>> for Manager {
 impl Manager {
     /// Perform one pass of the management tasks.
     async fn run(&self) {
-        let to_ignore = self.0.external_ops.lock().unwrap().clone();
-        if let Err(err) = ensure_groups_have_leader(&self.0.agents, &self.0.store, to_ignore).await
-        {
+        if let Err(err) = self.ensure_groups_have_leader().await {
             warn!(?err, "Error while checking/updating cluster state")
         }
     }
 
-    fn mark_as_external_op(&self, realm: RealmId, group: GroupId) -> ExternalOpGuard {
-        let mut locked = self.0.external_ops.lock().unwrap();
-        let inserted = locked.insert((realm, group));
-        assert!(inserted);
-        info!(?group, ?realm, "marking group as under external management");
-        ExternalOpGuard {
-            mgr: self,
-            realm,
-            group,
+    // Track that the group is going through some management operation that
+    // should block other management operations. Returns None if the group is
+    // already busy by some other task. When the returned ManagementGrant is
+    // dropped, the group will be removed from the busy set.
+    fn mark_as_busy(&self, realm: RealmId, group: GroupId) -> Option<ManagementGrant> {
+        let mut locked = self.0.busy_groups.lock().unwrap();
+        if locked.insert((realm, group)) {
+            info!(?group, ?realm, "marking group as under active management");
+            Some(ManagementGrant {
+                mgr: self,
+                realm,
+                group,
+            })
+        } else {
+            None
         }
     }
 
@@ -209,12 +213,20 @@ impl Manager {
             Err(e) => return Ok(e),
             Ok(sd) => sd,
         };
-        let _active: Vec<ExternalOpGuard> = stepdowns
-            .iter()
-            .map(|s| self.mark_as_external_op(s.realm, s.group))
-            .collect();
+        let mut grants = Vec::with_capacity(stepdowns.len());
+        for stepdown in &stepdowns {
+            match self.mark_as_busy(stepdown.realm, stepdown.group) {
+                None => {
+                    return Ok(Response::Busy {
+                        realm: stepdown.realm,
+                        group: stepdown.group,
+                    })
+                }
+                Some(grant) => grants.push(grant),
+            }
+        }
 
-        for stepdown in stepdowns {
+        for (stepdown, grant) in zip(stepdowns, grants) {
             info!(url=%stepdown.url, hsm=?stepdown.hsm, group=?stepdown.group, realm=?stepdown.realm, "Asking Agent/HSM to step down as leader");
             match rpc::send(
                 &self.0.agents,
@@ -239,7 +251,7 @@ impl Manager {
                 }
                 Ok(agent_types::StepdownAsLeaderResponse::Ok { last }) => {
                     if let Err(err) = self
-                        .assign_leader_post_stepdown(&addresses, stepdown, Some(last))
+                        .assign_leader_post_stepdown(&addresses, &grant, stepdown, Some(last))
                         .await
                     {
                         return Ok(Response::RpcError(err));
@@ -254,6 +266,7 @@ impl Manager {
     async fn assign_leader_post_stepdown(
         &self,
         addresses: &HashMap<HsmId, Url>,
+        grant: &ManagementGrant<'_>,
         stepdown: Stepdown,
         last: Option<LogIndex>,
     ) -> Result<Option<HsmId>, RpcError> {
@@ -269,8 +282,7 @@ impl Manager {
 
         assign_group_a_leader(
             &self.0.agents,
-            stepdown.realm,
-            stepdown.group,
+            grant,
             stepdown.config,
             Some(stepdown.hsm),
             &hsm_status,
@@ -352,6 +364,51 @@ impl Manager {
                 .collect())
             }
         }
+    }
+
+    pub async fn ensure_groups_have_leader(&self) -> Result<(), Error> {
+        trace!("checking that all groups have a leader");
+        let addresses = self.0.store.get_addresses().await?;
+        let hsm_status =
+            get_hsm_statuses(&self.0.agents, addresses.iter().map(|(_, url)| url)).await;
+
+        let mut groups: HashMap<GroupId, (Configuration, RealmId, Option<HsmId>)> = HashMap::new();
+        for (hsm, _url) in hsm_status.values() {
+            if let Some(realm) = &hsm.realm {
+                for g in &realm.groups {
+                    groups
+                        .entry(g.id)
+                        .or_insert_with(|| (g.configuration.clone(), realm.id, None));
+                    if let Some(_leader) = &g.leader {
+                        groups.entry(g.id).and_modify(|v| v.2 = Some(hsm.id));
+                    }
+                }
+            }
+        }
+
+        trace!(count=?groups.len(), "found groups");
+
+        for (group_id, (config, realm_id, _)) in groups
+            .into_iter()
+            .filter(|(_, (_, _, leader))| leader.is_none())
+        {
+            info!(?group_id, ?realm_id, "Group has no leader");
+            match self.mark_as_busy(realm_id, group_id) {
+                None => {
+                    info!(
+                        ?group_id,
+                        ?realm_id,
+                        "Skipping group being managed by some other task"
+                    );
+                }
+                Some(grant) => {
+                    // This group doesn't have a leader, we'll pick one and ask it to become leader.
+                    assign_group_a_leader(&self.0.agents, &grant, config, None, &hsm_status, None)
+                        .await?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -848,65 +905,11 @@ async fn get_hsm_statuses(
     .collect()
 }
 
-pub async fn ensure_groups_have_leader(
-    agent_client: &Client<AgentService>,
-    store: &StoreClient,
-    ignore: HashSet<(RealmId, GroupId)>,
-) -> Result<(), Error> {
-    trace!("checking that all groups have a leader");
-    let addresses = store.get_addresses().await?;
-    let hsm_status = get_hsm_statuses(agent_client, addresses.iter().map(|(_, url)| url)).await;
-
-    let mut groups: HashMap<GroupId, (Configuration, RealmId, Option<HsmId>)> = HashMap::new();
-    for (hsm, _url) in hsm_status.values() {
-        if let Some(realm) = &hsm.realm {
-            for g in &realm.groups {
-                groups
-                    .entry(g.id)
-                    .or_insert_with(|| (g.configuration.clone(), realm.id, None));
-                if let Some(_leader) = &g.leader {
-                    groups.entry(g.id).and_modify(|v| v.2 = Some(hsm.id));
-                }
-            }
-        }
-    }
-
-    trace!(count=?groups.len(), "found groups");
-
-    for (group_id, (config, realm_id, _)) in groups
-        .into_iter()
-        .filter(|(_, (_, _, leader))| leader.is_none())
-    {
-        info!(?group_id, ?realm_id, "Group has no leader");
-        if ignore.contains(&(realm_id, group_id)) {
-            info!(
-                ?group_id,
-                ?realm_id,
-                "Skipping leader assignment for externally managed group"
-            );
-        } else {
-            // This group doesn't have a leader, we'll pick one and ask it to become leader.
-            assign_group_a_leader(
-                agent_client,
-                realm_id,
-                group_id,
-                config,
-                None,
-                &hsm_status,
-                None,
-            )
-            .await?;
-        }
-    }
-    Ok(())
-}
-
 /// Assigns a new leader for the group, using our workload scoring. The caller
 /// is responsible for deciding that the group needs a leader.
 async fn assign_group_a_leader(
     agent_client: &Client<AgentService>,
-    realm_id: RealmId,
-    group_id: GroupId,
+    grant: &ManagementGrant<'_>,
     config: Configuration,
     skipping: Option<HsmId>,
     hsm_status: &HashMap<HsmId, (hsm_types::StatusResponse, Url)>,
@@ -923,7 +926,7 @@ async fn assign_group_a_leader(
             None | Some(_) => true,
         })
         .filter_map(|id| hsm_status.get(&id))
-        .map(|(m, _)| score(&group_id, m))
+        .map(|(m, _)| score(&grant.group, m))
         .collect();
     scored.sort();
 
@@ -931,20 +934,20 @@ async fn assign_group_a_leader(
 
     for hsm_id in scored.into_iter().map(|s| s.id) {
         if let Some((_, url)) = hsm_status.get(&hsm_id) {
-            info!(?hsm_id, ?realm_id, ?group_id, "Asking hsm to become leader");
+            info!(?hsm_id, realm=?grant.realm, group=?grant.group, "Asking hsm to become leader");
             match rpc::send(
                 agent_client,
                 url,
                 BecomeLeaderRequest {
-                    realm: realm_id,
-                    group: group_id,
+                    realm: grant.realm,
+                    group: grant.group,
                     last,
                 },
             )
             .await
             {
                 Ok(BecomeLeaderResponse::Ok) => {
-                    info!(?hsm_id, ?realm_id, ?group_id, "Now leader");
+                    info!(?hsm_id, realm=?grant.realm, group=?grant.group, "Now leader");
                     return Ok(Some(hsm_id));
                 }
                 Ok(reply) => {
