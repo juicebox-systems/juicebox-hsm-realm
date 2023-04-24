@@ -27,6 +27,7 @@ pub enum StepdownAsLeaderResponse {
     Ok,
     NoHsm,
     NoStore,
+    NotLeader,
     InvalidRealm,
     InvalidGroup,
     InvalidHsm,

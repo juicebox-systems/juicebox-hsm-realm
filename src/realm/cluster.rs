@@ -235,12 +235,7 @@ impl Manager {
                     return Ok(Response::InvalidRealm)
                 }
                 Ok(agent_types::StepdownAsLeaderResponse::NotLeader) => {
-                    if let Err(err) = self
-                        .assign_leader_post_stepdown(&addresses, stepdown, None)
-                        .await
-                    {
-                        return Ok(Response::RpcError(err));
-                    }
+                    return Ok(Response::NotLeader)
                 }
                 Ok(agent_types::StepdownAsLeaderResponse::Ok { last }) => {
                     if let Err(err) = self
