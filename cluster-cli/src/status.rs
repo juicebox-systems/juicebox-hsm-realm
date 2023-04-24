@@ -7,7 +7,7 @@ use futures::{future::join_all, FutureExt};
 use reqwest::Url;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use hsmcore::hsm::types::{GroupId, HsmId, LogIndex, StatusResponse};
+use hsmcore::hsm::types::{GroupId, GroupStatus, HsmId, LogIndex, StatusResponse};
 use loam_mvp::{
     http_client::Client,
     realm::{
@@ -37,7 +37,7 @@ pub async fn status(c: Client<AgentService>, store: StoreClient) -> anyhow::Resu
 
     #[derive(Default)]
     struct GroupInfo {
-        members: Vec<(HsmId, Option<LogIndex>)>,   //captured
+        members: Vec<(HsmId, GroupStatus)>,
         leader: Option<(HsmId, Option<LogIndex>)>, //commit
     }
     let mut realms: BTreeMap<RealmId, BTreeSet<GroupId>> = BTreeMap::new();
@@ -47,10 +47,7 @@ pub async fn status(c: Client<AgentService>, store: StoreClient) -> anyhow::Resu
             for group in realm_status.groups {
                 realms.entry(realm_status.id).or_default().insert(group.id);
                 let entry = groups.entry(group.id).or_default();
-                entry.members.push((
-                    status_response.id,
-                    group.captured.map(|(index, _hmac)| index),
-                ));
+                entry.members.push((status_response.id, group.clone()));
                 if group.leader.is_some() {
                     entry.leader = Some((status_response.id, group.leader.unwrap().committed));
                 }
@@ -67,13 +64,14 @@ pub async fn status(c: Client<AgentService>, store: StoreClient) -> anyhow::Resu
             let rows: Vec<_> = group
                 .members
                 .iter()
-                .map(|(hsm_id, captured)| {
+                .map(|(hsm_id, group_status)| {
                     vec![
                         hsm_id.to_string().cell(),
                         addresses.get(hsm_id).unwrap().to_string().cell(),
-                        match captured {
+                        group_status.role.to_string().cell(),
+                        match &group_status.captured {
                             None => "None".cell(),
-                            Some(i) => i.to_string().cell(),
+                            Some((index, _hmac)) => index.to_string().cell(),
                         }
                         .justify(Justify::Right),
                         match group.leader {
@@ -90,7 +88,7 @@ pub async fn status(c: Client<AgentService>, store: StoreClient) -> anyhow::Resu
             let table = rows
                 .table()
                 .separator(Separator::builder().title(Some(Default::default())).build())
-                .title(vec!["HSM", "Agent URL", "Captured", "Commit"])
+                .title(vec!["HSM", "Agent URL", "Role", "Captured", "Commit"])
                 .color_choice(cli_table::ColorChoice::Never);
             assert!(print_stdout(table).is_ok());
         }

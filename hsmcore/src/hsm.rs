@@ -42,14 +42,14 @@ use types::{
     AppError, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CaptureNextRequest, CaptureNextResponse, Captured, CapturedStatement, CompleteTransferRequest,
     CompleteTransferResponse, Configuration, DataHash, EntryHmac, GroupConfigurationStatement,
-    GroupId, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus, LogEntry, LogIndex,
-    NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange,
-    Partition, PersistStateRequest, PersistStateResponse, RealmStatus, RecordId, StatusRequest,
-    StatusResponse, StepdownAsLeaderRequest, StepdownAsLeaderResponse, TransferInRequest,
-    TransferInResponse, TransferNonce, TransferNonceRequest, TransferNonceResponse,
-    TransferOutRequest, TransferOutResponse, TransferStatement, TransferStatementRequest,
-    TransferStatementResponse, TransferringOut,
+    GroupId, GroupMemberRole, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId,
+    JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus,
+    LogEntry, LogIndex, NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest,
+    NewRealmResponse, OwnedRange, Partition, PersistStateRequest, PersistStateResponse,
+    RealmStatus, RecordId, StatusRequest, StatusResponse, StepdownAsLeaderRequest,
+    StepdownAsLeaderResponse, TransferInRequest, TransferInResponse, TransferNonce,
+    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
+    TransferStatement, TransferStatementRequest, TransferStatementResponse, TransferringOut,
 };
 
 /// Returned in Noise handshake requests as a hint to the client of how long
@@ -785,6 +785,13 @@ impl<P: Platform> Hsm<P> {
                                             .map(|p| p.range.clone()),
                                     }
                                 }),
+                                role: match self.volatile.leader.get(group_id) {
+                                    Some(_) => GroupMemberRole::Leader,
+                                    None => match self.volatile.stepping_down.get(group_id) {
+                                        Some(_) => GroupMemberRole::SteppingDown,
+                                        None => GroupMemberRole::Witness,
+                                    },
+                                },
                             }
                         })
                         .collect(),

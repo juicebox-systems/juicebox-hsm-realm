@@ -1,7 +1,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use core::fmt;
+use core::fmt::{self, Display};
 use core::time::Duration;
 use hmac::Hmac;
 use serde::{Deserialize, Serialize};
@@ -322,22 +322,33 @@ pub struct RealmStatus {
     pub groups: Vec<GroupStatus>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct GroupStatus {
     pub id: GroupId,
     pub configuration: Configuration,
     pub captured: Option<(LogIndex, EntryHmac)>,
     pub leader: Option<LeaderStatus>,
+    pub role: GroupMemberRole,
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum GroupMemberRole {
     Leader,
     SteppingDown,
     Witness,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+impl Display for GroupMemberRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GroupMemberRole::Leader => f.write_str("Leader"),
+            GroupMemberRole::SteppingDown => f.write_str("Stepping Down"),
+            GroupMemberRole::Witness => f.write_str("Witness"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LeaderStatus {
     pub committed: Option<LogIndex>,
     // Note: this might not be committed yet.
