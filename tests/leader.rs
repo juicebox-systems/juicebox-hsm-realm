@@ -2,7 +2,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicU16, Ordering},
-        mpsc::{channel, Sender},
+        mpsc::channel,
     },
 };
 
@@ -20,6 +20,7 @@ use loam_mvp::{
 };
 use loam_sdk::{Pin, Policy, UserSecret};
 use loam_sdk_networking::rpc::{self};
+use tokio::task::JoinSet;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: AtomicU16 = AtomicU16::new(8333);
@@ -38,14 +39,6 @@ fn emulator() -> BigTableArgs {
 enum WorkerReq {
     Report,
     Shutdown,
-}
-
-struct TestWorkerGuard(Sender<WorkerReq>);
-impl Drop for TestWorkerGuard {
-    fn drop(&mut self) {
-        // This can error if the worker was already shutdown
-        let _ = self.0.send(WorkerReq::Shutdown);
-    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -74,9 +67,9 @@ async fn leader_handover() {
 
     let (tx, rx) = channel();
     let (res_tx, res_rx) = channel();
-    let _guard = TestWorkerGuard(tx.clone());
+    let mut tasks = JoinSet::new();
 
-    tokio::spawn(async move {
+    tasks.spawn(async move {
         let mut success_count = 0;
         let mut failures = Vec::new();
         loop {
