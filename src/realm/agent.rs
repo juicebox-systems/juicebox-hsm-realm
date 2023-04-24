@@ -701,16 +701,8 @@ impl<T: Transport + 'static> Agent<T> {
             .await
         {
             Err(_) => Ok(Response::NoHsm),
-            Ok(HsmResponse::Ok { config, entry }) => {
+            Ok(HsmResponse::Ok { config }) => {
                 self.start_leading(request.realm, request.group, config, last_entry_index);
-                self.append(
-                    request.realm,
-                    request.group,
-                    Append {
-                        entry,
-                        delta: StoreDelta::default(),
-                    },
-                );
                 Ok(Response::Ok)
             }
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
@@ -738,7 +730,7 @@ impl<T: Transport + 'static> Agent<T> {
             .is_none()
         {
             return Ok(Response::NotLeader);
-        };
+        }
         match self
             .0
             .hsm

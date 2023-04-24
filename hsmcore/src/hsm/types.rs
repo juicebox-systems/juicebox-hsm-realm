@@ -437,7 +437,6 @@ pub struct BecomeLeaderRequest {
 pub enum BecomeLeaderResponse {
     Ok {
         config: Configuration,
-        entry: LogEntry,
     },
     InvalidRealm,
     InvalidGroup,
