@@ -147,9 +147,9 @@ async fn main() {
 
     let elapsed = start.elapsed().as_secs_f64();
     info!(
-        recoveries = args.count,
+        registrations = args.count,
         seconds = elapsed,
-        recoveries_per_s = (args.count as f64) / elapsed,
+        registrations_per_s = (args.count as f64) / elapsed,
         concurrency = args.concurrency,
         "completed benchmark"
     );
