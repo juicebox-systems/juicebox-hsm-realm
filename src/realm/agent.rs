@@ -673,6 +673,7 @@ impl<T: Transport + 'static> Agent<T> {
             // we'll wait for that to be available.
             Some(idx) => {
                 let entry: LogEntry;
+                let start = Instant::now();
                 loop {
                     entry = match store
                         .read_log_entry(&request.realm, &request.group, idx)
@@ -681,6 +682,9 @@ impl<T: Transport + 'static> Agent<T> {
                         Err(_) => return Ok(Response::NoStore),
                         Ok(Some(entry)) => entry,
                         Ok(None) => {
+                            if start.elapsed() > Duration::from_secs(5) {
+                                return Ok(Response::TimeoutWaitForLogIndex);
+                            }
                             sleep(Duration::from_millis(2)).await;
                             continue;
                         }
