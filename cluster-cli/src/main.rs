@@ -1,5 +1,7 @@
+use anyhow::Context;
 use clap::{command, Parser, Subcommand};
 use reqwest::Url;
+use thiserror::Error;
 
 use hsmcore::hsm::types::HsmId;
 use loam_mvp::{
@@ -63,7 +65,7 @@ async fn main() {
     let result = match &args.command.unwrap_or(Commands::Status) {
         Commands::Stepdown { hsm } => match resolve_hsm_id(&store, hsm).await {
             Err(e) => {
-                println!("{}", e);
+                println!("{:?}", e);
                 return;
             }
             Ok(id) => stepdown(&args.cluster, id).await,
@@ -75,25 +77,31 @@ async fn main() {
     }
 }
 
-async fn resolve_hsm_id(store: &StoreClient, id: &str) -> Result<HsmId, String> {
+async fn resolve_hsm_id(store: &StoreClient, id: &str) -> anyhow::Result<HsmId> {
     if id.len() == 32 {
-        let h = hex::decode(id).map_err(|e| format!("{e:?}"))?;
+        let h = hex::decode(id).context("decoding HSM Id.")?;
         Ok(HsmId(h.try_into().unwrap()))
     } else {
         let id = id.to_lowercase();
         let ids: Vec<_> = store
             .get_addresses()
             .await
-            .map_err(|e| format!("RPC error to bigtable {e:?}"))?
+            .context("RPC error to bigtable")?
             .into_iter()
             .filter(|(hsm_id, _url)| hsm_id.to_string().to_lowercase().starts_with(&id))
             .collect();
         match ids.len() {
-            0 => Err(String::from("No HSM with that id.")),
+            0 => Err(HsmIdError::NoMatch.into()),
             1 => Ok(ids[0].0),
-            c => Err(format!(
-                "Ambiguous Hsm id, there are {c} HSMs that start with that id."
-            )),
+            c => Err(HsmIdError::Ambiguous(c).into()),
         }
     }
+}
+
+#[derive(Error, Debug)]
+enum HsmIdError {
+    #[error("No HSM with that Id.")]
+    NoMatch,
+    #[error("Ambiguous Hsm id. There are {0} HSMs that start with that Id.")]
+    Ambiguous(usize),
 }

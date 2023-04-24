@@ -1,3 +1,4 @@
+use anyhow::Context;
 use cli_table::{
     format::{Justify, Separator},
     print_stdout, Cell, Table,
@@ -15,11 +16,14 @@ use loam_mvp::{
     },
 };
 use loam_sdk::RealmId;
-use loam_sdk_networking::rpc::{self, RpcError};
+use loam_sdk_networking::rpc::{self};
 
-pub async fn status(c: Client<AgentService>, store: StoreClient) -> Result<(), RpcError> {
+pub async fn status(c: Client<AgentService>, store: StoreClient) -> anyhow::Result<()> {
     println!("Status");
-    let addresses = store.get_addresses().await.map_err(|_| RpcError::Network)?;
+    let addresses = store
+        .get_addresses()
+        .await
+        .context("Failed to get agent addresses from bigtable")?;
     println!("{} Agents listed in service discovery", addresses.len());
 
     let status_responses: Vec<StatusResponse> =
