@@ -205,7 +205,7 @@ async fn create_realm<'a>(
                 agents,
                 groups: vec![group_id],
                 realm,
-                key,
+                communication_public_key: key,
             };
             for _ in 1..r.groups {
                 let group_id = cluster::new_group(realm, &res.agents).await.unwrap();
@@ -240,7 +240,7 @@ async fn create_realm<'a>(
                         agents,
                         groups: r.groups.iter().map(|g| g.id).collect::<Vec<GroupId>>(),
                         realm: r.id,
-                        key,
+                        communication_public_key: key,
                     }
                 }
             }
@@ -266,7 +266,7 @@ pub struct RealmResult {
     pub agents: Vec<Url>,
     pub groups: Vec<GroupId>,
     pub realm: RealmId,
-    pub key: Vec<u8>,
+    pub communication_public_key: Vec<u8>,
 }
 
 impl ClusterResult {
@@ -285,7 +285,7 @@ impl ClusterResult {
                     .iter()
                     .map(|r| Realm {
                         address: self.load_balancers[0].clone(),
-                        public_key: r.key.clone(),
+                        public_key: r.communication_public_key.clone(),
                         id: r.realm,
                     })
                     .collect(),

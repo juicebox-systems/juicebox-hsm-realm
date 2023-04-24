@@ -6,7 +6,7 @@ use futures::{future::join_all, FutureExt};
 use reqwest::Url;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use hsmcore::hsm::types::{GroupId, HsmId, LogIndex};
+use hsmcore::hsm::types::{GroupId, HsmId, LogIndex, StatusResponse};
 use loam_mvp::{
     http_client::Client,
     realm::{
@@ -22,7 +22,7 @@ pub async fn status(c: Client<AgentService>, store: StoreClient) -> Result<(), R
     let addresses = store.get_addresses().await.map_err(|_| RpcError::Network)?;
     println!("{} Agents listed in service discovery", addresses.len());
 
-    let s: Vec<_> =
+    let status_responses: Vec<StatusResponse> =
         join_all(addresses.iter().map(|(hsm_id, url)| {
             rpc::send(&c, url, StatusRequest {}).map(move |r| (r, hsm_id, url))
         }))
@@ -38,15 +38,17 @@ pub async fn status(c: Client<AgentService>, store: StoreClient) -> Result<(), R
     }
     let mut realms: BTreeMap<RealmId, BTreeSet<GroupId>> = BTreeMap::new();
     let mut groups: BTreeMap<GroupId, GroupInfo> = BTreeMap::new();
-    for sr in s {
-        if let Some(r) = sr.realm {
-            for g in r.groups {
-                realms.entry(r.id).or_default().insert(g.id);
-                let e = groups.entry(g.id).or_default();
-                e.members
-                    .push((sr.id, g.captured.map(|(index, _hmac)| index)));
-                if g.leader.is_some() {
-                    e.leader = Some((sr.id, g.leader.unwrap().committed));
+    for status_response in status_responses {
+        if let Some(realm_status) = status_response.realm {
+            for group in realm_status.groups {
+                realms.entry(realm_status.id).or_default().insert(group.id);
+                let entry = groups.entry(group.id).or_default();
+                entry.members.push((
+                    status_response.id,
+                    group.captured.map(|(index, _hmac)| index),
+                ));
+                if group.leader.is_some() {
+                    entry.leader = Some((status_response.id, group.leader.unwrap().committed));
                 }
             }
         }

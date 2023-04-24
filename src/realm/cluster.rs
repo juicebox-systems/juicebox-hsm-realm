@@ -262,7 +262,7 @@ impl Manager {
         stepdown: Stepdown,
         last: Option<LogIndex>,
     ) -> Result<Option<HsmId>, RpcError> {
-        let hsm_status = hsm_status_of(
+        let hsm_status = get_hsm_statuses(
             &self.0.agents,
             stepdown
                 .config
@@ -670,11 +670,11 @@ pub async fn transfer(
 
     let leaders = find_leaders(store, &agent_client).await.expect("TODO");
 
-    let Some((_,source_leader)) = leaders.get(&(realm, source)) else {
+    let Some((_, source_leader)) = leaders.get(&(realm, source)) else {
         return Err(Error::NoSourceLeader);
     };
 
-    let Some((_,dest_leader)) = leaders.get(&(realm, destination)) else {
+    let Some((_, dest_leader)) = leaders.get(&(realm, destination)) else {
         return Err(Error::NoDestinationLeader);
     };
 
@@ -840,7 +840,7 @@ pub async fn find_leaders(
     Ok(leaders)
 }
 
-async fn hsm_status_of(
+async fn get_hsm_statuses(
     agents: &Client<AgentService>,
     agent_urls: impl Iterator<Item = &Url>,
 ) -> HashMap<HsmId, (hsm_types::StatusResponse, Url)> {
@@ -860,7 +860,7 @@ pub async fn ensure_groups_have_leader(
 ) -> Result<(), Error> {
     trace!("checking that all groups have a leader");
     let addresses = store.get_addresses().await?;
-    let hsm_status = hsm_status_of(agent_client, addresses.iter().map(|(_, url)| url)).await;
+    let hsm_status = get_hsm_statuses(agent_client, addresses.iter().map(|(_, url)| url)).await;
 
     let mut groups: HashMap<GroupId, (Configuration, RealmId, Option<HsmId>)> = HashMap::new();
     for (hsm, _url) in hsm_status.values() {
