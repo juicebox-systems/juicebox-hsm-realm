@@ -128,31 +128,29 @@ async fn leader_handover() {
     let agents = http_client::Client::new(ClientOptions::default());
     for _ in 1..10 {
         // Find out the current leader HSM and ask the cluster manager it have it stepdown.
-        let leaders = cluster::find_leaders(&cluster.store, &agents)
+        let leaders1 = cluster::find_leaders(&cluster.store, &agents)
             .await
             .unwrap();
 
-        assert_eq!(1, leaders.len());
-        let (hsm_id, _) = leaders.values().next().unwrap();
+        assert_eq!(1, leaders1.len());
+        let (hsm_id1, _) = leaders1.values().next().unwrap();
 
         rpc::send(
             &agents,
             &cluster.cluster_manager,
-            StepdownAsLeaderRequest::Hsm(*hsm_id),
+            StepdownAsLeaderRequest::Hsm(*hsm_id1),
         )
         .await
         .unwrap();
 
         // See who the new leader is and make sure its a different HSM.
-        let new_leaders = cluster::find_leaders(&cluster.store, &agents)
+        let leaders2 = cluster::find_leaders(&cluster.store, &agents)
             .await
             .unwrap();
 
-        assert_eq!(1, new_leaders.len());
-        assert_ne!(
-            leaders.values().next().unwrap(),
-            new_leaders.values().next().unwrap()
-        );
+        assert_eq!(1, leaders2.len());
+        let (hsm_id2, _) = leaders2.values().next().unwrap();
+        assert_ne!(hsm_id1, hsm_id2);
 
         // make sure the background worker made some progress.
         let count_before_leader_change = success_count;
@@ -166,7 +164,7 @@ async fn leader_handover() {
         }
 
         // Now ask for a stepdown based on the realm/group Id.
-        let (realm, group) = new_leaders.keys().next().unwrap();
+        let (realm, group) = leaders2.keys().next().unwrap();
         rpc::send(
             &agents,
             &cluster.cluster_manager,
@@ -179,16 +177,13 @@ async fn leader_handover() {
         .unwrap();
 
         // check that the leadership moved.
-        let leaders = new_leaders;
-        let new_leaders = cluster::find_leaders(&cluster.store, &agents)
+        let leaders3 = cluster::find_leaders(&cluster.store, &agents)
             .await
             .unwrap();
 
-        assert_eq!(1, new_leaders.len());
-        assert_ne!(
-            leaders.values().next().unwrap(),
-            new_leaders.values().next().unwrap()
-        );
+        assert_eq!(1, leaders3.len());
+        let (hsm_id3, _) = leaders3.values().next().unwrap();
+        assert_ne!(hsm_id2, hsm_id3);
 
         // check in on our background register/recover progress.
         let count_before_leader_change = success_count;
