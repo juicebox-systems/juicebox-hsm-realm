@@ -21,7 +21,7 @@ use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretsFile};
-use loam_sdk::{Configuration, Realm};
+use loam_sdk::{Configuration, PinHashingMode, Realm};
 
 #[derive(Parser)]
 #[command(
@@ -258,6 +258,7 @@ async fn main() {
             .collect(),
         register_threshold: 3,
         recover_threshold: 3,
+        pin_hashing_mode: PinHashingMode::FastInsecure,
     };
 
     let tenant = "test";

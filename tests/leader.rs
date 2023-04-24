@@ -13,7 +13,7 @@ use loam_mvp::{
         store::bigtable::BigTableArgs,
     },
 };
-use loam_sdk::{Pin, Policy, UserSecret};
+use loam_sdk::Policy;
 use loam_sdk_networking::rpc::{self};
 use once_cell::sync::Lazy;
 use tokio::task::JoinSet;
@@ -69,8 +69,8 @@ async fn leader_handover() {
         loop {
             match client
                 .register(
-                    &Pin(vec![1, 2, 3, 4]),
-                    &UserSecret(b"bob".to_vec()),
+                    &vec![1, 2, 3, 4].into(),
+                    &b"bob".to_vec().into(),
                     Policy { num_guesses: 3 },
                 )
                 .await
@@ -79,8 +79,8 @@ async fn leader_handover() {
                 Err(e) => failures.push(format!("{e:?}")),
             }
 
-            match client.recover(&Pin(vec![1, 2, 3, 4])).await {
-                Ok(secret) if secret.0 == b"bob".to_vec() => success_count += 1,
+            match client.recover(&vec![1, 2, 3, 4].into()).await {
+                Ok(secret) if secret.expose_secret() == b"bob".to_vec() => success_count += 1,
                 Ok(secret) => {
                     failures.push(format!("expected {:?} got {:?}", b"bob".to_vec(), secret.0))
                 }

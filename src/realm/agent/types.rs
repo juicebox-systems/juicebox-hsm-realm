@@ -1,5 +1,5 @@
+use blake2::{Blake2s256, Digest};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use hsm_types::{
     Configuration, GroupConfigurationStatement, GroupId, HsmId, LogIndex, OwnedRange, Partition,
@@ -335,7 +335,7 @@ pub enum AppResponse {
 }
 
 pub fn make_record_id(tenant: &str, user: &str) -> RecordId {
-    let mut h = Sha256::new();
+    let mut h = Blake2s256::new();
     // TODO: deal with possibility of b'|' occurring in `tenant` and `user`.
     h.update(tenant);
     h.update(b"|");

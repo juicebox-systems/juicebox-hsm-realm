@@ -27,7 +27,7 @@ use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use super::PortIssuer;
 
 use hsmcore::hsm::types::GroupId;
-use loam_sdk::{Client, Configuration, Realm, RealmId};
+use loam_sdk::{Client, Configuration, PinHashingMode, Realm, RealmId};
 
 #[derive(Debug)]
 pub struct ClusterConfig {
@@ -83,6 +83,7 @@ impl ClusterResult {
                     .collect(),
                 register_threshold: self.realms.len().try_into().unwrap(),
                 recover_threshold: self.realms.len().try_into().unwrap(),
+                pin_hashing_mode: PinHashingMode::None,
             },
             create_token(
                 &Claims {
