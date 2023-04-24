@@ -73,7 +73,7 @@ async fn main() {
         .await
         .expect("recover failed");
     info!(
-        secret = String::from_utf8_lossy(&secret.expose_secret()).to_string(),
+        secret = String::from_utf8_lossy(secret.expose_secret()).to_string(),
         "Recovered secret"
     );
 
@@ -118,7 +118,7 @@ async fn main() {
         .await
         .expect("recover failed");
     info!(
-        secret = String::from_utf8_lossy(&secret.expose_secret()).to_string(),
+        secret = String::from_utf8_lossy(secret.expose_secret()).to_string(),
         "Recovered secret"
     );
 
