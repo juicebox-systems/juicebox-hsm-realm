@@ -1,5 +1,5 @@
 use futures::future::join_all;
-use hsmcore::hsm::types::{Captured, EntryHmac};
+use hsmcore::hsm::types::{Captured, EntryHmac, GroupMemberRole, LogEntry};
 use loam_sdk_core::requests::NoiseResponse;
 use loam_sdk_networking::rpc;
 use reqwest::Url;
@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
-use tracing::{info, trace, warn, Span};
+use tracing::{info, instrument, trace, warn, Span};
 
 use super::super::{hsm::client::Transport, store::bigtable::StoreClient};
 use super::types::{ReadCapturedRequest, ReadCapturedResponse};
@@ -138,18 +138,53 @@ impl<T: Transport + 'static> Agent<T> {
             }
         }
         trace!(?group, index=?commit_index, "election has quorum");
+        // If the HSM is stepping down, it might need additional log entries in order to process the commit.
+        let step_down_at = self
+            .0
+            .state
+            .lock()
+            .unwrap()
+            .leader
+            .get(&(realm, group))
+            .and_then(|ls| ls.stepdown_at);
+
+        let log = match step_down_at {
+            None => Vec::new(),
+            Some(step_down_index) if commit_index <= step_down_index => Vec::new(),
+            Some(step_down_index) => {
+                let max_captured_index = captures
+                    .iter()
+                    .map(|c| c.index)
+                    .max()
+                    .expect("There were enough captures to calculate a commit index");
+                match self
+                    .collect_log(realm, group, step_down_index.next(), max_captured_index)
+                    .await
+                {
+                    Ok(log) => log,
+                    Err(err) => {
+                        warn!(?err, "Failed to read log entries from store");
+                        return CommitterStatus::Committing {
+                            committed: last_committed,
+                        };
+                    }
+                }
+            }
+        };
         let commit_request = CommitRequest {
             realm,
             group,
             captures,
+            log,
         };
 
         // Ask the HSM to do the commit
         let response = self.0.hsm.send(commit_request).await;
-        let (new_committed, responses) = match response {
+        let (new_committed, responses, role) = match response {
             Ok(CommitResponse::Ok {
                 committed,
                 responses,
+                role,
             }) => {
                 trace!(
                     agent = self.0.name,
@@ -157,7 +192,7 @@ impl<T: Transport + 'static> Agent<T> {
                     num_responses=?responses.len(),
                     "HSM committed entry"
                 );
-                (committed, responses)
+                (committed, responses, role)
             }
             Ok(CommitResponse::AlreadyCommitted { committed: c }) => {
                 info!(
@@ -179,19 +214,14 @@ impl<T: Transport + 'static> Agent<T> {
         Span::current().record("released_count", released_count);
 
         // See if we're done stepping down
-        let mut locked = self.0.state.lock().unwrap();
-        if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
-            if let Some(stepdown) = leader.stepdown_at {
-                if new_committed >= stepdown {
-                    info!(?group, "Leader stepdown completed");
-                    locked.leader.remove(&(realm, group));
-                } else {
-                    info!(?group, at=?new_committed, ?stepdown, "committed, but not at stepdown point yet");
-                }
+        if role == GroupMemberRole::Witness {
+            info!(?group, "Leader stepped down");
+            self.0.state.lock().unwrap().leader.remove(&(realm, group));
+            CommitterStatus::NoLongerLeader
+        } else {
+            CommitterStatus::Committing {
+                committed: Some(new_committed),
             }
-        }
-        CommitterStatus::Committing {
-            committed: Some(new_committed),
         }
     }
 
@@ -219,6 +249,41 @@ impl<T: Transport + 'static> Agent<T> {
             warn!("dropping responses on the floor: no leader state");
         }
         released_count
+    }
+
+    #[instrument(level = "trace")]
+    async fn collect_log(
+        &self,
+        realm: RealmId,
+        group: GroupId,
+        starting_at: LogIndex,
+        to_at_least: LogIndex,
+    ) -> Result<Vec<LogEntry>, tonic::Status> {
+        assert!(to_at_least >= starting_at);
+        let mut log =
+            Vec::with_capacity((to_at_least.0 - starting_at.0).try_into().unwrap_or(1024));
+        let mut store_iter = self.0.store.read_log_entries_iter(
+            realm,
+            group,
+            starting_at,
+            (to_at_least.0 - starting_at.0)
+                .try_into()
+                .unwrap_or(u16::MAX)
+                .max(1),
+        );
+        loop {
+            match store_iter.next().await {
+                Err(err) => return Err(err),
+                Ok(entries) => {
+                    log.extend(entries);
+                    if let Some(e) = log.last() {
+                        if e.index >= to_at_least {
+                            return Ok(log);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

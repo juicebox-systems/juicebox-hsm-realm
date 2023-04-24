@@ -330,6 +330,13 @@ pub struct GroupStatus {
     pub leader: Option<LeaderStatus>,
 }
 
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum GroupMemberRole {
+    Leader,
+    SteppingDown,
+    Witness,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LeaderStatus {
     pub committed: Option<LogIndex>,
@@ -490,6 +497,8 @@ pub struct CommitRequest {
     pub group: GroupId,
     // Captures just for this realm/group
     pub captures: Vec<Captured>,
+    // Log entries needed to verify the captures during step down.
+    pub log: Vec<LogEntry>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -497,6 +506,7 @@ pub enum CommitResponse {
     Ok {
         committed: LogIndex,
         responses: Vec<(EntryHmac, NoiseResponse)>,
+        role: GroupMemberRole,
     },
     AlreadyCommitted {
         committed: LogIndex,
@@ -505,6 +515,9 @@ pub enum CommitResponse {
     InvalidRealm,
     InvalidGroup,
     NotLeader,
+    MissingLogEntries {
+        last: LogIndex,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]

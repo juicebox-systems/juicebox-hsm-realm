@@ -1,11 +1,12 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use core::cmp::min;
 use hashbrown::HashMap;
 use tracing::{info, trace, warn};
 
 use super::super::hal::Platform;
-use super::types::{Captured, CommitRequest, CommitResponse, HsmId, LogIndex};
+use super::types::{Captured, CommitRequest, CommitResponse, GroupMemberRole, HsmId, LogIndex};
 use super::{CapturedStatementBuilder, Hsm, Metrics};
 
 impl<P: Platform> Hsm<P> {
@@ -26,14 +27,51 @@ impl<P: Platform> Hsm<P> {
             }
 
             let Some(group) = realm.groups.get(&request.group) else {
-                return CommitResponse::InvalidGroup;
+                return Response::InvalidGroup;
             };
 
-            let (leader_log, committed) = match self.volatile.leader.get_mut(&request.group) {
-                Some(leader) => (&mut leader.log, &mut leader.committed),
+            let (leader_log, committed, step_down_index) = match self
+                .volatile
+                .leader
+                .get_mut(&request.group)
+            {
+                Some(leader) => {
+                    assert!(request.log.is_empty());
+                    (&mut leader.log, &mut leader.committed, None)
+                }
                 None => match self.volatile.stepping_down.get_mut(&request.group) {
-                    Some(leader) => (&mut leader.log, &mut leader.committed),
-                    None => return CommitResponse::NotLeader,
+                    Some(leader) => {
+                        // During stepdown we may need log entries from the new leader in order to verify the capture statements
+                        // and commit our pending responses.
+                        let Some(max_captured_index) = request.captures.iter().map(|c| c.index).max() else {
+                            return Response::NoQuorum
+                        };
+                        let last_index = leader.log.back().unwrap().entry.index;
+                        // Verify the hmac chain from the log entries we know about to the new ones.
+                        if max_captured_index > last_index
+                            && (request.log.is_empty()
+                                || request.log[0].index != last_index.next()
+                                || request.log.last().unwrap().index < max_captured_index)
+                        {
+                            return Response::MissingLogEntries { last: last_index };
+                        }
+                        let mut index = last_index;
+                        let mut entry_hmac = &leader.log.back().unwrap().entry.entry_hmac;
+                        for entry in &request.log {
+                            if entry.index == index.next() && entry.prev_hmac == *entry_hmac {
+                                index = entry.index;
+                                entry_hmac = &entry.entry_hmac;
+                            } else {
+                                return Response::NoQuorum; //?
+                            }
+                        }
+                        (
+                            &mut leader.log,
+                            &mut leader.committed,
+                            Some(leader.stepdown_at),
+                        )
+                    }
+                    None => return Response::NotLeader,
                 },
             };
 
@@ -66,29 +104,40 @@ impl<P: Platform> Hsm<P> {
                     // entry written by the new leader.
                     if let Some(offset) = captured.index.0.checked_sub(leader_log[0].entry.index.0)
                     {
-                        if let Ok(offset) = usize::try_from(offset) {
-                            if offset < leader_log.len()
-                                && leader_log[offset].entry.entry_hmac == captured.hmac
-                            {
-                                election.vote(captured.hsm, captured.index);
+                        if let Ok(mut offset) = usize::try_from(offset) {
+                            if offset < leader_log.len() {
+                                if leader_log[offset].entry.entry_hmac == captured.hmac {
+                                    election.vote(captured.hsm, captured.index);
+                                }
+                            } else {
+                                offset -= leader_log.len();
+                                if offset < request.log.len()
+                                    && request.log[offset].entry_hmac == captured.hmac
+                                {
+                                    election.vote(captured.hsm, captured.index);
+                                }
                             }
                         }
                     }
                 }
             }
 
-            let Ok(commit_index) = election.outcome() else {
+            let Ok(mut commit_index) = election.outcome() else {
                 warn!(
                     hsm = self.options.name,
                     commit_request = ?request,
                     "no quorum. buggy caller?"
                 );
-                return CommitResponse::NoQuorum;
+                return Response::NoQuorum;
             };
+            // If we're stepping down, we only want to commit up to the step down index.
+            if let Some(step_down) = step_down_index {
+                commit_index = min(commit_index, step_down)
+            }
 
             if let Some(committed) = committed {
                 if *committed >= commit_index {
-                    return CommitResponse::AlreadyCommitted {
+                    return Response::AlreadyCommitted {
                         committed: *committed,
                     };
                 }
@@ -122,15 +171,22 @@ impl<P: Platform> Hsm<P> {
             *committed = Some(commit_index);
 
             // See if we're finished stepping down.
-            if let Some(sd) = self.volatile.stepping_down.get(&request.group) {
+            let role = if let Some(sd) = self.volatile.stepping_down.get(&request.group) {
                 if commit_index >= sd.stepdown_at {
                     info!(group=?request.group, hsm=self.options.name, "Completed leader stepdown");
                     self.volatile.stepping_down.remove(&request.group);
+                    GroupMemberRole::Witness
+                } else {
+                    GroupMemberRole::SteppingDown
                 }
-            }
-            CommitResponse::Ok {
+            } else {
+                GroupMemberRole::Leader
+            };
+
+            Response::Ok {
                 committed: commit_index,
                 responses,
+                role,
             }
         })();
 

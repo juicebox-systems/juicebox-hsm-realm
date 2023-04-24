@@ -987,21 +987,6 @@ impl<P: Platform> Hsm<P> {
                                 }
                             }
                         }
-
-                        // If we're stepping down, we want to collect the new
-                        // log entries into the internal log so that we can do a
-                        // commit to complete the stepdown. But not have to
-                        // arrange for that commit to land exactly on the
-                        // stepdown index. i.e. this lets the commit be some
-                        // entries past the stepdown index.
-                        if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
-                            if entry.index == sd.log.back().unwrap().entry.index.next() {
-                                sd.log.push_back(LeaderLogEntry {
-                                    entry: entry.clone(),
-                                    response: None,
-                                });
-                            }
-                        }
                         e.insert((entry.index, entry.entry_hmac));
                     }
                     Response::Ok {
