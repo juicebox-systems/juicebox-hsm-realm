@@ -1405,6 +1405,7 @@ dependencies = [
  "loam-sdk-core",
  "loam-sdk-networking",
  "nix",
+ "once_cell",
  "opentelemetry",
  "opentelemetry-http",
  "opentelemetry-otlp",

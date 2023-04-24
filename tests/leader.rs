@@ -1,15 +1,10 @@
-use std::{
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicU16, Ordering},
-        mpsc::channel,
-    },
-};
+use std::{path::PathBuf, sync::mpsc::channel};
 
 use loam_mvp::{
     exec::{
         cluster_gen::{create_cluster, ClusterConfig, RealmConfig},
         hsm_gen::{Entrust, MetricsParticipants},
+        PortIssuer,
     },
     http_client::{self, ClientOptions},
     process_group::ProcessGroup,
@@ -20,15 +15,14 @@ use loam_mvp::{
 };
 use loam_sdk::{Pin, Policy, UserSecret};
 use loam_sdk_networking::rpc::{self};
+use once_cell::sync::Lazy;
 use tokio::task::JoinSet;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
-static PORT: AtomicU16 = AtomicU16::new(8333);
+static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8333));
 
 fn emulator() -> BigTableArgs {
-    let u = format!("http://localhost:{}", PORT.fetch_add(1, Ordering::SeqCst))
-        .parse()
-        .unwrap();
+    let u = format!("http://localhost:{}", PORT.next()).parse().unwrap();
     BigTableArgs {
         project: String::from("prj"),
         instance: String::from("inst"),
