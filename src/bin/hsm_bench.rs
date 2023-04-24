@@ -241,8 +241,8 @@ async fn main() {
         .lock()
         .await
         .register(
-            &Pin(b"pin-test".to_vec()),
-            &UserSecret(b"secret-test".to_vec()),
+            &Pin::from(b"pin-test".to_vec()),
+            &UserSecret::from(b"secret-test".to_vec()),
             Policy { num_guesses: 2 },
         )
         .await
@@ -262,8 +262,8 @@ async fn main() {
                 .lock()
                 .await
                 .register(
-                    &Pin(format!("pin{i}").into_bytes()),
-                    &UserSecret(format!("secret{i}").into_bytes()),
+                    &Pin::from(format!("pin{i}").into_bytes()),
+                    &UserSecret::from(format!("secret{i}").into_bytes()),
                     Policy { num_guesses: 2 },
                 )
                 .await
