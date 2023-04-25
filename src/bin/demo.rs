@@ -63,7 +63,8 @@ async fn main() {
 
     info!("Starting recover with wrong PIN (guess 1)");
     match client.recover(&Pin::from(b"1212".to_vec())).await {
-        Err(RecoverError::Unsuccessful(_)) => {
+        Err(RecoverError::InvalidPin { guesses_remaining }) => {
+            assert_eq!(guesses_remaining, 1);
             info!("Recover expectedly unsuccessful")
         }
         result => panic!("Unexpected result from recover: {result:?}"),
@@ -81,7 +82,8 @@ async fn main() {
 
     info!("Starting recover with wrong PIN (guess 1)");
     match client.recover(&Pin::from(b"1212".to_vec())).await {
-        Err(RecoverError::Unsuccessful(_)) => {
+        Err(RecoverError::InvalidPin { guesses_remaining }) => {
+            assert_eq!(guesses_remaining, 1);
             info!("Recover expectedly unsuccessful")
         }
         result => panic!("Unexpected result from recover: {result:?}"),
@@ -89,7 +91,8 @@ async fn main() {
 
     info!("Starting recover with wrong PIN (guess 2)");
     match client.recover(&Pin::from(b"1212".to_vec())).await {
-        Err(RecoverError::Unsuccessful(_)) => {
+        Err(RecoverError::InvalidPin { guesses_remaining }) => {
+            assert_eq!(guesses_remaining, 0);
             info!("Recover expectedly unsuccessful")
         }
         result => panic!("Unexpected result from recover: {result:?}"),
@@ -97,7 +100,8 @@ async fn main() {
 
     info!("Starting recover with correct PIN (guess 3)");
     match client.recover(&Pin::from(b"1234".to_vec())).await {
-        Err(RecoverError::Unsuccessful(_)) => {
+        Err(RecoverError::InvalidPin { guesses_remaining }) => {
+            assert_eq!(guesses_remaining, 0);
             info!("Recover expectedly unsuccessful")
         }
         result => panic!("Unexpected result from recover: {result:?}"),
