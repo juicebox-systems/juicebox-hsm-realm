@@ -507,8 +507,6 @@ pub struct CommitRequest {
     pub group: GroupId,
     // Captures just for this realm/group
     pub captures: Vec<Captured>,
-    // Log entries needed to verify the captures during step down.
-    pub log: Vec<LogEntry>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -525,9 +523,6 @@ pub enum CommitResponse {
     InvalidRealm,
     InvalidGroup,
     NotLeader,
-    MissingLogEntries {
-        last: LogIndex,
-    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]

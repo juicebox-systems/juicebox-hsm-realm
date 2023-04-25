@@ -401,9 +401,14 @@ struct LeaderVolatileGroupState {
 }
 
 struct SteppingDownVolatileGroupState {
-    log: VecDeque<LeaderLogEntry>, // never empty. This may contain entries past the step down point.
+    // This contains uncommitted log entries generated while leader and log
+    // entries from the new leader that are needed to complete a commit. Never
+    // empty.
+    log: VecDeque<LeaderLogEntry>,
     committed: Option<LogIndex>,
-    stepdown_at: LogIndex, // The last log index owned by this leader.
+    // The last log index owned by this leader. When this (or some index after
+    // it) is committed the stepdown is complete.
+    stepdown_at: LogIndex,
 }
 
 struct LeaderLogEntry {
@@ -993,6 +998,29 @@ impl<P: Platform> Hsm<P> {
                                 if entry.prev_hmac != *captured_hmac {
                                     return Response::InvalidChain;
                                 }
+                            }
+                        }
+
+                        // If we're stepping down we need to get the commit
+                        // index up to the stepping down index. It's not
+                        // possible for the agent to create a commit request
+                        // with that exact index as the witnesses may have
+                        // already passed the index and they can't generate a
+                        // capture statement for an earlier index. So while
+                        // stepping down we collect the new log entries that
+                        // we're witnessing into the stepping down log. Commit
+                        // can then successfully process a commit request that
+                        // is after the stepdown index and complete the
+                        // stepdown.
+                        if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
+                            let last = &sd.log.back().unwrap().entry;
+                            if entry.index == last.index.next()
+                                && entry.prev_hmac == last.entry_hmac
+                            {
+                                sd.log.push_back(LeaderLogEntry {
+                                    entry: entry.clone(),
+                                    response: None,
+                                });
                             }
                         }
                         e.insert((entry.index, entry.entry_hmac));
