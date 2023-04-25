@@ -7,7 +7,7 @@ use tracing::{info, trace, warn};
 
 use super::super::hal::Platform;
 use super::types::{Captured, CommitRequest, CommitResponse, GroupMemberRole, HsmId, LogIndex};
-use super::{CapturedStatementBuilder, Hsm, Metrics};
+use super::{CapturedStatementBuilder, EntryHmacBuilder, Hsm, Metrics};
 
 impl<P: Platform> Hsm<P> {
     pub(super) fn handle_commit(
@@ -58,11 +58,22 @@ impl<P: Platform> Hsm<P> {
                         let mut index = last_index;
                         let mut entry_hmac = &leader.log.back().unwrap().entry.entry_hmac;
                         for entry in &request.log {
+                            if EntryHmacBuilder::verify_entry(
+                                &self.persistent.realm_key,
+                                request.realm,
+                                request.group,
+                                &entry,
+                            )
+                            .is_err()
+                            {
+                                return Response::MissingLogEntries { last: last_index };
+                            }
+
                             if entry.index == index.next() && entry.prev_hmac == *entry_hmac {
                                 index = entry.index;
                                 entry_hmac = &entry.entry_hmac;
                             } else {
-                                return Response::NoQuorum; //?
+                                return Response::MissingLogEntries { last: last_index };
                             }
                         }
                         (
