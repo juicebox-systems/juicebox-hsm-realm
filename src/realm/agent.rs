@@ -747,12 +747,17 @@ impl<T: Transport + 'static> Agent<T> {
             Err(_) => Ok(Response::NoHsm),
             Ok(HsmResponse::Complete { last }) => {
                 info!(group=?request.group, realm=?request.realm, "HSM Stepped down as leader");
-                self.0
+                let leader_state = self
+                    .0
                     .state
                     .lock()
                     .unwrap()
                     .leader
                     .remove(&(request.realm, request.group));
+
+                if let Some(ls) = leader_state {
+                    assert!(ls.append_queue.is_empty());
+                }
                 Ok(Response::Ok { last })
             }
             Ok(HsmResponse::InProgress { last }) => {
@@ -1146,12 +1151,9 @@ impl<T: Transport + 'static> Agent<T> {
 
                 {
                     let mut locked = self.0.state.lock().unwrap();
-                    let Some(leader) = locked.leader.get_mut(&(realm, group)) else {
-                        return Ok(Response::NotLeader);
-                    };
-                    if leader.stepdown_at.is_some() {
-                        return Ok(Response::NotLeader);
-                    }
+                    let leader = locked.leader.get_mut(&(realm, group))
+                        .expect("The HSM thought it was leader and generated a response, but the agent has no leader state");
+
                     leader
                         .response_channels
                         .insert(append_request.entry.entry_hmac.clone(), sender);
