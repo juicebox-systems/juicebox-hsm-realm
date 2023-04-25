@@ -42,6 +42,7 @@ async fn main() {
 
     let client: Client<http_client::Client<LoadBalancerService>> = Client::new(
         configuration,
+        vec![],
         args.auth_token,
         http_client::Client::new(http_client::ClientOptions {
             additional_root_certs: vec![lb_cert],

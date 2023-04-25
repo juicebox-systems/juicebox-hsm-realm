@@ -85,6 +85,7 @@ impl ClusterResult {
                 recover_threshold: self.realms.len().try_into().unwrap(),
                 pin_hashing_mode: PinHashingMode::None,
             },
+            Vec::new(),
             create_token(
                 &Claims {
                     issuer: "test".to_string(),
