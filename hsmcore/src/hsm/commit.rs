@@ -62,7 +62,7 @@ impl<P: Platform> Hsm<P> {
                                 &self.persistent.realm_key,
                                 request.realm,
                                 request.group,
-                                &entry,
+                                entry,
                             )
                             .is_err()
                             {
@@ -142,6 +142,9 @@ impl<P: Platform> Hsm<P> {
                 return Response::NoQuorum;
             };
             // If we're stepping down, we only want to commit up to the step down index.
+            // Otherwise the code below that deals with popping responses off leader_log
+            // will panic because there aren't log entries for the entries past the step
+            // down index.
             if let Some(step_down) = step_down_index {
                 commit_index = min(commit_index, step_down)
             }

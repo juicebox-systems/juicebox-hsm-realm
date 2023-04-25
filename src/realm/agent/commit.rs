@@ -158,7 +158,7 @@ impl<T: Transport + 'static> Agent<T> {
                     .max()
                     .expect("There were enough captures to calculate a commit index");
                 match self
-                    .collect_log(realm, group, step_down_index.next(), max_captured_index)
+                    .read_log_slice(realm, group, step_down_index.next(), max_captured_index)
                     .await
                 {
                     Ok(log) => log,
@@ -252,7 +252,7 @@ impl<T: Transport + 'static> Agent<T> {
     }
 
     #[instrument(level = "trace")]
-    async fn collect_log(
+    async fn read_log_slice(
         &self,
         realm: RealmId,
         group: GroupId,
@@ -272,15 +272,11 @@ impl<T: Transport + 'static> Agent<T> {
                 .max(1),
         );
         loop {
-            match store_iter.next().await {
-                Err(err) => return Err(err),
-                Ok(entries) => {
-                    log.extend(entries);
-                    if let Some(e) = log.last() {
-                        if e.index >= to_at_least {
-                            return Ok(log);
-                        }
-                    }
+            let entries = store_iter.next().await?;
+            log.extend(entries);
+            if let Some(e) = log.last() {
+                if e.index >= to_at_least {
+                    return Ok(log);
                 }
             }
         }
