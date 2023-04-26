@@ -29,7 +29,7 @@ impl<P: Platform> Hsm<P> {
                 return Response::InvalidGroup;
             };
 
-            let (leader_log, committed) = match self.volatile.leader.get_mut(&request.group) {
+            let (log, committed) = match self.volatile.leader.get_mut(&request.group) {
                 Some(leader) => (&mut leader.log, &mut leader.committed),
                 None => match self.volatile.stepping_down.get_mut(&request.group) {
                     Some(steppingdown) => (&mut steppingdown.log, &mut steppingdown.committed),
@@ -64,12 +64,9 @@ impl<P: Platform> Hsm<P> {
                     // it against entries we have. For a new leader this won't
                     // be able to commit until the witnesses catch up to a log
                     // entry written by the new leader.
-                    if let Some(offset) = captured.index.0.checked_sub(leader_log[0].entry.index.0)
-                    {
+                    if let Some(offset) = captured.index.0.checked_sub(log[0].entry.index.0) {
                         if let Ok(offset) = usize::try_from(offset) {
-                            if offset < leader_log.len()
-                                && leader_log[offset].entry.entry_hmac == captured.hmac
-                            {
+                            if offset < log.len() && log[offset].entry.entry_hmac == captured.hmac {
                                 election.vote(captured.hsm, captured.index);
                             }
                         }
@@ -98,7 +95,7 @@ impl<P: Platform> Hsm<P> {
             // trim the prefix of leader.log and collect up the responses
             let mut responses = Vec::new();
             loop {
-                match leader_log.pop_front() {
+                match log.pop_front() {
                     None => panic!("We should never empty leader.log entirely"),
                     Some(e) if e.entry.index < commit_index => {
                         if let Some(r) = e.response {
@@ -114,7 +111,7 @@ impl<P: Platform> Hsm<P> {
                         // don't need to put this one back. But it seems
                         // safer to be consistent and always have this
                         // one in the log.
-                        leader_log.push_front(e);
+                        log.push_front(e);
                         break;
                     }
                 }

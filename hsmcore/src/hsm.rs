@@ -388,6 +388,7 @@ struct VolatileState {
     leader: HashMap<GroupId, LeaderVolatileGroupState>,
     record_key: RecordEncryptionKey,
     captured: HashMap<GroupId, (LogIndex, EntryHmac)>,
+    // A Group can be in leader, stepping_down or neither. Its never in both leader & stepping_down.
     stepping_down: HashMap<GroupId, SteppingDownVolatileGroupState>,
 }
 
