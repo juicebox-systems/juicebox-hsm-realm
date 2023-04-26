@@ -571,6 +571,7 @@ impl<P: Platform> Hsm<P> {
         })
     }
 
+    /// Returns true if there are any groups where we are anything other than a witness.
     pub fn is_leader(&self) -> bool {
         !(self.volatile.leader.is_empty() && self.volatile.stepping_down.is_empty())
     }
