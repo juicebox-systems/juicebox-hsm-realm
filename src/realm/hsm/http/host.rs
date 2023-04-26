@@ -156,8 +156,8 @@ impl HttpHsm {
         ))
     }
 
-    pub fn is_leader(&self) -> bool {
-        self.0.lock().unwrap().is_leader()
+    pub fn is_witness_only(&self) -> bool {
+        self.0.lock().unwrap().is_witness_only()
     }
 }
 

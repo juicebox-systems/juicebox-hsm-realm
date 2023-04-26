@@ -571,9 +571,9 @@ impl<P: Platform> Hsm<P> {
         })
     }
 
-    /// Returns true if there are any groups where we are anything other than a witness.
-    pub fn is_leader(&self) -> bool {
-        !(self.volatile.leader.is_empty() && self.volatile.stepping_down.is_empty())
+    /// Returns true if we're only a witness for the groups on this HSM.
+    pub fn is_witness_only(&self) -> bool {
+        self.volatile.leader.is_empty() && self.volatile.stepping_down.is_empty()
     }
 
     pub fn handle_request(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, HsmError> {
