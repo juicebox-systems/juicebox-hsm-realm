@@ -13,16 +13,15 @@ use tracing::{info, warn};
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::client_auth::{creation::create_token, tenant_secret_name, AuthKey, Claims};
+use loam_mvp::exec::bigtable::BigTableRunner;
+use loam_mvp::exec::certs::create_localhost_key_and_cert;
+use loam_mvp::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use loam_mvp::logging;
 use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
-use loam_mvp::realm::store::bigtable::{BigTableArgs, BigTableRunner};
+use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretsFile};
 use loam_sdk::{Configuration, PinHashingMode, Realm};
-
-mod common;
-use common::certs::create_localhost_key_and_cert;
-use common::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 
 #[derive(Parser)]
 #[command(
@@ -50,11 +49,9 @@ async fn main() {
 
     let mut process_group = ProcessGroup::new();
 
-    let mut process_group_alias = process_group.clone();
     ctrlc::set_handler(move || {
         info!(pid = std::process::id(), "received termination signal");
         logging::flush();
-        process_group_alias.kill();
         info!(pid = std::process::id(), "exiting");
         std::process::exit(0);
     })
@@ -74,12 +71,19 @@ async fn main() {
             .expect("failed to load secrets from JSON file"),
     );
 
-    info!("starting bigtable emulator");
-
-    let (store_admin, store) = BigTableRunner::run(&mut process_group, &bt_args).await;
+    BigTableRunner::run(&mut process_group, &bt_args).await;
+    let store_admin = bt_args
+        .connect_admin(None)
+        .await
+        .expect("failed to connect to bigtable admin service");
 
     info!("initializing service discovery table");
     store_admin.initialize_discovery().await.expect("TODO");
+
+    let store = bt_args
+        .connect_data(None)
+        .await
+        .expect("failed to connect to bigtable data service");
 
     let certificates = create_localhost_key_and_cert(current_dir().unwrap().join("target"))
         .expect("Failed to create TLS key/cert for load balancer");

@@ -42,11 +42,12 @@ use types::{
     AppError, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CaptureNextRequest, CaptureNextResponse, Captured, CapturedStatement, CompleteTransferRequest,
     CompleteTransferResponse, Configuration, DataHash, EntryHmac, GroupConfigurationStatement,
-    GroupId, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus, LogEntry, LogIndex,
-    NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange,
-    Partition, PersistStateRequest, PersistStateResponse, RealmStatus, RecordId, StatusRequest,
-    StatusResponse, TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
+    GroupId, GroupMemberRole, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId,
+    JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus,
+    LogEntry, LogIndex, NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest,
+    NewRealmResponse, OwnedRange, Partition, PersistStateRequest, PersistStateResponse,
+    RealmStatus, RecordId, StatusRequest, StatusResponse, StepDownRequest, StepDownResponse,
+    TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
     TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatement,
     TransferStatementRequest, TransferStatementResponse, TransferringOut,
 };
@@ -387,6 +388,8 @@ struct VolatileState {
     leader: HashMap<GroupId, LeaderVolatileGroupState>,
     record_key: RecordEncryptionKey,
     captured: HashMap<GroupId, (LogIndex, EntryHmac)>,
+    // A Group can be in leader, stepping_down or neither. Its never in both leader & stepping_down.
+    stepping_down: HashMap<GroupId, SteppingDownVolatileGroupState>,
 }
 
 struct LeaderVolatileGroupState {
@@ -396,6 +399,17 @@ struct LeaderVolatileGroupState {
     /// This is `Some` if and only if the last entry in `log` owns a partition.
     tree: Option<Tree<MerkleHasher, DataHash>>,
     sessions: Cache<(RecordId, SessionId), noise::Transport>,
+}
+
+struct SteppingDownVolatileGroupState {
+    // This contains uncommitted log entries generated while leader and log
+    // entries from the new leader that are needed to complete a commit. Never
+    // empty.
+    log: VecDeque<LeaderLogEntry>,
+    committed: Option<LogIndex>,
+    // The last log index owned by this leader. When this (or some index after
+    // it) is committed the stepdown is complete.
+    stepdown_at: LogIndex,
 }
 
 struct LeaderLogEntry {
@@ -552,8 +566,14 @@ impl<P: Platform> Hsm<P> {
                 leader: HashMap::new(),
                 captured,
                 record_key,
+                stepping_down: HashMap::new(),
             },
         })
+    }
+
+    /// Returns true if we're only a witness for the groups on this HSM.
+    pub fn is_witness_only(&self) -> bool {
+        self.volatile.leader.is_empty() && self.volatile.stepping_down.is_empty()
     }
 
     pub fn handle_request(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, HsmError> {
@@ -577,6 +597,9 @@ impl<P: Platform> Hsm<P> {
             HsmRequest::JoinGroup(r) => self.dispatch_request(metrics, r, Self::handle_join_group),
             HsmRequest::BecomeLeader(r) => {
                 self.dispatch_request(metrics, r, Self::handle_become_leader)
+            }
+            HsmRequest::StepDown(r) => {
+                self.dispatch_request(metrics, r, Self::handle_stepdown_as_leader)
             }
             HsmRequest::CaptureNext(r) => {
                 self.dispatch_request(metrics, r, Self::handle_capture_next)
@@ -770,6 +793,13 @@ impl<P: Platform> Hsm<P> {
                                             .map(|p| p.range.clone()),
                                     }
                                 }),
+                                role: match self.volatile.leader.get(group_id) {
+                                    Some(_) => GroupMemberRole::Leader,
+                                    None => match self.volatile.stepping_down.get(group_id) {
+                                        Some(_) => GroupMemberRole::SteppingDown,
+                                        None => GroupMemberRole::Witness,
+                                    },
+                                },
                             }
                         })
                         .collect(),
@@ -972,6 +1002,29 @@ impl<P: Platform> Hsm<P> {
                                 }
                             }
                         }
+
+                        // If we're stepping down we need to get the commit
+                        // index up to the stepping down index. It's not
+                        // possible for the agent to create a commit request
+                        // with that exact index as the witnesses may have
+                        // already passed the index and they can't generate a
+                        // capture statement for an earlier index. So while
+                        // stepping down we collect the new log entries that
+                        // we're witnessing into the stepping down log. Commit
+                        // can then successfully process a commit request that
+                        // is after the stepdown index and complete the
+                        // stepdown.
+                        if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
+                            let last = &sd.log.back().unwrap().entry;
+                            if entry.index == last.index.next()
+                                && entry.prev_hmac == last.entry_hmac
+                            {
+                                sd.log.push_back(LeaderLogEntry {
+                                    entry: entry.clone(),
+                                    response: None,
+                                });
+                            }
+                        }
                         e.insert((entry.index, entry.entry_hmac));
                     }
                     Response::Ok {
@@ -1004,6 +1057,10 @@ impl<P: Platform> Hsm<P> {
                 Some(realm) => {
                     if realm.id != request.realm {
                         return Response::InvalidRealm;
+                    }
+
+                    if self.volatile.stepping_down.get(&request.group).is_some() {
+                        return Response::StepdownInProgress;
                     }
 
                     match realm.groups.get(&request.group) {
@@ -1043,6 +1100,7 @@ impl<P: Platform> Hsm<P> {
                     self.options.tree_overlay_size,
                 )
             });
+
             self.volatile
                 .leader
                 .entry(request.group)
@@ -1056,11 +1114,53 @@ impl<P: Platform> Hsm<P> {
                     tree,
                     sessions: Cache::new(usize::from(self.options.max_sessions)),
                 });
-            Response::Ok(config)
+
+            Response::Ok { config }
         })();
 
         trace!(hsm = self.options.name, ?response);
         response
+    }
+
+    fn handle_stepdown_as_leader(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: StepDownRequest,
+    ) -> StepDownResponse {
+        type Response = StepDownResponse;
+        trace!(hsm = self.options.name, ?request);
+
+        let Some(realm) = &self.persistent.realm else {
+             return Response::InvalidRealm;
+        };
+        if realm.id != request.realm {
+            return Response::InvalidRealm;
+        }
+        let Some(_group) = realm.groups.get(&request.group) else {
+            return Response::InvalidGroup;
+        };
+        let Some(leader) = self.volatile.leader.remove(&request.group) else {
+            return Response::NotLeader;
+        };
+        let stepdown_index = leader.log.back().unwrap().entry.index;
+        match leader.committed {
+            Some(c) if c == stepdown_index => Response::Complete {
+                last: stepdown_index,
+            },
+            _ => {
+                self.volatile.stepping_down.insert(
+                    request.group,
+                    SteppingDownVolatileGroupState {
+                        log: leader.log,
+                        committed: leader.committed,
+                        stepdown_at: stepdown_index,
+                    },
+                );
+                Response::InProgress {
+                    last: stepdown_index,
+                }
+            }
+        }
     }
 
     fn handle_persist_state(

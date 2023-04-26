@@ -1,13 +1,27 @@
+use bytes::Bytes;
 use futures::future::{join_all, try_join_all};
+use futures::{Future, FutureExt};
+use http_body_util::Full;
+use hyper::server::conn::http1;
+use hyper::service::Service;
+use hyper::{body::Incoming as IncomingBody, Request, Response};
+use opentelemetry_http::HeaderExtractor;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::iter::zip;
+use std::net::SocketAddr;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, instrument, trace, warn, Instrument, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use super::super::http_client::{Client, ClientOptions};
+use super::agent::types as agent_types;
 use super::agent::types::{
     AgentService, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
     CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
@@ -16,11 +30,393 @@ use super::agent::types::{
     TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
     TransferStatementResponse,
 };
+use super::rpc::{handle_rpc, HandlerError};
 use super::store::bigtable::StoreClient;
 use hsm_types::{Configuration, GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
 use loam_sdk_core::types::RealmId;
-use loam_sdk_networking::rpc::{self, RpcError};
+use loam_sdk_networking::rpc::{self, Rpc, RpcError};
+
+pub mod types;
+
+#[derive(Debug)]
+pub enum Error {
+    Grpc(tonic::Status),
+    Rpc(RpcError),
+}
+impl From<tonic::Status> for Error {
+    fn from(value: tonic::Status) -> Self {
+        Self::Grpc(value)
+    }
+}
+impl From<RpcError> for Error {
+    fn from(value: RpcError) -> Self {
+        Self::Rpc(value)
+    }
+}
+
+#[derive(Clone)]
+pub struct Manager(Arc<ManagerInner>);
+
+struct ManagerInner {
+    store: StoreClient,
+    agents: Client<AgentService>,
+    // Groups that are being actively managed through some transition and other
+    // management operations on the group should be skipped.
+    busy_groups: Mutex<HashSet<(RealmId, GroupId)>>,
+}
+
+/// When drop'd will remove the realm/group from the managers busy_groups set.
+struct ManagementGrant<'a> {
+    mgr: &'a Manager,
+    group: GroupId,
+    realm: RealmId,
+}
+
+impl<'a> Drop for ManagementGrant<'a> {
+    fn drop(&mut self) {
+        info!(group=?self.group, realm=?self.realm, "management task completed");
+        self.mgr
+            .0
+            .busy_groups
+            .lock()
+            .unwrap()
+            .remove(&(self.realm, self.group));
+    }
+}
+
+impl Manager {
+    pub fn new(store: StoreClient, update_interval: Duration) -> Self {
+        let m = Self(Arc::new(ManagerInner {
+            store,
+            agents: Client::new(ClientOptions::default()),
+            busy_groups: Mutex::new(HashSet::new()),
+        }));
+        let manager = m.clone();
+        tokio::spawn(async move {
+            loop {
+                sleep(update_interval).await;
+                manager.run().await;
+            }
+        });
+        m
+    }
+
+    pub async fn listen(
+        self,
+        address: SocketAddr,
+    ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
+        let listener = TcpListener::bind(address).await?;
+        let url = Url::parse(&format!("https://{address}")).unwrap();
+
+        Ok((
+            url,
+            tokio::spawn(async move {
+                loop {
+                    match listener.accept().await {
+                        Err(e) => warn!("error accepting connection: {e:?}"),
+                        Ok((stream, _)) => {
+                            let manager = self.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = http1::Builder::new()
+                                    .serve_connection(stream, manager)
+                                    .await
+                                {
+                                    warn!("error serving connection: {e:?}");
+                                }
+                            });
+                        }
+                    }
+                }
+            }),
+        ))
+    }
+}
+
+impl Service<Request<IncomingBody>> for Manager {
+    type Response = Response<Full<Bytes>>;
+    type Error = hyper::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    #[instrument(level = "trace", skip(self, request))]
+    fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
+        let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
+            propagator.extract(&HeaderExtractor(request.headers()))
+        });
+        Span::current().set_parent(parent_context);
+
+        let manager = self.clone();
+        Box::pin(
+            async move {
+                let Some(path) = request.uri().path().strip_prefix('/') else {
+                    return Ok(Response::builder()
+                        .status(http::StatusCode::NOT_FOUND)
+                        .body(Full::from(Bytes::new()))
+                        .unwrap());
+                };
+                match path {
+                    types::StepDownRequest::PATH => {
+                        handle_rpc(&manager, request, Self::handle_leader_stepdown).await
+                    }
+                    _ => Ok(Response::builder()
+                        .status(http::StatusCode::NOT_FOUND)
+                        .body(Full::from(Bytes::new()))
+                        .unwrap()),
+                }
+            }
+            // This doesn't look like it should do anything, but it seems to be
+            // critical to connecting these spans to the parent.
+            .instrument(Span::current()),
+        )
+    }
+}
+
+impl Manager {
+    /// Perform one pass of the management tasks.
+    async fn run(&self) {
+        if let Err(err) = self.ensure_groups_have_leader().await {
+            warn!(?err, "Error while checking/updating cluster state")
+        }
+    }
+
+    // Track that the group is going through some management operation that
+    // should block other management operations. Returns None if the group is
+    // already busy by some other task. When the returned ManagementGrant is
+    // dropped, the group will be removed from the busy set.
+    fn mark_as_busy(&self, realm: RealmId, group: GroupId) -> Option<ManagementGrant> {
+        let mut locked = self.0.busy_groups.lock().unwrap();
+        if locked.insert((realm, group)) {
+            info!(?group, ?realm, "marking group as under active management");
+            Some(ManagementGrant {
+                mgr: self,
+                realm,
+                group,
+            })
+        } else {
+            None
+        }
+    }
+
+    async fn handle_leader_stepdown(
+        &self,
+        req: types::StepDownRequest,
+    ) -> Result<types::StepDownResponse, HandlerError> {
+        type Response = types::StepDownResponse;
+
+        let addresses: HashMap<HsmId, Url> = match self.0.store.get_addresses().await {
+            Ok(a) => a.into_iter().collect(),
+            Err(_err) => return Ok(Response::NoStore),
+        };
+
+        // calculate the exact set of step downs needed.
+        let stepdowns = match self.resolve_stepdowns(&req, &addresses).await {
+            Err(e) => return Ok(e),
+            Ok(sd) => sd,
+        };
+        let mut grants = Vec::with_capacity(stepdowns.len());
+        for stepdown in &stepdowns {
+            match self.mark_as_busy(stepdown.realm, stepdown.group) {
+                None => {
+                    return Ok(Response::Busy {
+                        realm: stepdown.realm,
+                        group: stepdown.group,
+                    })
+                }
+                Some(grant) => grants.push(grant),
+            }
+        }
+
+        for (stepdown, grant) in zip(stepdowns, grants) {
+            info!(url=%stepdown.url, hsm=?stepdown.hsm, group=?stepdown.group, realm=?stepdown.realm, "Asking Agent/HSM to step down as leader");
+            match rpc::send(
+                &self.0.agents,
+                &stepdown.url,
+                agent_types::StepDownRequest {
+                    realm: stepdown.realm,
+                    group: stepdown.group,
+                },
+            )
+            .await
+            {
+                Err(err) => return Ok(Response::RpcError(err)),
+                Ok(agent_types::StepDownResponse::NoHsm) => return Ok(Response::NoHsm),
+                Ok(agent_types::StepDownResponse::InvalidGroup) => {
+                    return Ok(Response::InvalidGroup)
+                }
+                Ok(agent_types::StepDownResponse::InvalidRealm) => {
+                    return Ok(Response::InvalidRealm)
+                }
+                Ok(agent_types::StepDownResponse::NotLeader) => return Ok(Response::NotLeader),
+                Ok(agent_types::StepDownResponse::Ok { last }) => {
+                    if let Err(err) = self
+                        .assign_leader_post_stepdown(&addresses, &grant, stepdown, Some(last))
+                        .await
+                    {
+                        return Ok(Response::RpcError(err));
+                    }
+                }
+            }
+        }
+        Ok(Response::Ok)
+    }
+
+    /// Leader stepdown was completed, assign a new one.
+    async fn assign_leader_post_stepdown(
+        &self,
+        addresses: &HashMap<HsmId, Url>,
+        grant: &ManagementGrant<'_>,
+        stepdown: Stepdown,
+        last: Option<LogIndex>,
+    ) -> Result<Option<HsmId>, RpcError> {
+        let hsm_status = get_hsm_statuses(
+            &self.0.agents,
+            stepdown
+                .config
+                .0
+                .iter()
+                .filter_map(|hsm| addresses.get(hsm)),
+        )
+        .await;
+
+        assign_group_a_leader(
+            &self.0.agents,
+            grant,
+            stepdown.config,
+            Some(stepdown.hsm),
+            &hsm_status,
+            last,
+        )
+        .await
+    }
+
+    async fn resolve_stepdowns(
+        &self,
+        req: &types::StepDownRequest,
+        addresses: &HashMap<HsmId, Url>,
+    ) -> Result<Vec<Stepdown>, types::StepDownResponse> {
+        match req {
+            types::StepDownRequest::Hsm(hsm) => match addresses.get(hsm) {
+                None => {
+                    warn!(?hsm, "failed to find hsm in service discovery");
+                    Err(types::StepDownResponse::InvalidHsm)
+                }
+                Some(url) => match rpc::send(&self.0.agents, url, StatusRequest {}).await {
+                    Err(err) => {
+                        warn!(?err, url=%url, hsm=?hsm, "failed to get status of HSM");
+                        Err(types::StepDownResponse::RpcError(err))
+                    }
+                    Ok(StatusResponse {
+                        hsm:
+                            Some(hsm_types::StatusResponse {
+                                id,
+                                realm: Some(rs),
+                                ..
+                            }),
+                    }) if id == *hsm => Ok(rs
+                        .groups
+                        .into_iter()
+                        .filter_map(|gs| {
+                            gs.leader.map(|_| Stepdown {
+                                hsm: *hsm,
+                                url: url.clone(),
+                                group: gs.id,
+                                realm: rs.id,
+                                config: gs.configuration,
+                            })
+                        })
+                        .collect()),
+                    Ok(_s) => {
+                        info!(?hsm,url=%url, "hsm is not a member of a realm");
+                        Ok(Vec::new())
+                    }
+                },
+            },
+            types::StepDownRequest::Group { realm, group } => {
+                Ok(join_all(addresses.iter().map(|(_hsm, url)| {
+                    rpc::send(&self.0.agents, url, StatusRequest {}).map(|r| (r, url.clone()))
+                }))
+                .await
+                .into_iter()
+                .filter_map(|(s, url)| {
+                    if let Some((hsm_id, realm_status)) = s
+                        .ok()
+                        .and_then(|s| s.hsm)
+                        .and_then(|hsm| hsm.realm.map(|r| (hsm.id, r)))
+                    {
+                        if realm_status.id == *realm {
+                            for g in realm_status.groups {
+                                if g.id == *group && g.leader.is_some() {
+                                    return Some(Stepdown {
+                                        hsm: hsm_id,
+                                        url,
+                                        group: *group,
+                                        realm: *realm,
+                                        config: g.configuration,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    None
+                })
+                .collect())
+            }
+        }
+    }
+
+    pub async fn ensure_groups_have_leader(&self) -> Result<(), Error> {
+        trace!("checking that all groups have a leader");
+        let addresses = self.0.store.get_addresses().await?;
+        let hsm_status =
+            get_hsm_statuses(&self.0.agents, addresses.iter().map(|(_, url)| url)).await;
+
+        let mut groups: HashMap<GroupId, (Configuration, RealmId, Option<HsmId>)> = HashMap::new();
+        for (hsm, _url) in hsm_status.values() {
+            if let Some(realm) = &hsm.realm {
+                for g in &realm.groups {
+                    groups
+                        .entry(g.id)
+                        .or_insert_with(|| (g.configuration.clone(), realm.id, None));
+                    if let Some(_leader) = &g.leader {
+                        groups.entry(g.id).and_modify(|v| v.2 = Some(hsm.id));
+                    }
+                }
+            }
+        }
+
+        trace!(count=?groups.len(), "found groups");
+
+        for (group_id, (config, realm_id, _)) in groups
+            .into_iter()
+            .filter(|(_, (_, _, leader))| leader.is_none())
+        {
+            info!(?group_id, ?realm_id, "Group has no leader");
+            match self.mark_as_busy(realm_id, group_id) {
+                None => {
+                    info!(
+                        ?group_id,
+                        ?realm_id,
+                        "Skipping group being managed by some other task"
+                    );
+                }
+                Some(grant) => {
+                    // This group doesn't have a leader, we'll pick one and ask it to become leader.
+                    assign_group_a_leader(&self.0.agents, &grant, config, None, &hsm_status, None)
+                        .await?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+struct Stepdown {
+    hsm: HsmId,
+    url: Url,
+    group: GroupId,
+    realm: RealmId,
+    config: Configuration,
+}
 
 #[derive(Debug)]
 pub enum NewRealmError {
@@ -324,11 +720,11 @@ pub async fn transfer(
 
     let leaders = find_leaders(store, &agent_client).await.expect("TODO");
 
-    let Some(source_leader) = leaders.get(&(realm, source)) else {
+    let Some((_, source_leader)) = leaders.get(&(realm, source)) else {
         return Err(Error::NoSourceLeader);
     };
 
-    let Some(dest_leader) = leaders.get(&(realm, destination)) else {
+    let Some((_, dest_leader)) = leaders.get(&(realm, destination)) else {
         return Err(Error::NoDestinationLeader);
     };
 
@@ -451,10 +847,10 @@ pub async fn transfer(
     Ok(())
 }
 
-async fn find_leaders(
+pub async fn find_leaders(
     store: &StoreClient,
     agent_client: &Client<AgentService>,
-) -> Result<HashMap<(RealmId, GroupId), Url>, tonic::Status> {
+) -> Result<HashMap<(RealmId, GroupId), (HsmId, Url)>, tonic::Status> {
     trace!("refreshing cluster information");
     let addresses = store.get_addresses().await?;
 
@@ -465,19 +861,20 @@ async fn find_leaders(
     )
     .await;
 
-    let mut leaders: HashMap<(RealmId, GroupId), Url> = HashMap::new();
+    let mut leaders: HashMap<(RealmId, GroupId), (HsmId, Url)> = HashMap::new();
     for ((_, agent), response) in zip(addresses, responses) {
         match response {
             Ok(StatusResponse {
                 hsm:
                     Some(hsm_types::StatusResponse {
                         realm: Some(status),
+                        id: hsm_id,
                         ..
                     }),
             }) => {
                 for group in status.groups {
                     if group.leader.is_some() {
-                        leaders.insert((status.id, group.id), agent.clone());
+                        leaders.insert((status.id, group.id), (hsm_id, agent.clone()));
                     }
                 }
             }
@@ -493,85 +890,75 @@ async fn find_leaders(
     Ok(leaders)
 }
 
-pub async fn ensure_groups_have_leader(
-    agent_client: &Client<AgentService>,
-    store: &StoreClient,
-) -> Result<(), tonic::Status> {
-    trace!("checking that all groups have a leader");
-    let addresses = store.get_addresses().await?;
-
-    let hsm_status: HashMap<HsmId, hsm_types::StatusResponse> = join_all(
-        addresses
-            .iter()
-            .map(|(_, address)| rpc::send(agent_client, address, StatusRequest {})),
+async fn get_hsm_statuses(
+    agents: &Client<AgentService>,
+    agent_urls: impl Iterator<Item = &Url>,
+) -> HashMap<HsmId, (hsm_types::StatusResponse, Url)> {
+    join_all(
+        agent_urls.map(|url| rpc::send(agents, url, StatusRequest {}).map(|r| (r, url.clone()))),
     )
     .await
     .into_iter()
-    .filter_map(|r| r.ok().and_then(|s| s.hsm).map(|s| (s.id, s)))
-    .collect();
+    .filter_map(|(r, url)| r.ok().and_then(|s| s.hsm).map(|s| (s.id, (s, url))))
+    .collect()
+}
 
-    let mut groups: HashMap<GroupId, (Configuration, RealmId, Option<HsmId>)> = HashMap::new();
-    for hsm in hsm_status.values() {
-        if let Some(realm) = &hsm.realm {
-            for g in &realm.groups {
-                groups
-                    .entry(g.id)
-                    .or_insert_with(|| (g.configuration.clone(), realm.id, None));
-                if let Some(_leader) = &g.leader {
-                    groups.entry(g.id).and_modify(|v| v.2 = Some(hsm.id));
-                }
-            }
-        }
-    }
-
-    trace!(count=?groups.len(), "found groups");
-
-    for (group_id, (config, realm_id, _)) in groups
+/// Assigns a new leader for the group, using our workload scoring. The caller
+/// is responsible for deciding that the group needs a leader.
+async fn assign_group_a_leader(
+    agent_client: &Client<AgentService>,
+    grant: &ManagementGrant<'_>,
+    config: Configuration,
+    skipping: Option<HsmId>,
+    hsm_status: &HashMap<HsmId, (hsm_types::StatusResponse, Url)>,
+    last: Option<LogIndex>,
+) -> Result<Option<HsmId>, RpcError> {
+    // We calculate a score for each group member based on how much work we
+    // think its doing. Then use that to control the order in which we try to
+    // make a member the leader.
+    let mut scored: Vec<_> = config
+        .0
         .into_iter()
-        .filter(|(_, (_, _, leader))| leader.is_none())
-    {
-        // This group doesn't have a leader, we'll pick one and ask it to become leader.
-        info!(?group_id, ?realm_id, "Group has no leader");
+        .filter(|id| match skipping {
+            Some(hsm) if *id == hsm => false,
+            None | Some(_) => true,
+        })
+        .filter_map(|id| hsm_status.get(&id))
+        .map(|(m, _)| score(&grant.group, m))
+        .collect();
+    scored.sort();
 
-        // We calculate a score for each group member based on how much work we
-        // think its doing. Then use that to control the order in which we try to
-        // make a member the leader.
-        let mut scored: Vec<_> = config
-            .0
-            .into_iter()
-            .filter_map(|id| hsm_status.get(&id))
-            .map(|m| score(&group_id, m))
-            .collect();
-        scored.sort();
+    let mut last_result: Result<Option<HsmId>, RpcError> = Ok(None);
 
-        for hsm_id in scored.into_iter().map(|s| s.id) {
-            if let Some((_, url)) = addresses.iter().find(|a| a.0 == hsm_id) {
-                info!(?hsm_id, ?realm_id, ?group_id, "Asking hsm to become leader");
-                match rpc::send(
-                    agent_client,
-                    url,
-                    BecomeLeaderRequest {
-                        realm: realm_id,
-                        group: group_id,
-                    },
-                )
-                .await
-                {
-                    Ok(BecomeLeaderResponse::Ok) => {
-                        info!(?hsm_id, ?realm_id, ?group_id, "Now leader");
-                        break;
-                    }
-                    Ok(reply) => {
-                        warn!(?reply, "BecomeLeader replied not okay");
-                    }
-                    Err(e) => {
-                        warn!(err=?e, "BecomeLeader error");
-                    }
+    for hsm_id in scored.into_iter().map(|s| s.id) {
+        if let Some((_, url)) = hsm_status.get(&hsm_id) {
+            info!(?hsm_id, realm=?grant.realm, group=?grant.group, "Asking hsm to become leader");
+            match rpc::send(
+                agent_client,
+                url,
+                BecomeLeaderRequest {
+                    realm: grant.realm,
+                    group: grant.group,
+                    last,
+                },
+            )
+            .await
+            {
+                Ok(BecomeLeaderResponse::Ok) => {
+                    info!(?hsm_id, realm=?grant.realm, group=?grant.group, "Now leader");
+                    return Ok(Some(hsm_id));
+                }
+                Ok(reply) => {
+                    warn!(?reply, "BecomeLeader replied not okay");
+                }
+                Err(e) => {
+                    warn!(err=?e, "BecomeLeader error");
+                    last_result = Err(e);
                 }
             }
         }
     }
-    Ok(())
+    last_result
 }
 
 fn score(group: &GroupId, m: &hsm_types::StatusResponse) -> Score {

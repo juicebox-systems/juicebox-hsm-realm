@@ -1,12 +1,17 @@
 use clap::Parser;
+use loam_mvp::future_task::FutureTasks;
 use rand::{rngs::OsRng, RngCore};
 use std::fmt::Write;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use tracing::info;
+use std::time::{Duration, Instant};
+use tokio::runtime::Handle;
+use tokio::time::sleep;
+use tracing::{debug, info};
 
 use hsmcore::hsm::RealmKey;
+use loam_mvp::clap_parsers::parse_listen;
 use loam_mvp::logging;
 use loam_mvp::realm::hsm::http::host::HttpHsm;
 
@@ -38,6 +43,21 @@ struct Args {
 #[tokio::main]
 async fn main() {
     logging::configure("loam-http-hsm");
+
+    let mut shutdown_tasks = FutureTasks::new();
+    let mut shutdown_tasks_clone = shutdown_tasks.clone();
+    let rt = Handle::try_current().unwrap();
+
+    ctrlc::set_handler(move || {
+        info!(pid = std::process::id(), "received termination signal");
+        logging::flush();
+        rt.block_on(async { shutdown_tasks_clone.join_all().await });
+        logging::flush();
+        info!(pid = std::process::id(), "exiting");
+        std::process::exit(0);
+    })
+    .expect("error setting signal handler");
+
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("hsm{}", args.listen));
 
@@ -56,16 +76,25 @@ async fn main() {
         );
         return;
     }
-    let hsm = HttpHsm::new(dir.clone(), name, args.key)
+    let hsm = HttpHsm::new(dir.clone(), name.clone(), args.key)
         .expect("HttpHsm failed to initialize from prior state");
+    let hsm_clone = hsm.clone();
+    shutdown_tasks.add(Box::pin(async move {
+        let start = Instant::now();
+        // give some time for the agent to shutdown before we do.
+        // this is just for hsm_bench & demo_runner
+        sleep(Duration::from_millis(50)).await;
+        while !hsm_clone.is_witness_only() {
+            debug!(hsm = name, "is leader, waiting for shutdown");
+            if start.elapsed() > Duration::from_secs(5) {
+                return;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    }));
     let (url, join_handle) = hsm.listen(args.listen).await.unwrap();
     info!(url = %url, dir=%dir.display(), "HSM started");
     join_handle.await.unwrap();
-}
-
-fn parse_listen(s: &str) -> Result<SocketAddr, String> {
-    s.parse()
-        .map_err(|e| format!("couldn't parse listen argument: {e}"))
 }
 
 fn parse_realm_key(s: &str) -> Result<RealmKey, String> {

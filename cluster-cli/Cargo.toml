@@ -1,0 +1,22 @@
+[package]
+name = "cluster-cli"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+cli-table = { workspace = true }
+ctrlc = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+hsmcore = { workspace = true }
+loam-mvp = { path = ".." }
+loam-sdk = { workspace = true }
+loam-sdk-networking = { workspace = true }
+reqwest = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

@@ -155,6 +155,10 @@ impl HttpHsm {
             }),
         ))
     }
+
+    pub fn is_witness_only(&self) -> bool {
+        self.0.lock().unwrap().is_witness_only()
+    }
 }
 
 impl Service<Request<IncomingBody>> for HttpHsm {

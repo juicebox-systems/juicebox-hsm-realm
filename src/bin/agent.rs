@@ -1,6 +1,9 @@
 use clap::Parser;
+use loam_mvp::clap_parsers::parse_listen;
+use loam_mvp::future_task::FutureTasks;
 use std::net::SocketAddr;
 use std::time::Duration;
+use tokio::runtime::Handle;
 use tracing::info;
 use url::Url;
 
@@ -44,8 +47,14 @@ struct Args {
 async fn main() {
     logging::configure("loam-agent");
 
+    let mut shutdown_tasks = FutureTasks::new();
+    let mut shutdown_tasks_clone = shutdown_tasks.clone();
+    let rt = Handle::try_current().unwrap();
+
     ctrlc::set_handler(move || {
         info!(pid = std::process::id(), "received termination signal");
+        logging::flush();
+        rt.block_on(async { shutdown_tasks_clone.join_all().await });
         logging::flush();
         info!(pid = std::process::id(), "exiting");
         std::process::exit(0);
@@ -80,12 +89,17 @@ async fn main() {
     let hsm_t = HsmHttpClient::new(args.hsm);
     let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);
     let agent = Agent::new(name, hsm, store, store_admin);
-    let (url, join_handle) = agent.listen(args.listen).await.expect("TODO");
-    info!(url = %url, "Agent started");
-    join_handle.await.unwrap();
-}
+    let agent_clone = agent.clone();
+    shutdown_tasks.add(Box::pin(async move {
+        agent_clone.shutdown(Duration::from_secs(10)).await
+    }));
 
-fn parse_listen(s: &str) -> Result<SocketAddr, String> {
-    s.parse()
-        .map_err(|e| format!("couldn't parse listen argument: {e}"))
+    let (url, join_handle) = agent
+        .listen(args.listen)
+        .await
+        .expect("Failed to start web server");
+
+    info!(%url, "Agent started");
+
+    join_handle.await.unwrap();
 }

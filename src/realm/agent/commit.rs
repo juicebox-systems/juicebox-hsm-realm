@@ -1,5 +1,5 @@
 use futures::future::join_all;
-use hsmcore::hsm::types::{Captured, EntryHmac};
+use hsmcore::hsm::types::{Captured, EntryHmac, GroupMemberRole};
 use loam_sdk_core::requests::NoiseResponse;
 use loam_sdk_networking::rpc;
 use reqwest::Url;
@@ -146,10 +146,11 @@ impl<T: Transport + 'static> Agent<T> {
 
         // Ask the HSM to do the commit
         let response = self.0.hsm.send(commit_request).await;
-        let (new_committed, responses) = match response {
+        let (new_committed, responses, role) = match response {
             Ok(CommitResponse::Ok {
                 committed,
                 responses,
+                role,
             }) => {
                 trace!(
                     agent = self.0.name,
@@ -157,7 +158,7 @@ impl<T: Transport + 'static> Agent<T> {
                     num_responses=?responses.len(),
                     "HSM committed entry"
                 );
-                (committed, responses)
+                (committed, responses, role)
             }
             Ok(CommitResponse::AlreadyCommitted { committed: c }) => {
                 info!(
@@ -177,8 +178,16 @@ impl<T: Transport + 'static> Agent<T> {
 
         let released_count = self.release_client_responses(realm, group, responses);
         Span::current().record("released_count", released_count);
-        CommitterStatus::Committing {
-            committed: Some(new_committed),
+
+        // See if we're done stepping down
+        if role == GroupMemberRole::Witness {
+            info!(?group, "Leader stepped down");
+            self.0.state.lock().unwrap().leader.remove(&(realm, group));
+            CommitterStatus::NoLongerLeader
+        } else {
+            CommitterStatus::Committing {
+                committed: Some(new_committed),
+            }
         }
     }
 

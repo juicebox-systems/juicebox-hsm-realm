@@ -1,8 +1,6 @@
+use once_cell::sync::Lazy;
 use reqwest::Url;
-use std::{
-    sync::atomic::{AtomicU16, Ordering},
-    time::{Duration, SystemTime},
-};
+use std::time::{Duration, SystemTime};
 
 use hsmcore::{
     bitvec::BitVec,
@@ -16,12 +14,12 @@ use hsmcore::{
     },
 };
 use loam_mvp::{
+    exec::{bigtable::BigTableRunner, PortIssuer},
     process_group::ProcessGroup,
     realm::{
         merkle::agent::{self, TreeStoreReader},
         store::bigtable::{
-            self, AppendError::LogPrecondition, BigTableArgs, BigTableRunner, StoreAdminClient,
-            StoreClient,
+            self, AppendError::LogPrecondition, BigTableArgs, StoreAdminClient, StoreClient,
         },
     },
 };
@@ -33,12 +31,10 @@ const GROUP_2: GroupId = GroupId([3; 16]);
 const GROUP_3: GroupId = GroupId([15; 16]);
 
 // rust runs the tests in parallel, so we need each test to get its own port.
-static PORT: AtomicU16 = AtomicU16::new(8222);
+static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8222));
 
 fn emulator() -> BigTableArgs {
-    let u = format!("http://localhost:{}", PORT.fetch_add(1, Ordering::SeqCst))
-        .parse()
-        .unwrap();
+    let u = format!("http://localhost:{}", PORT.next()).parse().unwrap();
     BigTableArgs {
         project: String::from("prj"),
         instance: String::from("inst"),
@@ -47,12 +43,22 @@ fn emulator() -> BigTableArgs {
 }
 
 async fn init_bt(pg: &mut ProcessGroup, args: BigTableArgs) -> (StoreAdminClient, StoreClient) {
-    let (store_admin, store) = BigTableRunner::run(pg, &args).await;
+    BigTableRunner::run(pg, &args).await;
+
+    let store_admin = args
+        .connect_admin(None)
+        .await
+        .expect("failed to connect to bigtable admin service");
 
     store_admin
         .initialize_realm(&REALM)
         .await
         .expect("failed to initialize realm tables");
+
+    let store = args
+        .connect_data(None)
+        .await
+        .expect("failed to connect to bigtable data service");
 
     (store_admin, store)
 }

@@ -2,7 +2,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use blake2::Blake2s256;
-use core::fmt;
+use core::fmt::{self, Display};
 use core::time::Duration;
 use hmac::SimpleHmac;
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use loam_sdk_core::{
 };
 use loam_sdk_noise::server as noise;
 
-#[derive(Copy, Clone, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Copy, Clone, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct GroupId(pub [u8; 16]);
 
 impl fmt::Debug for GroupId {
@@ -31,6 +31,11 @@ impl fmt::Debug for GroupId {
 pub struct HsmId(pub [u8; 16]);
 
 impl fmt::Debug for HsmId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+impl fmt::Display for HsmId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in self.0 {
             write!(f, "{byte:02x}")?;
@@ -114,6 +119,12 @@ impl LogIndex {
 
     pub fn next(&self) -> Self {
         Self(self.0.checked_add(1).unwrap())
+    }
+}
+
+impl fmt::Display for LogIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -311,15 +322,33 @@ pub struct RealmStatus {
     pub groups: Vec<GroupStatus>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct GroupStatus {
     pub id: GroupId,
     pub configuration: Configuration,
     pub captured: Option<(LogIndex, EntryHmac)>,
     pub leader: Option<LeaderStatus>,
+    pub role: GroupMemberRole,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum GroupMemberRole {
+    Leader,
+    SteppingDown,
+    Witness,
+}
+
+impl Display for GroupMemberRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GroupMemberRole::Leader => f.write_str("Leader"),
+            GroupMemberRole::SteppingDown => f.write_str("Stepping Down"),
+            GroupMemberRole::Witness => f.write_str("Witness"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LeaderStatus {
     pub committed: Option<LogIndex>,
     // Note: this might not be committed yet.
@@ -415,12 +444,43 @@ pub struct BecomeLeaderRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum BecomeLeaderResponse {
-    Ok(Configuration),
+    Ok {
+        config: Configuration,
+    },
     InvalidRealm,
     InvalidGroup,
     InvalidHmac,
-    NotCaptured { have: Option<LogIndex> },
+    NotCaptured {
+        have: Option<LogIndex>,
+    },
+    /// Can't become leader if we're in the middle of stepping down.
+    StepdownInProgress,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct StepDownRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum StepDownResponse {
+    // Stepdown is in progress, it won't be complete until the commit reaches 'last'.
+    InProgress {
+        // This is the last log index generated as leader. The agent needs to ensure
+        // that it continues to issue commit requests to the HSM until it reaches
+        // at least this index to ensure all the pending client responses are released.
+        last: LogIndex,
+    },
+    // Stepdown is fully complete.
+    Complete {
+        last: LogIndex,
+    },
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -454,6 +514,7 @@ pub enum CommitResponse {
     Ok {
         committed: LogIndex,
         responses: Vec<(EntryHmac, NoiseResponse)>,
+        role: GroupMemberRole,
     },
     AlreadyCommitted {
         committed: LogIndex,

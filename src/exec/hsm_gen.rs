@@ -3,36 +3,39 @@
 //! This module exists in part to encapsulate the secret shared between the HSMs.
 
 use futures::future::join_all;
-use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_sdk_networking::rpc;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::fmt::{Display, Write};
 use std::iter;
 use std::net::SocketAddr;
-use std::ops::RangeFrom;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
 use url::Url;
 
-use loam_mvp::http_client::{self, ClientOptions};
-use loam_mvp::process_group::ProcessGroup;
-use loam_mvp::realm::agent::types::{AgentService, StatusRequest};
+use super::super::{
+    http_client::{self, ClientOptions},
+    process_group::ProcessGroup,
+    realm::agent::types::{AgentService, StatusRequest},
+    realm::store::bigtable::BigTableArgs,
+};
+use super::PortIssuer;
 
 type AgentClient = http_client::Client<AgentService>;
 
+#[derive(Debug)]
 pub struct Entrust(pub bool);
 
 pub struct HsmGenerator {
     secret: String,
-    port: RangeFrom<u16>,
+    port: PortIssuer,
     entrust: Entrust,
 }
 
 impl HsmGenerator {
-    pub fn new(entrust: Entrust, start_port: u16) -> Self {
+    pub fn new(entrust: Entrust, ports: impl Into<PortIssuer>) -> HsmGenerator {
         let buf = if entrust.0 {
             "010203".to_string()
         } else {
@@ -46,7 +49,7 @@ impl HsmGenerator {
         };
         Self {
             secret: buf,
-            port: start_port..,
+            port: ports.into(),
             entrust,
         }
     }
@@ -63,7 +66,7 @@ impl HsmGenerator {
         let mut agent_urls = Vec::with_capacity(count);
         let mut next_is_leader = true;
         if self.entrust.0 {
-            let agent_port = self.port.next().unwrap();
+            let agent_port = self.port.next();
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
             let mut cmd = Command::new(format!(
@@ -85,8 +88,8 @@ impl HsmGenerator {
             count -= 1;
         }
         iter::repeat_with(|| {
-            let hsm_port = self.port.next().unwrap();
-            let agent_port = self.port.next().unwrap();
+            let hsm_port = self.port.next();
+            let agent_port = self.port.next();
             let hsm_address = SocketAddr::from(([127, 0, 0, 1], hsm_port));
             let hsm_url = Url::parse(&format!("http://{hsm_address}")).unwrap();
             let mut cmd = Command::new(format!(
@@ -162,7 +165,7 @@ impl HsmGenerator {
 }
 
 #[allow(dead_code)] // the compiler doesn't seem to see the usage from hsm_bench
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum MetricsParticipants {
     None,
     Leader,
