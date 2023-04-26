@@ -8,14 +8,14 @@ use loam_sdk_networking::rpc::{Rpc, RpcError, Service};
 pub struct ClusterService();
 impl Service for ClusterService {}
 
-impl Rpc<ClusterService> for StepdownAsLeaderRequest {
+impl Rpc<ClusterService> for StepDownRequest {
     const PATH: &'static str = "leader_stepdown";
-    type Response = StepdownAsLeaderResponse;
+    type Response = StepDownResponse;
 }
 
 /// Request that a leader stepdown, and a new group member takeover leadership.
 #[derive(Debug, Deserialize, Serialize)]
-pub enum StepdownAsLeaderRequest {
+pub enum StepDownRequest {
     /// Have this specific HSM stepdown for all groups it's leading.
     Hsm(HsmId),
     /// Have the current leader for this group step down.
@@ -23,7 +23,7 @@ pub enum StepdownAsLeaderRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub enum StepdownAsLeaderResponse {
+pub enum StepDownResponse {
     Ok,
     NoHsm,
     NoStore,

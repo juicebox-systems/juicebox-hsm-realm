@@ -12,9 +12,9 @@ use super::types::{
     CompleteTransferResponse, HandshakeRequest, HandshakeResponse, JoinGroupRequest,
     JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
     NewRealmRequest, NewRealmResponse, PersistStateRequest, PersistStateResponse, StatusRequest,
-    StatusResponse, StepdownAsLeaderRequest, StepdownAsLeaderResponse, TransferInRequest,
-    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
-    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
+    StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse,
+    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
+    TransferStatementRequest, TransferStatementResponse,
 };
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
@@ -52,7 +52,7 @@ pub enum HsmRequest {
     NewGroup(NewGroupRequest),
     JoinGroup(JoinGroupRequest),
     BecomeLeader(BecomeLeaderRequest),
-    StepDownAsLeader(StepdownAsLeaderRequest),
+    StepDown(StepDownRequest),
     CaptureNext(CaptureNextRequest),
     PersistState(PersistStateRequest),
     Commit(CommitRequest),
@@ -74,7 +74,7 @@ impl HsmRequest {
             HsmRequest::NewGroup(_) => "NewGroup",
             HsmRequest::JoinGroup(_) => "JoinGroup",
             HsmRequest::BecomeLeader(_) => "BecomeLeader",
-            HsmRequest::StepDownAsLeader(_) => "StepDownAsLeader",
+            HsmRequest::StepDown(_) => "StepDown",
             HsmRequest::CaptureNext(_) => "CaptureNext",
             HsmRequest::PersistState(_) => "PersistState",
             HsmRequest::Commit(_) => "Commit",
@@ -140,10 +140,10 @@ impl HsmRpc for BecomeLeaderRequest {
     }
 }
 
-impl HsmRpc for StepdownAsLeaderRequest {
-    type Response = StepdownAsLeaderResponse;
+impl HsmRpc for StepDownRequest {
+    type Response = StepDownResponse;
     fn to_req(self) -> HsmRequest {
-        HsmRequest::StepDownAsLeader(self)
+        HsmRequest::StepDown(self)
     }
 }
 

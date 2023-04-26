@@ -155,7 +155,7 @@ impl Service<Request<IncomingBody>> for Manager {
                         .unwrap());
                 };
                 match path {
-                    types::StepdownAsLeaderRequest::PATH => {
+                    types::StepDownRequest::PATH => {
                         handle_rpc(&manager, request, Self::handle_leader_stepdown).await
                     }
                     _ => Ok(Response::builder()
@@ -199,9 +199,9 @@ impl Manager {
 
     async fn handle_leader_stepdown(
         &self,
-        req: types::StepdownAsLeaderRequest,
-    ) -> Result<types::StepdownAsLeaderResponse, HandlerError> {
-        type Response = types::StepdownAsLeaderResponse;
+        req: types::StepDownRequest,
+    ) -> Result<types::StepDownResponse, HandlerError> {
+        type Response = types::StepDownResponse;
 
         let addresses: HashMap<HsmId, Url> = match self.0.store.get_addresses().await {
             Ok(a) => a.into_iter().collect(),
@@ -231,7 +231,7 @@ impl Manager {
             match rpc::send(
                 &self.0.agents,
                 &stepdown.url,
-                agent_types::StepdownAsLeaderRequest {
+                agent_types::StepDownRequest {
                     realm: stepdown.realm,
                     group: stepdown.group,
                 },
@@ -239,17 +239,15 @@ impl Manager {
             .await
             {
                 Err(err) => return Ok(Response::RpcError(err)),
-                Ok(agent_types::StepdownAsLeaderResponse::NoHsm) => return Ok(Response::NoHsm),
-                Ok(agent_types::StepdownAsLeaderResponse::InvalidGroup) => {
+                Ok(agent_types::StepDownResponse::NoHsm) => return Ok(Response::NoHsm),
+                Ok(agent_types::StepDownResponse::InvalidGroup) => {
                     return Ok(Response::InvalidGroup)
                 }
-                Ok(agent_types::StepdownAsLeaderResponse::InvalidRealm) => {
+                Ok(agent_types::StepDownResponse::InvalidRealm) => {
                     return Ok(Response::InvalidRealm)
                 }
-                Ok(agent_types::StepdownAsLeaderResponse::NotLeader) => {
-                    return Ok(Response::NotLeader)
-                }
-                Ok(agent_types::StepdownAsLeaderResponse::Ok { last }) => {
+                Ok(agent_types::StepDownResponse::NotLeader) => return Ok(Response::NotLeader),
+                Ok(agent_types::StepDownResponse::Ok { last }) => {
                     if let Err(err) = self
                         .assign_leader_post_stepdown(&addresses, &grant, stepdown, Some(last))
                         .await
@@ -293,19 +291,19 @@ impl Manager {
 
     async fn resolve_stepdowns(
         &self,
-        req: &types::StepdownAsLeaderRequest,
+        req: &types::StepDownRequest,
         addresses: &HashMap<HsmId, Url>,
-    ) -> Result<Vec<Stepdown>, types::StepdownAsLeaderResponse> {
+    ) -> Result<Vec<Stepdown>, types::StepDownResponse> {
         match req {
-            types::StepdownAsLeaderRequest::Hsm(hsm) => match addresses.get(hsm) {
+            types::StepDownRequest::Hsm(hsm) => match addresses.get(hsm) {
                 None => {
                     warn!(?hsm, "failed to find hsm in service discovery");
-                    Err(types::StepdownAsLeaderResponse::InvalidHsm)
+                    Err(types::StepDownResponse::InvalidHsm)
                 }
                 Some(url) => match rpc::send(&self.0.agents, url, StatusRequest {}).await {
                     Err(err) => {
                         warn!(?err, url=%url, hsm=?hsm, "failed to get status of HSM");
-                        Err(types::StepdownAsLeaderResponse::RpcError(err))
+                        Err(types::StepDownResponse::RpcError(err))
                     }
                     Ok(StatusResponse {
                         hsm:
@@ -333,7 +331,7 @@ impl Manager {
                     }
                 },
             },
-            types::StepdownAsLeaderRequest::Group { realm, group } => {
+            types::StepDownRequest::Group { realm, group } => {
                 Ok(join_all(addresses.iter().map(|(_hsm, url)| {
                     rpc::send(&self.0.agents, url, StatusRequest {}).map(|r| (r, url.clone()))
                 }))

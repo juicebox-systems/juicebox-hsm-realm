@@ -9,7 +9,7 @@ use loam_mvp::{
     http_client::{self, ClientOptions},
     process_group::ProcessGroup,
     realm::{
-        cluster::{self, types::StepdownAsLeaderRequest},
+        cluster::{self, types::StepDownRequest},
         store::bigtable::BigTableArgs,
     },
 };
@@ -124,7 +124,7 @@ async fn leader_handover() {
         rpc::send(
             &agents,
             &cluster.cluster_manager,
-            StepdownAsLeaderRequest::Hsm(*hsm_id1),
+            StepDownRequest::Hsm(*hsm_id1),
         )
         .await
         .unwrap();
@@ -154,7 +154,7 @@ async fn leader_handover() {
         rpc::send(
             &agents,
             &cluster.cluster_manager,
-            StepdownAsLeaderRequest::Group {
+            StepDownRequest::Group {
                 realm: *realm,
                 group: *group,
             },

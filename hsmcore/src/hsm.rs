@@ -46,10 +46,10 @@ use types::{
     JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus,
     LogEntry, LogIndex, NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest,
     NewRealmResponse, OwnedRange, Partition, PersistStateRequest, PersistStateResponse,
-    RealmStatus, RecordId, StatusRequest, StatusResponse, StepdownAsLeaderRequest,
-    StepdownAsLeaderResponse, TransferInRequest, TransferInResponse, TransferNonce,
-    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
-    TransferStatement, TransferStatementRequest, TransferStatementResponse, TransferringOut,
+    RealmStatus, RecordId, StatusRequest, StatusResponse, StepDownRequest, StepDownResponse,
+    TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
+    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatement,
+    TransferStatementRequest, TransferStatementResponse, TransferringOut,
 };
 
 /// Returned in Noise handshake requests as a hint to the client of how long
@@ -598,7 +598,7 @@ impl<P: Platform> Hsm<P> {
             HsmRequest::BecomeLeader(r) => {
                 self.dispatch_request(metrics, r, Self::handle_become_leader)
             }
-            HsmRequest::StepDownAsLeader(r) => {
+            HsmRequest::StepDown(r) => {
                 self.dispatch_request(metrics, r, Self::handle_stepdown_as_leader)
             }
             HsmRequest::CaptureNext(r) => {
@@ -1125,9 +1125,9 @@ impl<P: Platform> Hsm<P> {
     fn handle_stepdown_as_leader(
         &mut self,
         _metrics: &mut Metrics<P>,
-        request: StepdownAsLeaderRequest,
-    ) -> StepdownAsLeaderResponse {
-        type Response = StepdownAsLeaderResponse;
+        request: StepDownRequest,
+    ) -> StepDownResponse {
+        type Response = StepDownResponse;
         trace!(hsm = self.options.name, ?request);
 
         let Some(realm) = &self.persistent.realm else {

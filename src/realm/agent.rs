@@ -42,9 +42,9 @@ use types::{
     CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
     JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest,
     NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse,
-    StepdownAsLeaderRequest, StepdownAsLeaderResponse, TransferInRequest, TransferInResponse,
-    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
-    TransferStatementRequest, TransferStatementResponse,
+    StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
+    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
+    TransferStatementResponse,
 };
 
 #[derive(Debug)]
@@ -298,7 +298,7 @@ impl<T: Transport + 'static> Agent<T> {
         let start = Instant::now();
         for (realm, group) in leading {
             if let Err(err) = self
-                .handle_stepdown_as_leader(StepdownAsLeaderRequest { realm, group })
+                .handle_stepdown_as_leader(StepDownRequest { realm, group })
                 .await
             {
                 warn!(
@@ -381,7 +381,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                     BecomeLeaderRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_become_leader).await
                     }
-                    StepdownAsLeaderRequest::PATH => {
+                    StepDownRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_stepdown_as_leader).await
                     }
                     CompleteTransferRequest::PATH => {
@@ -719,10 +719,10 @@ impl<T: Transport + 'static> Agent<T> {
 
     async fn handle_stepdown_as_leader(
         &self,
-        request: StepdownAsLeaderRequest,
-    ) -> Result<StepdownAsLeaderResponse, HandlerError> {
-        type Response = StepdownAsLeaderResponse;
-        type HsmResponse = hsm_types::StepdownAsLeaderResponse;
+        request: StepDownRequest,
+    ) -> Result<StepDownResponse, HandlerError> {
+        type Response = StepDownResponse;
+        type HsmResponse = hsm_types::StepDownResponse;
 
         if self
             .0
@@ -738,7 +738,7 @@ impl<T: Transport + 'static> Agent<T> {
         match self
             .0
             .hsm
-            .send(hsm_types::StepdownAsLeaderRequest {
+            .send(hsm_types::StepDownRequest {
                 realm: request.realm,
                 group: request.group,
             })
@@ -1333,7 +1333,7 @@ impl<T: Transport + 'static> Agent<T> {
                             };
                         }
                     }
-                    self.handle_stepdown_as_leader(StepdownAsLeaderRequest { realm, group })
+                    self.handle_stepdown_as_leader(StepDownRequest { realm, group })
                         .await
                         .expect("error during leader stepdown");
                     return;

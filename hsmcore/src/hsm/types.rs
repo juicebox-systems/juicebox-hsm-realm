@@ -460,13 +460,13 @@ pub enum BecomeLeaderResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct StepdownAsLeaderRequest {
+pub struct StepDownRequest {
     pub realm: RealmId,
     pub group: GroupId,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub enum StepdownAsLeaderResponse {
+pub enum StepDownResponse {
     // Stepdown is in progress, it won't be complete until the commit reaches 'last'.
     InProgress {
         // This is the last log index generated as leader. The agent needs to ensure
