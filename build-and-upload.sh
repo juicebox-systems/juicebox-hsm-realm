@@ -7,7 +7,7 @@ BUCKET='a6cca386fe978990258c511c46fa8123a5f2e3b2' # sha1("daily-builds\n")
 MODE='release' # 'debug' or 'release'
 
 GIT="git-$(git describe --always --dirty)"
-TIMESTAMP="$(date --utc '+%Y%m%d%H%M%SZ')"
+TIMESTAMP="$(date -u '+%Y%m%d%H%M%SZ')"
 GSPATH="$BUCKET/$USER/$TIMESTAMP/$GIT/$MODE"
 
 echo "Building version $GIT in $MODE mode"
