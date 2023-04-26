@@ -11,7 +11,7 @@ TIMESTAMP="$(date -u '+%Y%m%d%H%M%SZ')"
 GSPATH="$BUCKET/$USER/$TIMESTAMP/$GIT/$MODE"
 
 if ! command -v gcloud > /dev/null; then
-  echo 'ERROR: Cannot find `gcloud`. See https://cloud.google.com/sdk/docs/install'
+  echo "ERROR: Cannot find 'gcloud'. See https://cloud.google.com/sdk/docs/install"
   exit 1
 fi
 
