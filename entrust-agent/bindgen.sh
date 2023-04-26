@@ -1,3 +1,5 @@
+#!/bin/sh
+
 bindgen --use-core \
     --output src/nfastapp.rs \
     --allowlist-function "NF.*(Init|Connect|Disconnect|Transact|Free_Reply)" \

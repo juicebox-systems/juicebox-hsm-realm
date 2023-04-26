@@ -1,3 +1,5 @@
+#!/bin/sh
+
 # this will give a warning
 #   warning: 'HAVE_CONFIG_H' macro redefined [-Wmacro-redefined] which i beleive is safe to ignore
 #
