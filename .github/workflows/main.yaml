@@ -56,7 +56,7 @@ jobs:
         components: rust-src
 
     - name: Install PowerPC cross-compile dependencies
-      run: sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
+      run: sudo apt update && sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
 
     - name: Cross Compile PowerPC
       run: ./build-ppc.sh
@@ -112,7 +112,7 @@ jobs:
         command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
     - name: Install Protobuf Compiler
-      run: sudo apt install protobuf-compiler
+      run: sudo apt update && sudo apt install protobuf-compiler
 
     - name: Use Rust Cache
       uses: Swatinem/rust-cache@v2
@@ -253,7 +253,7 @@ jobs:
         command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
     - name: Install Protobuf Compiler
-      run: sudo apt install protobuf-compiler
+      run: sudo apt update && sudo apt install protobuf-compiler
 
     - name: Use Rust Cache
       uses: Swatinem/rust-cache@v2
@@ -338,7 +338,7 @@ jobs:
         command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
     - name: Install Protobuf Compiler
-      run: sudo apt install protobuf-compiler
+      run: sudo apt update && sudo install protobuf-compiler
 
     - name: Use Rust Cache
       uses: Swatinem/rust-cache@v2
