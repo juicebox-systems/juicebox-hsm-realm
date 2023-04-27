@@ -258,6 +258,11 @@ jobs:
     - name: Use Rust Cache
       uses: Swatinem/rust-cache@v2
 
+    - name: Run cargo build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+
     - name: Run cargo test
       uses: actions-rs/cargo@v1
       with:
