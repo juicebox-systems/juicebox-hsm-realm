@@ -104,17 +104,6 @@ async fn main() {
         None
     };
 
-    let store_admin = args
-        .bigtable
-        .connect_admin(auth_manager.clone())
-        .await
-        .expect("Unable to connect to Bigtable admin");
-
-    store_admin
-        .initialize_discovery()
-        .await
-        .expect("Failed to initialize service discovery table");
-
     let store = args
         .bigtable
         .connect_data(auth_manager.clone())
