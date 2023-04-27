@@ -7,7 +7,7 @@ members = [
     "hsmcore",
     "load-balancer",
 ]
-default-members = ["codegen", "cluster-cli", "hsmcore", "load-balancer"]
+default-members = [".", "codegen", "cluster-cli", "hsmcore", "load-balancer"]
 # This allows the sdk packages to reference their workspace (for dependencies
 # and such), rather than this one.
 exclude = ["sdk"]
