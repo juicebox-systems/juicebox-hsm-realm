@@ -338,7 +338,7 @@ jobs:
         command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
     - name: Install Protobuf Compiler
-      run: sudo apt update && sudo install protobuf-compiler
+      run: sudo apt update && sudo apt install protobuf-compiler
 
     - name: Use Rust Cache
       uses: Swatinem/rust-cache@v2
