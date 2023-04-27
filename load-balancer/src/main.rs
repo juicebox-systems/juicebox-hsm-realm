@@ -78,7 +78,7 @@ async fn main() {
                     SIGHUP => {
                         info!("Reloading TLS certificate/key from disk");
                         match certs.reload() {
-                            Err(err) => warn!(err, "Failed to reload TLS certificate/key"),
+                            Err(err) => warn!(?err, "Failed to reload TLS certificate/key"),
                             Ok(_) => info!("Successfully reloaded TLS certificate/key from disk"),
                         }
                     }

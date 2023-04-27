@@ -1354,6 +1354,7 @@ checksum = "d59d8c75012853d2e872fb56bc8a2e53718e2cafe1a4c823143141c6d90c322f"
 name = "load-balancer"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "bytes",
  "clap 4.1.8",
  "futures",
