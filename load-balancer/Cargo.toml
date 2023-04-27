@@ -1,0 +1,15 @@
+[package]
+name = "load-balancer"
+version = "0.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { workspace = true }
+loam-mvp = { path = ".." }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+signal-hook = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
