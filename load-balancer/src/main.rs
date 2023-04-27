@@ -16,9 +16,12 @@ use tracing::{info, warn};
 use loam_mvp::client_auth::new_google_secret_manager;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
-use loam_mvp::realm::load_balancer::LoadBalancer;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_mvp::secret_manager::{Periodic, SecretManager, SecretsFile};
+
+mod load_balancer;
+
+use load_balancer::LoadBalancer;
 
 #[derive(Parser)]
 #[command(about = "An HTTP load balancer for one or more realms")]

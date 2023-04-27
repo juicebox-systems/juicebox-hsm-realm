@@ -6,10 +6,22 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bytes = { workspace = true }
 clap = { workspace = true }
+futures = { workspace = true }
+hsmcore = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
 loam-mvp = { path = ".." }
+loam-sdk-core = { workspace = true }
+loam-sdk-networking = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-http = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 signal-hook = { workspace = true }
 tokio = { workspace = true }
+tokio-rustls = { workspace = true }
 tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+url = { workspace = true }
