@@ -262,7 +262,8 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         # binary needed for integration tests
-        command: build --package load-balancer --bin load-balancer
+        args: --package load-balancer --bin load-balancer
+        command: build
 
     - name: Run cargo test
       uses: actions-rs/cargo@v1
