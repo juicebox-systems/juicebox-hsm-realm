@@ -212,15 +212,30 @@ impl NVRam for NCipher {
         let mut reply = M_Reply::default();
         unsafe {
             let rc = SEElib_Transact(&mut cmd, &mut reply);
-            assert_eq!(rc, 0);
+            if rc != 0 {
+                return Err(IOError(format!(
+                    "SEElib_Transact for NVMemOp read failed with status code {rc}"
+                )));
+            }
         }
-        assert_eq!(cmd.cmd, reply.cmd);
+        if cmd.cmd != reply.cmd {
+            return Err(IOError(format!(
+                "SEElib_Transact reply indicates error {reply:?}"
+            )));
+        }
         let result: Result<Vec<u8>, IOError> = {
             if reply.status == Status_OK {
                 let mut data = unsafe { reply.reply.nvmemop.res.read.data.as_slice().to_vec() };
                 // The first read after the NVRam entry was initialized will be
                 // all zeros. Which conveniently says the length is zero.
-                let len = u32::from_be_bytes(data[NVRAM_LEN_OFFSET..].try_into().unwrap());
+                if data.len() < NCIPHER_NVRAM_LEN {
+                    return Err(IOError(format!("data read from NVRam is too small, should be at least {NCIPHER_NVRAM_LEN} bytes, but was {}",data.len())));
+                }
+                let len = u32::from_be_bytes(
+                    data[NVRAM_LEN_OFFSET..NVRAM_LEN_OFFSET + 4]
+                        .try_into()
+                        .unwrap(),
+                );
                 data.truncate(len as usize);
                 Ok(data)
             } else {
