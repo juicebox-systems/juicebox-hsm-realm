@@ -1,4 +1,5 @@
 use clap::Parser;
+use loam_sdk::TokioSleeper;
 use loam_sdk_core::types::Policy;
 use loam_sdk_networking::rpc::LoadBalancerService;
 use reqwest::Certificate;
@@ -40,7 +41,7 @@ async fn main() {
     )
     .expect("failed to decode certificate file");
 
-    let client: Client<http_client::Client<LoadBalancerService>> = Client::new(
+    let client: Client<TokioSleeper, http_client::Client<LoadBalancerService>> = Client::with_tokio(
         configuration,
         vec![],
         args.auth_token,

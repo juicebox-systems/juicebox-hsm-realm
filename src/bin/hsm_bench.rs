@@ -90,7 +90,7 @@ async fn main() {
         .unwrap();
 
     info!(clients = args.concurrency, "creating clients");
-    let clients: Vec<Arc<Mutex<Client<http_client::Client<LoadBalancerService>>>>> = (0..args
+    let clients: Vec<Arc<Mutex<Client<_, http_client::Client<LoadBalancerService>>>>> = (0..args
         .concurrency)
         .map(|i| Arc::new(Mutex::new(cluster.client_for_user(format!("mario{i}")))))
         .collect();

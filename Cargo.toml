@@ -40,7 +40,7 @@ http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
 jsonwebtoken = { version = "8.3.0", default-features = false }
 libc = { version = "0.2.139", default-features = false }
-loam-sdk = { path = "sdk/rust/sdk/client" }
+loam-sdk = { path = "sdk/rust/sdk/client", features = ["tokio"] }
 loam-sdk-core = { path = "sdk/rust/sdk/core" }
 loam-sdk-networking = { path = "sdk/rust/sdk/networking", features = [
     "threadsafe-futures",
