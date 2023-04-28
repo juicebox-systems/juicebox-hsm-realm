@@ -17,13 +17,13 @@ fi
 
 echo "Building version $GIT in $MODE mode"
 cargo build "--$MODE" \
-  --package load-balancer \
+  --package load_balancer \
   --package loam-mvp \
   --bin agent \
   --bin cluster_manager \
   --bin demo \
   --bin http_hsm \
-  --bin load-balancer
+  --bin load_balancer
 
 echo 'Uploading artifacts to Google Cloud Storage'
 gcloud storage cp \
@@ -31,7 +31,7 @@ gcloud storage cp \
   "target/$MODE/cluster_manager" \
   "target/$MODE/demo" \
   "target/$MODE/http_hsm" \
-  "target/$MODE/load-balancer" \
+  "target/$MODE/load_balancer" \
   "gs://$GSPATH/"
 
 echo 'Upload done:'

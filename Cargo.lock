@@ -1351,7 +1351,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d59d8c75012853d2e872fb56bc8a2e53718e2cafe1a4c823143141c6d90c322f"
 
 [[package]]
-name = "load-balancer"
+name = "load_balancer"
 version = "0.0.0"
 dependencies = [
  "anyhow",
