@@ -94,7 +94,7 @@ async fn main() {
         .map(|i| {
             let address = SocketAddr::from(([127, 0, 0, 1], 3000 + i));
             let mut cmd = Command::new(format!(
-                "target/{}/load-balancer",
+                "target/{}/load_balancer",
                 if cfg!(debug_assertions) {
                     "debug"
                 } else {

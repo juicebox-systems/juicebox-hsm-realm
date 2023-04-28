@@ -216,7 +216,7 @@ fn create_load_balancers(
             let p = port.next();
             let address = SocketAddr::from(([127, 0, 0, 1], p));
             let mut cmd = Command::new(format!(
-                "target/{}/load-balancer",
+                "target/{}/load_balancer",
                 if cfg!(debug_assertions) {
                     "debug"
                 } else {
