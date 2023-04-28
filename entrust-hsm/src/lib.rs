@@ -185,7 +185,8 @@ const NVRAM_FILENAME: M_FileID = M_FileID {
     bytes: [b's', b't', b'a', b't', b'e', 0, 0, 0, 0, 0, 0],
 };
 
-const NVRAM_LEN_OFFSET: usize = MAX_NVRAM_SIZE - 4;
+const NCIPHER_NVRAM_LEN: usize = 4096;
+const NVRAM_LEN_OFFSET: usize = NCIPHER_NVRAM_LEN - 4;
 
 impl NVRam for NCipher {
     // The admin needs to allocate an nvram area called 'state' with a size of
