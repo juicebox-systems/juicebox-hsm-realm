@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use clap::Parser;
 use core::slice;
+use entrust_api::{EntrustRequest, EntrustResponse, StartRequest};
 use nfastapp::{
     Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
     Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_ErrorReturn, Cmd_LoadBuffer,
@@ -30,7 +31,7 @@ use loam_mvp::logging;
 use loam_mvp::realm::agent::Agent;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
 use loam_mvp::realm::store::bigtable::BigTableArgs;
-use loam_sdk_core::marshalling::{DeserializationError, SerializationError};
+use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
 
 mod nfastapp;
 
@@ -247,8 +248,30 @@ impl TransportInner {
         }
         if self.world_id.is_none() {
             self.world_id = Some(self.start_seeworld()?);
+
+            self.transact_control_job(EntrustRequest::Start(StartRequest::default()))
+                .expect("StartRequest to HSM failed");
         }
         Ok(())
+    }
+
+    fn transact_control_job(&mut self, req: EntrustRequest) -> Result<EntrustResponse, SeeError> {
+        let mut data = marshalling::to_vec(&req)?;
+        let mut cmd = M_Command::new(Cmd_SEEJob);
+        cmd.args.seejob = M_Cmd_SEEJob_Args {
+            worldid: self.world_id.unwrap(),
+            seeargs: M_ByteBlock {
+                len: data.len() as M_Word,
+                ptr: data.as_mut_ptr(),
+            },
+        };
+        let rep = self.transact(&mut cmd)?;
+        let resp = unsafe {
+            let data = rep.reply.seejob.seereply.as_slice();
+            marshalling::from_slice::<EntrustResponse>(data)?
+        };
+        self.collect_trace_buffer();
+        Ok(resp)
     }
 
     unsafe fn start_seeworld(&mut self) -> Result<M_KeyID, SeeError> {
@@ -293,6 +316,7 @@ impl TransportInner {
                     );
                     Err(SeeError::SeeWorldFailed)
                 } else {
+                    info!("Successfully started SEEWorld");
                     Ok(reply.reply.createseeworld.worldid)
                 }
             }
