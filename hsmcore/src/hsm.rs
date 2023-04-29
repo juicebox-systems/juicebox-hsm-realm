@@ -1746,7 +1746,7 @@ fn secrets_req_name(r: &SecretsRequest) -> &'static str {
         SecretsRequest::Recover1 => "App::Recover1",
         SecretsRequest::Recover2(_) => "App::Recover2",
         SecretsRequest::Recover3(_) => "App::Recover3",
-        SecretsRequest::Delete(_) => "App::Delete",
+        SecretsRequest::Delete => "App::Delete",
     }
 }
 
