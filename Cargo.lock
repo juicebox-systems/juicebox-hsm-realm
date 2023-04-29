@@ -1439,7 +1439,6 @@ version = "0.1.0"
 dependencies = [
  "argon2",
  "async-trait",
- "base64 0.21.0",
  "blake2",
  "digest 0.10.6",
  "futures",
@@ -1451,7 +1450,6 @@ dependencies = [
  "rand",
  "secrecy",
  "serde",
- "serde_json",
  "serde_repr",
  "sharks",
  "tokio",
@@ -1468,6 +1466,7 @@ dependencies = [
  "ciborium",
  "digest 0.10.6",
  "loam-sdk-noise",
+ "rand_core 0.6.4",
  "secrecy",
  "serde",
  "subtle",

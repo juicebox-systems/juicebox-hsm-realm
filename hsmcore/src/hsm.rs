@@ -29,7 +29,7 @@ use super::merkle::{
     MergeError, NodeHasher, Tree,
 };
 use super::mutation::{MutationTracker, OnMutationFinished};
-use app::{RecordChange, RootOprfKey};
+use app::RecordChange;
 use cache::Cache;
 use loam_sdk_core::{
     requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse},
@@ -369,7 +369,6 @@ struct PersistentState {
     realm_key: RealmKey, // TODO: rename. This is used for MACs.
     realm_communication: (x25519::StaticSecret, x25519::PublicKey),
     realm: Option<PersistentRealmState>,
-    root_oprf_key: RootOprfKey, // TODO: switch to random per-generation OPRF keys.
 }
 
 #[derive(Deserialize, Serialize)]
@@ -522,7 +521,6 @@ impl<P: Platform> Hsm<P> {
         let persistent = match Self::read_persisted_state(&platform)? {
             Some(state) => state,
             None => {
-                let root_oprf_key = RootOprfKey::from(&realm_key);
                 let hsm_id = HsmId::random(&mut platform);
 
                 let realm_communication = {
@@ -538,7 +536,6 @@ impl<P: Platform> Hsm<P> {
                     realm_key,
                     realm_communication,
                     realm: None,
-                    root_oprf_key,
                 };
                 writer.finished(&state);
                 state
@@ -1712,10 +1709,7 @@ impl<P: Platform> Hsm<P> {
                             .filter(|partition| partition.range.contains(&request.record_id))
                             .is_some()
                         {
-                            let app_ctx = app::AppContext {
-                                root_oprf_key: &self.persistent.root_oprf_key,
-                                hsm_name,
-                            };
+                            let app_ctx = app::AppContext { hsm_name };
                             handle_app_request(
                                 &app_ctx,
                                 request,
@@ -1747,10 +1741,11 @@ impl<P: Platform> Hsm<P> {
 
 fn secrets_req_name(r: &SecretsRequest) -> &'static str {
     match r {
-        SecretsRequest::Register1(_) => "App::Register1",
+        SecretsRequest::Register1 => "App::Register1",
         SecretsRequest::Register2(_) => "App::Register2",
-        SecretsRequest::Recover1(_) => "App::Recover1",
+        SecretsRequest::Recover1 => "App::Recover1",
         SecretsRequest::Recover2(_) => "App::Recover2",
+        SecretsRequest::Recover3(_) => "App::Recover3",
         SecretsRequest::Delete(_) => "App::Delete",
     }
 }
@@ -2064,7 +2059,6 @@ mod test {
         super::bitvec,
         super::hal::MAX_NVRAM_SIZE,
         super::merkle::{agent::StoreKey, NodeHasher},
-        app::RootOprfKey,
         types::{Configuration, DataHash, EntryHmac, GroupId, HsmId, LogIndex},
         MerkleHasher, PersistentGroupState, PersistentRealmState, PersistentState, RealmKey,
     };
@@ -2089,7 +2083,6 @@ mod test {
         // Verify that a PersistentState with 16 groups with 8 HSMs each fits in the NVRAM limit.
 
         let realm_key = RealmKey::derive_from("its a test".as_bytes());
-        let root_oprf_key = RootOprfKey::from(&realm_key);
 
         let realm_communication = {
             let mut buf = [0u8; 32];
@@ -2123,7 +2116,6 @@ mod test {
                 id: RealmId([2; 16]),
                 groups,
             }),
-            root_oprf_key,
         };
         let s = marshalling::to_vec(&p).unwrap();
         assert!(

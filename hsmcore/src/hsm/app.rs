@@ -2,30 +2,23 @@ extern crate alloc;
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use blake2::Blake2s256;
-use core::fmt::{self, Debug};
-use hkdf::Hkdf;
-use hmac::{Mac, SimpleHmac};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use tracing::trace;
 
 use super::types::RecordId;
-use super::RealmKey;
 use loam_sdk_core::{
     marshalling,
     requests::{
-        DeleteRequest, DeleteResponse, Recover1Request, Recover1Response, Recover2Request,
-        Recover2Response, Register1Request, Register1Response, Register2Request, Register2Response,
+        DeleteRequest, DeleteResponse, Recover1Response, Recover2Request, Recover2Response,
+        Recover3Request, Recover3Response, Register1Response, Register2Request, Register2Response,
         SecretsRequest, SecretsResponse,
     },
     types::{
-        GenerationNumber, MaskedTgkShare, OprfBlindedInput, OprfBlindedResult, OprfCipherSuite,
-        Policy, UnlockTag, UserSecretShare,
+        GenerationNumber, MaskedTgkShare, OprfBlindedResult, OprfKey, OprfServer, Policy, Salt,
+        UnlockTag, UserSecretShare,
     },
 };
-
-type OprfServer = voprf::OprfServer<OprfCipherSuite>;
 
 /// Persistent state for a particular user.
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,17 +42,9 @@ impl UserRecord {
 
 /// Persistent state for a particular generation of a particular user.
 #[derive(Debug, Serialize, Deserialize)]
-enum GenerationRecord {
-    /// The record has gone through the first phase but not the second phase of
-    /// registration. This is a stub record.
-    Registering,
-    /// The record has completed both phases of registration.
-    Registered(RegisteredUserRecord),
-}
-
-/// Persistent state for a fully registered generation.
-#[derive(Debug, Serialize, Deserialize)]
-struct RegisteredUserRecord {
+struct GenerationRecord {
+    oprf_key: OprfKey,
+    salt: Salt,
     guess_count: u16,
     policy: Policy,
     masked_tgk_share: MaskedTgkShare,
@@ -67,109 +52,19 @@ struct RegisteredUserRecord {
     secret_share: UserSecretShare,
 }
 
-/// A private root key used to derive keys for each user-generation's OPRF.
-#[derive(Deserialize, Serialize)]
-pub struct RootOprfKey([u8; 32]);
-
-impl RootOprfKey {
-    pub fn from(realm_key: &RealmKey) -> Self {
-        // generated from /dev/random
-        let salt = [
-            0x26u8, 0x97, 0x33, 0x24, 0x75, 0xe3, 0x41, 0xb7, 0xee, 0x5c, 0x1c, 0x3e, 0x4d, 0x20,
-            0xd0, 0xad, 0x9e, 0xf2, 0x6a, 0x2e, 0x55, 0x3b, 0x7b, 0x19, 0x1c, 0x94, 0x0d, 0xb2,
-            0x2f, 0xd7, 0x3c, 0x10,
-        ];
-        let info = "oprf".as_bytes();
-        let hk = Hkdf::<Blake2s256, SimpleHmac<Blake2s256>>::new(Some(&salt), &realm_key.0);
-        let mut out = [0u8; 32];
-        hk.expand(info, &mut out).unwrap();
-        Self(out)
-    }
-
-    /// Compute the derived key used for the OPRF for a particular user and
-    /// generation.
-    fn user_generation_key(
-        &self,
-        record_id: &RecordId,
-        generation: GenerationNumber,
-    ) -> digest::Output<Blake2s256> {
-        let mut mac = <SimpleHmac<Blake2s256> as Mac>::new_from_slice(&self.0)
-            .expect("failed to initialize HMAC");
-        mac.update(record_id.0.as_slice());
-        mac.update(&[0u8]);
-        mac.update(&generation.0.to_be_bytes());
-        mac.finalize().into_bytes()
-    }
-}
-
-impl Debug for RootOprfKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("(redacted)")
-    }
-}
-
 fn register1(
     ctx: &AppContext,
     record_id: &RecordId,
-    request: Register1Request,
-    mut user_record: UserRecord,
+    user_record: UserRecord,
 ) -> (Register1Response, Option<UserRecord>) {
-    type Response = Register1Response;
+    trace!(hsm = ctx.hsm_name, ?record_id, "register1 request",);
 
-    trace!(
-        hsm = ctx.hsm_name,
-        ?record_id,
-        generation = %request.generation,
-        "register1 request",
-    );
-
-    if request.generation < user_record.first_available_generation {
-        trace!(
-            hsm = ctx.hsm_name,
-            ?record_id,
-            generation = %request.generation,
-            first_available_generation = %user_record.first_available_generation,
-            "can't re-register generation",
-        );
-        return (
-            Response::BadGeneration {
-                first_available: user_record.first_available_generation,
-            },
-            None,
-        );
-    }
-
-    match request.generation.0.checked_add(1) {
-        None => {
-            return (
-                Response::BadGeneration {
-                    first_available: user_record.first_available_generation,
-                },
-                None,
-            )
-        }
-        Some(avail) => {
-            user_record.first_available_generation = GenerationNumber(avail);
-        }
-    }
-
-    user_record
-        .generations
-        .insert(request.generation, GenerationRecord::Registering);
-
-    let blinded_oprf_pin = evaluate_oprf(
-        ctx.root_oprf_key,
-        record_id,
-        request.generation,
-        &request.blinded_pin,
-    );
-    trace!(
-        hsm = ctx.hsm_name,
-        ?record_id,
-        generation = %request.generation,
-        "register1 completed",
-    );
-    (Response::Ok { blinded_oprf_pin }, Some(user_record))
+    (
+        Register1Response {
+            next_generation_number: user_record.first_available_generation,
+        },
+        Some(user_record),
+    )
 }
 
 fn register2(
@@ -185,138 +80,60 @@ fn register2(
         "register2 request",
     );
 
-    match user_record.generations.get_mut(&request.generation) {
-        None => {
-            trace!(
-                hsm = ctx.hsm_name,
-                ?record_id,
-                generation = %request.generation,
-                "can't do register2: haven't done register1",
-            );
-            (Register2Response::NotRegistering, None)
-        }
-        Some(GenerationRecord::Registered(_)) => {
-            trace!(
-                hsm = ctx.hsm_name,
-                ?record_id,
-                generation = %request.generation,
-                "can't do register2: already registered",
-            );
-            (Register2Response::AlreadyRegistered, None)
-        }
-        Some(record @ GenerationRecord::Registering) => {
-            *record = GenerationRecord::Registered(RegisteredUserRecord {
-                guess_count: 0,
-                policy: request.policy,
-                masked_tgk_share: request.masked_tgk_share,
-                tag: request.tag,
-                secret_share: request.secret_share,
-            });
-            let first_generation = *user_record.generations.first_key_value().unwrap().0;
-            (
-                Register2Response::Ok {
-                    found_earlier_generations: first_generation < request.generation,
-                },
-                Some(user_record),
-            )
+    if request.generation < user_record.first_available_generation {
+        trace!(
+            hsm = ctx.hsm_name,
+            ?record_id,
+            generation = %request.generation,
+            first_available_generation = %user_record.first_available_generation,
+            "can't re-register generation",
+        );
+        return (Register2Response::AlreadyRegistered, None);
+    }
+
+    match request.generation.0.checked_add(1) {
+        None => return (Register2Response::BadGeneration, None),
+        Some(avail) => {
+            user_record.first_available_generation = GenerationNumber(avail);
         }
     }
+
+    // Delete older generations.
+    user_record.generations.clear();
+
+    user_record.generations.insert(
+        request.generation,
+        GenerationRecord {
+            oprf_key: request.oprf_key,
+            salt: request.salt,
+            guess_count: 0,
+            policy: request.policy,
+            masked_tgk_share: request.masked_tgk_share,
+            tag: request.tag,
+            secret_share: request.secret_share,
+        },
+    );
+
+    (Register2Response::Ok, Some(user_record))
 }
 
 fn recover1(
     ctx: &AppContext,
     record_id: &RecordId,
-    request: Recover1Request,
-    mut user_record: UserRecord,
+    user_record: UserRecord,
 ) -> (Recover1Response, Option<UserRecord>) {
-    match request.generation {
-        Some(generation) => trace!(
-            hsm = ctx.hsm_name,
-            ?record_id,
-            %generation,
-            "recover1 request"
-        ),
-        None => trace!(
-            hsm = ctx.hsm_name,
-            ?record_id,
-            "recover1 request at latest generation"
-        ),
-    };
+    trace!(hsm = ctx.hsm_name, ?record_id, "recover1 request",);
 
-    let mut iter = match request.generation {
-        Some(generation) => user_record.generations.range_mut(..=generation),
-        None => user_record.generations.range_mut(..),
+    match user_record.generations.last_key_value() {
+        Some((generation, record)) => (
+            Recover1Response::Ok {
+                generation: *generation,
+                salt: record.salt.clone(),
+            },
+            Some(user_record),
+        ),
+        None => (Recover1Response::NotRegistered, None),
     }
-    .rev()
-    .fuse();
-    let generation = iter.next().map(|(num, record)| (*num, record));
-    let previous_generation = iter.next().map(|(num, _)| *num);
-
-    let (generation, masked_tgk_share) = match generation {
-        None => {
-            trace!(hsm = ctx.hsm_name, ?record_id, ?request.generation, "can't recover: not registered");
-            return (
-                Recover1Response::NotRegistered {
-                    generation: request.generation,
-                    previous_generation,
-                },
-                None,
-            );
-        }
-
-        Some((generation, GenerationRecord::Registering)) => {
-            trace!(
-                hsm = ctx.hsm_name,
-                ?record_id,
-                %generation,
-                "can't recover: partially registered"
-            );
-            return (
-                Recover1Response::PartiallyRegistered {
-                    generation,
-                    previous_generation,
-                },
-                None,
-            );
-        }
-
-        Some((generation, GenerationRecord::Registered(record))) => {
-            if record.guess_count >= record.policy.num_guesses {
-                trace!(
-                    hsm = ctx.hsm_name,
-                    ?record_id,
-                    %generation,
-                    "can't recover: out of guesses"
-                );
-                return (
-                    Recover1Response::NoGuesses {
-                        generation,
-                        previous_generation,
-                    },
-                    None,
-                );
-            }
-            record.guess_count += 1;
-            (generation, record.masked_tgk_share.clone())
-        }
-    };
-
-    let blinded_oprf_pin = evaluate_oprf(
-        ctx.root_oprf_key,
-        record_id,
-        generation,
-        &request.blinded_pin,
-    );
-    trace!(?record_id, %generation, "recover1 completed");
-    (
-        Recover1Response::Ok {
-            generation,
-            blinded_oprf_pin,
-            masked_tgk_share,
-            previous_generation,
-        },
-        Some(user_record),
-    )
 }
 
 fn recover2(
@@ -325,16 +142,63 @@ fn recover2(
     request: Recover2Request,
     mut user_record: UserRecord,
 ) -> (Recover2Response, Option<UserRecord>) {
-    match user_record.generations.get_mut(&request.generation) {
-        None | Some(GenerationRecord::Registering) => {
-            trace!(hsm = ctx.hsm_name, ?record_id, %request.generation, "can't recover: not registered");
-            (Recover2Response::NotRegistered, None)
+    trace!(
+        hsm = ctx.hsm_name,
+        ?record_id,
+        %request.generation,
+        "recover2 request"
+    );
+
+    let (oprf_key, masked_tgk_share) = match user_record.generations.get_mut(&request.generation) {
+        Some(record) => {
+            if record.guess_count >= record.policy.num_guesses {
+                trace!(
+                    hsm = ctx.hsm_name,
+                    ?record_id,
+                    %request.generation,
+                    "can't recover: out of guesses"
+                );
+                return (Recover2Response::NoGuesses, None);
+            }
+            record.guess_count += 1;
+            (record.oprf_key.clone(), record.masked_tgk_share.clone())
         }
-        Some(GenerationRecord::Registered(record)) => {
+        None => {
+            trace!(hsm = ctx.hsm_name, ?record_id, ?request.generation, "can't recover: not registered");
+            return (Recover2Response::NotRegistered, None);
+        }
+    };
+
+    let server =
+        OprfServer::new_with_key(oprf_key.expose_secret()).expect("error constructing OprfServer");
+    let blinded_oprf_pin: OprfBlindedResult = server.blind_evaluate(&request.blinded_pin);
+
+    trace!(?record_id, %request.generation, "recover2 completed");
+    (
+        Recover2Response::Ok {
+            blinded_oprf_pin,
+            masked_tgk_share,
+        },
+        Some(user_record),
+    )
+}
+
+fn recover3(
+    ctx: &AppContext,
+    record_id: &RecordId,
+    request: Recover3Request,
+    mut user_record: UserRecord,
+) -> (Recover3Response, Option<UserRecord>) {
+    match user_record.generations.get_mut(&request.generation) {
+        None => {
+            trace!(hsm = ctx.hsm_name, ?record_id, %request.generation, "can't recover: not registered");
+            (Recover3Response::NotRegistered, None)
+        }
+        Some(record) => {
             if !bool::from(request.tag.ct_eq(&record.tag)) {
                 trace!(hsm = ctx.hsm_name, ?record_id, %request.generation, "can't recover: bad unlock tag");
                 (
-                    Recover2Response::BadUnlockTag {
+                    Recover3Response::BadUnlockTag {
                         guesses_remaining: record.policy.num_guesses - record.guess_count,
                     },
                     None,
@@ -343,7 +207,7 @@ fn recover2(
                 record.guess_count = 0;
                 trace!(hsm = ctx.hsm_name, ?record_id, %request.generation, "recovered secret share successfully");
                 (
-                    Recover2Response::Ok(record.secret_share.clone()),
+                    Recover3Response::Ok(record.secret_share.clone()),
                     Some(user_record),
                 )
             }
@@ -384,25 +248,11 @@ fn delete_generations(
     (DeleteResponse::Ok, Some(user_record))
 }
 
-/// Computes an OPRF for a user-generation.
-fn evaluate_oprf(
-    root_oprf_key: &RootOprfKey,
-    record_id: &RecordId,
-    generation: GenerationNumber,
-    blinded_pin: &OprfBlindedInput,
-) -> OprfBlindedResult {
-    let oprf_key = root_oprf_key.user_generation_key(record_id, generation);
-    let oprf = OprfServer::new_from_seed(&oprf_key, &[ /* TODO: what is this "info" for? */])
-        .expect("error constructing OprfServer");
-    oprf.blind_evaluate(blinded_pin)
-}
-
 pub enum RecordChange {
     Update(Vec<u8>),
 }
 
 pub struct AppContext<'a> {
-    pub root_oprf_key: &'a RootOprfKey,
     pub hsm_name: &'a str,
 }
 
@@ -417,21 +267,25 @@ pub fn process(
         Some(data) => marshalling::from_slice(data).expect("TODO"),
     };
     let (result, user_record_out) = match request {
-        SecretsRequest::Register1(req) => {
-            let res = register1(ctx, record_id, req, user_record_in);
+        SecretsRequest::Register1 => {
+            let res = register1(ctx, record_id, user_record_in);
             (SecretsResponse::Register1(res.0), res.1)
         }
         SecretsRequest::Register2(req) => {
             let res = register2(ctx, record_id, req, user_record_in);
             (SecretsResponse::Register2(res.0), res.1)
         }
-        SecretsRequest::Recover1(req) => {
-            let res = recover1(ctx, record_id, req, user_record_in);
+        SecretsRequest::Recover1 => {
+            let res = recover1(ctx, record_id, user_record_in);
             (SecretsResponse::Recover1(res.0), res.1)
         }
         SecretsRequest::Recover2(req) => {
             let res = recover2(ctx, record_id, req, user_record_in);
             (SecretsResponse::Recover2(res.0), res.1)
+        }
+        SecretsRequest::Recover3(req) => {
+            let res = recover3(ctx, record_id, req, user_record_in);
+            (SecretsResponse::Recover3(res.0), res.1)
         }
         SecretsRequest::Delete(req) => {
             let res = delete_generations(ctx, record_id, req, user_record_in);
