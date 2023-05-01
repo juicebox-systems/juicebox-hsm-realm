@@ -27,7 +27,7 @@ use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use super::PortIssuer;
 
 use hsmcore::hsm::types::GroupId;
-use loam_sdk::{Client, Configuration, PinHashingMode, Realm, RealmId};
+use loam_sdk::{Client, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper};
 
 #[derive(Debug)]
 pub struct ClusterConfig {
@@ -69,8 +69,8 @@ impl ClusterResult {
     pub fn client_for_user(
         &self,
         user_id: String,
-    ) -> Client<http_client::Client<LoadBalancerService>> {
-        Client::new(
+    ) -> Client<TokioSleeper, http_client::Client<LoadBalancerService>> {
+        Client::with_tokio(
             Configuration {
                 realms: self
                     .realms
