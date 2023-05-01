@@ -77,13 +77,31 @@ fn recover1(
     trace!(hsm = ctx.hsm_name, ?record_id, "recover1 request",);
 
     match user_record.registration.as_ref() {
-        Some(record) => (
-            Recover1Response::Ok {
-                salt: record.salt.clone(),
-            },
-            Some(user_record),
-        ),
-        None => (Recover1Response::NotRegistered, None),
+        Some(record) => {
+            if record.guess_count >= record.policy.num_guesses {
+                trace!(
+                    hsm = ctx.hsm_name,
+                    ?record_id,
+                    "can't recover: out of guesses"
+                );
+                return (Recover1Response::NoGuesses, None);
+            }
+
+            (
+                Recover1Response::Ok {
+                    salt: record.salt.clone(),
+                },
+                Some(user_record),
+            )
+        }
+        None => {
+            trace!(
+                hsm = ctx.hsm_name,
+                ?record_id,
+                "can't recover: not registered"
+            );
+            (Recover1Response::NotRegistered, None)
+        }
     }
 }
 
