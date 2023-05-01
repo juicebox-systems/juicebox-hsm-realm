@@ -32,6 +32,7 @@ mod read;
 use super::super::merkle::agent::TreeStoreReader;
 use crate::autogen::google;
 use crate::google_auth::AuthMiddleware;
+use crate::logging::Spew;
 use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RecordId};
 use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
 use loam_sdk_core::types::RealmId;
@@ -853,10 +854,11 @@ impl LogEntriesIter {
     }
 }
 
+static DISCOVERY_TABLE_SPEW: Spew = Spew::new();
+
 impl StoreClient {
-    #[instrument(level = "trace", skip(self))]
     pub async fn get_addresses(&self) -> Result<Vec<(HsmId, Url)>, tonic::Status> {
-        let rows = read_rows(
+        let rows = match read_rows(
             &mut self.bigtable.clone(),
             ReadRowsRequest {
                 table_name: discovery_table(&self.instance),
@@ -869,7 +871,21 @@ impl StoreClient {
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
             },
         )
-        .await?;
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) if e.code() == tonic::Code::NotFound => {
+                if let Some(suppressed) = DISCOVERY_TABLE_SPEW.ok() {
+                    warn!(
+                        error = e.message(),
+                        suppressed,
+                        "couldn't read from Bigtable service discovery table (the cluster manager should create it)"
+                    );
+                }
+                return Ok(Vec::new());
+            }
+            Err(e) => return Err(e),
+        };
 
         let mut addresses = Vec::with_capacity(rows.len());
         let mut expired = Vec::new();

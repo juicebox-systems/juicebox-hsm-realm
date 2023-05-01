@@ -17,6 +17,8 @@ fi
 
 echo "Building version $GIT in $MODE mode"
 cargo build "--$MODE" \
+  --package load_balancer \
+  --package loam-mvp \
   --bin agent \
   --bin cluster_manager \
   --bin demo \

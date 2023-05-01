@@ -24,16 +24,18 @@ use tracing::{instrument, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
-use super::super::http_client::{Client, ClientOptions};
-use super::agent::types::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
-use super::store::bigtable::StoreClient;
-use crate::client_auth::{
-    tenant_secret_name, validation::Validator as AuthTokenValidator, AuthKey,
-};
-use crate::logging::Spew;
-use crate::secret_manager::SecretManager;
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
+use loam_mvp::client_auth::{
+    tenant_secret_name, validation::Validator as AuthTokenValidator, AuthKey,
+};
+use loam_mvp::http_client::{Client, ClientOptions};
+use loam_mvp::logging::Spew;
+use loam_mvp::realm::agent::types::{
+    make_record_id, AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse,
+};
+use loam_mvp::realm::store::bigtable::StoreClient;
+use loam_mvp::secret_manager::SecretManager;
 use loam_sdk_core::requests::{ClientRequest, ClientResponse};
 use loam_sdk_core::types::RealmId;
 
@@ -287,7 +289,7 @@ async fn handle_client_request(
             return Response::Unavailable;
         }
     };
-    let record_id = super::agent::types::make_record_id(&claims.issuer, &claims.subject);
+    let record_id = make_record_id(&claims.issuer, &claims.subject);
 
     for partition in partitions {
         if !partition.owned_range.contains(&record_id) {

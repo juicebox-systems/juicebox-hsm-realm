@@ -1351,6 +1351,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d59d8c75012853d2e872fb56bc8a2e53718e2cafe1a4c823143141c6d90c322f"
 
 [[package]]
+name = "load_balancer"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "clap 4.1.8",
+ "futures",
+ "hsmcore",
+ "http-body-util",
+ "hyper 1.0.0-rc.3",
+ "loam-mvp",
+ "loam-sdk-core",
+ "loam-sdk-networking",
+ "opentelemetry",
+ "opentelemetry-http",
+ "rustls 0.20.8",
+ "rustls-pemfile",
+ "signal-hook",
+ "tokio",
+ "tokio-rustls 0.23.4",
+ "tracing 0.2.0",
+ "tracing-opentelemetry",
+ "url",
+]
+
+[[package]]
 name = "loam-mvp"
 version = "0.0.0"
 dependencies = [
