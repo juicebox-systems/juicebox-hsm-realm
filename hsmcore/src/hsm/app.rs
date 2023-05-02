@@ -22,25 +22,31 @@ use loam_sdk_core::{
 /// Persistent state for a particular user.
 #[derive(Debug, Serialize, Deserialize)]
 struct UserRecord {
-    registration: Option<RegistrationRecord>,
+    registration_state: RegistrationState,
 }
 
 impl UserRecord {
     fn new() -> Self {
-        Self { registration: None }
+        Self {
+            registration_state: RegistrationState::NotRegistered,
+        }
     }
 }
 
 /// Persistent state for a particular registration of a particular user.
 #[derive(Debug, Serialize, Deserialize)]
-struct RegistrationRecord {
-    oprf_seed: OprfSeed,
-    salt: Salt,
-    guess_count: u16,
-    policy: Policy,
-    masked_tgk_share: MaskedTgkShare,
-    tag: UnlockTag,
-    secret_share: UserSecretShare,
+enum RegistrationState {
+    NotRegistered,
+    Registered {
+        oprf_seed: OprfSeed,
+        salt: Salt,
+        guess_count: u16,
+        policy: Policy,
+        masked_tgk_share: MaskedTgkShare,
+        tag: UnlockTag,
+        secret_share: UserSecretShare,
+    },
+    NoGuesses,
 }
 
 fn register1(ctx: &AppContext, record_id: &RecordId) -> Register1Response {
@@ -56,7 +62,7 @@ fn register2(
 ) -> (Register2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "register2 request",);
 
-    user_record.registration = Some(RegistrationRecord {
+    user_record.registration_state = RegistrationState::Registered {
         oprf_seed: request.oprf_seed,
         salt: request.salt,
         guess_count: 0,
@@ -64,7 +70,7 @@ fn register2(
         masked_tgk_share: request.masked_tgk_share,
         tag: request.tag,
         secret_share: request.secret_share,
-    });
+    };
 
     (Register2Response::Ok, Some(user_record))
 }
@@ -72,26 +78,33 @@ fn register2(
 fn recover1(
     ctx: &AppContext,
     record_id: &RecordId,
-    user_record: UserRecord,
+    mut user_record: UserRecord,
 ) -> (Recover1Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover1 request",);
 
-    match user_record.registration.as_ref() {
-        Some(record) if record.guess_count >= record.policy.num_guesses => {
+    match &user_record.registration_state {
+        RegistrationState::Registered {
+            guess_count,
+            policy,
+            ..
+        } if *guess_count >= policy.num_guesses => {
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
                 "can't recover: out of guesses"
             );
-            (Recover1Response::NoGuesses, None)
+            user_record.registration_state = RegistrationState::NoGuesses;
+            (Recover1Response::NoGuesses, Some(user_record))
         }
-        Some(record) => (
-            Recover1Response::Ok {
-                salt: record.salt.clone(),
-            },
+        RegistrationState::Registered { salt, .. } => (
+            Recover1Response::Ok { salt: salt.clone() },
             Some(user_record),
         ),
-        None => {
+        RegistrationState::NoGuesses => {
+            trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
+            (Recover1Response::NoGuesses, None)
+        }
+        RegistrationState::NotRegistered => {
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
@@ -110,20 +123,34 @@ fn recover2(
 ) -> (Recover2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
-    let (oprf_seed, masked_tgk_share) = match user_record.registration.as_mut() {
-        Some(record) if record.guess_count >= record.policy.num_guesses => {
+    let (oprf_seed, masked_tgk_share) = match &mut user_record.registration_state {
+        RegistrationState::Registered {
+            guess_count,
+            policy,
+            ..
+        } if *guess_count >= policy.num_guesses => {
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
                 "can't recover: out of guesses"
             );
+            user_record.registration_state = RegistrationState::NoGuesses;
+            return (Recover2Response::NoGuesses, Some(user_record));
+        }
+        RegistrationState::Registered {
+            guess_count,
+            oprf_seed,
+            masked_tgk_share,
+            ..
+        } => {
+            *guess_count += 1;
+            (oprf_seed.clone(), masked_tgk_share.clone())
+        }
+        RegistrationState::NoGuesses => {
+            trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
             return (Recover2Response::NoGuesses, None);
         }
-        Some(record) => {
-            record.guess_count += 1;
-            (record.oprf_seed.clone(), record.masked_tgk_share.clone())
-        }
-        None => {
+        RegistrationState::NotRegistered => {
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
@@ -155,8 +182,8 @@ fn recover3(
 ) -> (Recover3Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover3 request");
 
-    match user_record.registration.as_mut() {
-        None => {
+    match &mut user_record.registration_state {
+        RegistrationState::NotRegistered => {
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
@@ -164,21 +191,40 @@ fn recover3(
             );
             (Recover3Response::NotRegistered, None)
         }
-        Some(record) if !bool::from(request.tag.ct_eq(&record.tag)) => {
+        RegistrationState::Registered {
+            tag,
+            policy,
+            guess_count,
+            ..
+        } if !bool::from(request.tag.ct_eq(tag)) => {
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
                 "can't recover: bad unlock tag"
             );
+            let guesses_remaining = policy.num_guesses - *guess_count;
+            let mut user_record_out = None;
+
+            if guesses_remaining == 0 {
+                user_record.registration_state = RegistrationState::NoGuesses;
+                user_record_out = Some(user_record);
+            }
+
             (
-                Recover3Response::BadUnlockTag {
-                    guesses_remaining: record.policy.num_guesses - record.guess_count,
-                },
-                None,
+                Recover3Response::BadUnlockTag { guesses_remaining },
+                user_record_out,
             )
         }
-        Some(record) => {
-            record.guess_count = 0;
+        RegistrationState::NoGuesses => {
+            trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
+            (Recover3Response::NoGuesses, None)
+        }
+        RegistrationState::Registered {
+            guess_count,
+            secret_share,
+            ..
+        } => {
+            *guess_count = 0;
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
@@ -186,7 +232,7 @@ fn recover3(
             );
             (
                 Recover3Response::Ok {
-                    secret_share: record.secret_share.clone(),
+                    secret_share: secret_share.clone(),
                 },
                 Some(user_record),
             )
@@ -201,7 +247,7 @@ fn delete(
 ) -> (DeleteResponse, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "delete request");
 
-    user_record.registration = None;
+    user_record.registration_state = RegistrationState::NotRegistered;
     (DeleteResponse::Ok, Some(user_record))
 }
 
