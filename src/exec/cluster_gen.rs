@@ -83,7 +83,7 @@ impl ClusterResult {
                     .collect(),
                 register_threshold: self.realms.len().try_into().unwrap(),
                 recover_threshold: self.realms.len().try_into().unwrap(),
-                pin_hashing_mode: PinHashingMode::None,
+                pin_hashing_mode: PinHashingMode::FastInsecure,
             },
             Vec::new(),
             create_token(
