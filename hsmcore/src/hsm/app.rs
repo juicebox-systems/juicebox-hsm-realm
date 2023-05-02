@@ -14,8 +14,8 @@ use loam_sdk_core::{
         SecretsResponse,
     },
     types::{
-        MaskedTgkShare, OprfBlindedResult, OprfKey, OprfServer, Policy, Salt, UnlockTag,
-        UserSecretShare,
+        MaskedTgkShare, OprfBlindedResult, OprfSeed, OprfServer, Policy, Salt, UnlockTag,
+        UserSecretShare, OPRF_DERIVATION_INFO,
     },
 };
 
@@ -34,7 +34,7 @@ impl UserRecord {
 /// Persistent state for a particular registration of a particular user.
 #[derive(Debug, Serialize, Deserialize)]
 struct RegistrationRecord {
-    oprf_key: OprfKey,
+    oprf_seed: OprfSeed,
     salt: Salt,
     guess_count: u16,
     policy: Policy,
@@ -57,7 +57,7 @@ fn register2(
     trace!(hsm = ctx.hsm_name, ?record_id, "register2 request",);
 
     user_record.registration = Some(RegistrationRecord {
-        oprf_key: request.oprf_key,
+        oprf_seed: request.oprf_seed,
         salt: request.salt,
         guess_count: 0,
         policy: request.policy,
@@ -77,23 +77,20 @@ fn recover1(
     trace!(hsm = ctx.hsm_name, ?record_id, "recover1 request",);
 
     match user_record.registration.as_ref() {
-        Some(record) => {
-            if record.guess_count >= record.policy.num_guesses {
-                trace!(
-                    hsm = ctx.hsm_name,
-                    ?record_id,
-                    "can't recover: out of guesses"
-                );
-                return (Recover1Response::NoGuesses, None);
-            }
-
-            (
-                Recover1Response::Ok {
-                    salt: record.salt.clone(),
-                },
-                Some(user_record),
-            )
+        Some(record) if record.guess_count >= record.policy.num_guesses => {
+            trace!(
+                hsm = ctx.hsm_name,
+                ?record_id,
+                "can't recover: out of guesses"
+            );
+            (Recover1Response::NoGuesses, None)
         }
+        Some(record) => (
+            Recover1Response::Ok {
+                salt: record.salt.clone(),
+            },
+            Some(user_record),
+        ),
         None => {
             trace!(
                 hsm = ctx.hsm_name,
@@ -113,18 +110,18 @@ fn recover2(
 ) -> (Recover2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
-    let (oprf_key, masked_tgk_share) = match user_record.registration.as_mut() {
+    let (oprf_seed, masked_tgk_share) = match user_record.registration.as_mut() {
+        Some(record) if record.guess_count >= record.policy.num_guesses => {
+            trace!(
+                hsm = ctx.hsm_name,
+                ?record_id,
+                "can't recover: out of guesses"
+            );
+            return (Recover2Response::NoGuesses, None);
+        }
         Some(record) => {
-            if record.guess_count >= record.policy.num_guesses {
-                trace!(
-                    hsm = ctx.hsm_name,
-                    ?record_id,
-                    "can't recover: out of guesses"
-                );
-                return (Recover2Response::NoGuesses, None);
-            }
             record.guess_count += 1;
-            (record.oprf_key.clone(), record.masked_tgk_share.clone())
+            (record.oprf_seed.clone(), record.masked_tgk_share.clone())
         }
         None => {
             trace!(
@@ -136,8 +133,8 @@ fn recover2(
         }
     };
 
-    let server =
-        OprfServer::new_with_key(oprf_key.expose_secret()).expect("error constructing OprfServer");
+    let server = OprfServer::new_from_seed(oprf_seed.expose_secret(), OPRF_DERIVATION_INFO)
+        .expect("error constructing OprfServer");
     let blinded_oprf_pin: OprfBlindedResult = server.blind_evaluate(&request.blinded_pin);
 
     trace!(?record_id, "recover2 completed");
@@ -167,31 +164,32 @@ fn recover3(
             );
             (Recover3Response::NotRegistered, None)
         }
+        Some(record) if !bool::from(request.tag.ct_eq(&record.tag)) => {
+            trace!(
+                hsm = ctx.hsm_name,
+                ?record_id,
+                "can't recover: bad unlock tag"
+            );
+            (
+                Recover3Response::BadUnlockTag {
+                    guesses_remaining: record.policy.num_guesses - record.guess_count,
+                },
+                None,
+            )
+        }
         Some(record) => {
-            if !bool::from(request.tag.ct_eq(&record.tag)) {
-                trace!(
-                    hsm = ctx.hsm_name,
-                    ?record_id,
-                    "can't recover: bad unlock tag"
-                );
-                (
-                    Recover3Response::BadUnlockTag {
-                        guesses_remaining: record.policy.num_guesses - record.guess_count,
-                    },
-                    None,
-                )
-            } else {
-                record.guess_count = 0;
-                trace!(
-                    hsm = ctx.hsm_name,
-                    ?record_id,
-                    "recovered secret share successfully"
-                );
-                (
-                    Recover3Response::Ok(record.secret_share.clone()),
-                    Some(user_record),
-                )
-            }
+            record.guess_count = 0;
+            trace!(
+                hsm = ctx.hsm_name,
+                ?record_id,
+                "recovered secret share successfully"
+            );
+            (
+                Recover3Response::Ok {
+                    secret_share: record.secret_share.clone(),
+                },
+                Some(user_record),
+            )
         }
     }
 }

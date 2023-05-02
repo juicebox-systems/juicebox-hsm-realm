@@ -81,9 +81,11 @@ async fn leader_handover() {
 
             match client.recover(&vec![1, 2, 3, 4].into()).await {
                 Ok(secret) if secret.expose_secret() == b"bob".to_vec() => success_count += 1,
-                Ok(secret) => {
-                    failures.push(format!("expected {:?} got {:?}", b"bob".to_vec(), secret.0))
-                }
+                Ok(secret) => failures.push(format!(
+                    "expected {:?} got {:?}",
+                    b"bob".to_vec(),
+                    secret.expose_secret()
+                )),
                 Err(e) => failures.push(format!("{e:?}")),
             }
 
