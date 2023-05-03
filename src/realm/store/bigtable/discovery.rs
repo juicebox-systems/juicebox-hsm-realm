@@ -18,6 +18,10 @@ use hsmcore::hsm::types::HsmId;
 /// Agents should register themselves with service discovery this often.
 pub const REGISTER_INTERVAL: Duration = Duration::from_secs(60 * 10);
 
+/// After a failure registering with service discovery, agents should wait this
+/// long before retrying.
+pub const REGISTER_FAILURE_DELAY: Duration = Duration::from_secs(10);
+
 /// Discovery records that haven't been updated in at least this log will be expired and deleted.
 pub const EXPIRY_AGE: Duration = Duration::from_secs(60 * 21);
 
