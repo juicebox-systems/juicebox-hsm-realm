@@ -7,11 +7,12 @@ use google::bigtable::v2::{
     MutateRowResponse, MutateRowsRequest, Mutation, ReadRowsRequest, RowFilter,
 };
 use std::collections::HashMap;
+use std::str;
 use std::time::{Duration, SystemTime};
 use tracing::{debug, trace, warn};
 use url::Url;
 
-use super::{mutate_rows, read_rows, BigtableClient, BigtableTableAdminClient, Instance};
+use super::{mutate_rows, read_rows, BigtableClient, BigtableTableAdminClient, Instance, RowKey};
 use crate::logging::Spew;
 use hsmcore::hsm::types::HsmId;
 
@@ -96,18 +97,19 @@ pub(super) async fn get_addresses(
         Err(e) if e.code() == tonic::Code::NotFound => {
             if let Some(suppressed) = DISCOVERY_TABLE_SPEW.ok() {
                 warn!(
-                        error = e.message(),
-                        suppressed,
-                        "couldn't read from Bigtable service discovery table (the cluster manager should create it)"
-                    );
+                    error = e.message(),
+                    suppressed,
+                    "couldn't read from Bigtable service discovery table \
+                    (the cluster manager should create it)"
+                );
             }
             return Ok(Vec::new());
         }
         Err(e) => return Err(e),
     };
 
-    let mut addresses = Vec::with_capacity(rows.len());
-    let mut expired = Vec::new();
+    let mut addresses: Vec<(HsmId, Url)> = Vec::with_capacity(rows.len());
+    let mut expired: Vec<RowKey> = Vec::new();
     let expire_when_before = SystemTime::now() - EXPIRY_AGE;
     for (row_key, cells) in rows {
         for cell in cells {
@@ -115,32 +117,30 @@ pub(super) async fn get_addresses(
                 let written_at =
                     SystemTime::UNIX_EPOCH + Duration::from_micros(cell.timestamp as u64);
                 if written_at < expire_when_before {
-                    expired.push(row_key.0.clone());
-                } else if let Some(url) = String::from_utf8(cell.value)
+                    expired.push(row_key.clone());
+                } else if let Some((hsm, url)) = deserialize_hsm_id(&row_key.0)
                     .ok()
-                    .and_then(|url| Url::parse(&url).ok())
+                    .zip(url_from_bytes(&cell.value))
                 {
-                    let mut hsm = HsmId([0u8; 16]);
-                    hsm.0.copy_from_slice(&row_key.0);
                     addresses.push((hsm, url))
                 }
             }
         }
     }
+
     if !expired.is_empty() {
-        let mut bigtable = bigtable.clone();
-        let table = discovery_table(instance);
+        let table_name = discovery_table(instance);
         tokio::spawn(async move {
             let len = expired.len();
             let r = mutate_rows(
                 &mut bigtable,
                 MutateRowsRequest {
-                    table_name: table,
+                    table_name,
                     app_profile_id: String::new(),
                     entries: expired
                         .into_iter()
                         .map(|key| mutate_rows_request::Entry {
-                            row_key: key,
+                            row_key: key.0,
                             mutations: vec![Mutation {
                                 mutation: Some(mutation::Mutation::DeleteFromRow(
                                     mutation::DeleteFromRow {},
@@ -178,21 +178,24 @@ pub(super) async fn set_address(
     timestamp: SystemTime,
 ) -> Result<(), tonic::Status> {
     trace!(?hsm, address = address.as_str(), "set_address starting");
-    // Come back before April 11 2262 to fix this.
+
+    // Timestamps are in microseconds, but need to be rounded to milliseconds
+    // (or coarser depending on table schema). Come back before April 11, 2262
+    // to fix this.
     let timestamp_micros = (timestamp
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_millis()
         * 1000)
         .try_into()
-        .unwrap(); // timestamps are in microseconds, but need to be rounded to milliseconds (or coarser depending on table schema).
+        .unwrap();
 
     let MutateRowResponse { /* empty */ } =
             bigtable
             .mutate_row(MutateRowRequest {
                 table_name: discovery_table(instance),
                 app_profile_id: String::new(),
-                row_key: hsm.0.to_vec(),
+                row_key: serialize_hsm_id(hsm),
                 mutations: vec![Mutation {
                     mutation: Some(mutation::Mutation::DeleteFromColumn(mutation::DeleteFromColumn {
                         family_name: String::from("f"),
@@ -215,6 +218,30 @@ pub(super) async fn set_address(
     Ok(())
 }
 
+fn url_from_bytes(bytes: &[u8]) -> Option<Url> {
+    let s = str::from_utf8(bytes).ok()?;
+    Url::parse(s).ok()
+}
+
+/// Converts an HSM ID to a human-readable hex representation.
+///
+/// This is useful to allow inspecting the service discovery table with
+/// Google's `cbt` tool, which doesn't deal with binary well.
+fn serialize_hsm_id(id: &HsmId) -> Vec<u8> {
+    let mut buf = vec![0u8; id.0.len() * 2];
+    hex::encode_to_slice(id.0, &mut buf).unwrap();
+    buf
+}
+
+/// Parses an HSM ID from a human-readable hex representation.
+fn deserialize_hsm_id(buf: &[u8]) -> Result<HsmId, hex::FromHexError> {
+    let id = hex::decode(buf)?;
+    Ok(HsmId(
+        id.try_into()
+            .map_err(|_| hex::FromHexError::InvalidStringLength)?,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,5 +258,39 @@ mod tests {
             format!("{}/tables/{}", instance.path(), discovery_table_brief()),
             expected
         );
+    }
+
+    #[test]
+    fn test_serialize_hsm_id() {
+        assert_eq!(
+            serialize_hsm_id(&HsmId(*b"abcdefghijklmnop")),
+            b"6162636465666768696a6b6c6d6e6f70"
+        );
+    }
+
+    #[test]
+    fn test_deserialize_hsm_id() {
+        assert_eq!(
+            deserialize_hsm_id(b"6162636465666768696a6b6c6d6e6f70"),
+            Ok(HsmId(*b"abcdefghijklmnop"))
+        );
+    }
+
+    #[test]
+    #[should_panic = "InvalidStringLength"]
+    fn test_deserialize_hsm_id_short() {
+        deserialize_hsm_id(b"6162636465666768696a6b6c6d6e6f").unwrap();
+    }
+
+    #[test]
+    #[should_panic = "OddLength"]
+    fn test_deserialize_hsm_id_long_odd() {
+        deserialize_hsm_id(b"6162636465666768696a6b6c6d6e6f70a").unwrap();
+    }
+
+    #[test]
+    #[should_panic = "InvalidHex"]
+    fn test_deserialize_hsm_id_not_hex() {
+        deserialize_hsm_id(b"qwerty").unwrap();
     }
 }
