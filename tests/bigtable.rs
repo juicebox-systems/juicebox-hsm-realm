@@ -490,7 +490,7 @@ async fn service_discovery() {
     data.set_address(
         &hsm1,
         &url1,
-        SystemTime::now() - bigtable::DISCOVERY_EXPIRY_AGE - Duration::from_secs(1),
+        SystemTime::now() - bigtable::discovery::EXPIRY_AGE - Duration::from_secs(1),
     )
     .await
     .unwrap();
