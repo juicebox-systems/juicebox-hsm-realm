@@ -346,9 +346,9 @@ impl<T: Transport + 'static> Agent<T> {
                     .await
                 {
                     warn!(err = ?e, "failed to register with service discovery");
-                    sleep(bigtable::DISCOVERY_REGISTER_INTERVAL / 10).await;
+                    sleep(bigtable::discovery::REGISTER_FAILURE_DELAY).await;
                 } else {
-                    sleep(bigtable::DISCOVERY_REGISTER_INTERVAL).await;
+                    sleep(bigtable::discovery::REGISTER_INTERVAL).await;
                 }
             }
         });
