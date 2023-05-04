@@ -263,16 +263,16 @@ impl TransportInner {
     unsafe fn start_seeworld(&mut self) -> Result<M_KeyID, SeeError> {
         // Load the SEEMachine image
         let data = fs::read(&self.see_machine).expect("Failed to load see machine image file.");
-        let buffer_id = self.load_buffer(data)?;
+        let image_buffer = self.load_buffer(data)?;
         let mut cmd = M_Command::new(Cmd_SetSEEMachine);
         cmd.args.setseemachine = M_Cmd_SetSEEMachine_Args {
             flags: 0,
-            buffer: buffer_id,
+            buffer: image_buffer,
         };
         self.transact(&mut cmd)?;
 
         let user_data = fs::read(&self.userdata).expect("Failed to load userdata file.");
-        let buffer_id = self.load_buffer(user_data)?;
+        let user_data_buffer = self.load_buffer(user_data)?;
 
         let mut cmd = M_Command::new(Cmd_CreateSEEWorld);
         cmd.args.createseeworld = M_Cmd_CreateSEEWorld_Args {
@@ -281,7 +281,7 @@ impl TransportInner {
             } else {
                 0
             },
-            buffer: buffer_id,
+            buffer: user_data_buffer,
         };
         match self.transact(&mut cmd) {
             Err(e) => Err(e),
