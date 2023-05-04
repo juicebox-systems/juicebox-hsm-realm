@@ -111,3 +111,20 @@ fn random_tmp_dir() -> PathBuf {
     }
     tmp.join(dn)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use expect_test::expect_file;
+
+    #[test]
+    fn test_usage() {
+        expect_file!["http_hsm_usage.txt"].assert_eq(
+            &Args::command()
+                .try_get_matches_from(["http_hsm", "--help"])
+                .unwrap_err()
+                .to_string(),
+        );
+    }
+}
