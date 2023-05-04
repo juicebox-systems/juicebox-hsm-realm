@@ -1374,6 +1374,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "clap 4.1.8",
+ "expect-test",
  "futures",
  "hsmcore",
  "http-body-util",
