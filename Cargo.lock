@@ -1406,6 +1406,7 @@ dependencies = [
  "criterion",
  "ctrlc",
  "digest 0.10.6",
+ "expect-test",
  "futures",
  "gcp_auth",
  "h2",

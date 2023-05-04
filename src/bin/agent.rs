@@ -103,3 +103,20 @@ async fn main() {
 
     join_handle.await.unwrap();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use expect_test::expect_file;
+
+    #[test]
+    fn test_usage() {
+        expect_file!["agent_usage.txt"].assert_eq(
+            &Args::command()
+                .try_get_matches_from(["agent", "--help"])
+                .unwrap_err()
+                .to_string(),
+        );
+    }
+}
