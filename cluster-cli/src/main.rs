@@ -105,3 +105,20 @@ enum HsmIdError {
     #[error("Ambiguous Hsm id. There are {0} HSMs that start with that Id.")]
     Ambiguous(usize),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use expect_test::expect_file;
+
+    #[test]
+    fn test_usage() {
+        expect_file!["usage.txt"].assert_eq(
+            &Args::command()
+                .try_get_matches_from(["cluster-cli", "--help"])
+                .unwrap_err()
+                .to_string(),
+        );
+    }
+}
