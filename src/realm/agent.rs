@@ -367,8 +367,18 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
         });
         Span::current().set_parent(parent_context);
 
+        // If the client disconnects while the request processing is still in
+        // flight the future we return from this function gets dropped and it
+        // won't progress any further than its next .await point. This is
+        // bad(tm). This can lead to situations where the HSM has generated a
+        // log entry but it never makes it to the append queue. At which point
+        // the group is stalled until something forces a leader change. To
+        // prevent this we tokio::spawn the work we want to do to ensure it runs
+        // to completion. The returned future is then a simple future waiting on
+        // the tokio join handle. Tokio ensures that the task runs to completion
+        // even if the join handle is dropped.
         let agent = self.clone();
-        Box::pin(
+        let join_handle = tokio::spawn(
             async move {
                 let Some(path) = request.uri().path().strip_prefix('/') else {
                     return Ok(Response::builder()
@@ -423,6 +433,21 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
             }
             // This doesn't look like it should do anything, but it seems to be
             // critical to connecting these spans to the parent.
+            .instrument(Span::current()),
+        );
+        Box::pin(
+            async move {
+                match join_handle.await {
+                    Ok(r) => r,
+                    Err(err) => {
+                        warn!(?err, "Agent task failed with error");
+                        Ok(Response::builder()
+                            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                            .body(Full::from(Bytes::new()))
+                            .unwrap())
+                    }
+                }
+            }
             .instrument(Span::current()),
         )
     }
