@@ -101,6 +101,15 @@ x25519-dalek = { version = "2.0.0-pre.1", default-features = false, features = [
     "u64_backend",      # TODO: need 32-bit on HSMs
 ] }
 
+[patch.crates-io]
+gcp_auth = { git = "ssh://git@github.com/Loam-Security/gcp_auth.git", branch = "loam-main" }
+secrecy = { git = "ssh://git@github.com/Loam-Security/secrecy.git", branch = "loam-main" }
+# We need https://github.com/tokio-rs/tracing/pull/2335 to quiet down error return
+# values in tokio::instrument, which is not yet unreleased.
+tracing = { git = "https://github.com/tokio-rs/tracing" }
+tracing-opentelemetry = { git = "https://github.com/tokio-rs/tracing" }
+tracing-subscriber = { git = "https://github.com/tokio-rs/tracing" }
+
 
 [dependencies]
 async-trait = { workspace = true }
@@ -148,16 +157,6 @@ tracing-subscriber = { workspace = true }
 url = { workspace = true }
 voprf = { workspace = true }
 x25519-dalek = { workspace = true }
-
-
-[patch.crates-io]
-gcp_auth = { git = "ssh://git@github.com/Loam-Security/gcp_auth.git", branch = "loam-main" }
-secrecy = { git = "ssh://git@github.com/Loam-Security/secrecy.git", branch = "loam-main" }
-# We need https://github.com/tokio-rs/tracing/pull/2335 to quiet down error return
-# values in tokio::instrument, which is not yet unreleased.
-tracing = { git = "https://github.com/tokio-rs/tracing" }
-tracing-opentelemetry = { git = "https://github.com/tokio-rs/tracing" }
-tracing-subscriber = { git = "https://github.com/tokio-rs/tracing" }
 
 [dev-dependencies]
 async-recursion = { workspace = true }
