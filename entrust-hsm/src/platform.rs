@@ -160,8 +160,8 @@ impl NVRam for NCipher {
                 let mut data = unsafe { reply.reply.nvmemop.res.read.data.as_slice().to_vec() };
                 // The first read after the NVRam entry was initialized will be
                 // all zeros. Which conveniently says the length is zero.
-                if data.len() < NCIPHER_NVRAM_LEN {
-                    return Err(IOError(format!("data read from NVRam is too small, should be at least {NCIPHER_NVRAM_LEN} bytes, but was {}",data.len())));
+                if data.len() != NCIPHER_NVRAM_LEN {
+                    return Err(IOError(format!("data read from NVRam wrong size, should be {NCIPHER_NVRAM_LEN} bytes, but was {}", data.len())));
                 }
                 let len = u32::from_be_bytes(
                     data[NVRAM_LEN_OFFSET..NVRAM_LEN_OFFSET + 4]
