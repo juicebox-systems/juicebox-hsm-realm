@@ -129,10 +129,7 @@ async fn main() {
     );
 
     info!("Deleting secret");
-    client
-        .delete_all()
-        .await
-        .expect("delete unexpectedly failed");
+    client.delete().await.expect("delete unexpectedly failed");
     info!("delete succeeded");
 
     logging::flush();
