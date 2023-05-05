@@ -23,6 +23,7 @@ use loam_sdk_core::{
 #[derive(Debug, Serialize, Deserialize)]
 struct UserRecord {
     registration_state: RegistrationState,
+    // TODO: audit log
 }
 
 impl UserRecord {
