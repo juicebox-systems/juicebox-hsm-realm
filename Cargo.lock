@@ -703,6 +703,7 @@ dependencies = [
  "clap 4.1.8",
  "ctrlc",
  "entrust_api",
+ "entrust_nfast",
  "hsmcore",
  "http",
  "loam-mvp",
@@ -726,6 +727,14 @@ name = "entrust_api"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "entrust_nfast"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tracing 0.2.0",
 ]
 
 [[package]]

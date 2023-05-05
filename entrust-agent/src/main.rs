@@ -1,22 +1,20 @@
 use async_trait::async_trait;
 use clap::Parser;
-use core::slice;
 use entrust_api::{EntrustRequest, EntrustResponse, StartRequest};
-use nfastapp::{
+use entrust_nfast::{
     Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
-    Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_ErrorReturn, Cmd_LoadBuffer,
+    Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_LoadBuffer,
     Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine, Cmd_TraceSEEWorld,
-    M_ByteBlock, M_Cmd, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args, M_Cmd_CreateSEEWorld_Args,
+    M_ByteBlock, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args, M_Cmd_CreateSEEWorld_Args,
     M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args, M_Cmd_SEEJob_Args, M_Cmd_SetSEEMachine_Args,
-    M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID, M_Reply, M_Status, M_Word, ModuleMode_Default,
+    M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID, M_Status, M_Word, ModuleMode_Default,
     NFastApp_Connect, NFastApp_Connection, NFastApp_ConnectionFlags_Privileged,
-    NFastApp_Disconnect, NFastApp_Free_Reply, NFastApp_Init, NFastApp_Transact, NFast_AppHandle,
-    SEEInitStatus_OK, Status_OK, Status_ObjectInUse, Status_SEEWorldFailed,
+    NFastApp_Disconnect, NFastConn, NFastError, Reply, SEEInitStatus_OK, Status_OK,
+    Status_ObjectInUse, Status_SEEWorldFailed,
 };
 use std::cmp::min;
 use std::fs;
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::path::PathBuf;
 use std::ptr::null_mut;
 use std::sync::{Arc, Mutex};
@@ -33,8 +31,6 @@ use loam_mvp::realm::agent::Agent;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
-
-mod nfastapp;
 
 #[derive(Parser)]
 #[command(about = "A host agent for use with an Entrust nCipherXC HSM")]
@@ -150,10 +146,8 @@ pub enum SeeError {
     // These are agent side marshalling errors.
     Serialization(SerializationError),
     Deserialization(DeserializationError),
-    // An NFast API call returned an error.
-    NFastError(M_Status),
-    // A SEEJob transaction returned an error.
-    CmdErrorReturn(M_Status),
+    // An NFast API or CMD transact failed.
+    NFast(NFastError),
     // The HSM process crashed or was otherwise terminated.
     SeeWorldFailed,
     // HSM Side marshalling errors
@@ -178,6 +172,12 @@ impl From<HsmRpcError> for SeeError {
     }
 }
 
+impl From<NFastError> for SeeError {
+    fn from(v: NFastError) -> Self {
+        Self::NFast(v)
+    }
+}
+
 #[derive(Debug)]
 struct EntrustSeeTransport(Arc<Mutex<TransportInner>>);
 impl EntrustSeeTransport {
@@ -187,8 +187,7 @@ impl EntrustSeeTransport {
             module,
             see_machine,
             userdata,
-            app: null_mut(),
-            conn: null_mut(),
+            conn: NFastConn::new(),
             world_id: None,
         })))
     }
@@ -200,8 +199,7 @@ struct TransportInner {
     module: u8,
     see_machine: PathBuf,
     userdata: PathBuf,
-    app: NFast_AppHandle,
-    conn: NFastApp_Connection,
+    conn: NFastConn,
     world_id: Option<M_KeyID>,
 }
 
@@ -241,20 +239,7 @@ impl TransportInner {
     }
 
     unsafe fn connect(&mut self) -> Result<(), SeeError> {
-        if self.app.is_null() {
-            let rc = NFastApp_Init(&mut self.app, None, None, None, null_mut());
-            let rc = rc as M_Status;
-            if rc != Status_OK {
-                return Err(SeeError::NFastError(rc));
-            }
-        }
-        if self.conn.is_null() {
-            let rc = NFastApp_Connect(self.app, &mut self.conn, 0, null_mut());
-            let rc = rc as M_Status;
-            if rc != Status_OK {
-                return Err(SeeError::NFastError(rc));
-            }
-        }
+        self.conn.connect()?;
         if self.world_id.is_none() {
             self.world_id = Some(self.start_seeworld()?);
 
@@ -401,7 +386,7 @@ impl TransportInner {
     }
 
     fn transact(&mut self, cmd: &mut M_Command) -> Result<Reply, SeeError> {
-        self.transact_on_conn(self.conn, cmd)
+        self.transact_on_conn(self.conn.conn, cmd)
     }
 
     fn transact_on_conn(
@@ -409,32 +394,18 @@ impl TransportInner {
         conn: NFastApp_Connection,
         cmd: &mut M_Command,
     ) -> Result<Reply, SeeError> {
-        let rc;
-        let mut rep = M_Reply::default();
-        unsafe {
-            rc = NFastApp_Transact(conn, null_mut(), cmd, &mut rep, null_mut());
-        }
-        let rc = rc as M_Status;
-        if rc != Status_OK {
-            warn!(cmd=?cmd.cmd, ?rc, "NFastApp_Transact returned error");
-            return Err(SeeError::NFastError(rc));
-        }
-        if rep.cmd == Cmd_ErrorReturn {
-            warn!(cmd=?cmd.cmd, ?rep, "NFastApp_Transact returned ErrorReturn");
+        let res = unsafe { self.conn.transact_on_conn(conn, cmd) };
+        if let Err(NFastError::Transact(status)) = res {
             if cmd.cmd != Cmd_TraceSEEWorld {
                 self.collect_trace_buffer();
             }
-            if rep.status == Status_SEEWorldFailed || rep.status == Status_ObjectInUse {
+            if status == Status_SEEWorldFailed || status == Status_ObjectInUse {
                 // try restarting the SEE world
                 self.restart_world();
                 return Err(SeeError::SeeWorldFailed);
             }
-            return Err(SeeError::CmdErrorReturn(rep.status));
         }
-        Ok(Reply {
-            app: self.app,
-            inner: rep,
-        })
+        Ok(res?)
     }
 
     /// Restarts the SEEWorld after its failed. We first attempt a restart by destroying the current one
@@ -469,7 +440,7 @@ impl TransportInner {
         let mut priv_conn: NFastApp_Connection = null_mut();
         unsafe {
             let rc = NFastApp_Connect(
-                self.app,
+                self.conn.app,
                 &mut priv_conn,
                 NFastApp_ConnectionFlags_Privileged,
                 null_mut(),
@@ -514,43 +485,6 @@ impl TransportInner {
         }
         unsafe {
             NFastApp_Disconnect(priv_conn, null_mut());
-        }
-    }
-}
-
-#[derive(Debug)]
-struct Reply {
-    app: NFast_AppHandle,
-    inner: M_Reply,
-}
-
-impl Drop for Reply {
-    fn drop(&mut self) {
-        unsafe {
-            NFastApp_Free_Reply(self.app, null_mut(), null_mut(), &mut self.inner);
-        }
-    }
-}
-
-impl Deref for Reply {
-    type Target = M_Reply;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl M_ByteBlock {
-    pub unsafe fn as_slice(&self) -> &[u8] {
-        slice::from_raw_parts(self.ptr, self.len as usize)
-    }
-}
-
-impl M_Command {
-    pub fn new(cmd: M_Cmd) -> Self {
-        Self {
-            cmd,
-            ..Self::default()
         }
     }
 }

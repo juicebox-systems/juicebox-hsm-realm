@@ -2,8 +2,8 @@
 
 bindgen --use-core \
     --output src/nfastapp.rs \
-    --allowlist-function "NF.*(Init|Connect|Disconnect|Transact|Free_Reply)" \
-    --allowlist-var ".*CreateSEEWorld_Args.*|.*LoadBuffer.*|NFastApp_ConnectionFlags.*" \
+    --allowlist-function "NF.*(Init|Connect|Disconnect|Transact|Free_Reply|Lookup)" \
+    --allowlist-var ".*CreateSEEWorld_Args.*|.*LoadBuffer.*|NFastApp_ConnectionFlags.*|.*_(enum)?table" \
     --allowlist-type "M_SEEInitStatus" \
     --no-prepend-enum-name \
     --with-derive-default \

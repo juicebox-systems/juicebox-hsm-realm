@@ -268,7 +268,7 @@ jobs:
     - name: Run cargo test
       uses: actions-rs/cargo@v1
       with:
-        args: --workspace --exclude 'entrust-*'
+        args: --workspace --exclude 'entrust*'
         command: test
       env:
         RUST_BACKTRACE: '1'

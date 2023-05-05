@@ -5,6 +5,7 @@ members = [
     "entrust-agent",
     "entrust_api",
     "entrust-hsm",
+    "entrust_nfast",
     "hsmcore",
     "load_balancer",
 ]
