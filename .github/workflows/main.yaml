@@ -52,7 +52,7 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         toolchain: nightly-2023-05-01
-        override: true
+        override: false
         components: rust-src
 
     - name: Install PowerPC cross-compile dependencies
