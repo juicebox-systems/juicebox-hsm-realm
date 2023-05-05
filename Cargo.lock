@@ -695,6 +695,7 @@ dependencies = [
  "async-trait",
  "clap 4.1.8",
  "ctrlc",
+ "entrust_api",
  "hsmcore",
  "http",
  "loam-mvp",
@@ -707,8 +708,17 @@ dependencies = [
 name = "entrust-hsm"
 version = "0.1.0"
 dependencies = [
+ "entrust_api",
  "hsmcore",
+ "loam-sdk-core",
  "rand_core 0.6.4",
+]
+
+[[package]]
+name = "entrust_api"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

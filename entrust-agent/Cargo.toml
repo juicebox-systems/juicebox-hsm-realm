@@ -11,6 +11,7 @@ build = "build.rs"
 async-trait = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true }
+entrust_api = { path = "../entrust_api" }
 http = { workspace = true }
 hsmcore = { path = "../hsmcore" }
 loam-mvp = { path = ".." }

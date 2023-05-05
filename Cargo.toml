@@ -3,6 +3,7 @@ members = [
     "codegen",
     "cluster-cli",
     "entrust-agent",
+    "entrust_api",
     "entrust-hsm",
     "hsmcore",
     "load_balancer",
