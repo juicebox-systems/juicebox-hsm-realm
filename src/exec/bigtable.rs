@@ -24,7 +24,7 @@ impl BigTableRunner {
                 match args.connect_data(None).await {
                     Ok(_) => return,
                     Err(_e) => {
-                        sleep(Duration::from_millis(1)).await;
+                        sleep(Duration::from_millis(10)).await;
                     }
                 }
             }
