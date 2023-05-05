@@ -85,12 +85,28 @@ impl NFastConn {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum NFastError {
-    // An NFast API call returned an error.
+    /// An NFast API call returned an error.
     Api(M_Status),
-    // A Transact returned an error.
+    /// A Transact returned an error.
     Transact(M_Status),
+}
+
+impl Display for NFastError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn lookup<'a>(status: M_Status) -> Cow<'a, str> {
+            enum_name(status, unsafe { &NF_Status_enumtable })
+        }
+        match self {
+            Self::Api(status) => {
+                write!(f, "Api Error {} ({})", lookup(*status), *status)
+            }
+            Self::Transact(status) => {
+                write!(f, "Transact Error {} ({})", lookup(*status), *status)
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -130,5 +146,15 @@ impl M_Command {
             cmd,
             ..Self::default()
         }
+    }
+}
+
+pub fn enum_name(val: u32, table: &[M_ValInfo]) -> Cow<'_, str> {
+    let cstr = unsafe { NF_Lookup(val, table.as_ptr()) };
+    if cstr.is_null() {
+        Cow::Owned(format!("[Unknown:{}]", val))
+    } else {
+        let cstr = unsafe { CStr::from_ptr(cstr) };
+        String::from_utf8_lossy(cstr.to_bytes())
     }
 }

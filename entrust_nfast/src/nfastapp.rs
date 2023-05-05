@@ -45959,10 +45959,1081 @@ impl Default for NF_Free_Context {
     }
 }
 extern "C" {
+    pub fn NF_Lookup(val: M_Word, vit: *const M_ValInfo) -> *const ::core::ffi::c_char;
+}
+extern "C" {
+    pub static NF_Status_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_nCErrno_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_CrossModReason_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_NetworkAddressFamily_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyHashMech_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_SlotType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_PlainTextType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ChannelType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ChannelMode_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_CertType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ECName_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FieldType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Mech_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ImpathKXGroup_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FileDevice_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ECPointRep_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_BlobFormat_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ARQCScheme_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KAPrimitive_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_IESCipherMode_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_TestKXGroup_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_TestKXSessionKey_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_RemoteServerOp_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ClientPermission_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ModuleAttribTag_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ModuleType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_SEEMachineType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FeatureGoldCertVendor_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ModuleMode_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_CreateClientVer_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DevTestOp_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_NVMemOpType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FwAuthType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_PhysTokenType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_PoolInfo_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_TicketDestination_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KMLType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_UpgradeState_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_SignerType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_CertificateKind_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_StackOp_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ImpathWarrantType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_UseLim_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveRole_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_EnqVer_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_LogTokenState_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_MonitorLoaderState_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ImpathState_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_InfoFormat_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_LogTokenShareState_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_BusType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_StatID_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ProgSigDatFormat_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FirmwareFileType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FTVType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_MagicValue_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ModCertType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_BlobGutsType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_StateMetaFormat_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ImpathMsgType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_CodeAttribTag_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_TicketType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_NpkgItemTag_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_NpkgKeyUse_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_StatIPAddress_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_StatNodeTag_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_TestVal_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_SEEInitStatus_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Status_RemoteServerFailed_ErrorInfo_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ECPoint_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FieldType_Binary_Data_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FieldType_Prime_Data_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyType_DHExPrivate_GenParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyType_DHPrivate_GenParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyType_DSAComm_GenParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyType_DSACommVariableSeed_GenParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyType_DSAPrivate_GenParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyType_KCDSAComm_GenParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyType_KCDSAPrivate_GenParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyType_RSAPrivate_GenParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyType_Wrapped_GenParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FileSpec_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FileInfo_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_TriePath_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_AESKeyUnwrap_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_AESKeyWrap_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_ConcatenationKDF_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_ECCMQV_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_ECCMQVdNISTCKDF_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_GenerateRSAB36_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KDPEncoding_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_NISTKDFmCTRpRijndaelCMACr32_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_NISTKDFmCTRr8_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_PKCS8DecryptEx_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_SignedKDPKeyWrapDES3_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_TUAKTOPC_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_TUAKf1_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_TUAKf2345_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_TUAKf5s_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_TestKX_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_RemoteServerPermission_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_RemoteServerOp_AccessFiles_Details_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_RemoteModule_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_HostFileFlags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_EnquiryDataOne_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_EnquiryDataTwo_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_EnquiryDataThree_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_EnquiryDataFour_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FeatureInfo_ctrl_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FeatureInfo_features_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_EnquiryDataSix_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_NSOPermsModeFlags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_InitModeFlags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_NSOPerms_ops_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_EnquiryRMData_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Command_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_AnonymousKnetiHash_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ApplyFeatureFile_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_BignumOp_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ChangeShareGroupPIN_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ChangeSharePIN_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ChannelOpen_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ChannelUpdate_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_CheckUserAction_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ClearUnitEx_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ConfigurePoolModule_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_CreateBuffer_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_CreateClient_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
     pub static NF_Cmd_CreateSEEWorld_Args_flags_table: [M_ValInfo; 0usize];
 }
 extern "C" {
+    pub static NF_Cmd_Decrypt_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_DeriveKey_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_DynamicSlotCreateAssociation_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_DynamicSlotExchangeAPDUs_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_DynamicSlotsConfigure_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_DynamicSlotsConfigureQuery_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_Encrypt_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_EraseFile_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_EraseWorld_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ExistingClient_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ExportModule_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ExportSlot_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTChecksum_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTDelete_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTListDir_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTRead_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTSessionOpen_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTStartListDir_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTStartRead_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTStartWrite_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FTWriteParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTStat_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FailDriver_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FileCopy_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FileCreate_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FileErase_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FileOp_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FirmwareAuthenticate_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ForeignTokenCmd_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ForeignTokenOpen_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FormatToken_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GenerateKLF_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GenerateKey_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GenerateKeyPair_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_TokenParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetACL_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetApplianceTime_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetApplianceUpgradeStatus_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetKMList_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetKeyInfoEx_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetKnetiPub_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetLogicalTokenInfoEx_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetModuleState_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetMonitorLoaderState_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetPoolInfo_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetPublishedObject_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetRTC_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetServerConfig_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetShareACL_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetTicket_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetWorldSigners_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_Hash_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_HotReset_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_IOBoardReprogram_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ImpathKXBegin_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ImpathKXFinish_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ImpathSend_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ImportModule_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ImportSlot_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_InsertSoftToken_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ListRemoteServerPermissionEx_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_LoadBlob_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
     pub static NF_Cmd_LoadBuffer_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_LoadRaw_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_MakeBlob_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_MakeSEEWill_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ModuleInfo_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_NVMemAlloc_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_NVMemFree_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_NVMemList_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_NVMemOp_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_NewClient_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_NewEnquiry_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_PauseForNotifications_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_PollModuleState_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_PollSlotList_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ProductionSetup_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_QueryLongJobs_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ReReadConfig_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ReadFile_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ReadShare_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ReadSoftTokenShare_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ReceiveKey_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ReceiveShare_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_RedeemTicket_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_RemoteReboot_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_RemoteSlots_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_RemoveKM_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_RemovePublishedObject_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_RemoveSoftToken_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SendKey_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SendShare_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ServerSendShare_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SetACL_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SetApplianceTime_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SetApplianceUpgradeStatus_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SetKM_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SetPrimarySlot_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SetPublishedObject_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SetRTC_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SetSEEMachine_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_Sign_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SignModuleState_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_StatEnumTree_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_StatGetValues_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_UnimportModule_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_UnimportSlot_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_UpdateMergedKey_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_UpgradeApplianceFirmware_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_Verify_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_VerifyCertificate_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_WriteFile_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_WriteShare_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_StateMap_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_PermissionGroup_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_MakeBlobFile_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_UseLim_NonVolatile_Details_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_DeriveKey_Details_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_DeriveKeyEx_Details_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_FeatureEnable_Details_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_FileCopy_Details_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FileDeviceFlags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_MakeArchiveBlob_Details_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_MakeBlob_Details_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_NVMemOpPerms_Details_perms_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_NVMemUseLimit_Details_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_OpPermissions_Details_perms_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ReadShareDetails_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_SendKey_Details_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Act_SendShare_Details_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_MakeBlobFilePerms_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ANLogEvent_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ANModuleChangeEvent_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ANSendAuditLogEvent_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ANSlotChangeEvent_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ANSlotsConfigurationChangeEvent_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ApplyFeatureFile_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ChannelOpen_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ConfigurePoolModule_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_CreateClient_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_DynamicSlotCreateAssociation_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_DynamicSlotExchangeAPDUs_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_EraseWorld_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ExistingClient_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_NewEnquiry_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_SlotListData_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTChecksum_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTDelete_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTListDir_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTRead_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FTStat_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FailDriver_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_FirmwareAuthenticate_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GenerateKey_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GenerateKeyPair_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetApplianceTime_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetApplianceUpgradeStatus_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetKMList_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetKeyInfoEx_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetLogicalTokenInfoEx_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetMonitorLoaderState_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetPoolInfo_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetPublishedObject_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetServerConfig_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_GetSlotInfo_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_IOBoardReprogram_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ListRemoteServerPermissionEx_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_InfoFormat_HardwareRev1_Info_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_NVMemList_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_NewClient_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_PauseForNotifications_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_PollModuleState_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_PollSlotList_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ProductionSetup_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ProgrammingEndChunk_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_QueryLongJobs_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ReReadConfig_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_RemoteReboot_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_RemoteSlots_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ReportWorldState_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SendShare_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_ServerSendShare_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SetApplianceTime_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SetApplianceUpgradeStatus_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_StartUpdateWorld_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_StatEnumTree_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_StatGetValues_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_TraceSEEWorld_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_UpgradeApplianceFirmware_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_VerifyCertificate_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_TokenInfo_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_StatInfo_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ProgSigDatFormat_Two_Data_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_PoolStoreInfoReply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_FirmwareFileInfo_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_SigningKeyEntry_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_CertSignMessage_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ModCertType_KWARv0_ModCertData_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ModCertType_KeyGen_ModCertData_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ModCertType_StateCert_ModCertData_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_KeyState_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ImpathKXMessage_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ImpathMsgType_Key_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ImpathMsgType_Share_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ImpathMsgType_UserData_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_TicketInfo_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsg_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_APDUCmd_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_APDUCmdReply_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_CardInserted_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_CardInsertedReply_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_CardRemoved_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_CardRemovedReply_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_CreateAssociation_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_CreateAssociationReply_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_DestroyAssociation_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_DestroyAssociationReply_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_ModuleReset_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_ModuleResetReply_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_ModuleRestored_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSMsgType_ModuleRestoredReply_Body_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DSModuleInfo_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_YesNo_enumtable: [M_ValInfo; 0usize];
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
