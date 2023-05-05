@@ -732,6 +732,10 @@ dependencies = [
 [[package]]
 name = "entrust_nfast"
 version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tracing 0.2.0",
+]
 
 [[package]]
 name = "errno"
