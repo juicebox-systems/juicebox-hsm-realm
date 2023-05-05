@@ -59,10 +59,10 @@ jobs:
       run: sudo apt update && sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
 
     - name: Cross Compile PowerPC
-      run: ./build-ppc.sh
+      run: ./build-ppc.sh nightly-2023-05-01
 
     - name: Run unit tests on PowerPC
-      run: ./test-ppc.sh
+      run: ./test-ppc.sh nightly-2023-05-01
 
   rust_x86:
     name: Build x86 + Demo
