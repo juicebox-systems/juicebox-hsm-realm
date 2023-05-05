@@ -730,9 +730,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "entrust_init"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.1.8",
+ "entrust_api",
+ "entrust_nfast",
+ "hex",
+ "loam-sdk-core",
+ "tracing 0.2.0",
+]
+
+[[package]]
 name = "entrust_nfast"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "thiserror",
  "tracing 0.2.0",
 ]
