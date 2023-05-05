@@ -147,3 +147,20 @@ fn parse_listen(s: &str) -> Result<SocketAddr, String> {
     s.parse()
         .map_err(|e| format!("couldn't parse listen argument: {e}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use expect_test::expect_file;
+
+    #[test]
+    fn test_usage() {
+        expect_file!["usage.txt"].assert_eq(
+            &Args::command()
+                .try_get_matches_from(["load_balancer", "--help"])
+                .unwrap_err()
+                .to_string(),
+        );
+    }
+}

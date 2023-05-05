@@ -26,3 +26,6 @@ tokio-rustls = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 url = { workspace = true }
+
+[dev-dependencies]
+expect-test = { workspace = true }
