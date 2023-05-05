@@ -16,6 +16,7 @@ use std::cmp::min;
 use std::fs;
 use std::net::SocketAddr;
 use std::ops::Deref;
+use std::path::PathBuf;
 use std::ptr::null_mut;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -64,12 +65,18 @@ struct Args {
     #[arg(short, long, default_value_t = false)]
     trace: bool,
 
-    /// The name of the file containing the SEEMachine image (in SAR format). Is
-    /// used to set the SEEMachine image in order to start or restart the SEE
-    /// World. If not set the hardserver should be configured to auto load the
-    /// relevant image. See section 6.3 of the Developer_CodeSafe_Guide
-    #[arg(long)]
-    image: Option<String>,
+    /// The name of the file containing the signed SEEMachine image (in SAR
+    /// format). Is used to set the SEEMachine image in order to start or
+    /// restart the SEE World.
+    #[arg(short, long)]
+    image: PathBuf,
+
+    /// The name of the file containing the signed userdata file. Should be
+    /// signed with the same 'seeinteg' key that the see machine image was
+    /// signed with. The data in this file isn't used, but the signed file is
+    /// needed for the ACLs that restrict access to a SEEMachine to work.
+    #[arg(short, long)]
+    userdata: PathBuf,
 
     /// HSM Metrics reporting interval in milliseconds [default: no reporting]
     #[arg(long, value_parser=parse_duration)]
@@ -118,7 +125,7 @@ async fn main() {
         .await
         .expect("Unable to connect to Bigtable admin");
 
-    let hsm_t = EntrustSeeTransport::new(args.module, args.trace, args.image);
+    let hsm_t = EntrustSeeTransport::new(args.module, args.trace, args.image, args.userdata);
     let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);
 
     let agent = Agent::new(name, hsm, store, store_admin);
@@ -173,11 +180,12 @@ impl From<HsmRpcError> for SeeError {
 #[derive(Debug)]
 struct EntrustSeeTransport(Arc<Mutex<TransportInner>>);
 impl EntrustSeeTransport {
-    fn new(module: u8, tracing: bool, seemachine: Option<String>) -> Self {
+    fn new(module: u8, tracing: bool, see_machine: PathBuf, userdata: PathBuf) -> Self {
         Self(Arc::new(Mutex::new(TransportInner {
             tracing,
             module,
-            see_machine: seemachine,
+            see_machine,
+            userdata,
             app: null_mut(),
             conn: null_mut(),
             world_id: None,
@@ -189,7 +197,8 @@ impl EntrustSeeTransport {
 struct TransportInner {
     tracing: bool,
     module: u8,
-    see_machine: Option<String>,
+    see_machine: PathBuf,
+    userdata: PathBuf,
     app: NFast_AppHandle,
     conn: NFastApp_Connection,
     world_id: Option<M_KeyID>,
@@ -252,25 +261,28 @@ impl TransportInner {
     }
 
     unsafe fn start_seeworld(&mut self) -> Result<M_KeyID, SeeError> {
-        if let Some(image) = &self.see_machine {
-            // Load the SEEMachine image if one was specified
-            let data = fs::read(image).expect("TODO");
-            let buffer_id = self.load_buffer(data)?;
-            let mut cmd = M_Command::new(Cmd_SetSEEMachine);
-            cmd.args.setseemachine = M_Cmd_SetSEEMachine_Args {
-                flags: 0,
-                buffer: buffer_id,
-            };
-            self.transact(&mut cmd)?;
-        }
+        // Load the SEEMachine image
+        let data = fs::read(&self.see_machine).unwrap_or_else(|err| {
+            panic!(
+                "Failed to load see machine image file {}: {err}",
+                self.see_machine.display()
+            )
+        });
+        let image_buffer = self.load_buffer(data)?;
+        let mut cmd = M_Command::new(Cmd_SetSEEMachine);
+        cmd.args.setseemachine = M_Cmd_SetSEEMachine_Args {
+            flags: 0,
+            buffer: image_buffer,
+        };
+        self.transact(&mut cmd)?;
 
-        // a valid, dummy userdata section (taken from the hello world example)
-        let user_data = [
-            0x0Cu8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x4C, 0xA2, 0xD7, 0x63, 0x1E, 0xEC, 0xA9, 0x5E, 0xD2, 0xDE, 0xA6, 0xAC,
-            0x75, 0x88, 0xED, 0x32, 0x76, 0xD2, 0x41, 0x4E,
-        ];
-        let buffer_id = self.load_buffer(user_data.to_vec())?;
+        let user_data = fs::read(&self.userdata).unwrap_or_else(|err| {
+            panic!(
+                "Failed to load userdata file {}: {err}",
+                self.userdata.display()
+            )
+        });
+        let user_data_buffer = self.load_buffer(user_data)?;
 
         let mut cmd = M_Command::new(Cmd_CreateSEEWorld);
         cmd.args.createseeworld = M_Cmd_CreateSEEWorld_Args {
@@ -279,7 +291,7 @@ impl TransportInner {
             } else {
                 0
             },
-            buffer: buffer_id,
+            buffer: user_data_buffer,
         };
         match self.transact(&mut cmd) {
             Err(e) => Err(e),
