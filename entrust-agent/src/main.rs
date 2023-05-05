@@ -1,12 +1,11 @@
 use async_trait::async_trait;
 use clap::Parser;
-use core::slice;
 use entrust_api::{EntrustRequest, EntrustResponse, StartRequest};
-use nfastapp::{
+use entrust_nfast::{
     Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
     Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_ErrorReturn, Cmd_LoadBuffer,
     Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine, Cmd_TraceSEEWorld,
-    M_ByteBlock, M_Cmd, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args, M_Cmd_CreateSEEWorld_Args,
+    M_ByteBlock, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args, M_Cmd_CreateSEEWorld_Args,
     M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args, M_Cmd_SEEJob_Args, M_Cmd_SetSEEMachine_Args,
     M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID, M_Reply, M_Status, M_Word, ModuleMode_Default,
     NFastApp_Connect, NFastApp_Connection, NFastApp_ConnectionFlags_Privileged,
@@ -33,8 +32,6 @@ use loam_mvp::realm::agent::Agent;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
-
-mod nfastapp;
 
 #[derive(Parser)]
 #[command(about = "A host agent for use with an Entrust nCipherXC HSM")]
@@ -537,20 +534,5 @@ impl Deref for Reply {
 
     fn deref(&self) -> &Self::Target {
         &self.inner
-    }
-}
-
-impl M_ByteBlock {
-    pub unsafe fn as_slice(&self) -> &[u8] {
-        slice::from_raw_parts(self.ptr, self.len as usize)
-    }
-}
-
-impl M_Command {
-    pub fn new(cmd: M_Cmd) -> Self {
-        Self {
-            cmd,
-            ..Self::default()
-        }
     }
 }
