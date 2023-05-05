@@ -394,7 +394,7 @@ impl TransportInner {
         conn: NFastApp_Connection,
         cmd: &mut M_Command,
     ) -> Result<Reply, SeeError> {
-        let res = self.conn.transact_on_conn(conn, cmd);
+        let res = unsafe { self.conn.transact_on_conn(conn, cmd) };
         if let Err(NFastError::Transact(status)) = res {
             if cmd.cmd != Cmd_TraceSEEWorld {
                 self.collect_trace_buffer();

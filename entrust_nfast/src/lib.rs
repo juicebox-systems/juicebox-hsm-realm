@@ -1,13 +1,20 @@
-use std::{ops::Deref, ptr::null_mut, slice};
+use std::{borrow::Cow, ffi::CStr, fmt::Display, ops::Deref, ptr::null_mut, slice};
+use thiserror::Error;
+use tracing::warn;
 
 mod nfastapp;
 pub use nfastapp::*;
-use tracing::warn;
 
 #[derive(Clone, Debug)]
 pub struct NFastConn {
     pub app: NFast_AppHandle,
     pub conn: NFastApp_Connection,
+}
+
+impl Default for NFastConn {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NFastConn {
@@ -18,6 +25,9 @@ impl NFastConn {
         }
     }
 
+    /// Initialize the NFast API and connect to the local hardserver. Does nothing if already connected.
+    /// # Safety
+    /// Is calling into the NFast C API, who known what happens in there.
     pub unsafe fn connect(&mut self) -> Result<(), NFastError> {
         if self.app.is_null() {
             let rc = NFastApp_Init(&mut self.app, None, None, None, null_mut());
@@ -36,17 +46,29 @@ impl NFastConn {
         Ok(())
     }
 
-    pub fn transact(&mut self, cmd: &mut M_Command) -> Result<Reply, NFastError> {
+    /// Transact the Cmd with NFast. Will connect to the hard server if not
+    /// already connected.
+    /// # Safety
+    /// Is calling into the NFast C API, who known what happens in there.
+    pub unsafe fn transact(&mut self, cmd: &mut M_Command) -> Result<Reply, NFastError> {
+        self.connect()?;
         self.transact_on_conn(self.conn, cmd)
     }
 
-    pub fn transact_on_conn(
+    /// Transact the Cmd with NFast on the supplied connection. The connection
+    /// must of been obtained from this NFastConn's app handle. connect() must
+    /// of already been called.
+    /// # Safety
+    /// Is calling into the NFast C API, who known what happens in there.
+    pub unsafe fn transact_on_conn(
         &mut self,
         conn: NFastApp_Connection,
         cmd: &mut M_Command,
     ) -> Result<Reply, NFastError> {
+        assert!(!self.app.is_null());
+        assert!(!conn.is_null());
         let mut rep = M_Reply::default();
-        let rc = unsafe { NFastApp_Transact(conn, null_mut(), cmd, &mut rep, null_mut()) };
+        let rc = NFastApp_Transact(conn, null_mut(), cmd, &mut rep, null_mut());
         let rc = rc as M_Status;
         if rc != Status_OK {
             warn!(cmd=?cmd.cmd, ?rc, "NFastApp_Transact returned error");
