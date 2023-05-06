@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -45,7 +46,7 @@ enum RegistrationState {
         policy: Policy,
         masked_tgk_share: MaskedTgkShare,
         tag: UnlockTag,
-        secret_share: UserSecretShare,
+        secret_share: Box<UserSecretShare>,
     },
     NoGuesses,
 }
@@ -70,7 +71,7 @@ fn register2(
         policy: request.policy,
         masked_tgk_share: request.masked_tgk_share,
         tag: request.tag,
-        secret_share: request.secret_share,
+        secret_share: Box::new(request.secret_share),
     };
 
     (Register2Response::Ok, Some(user_record))
@@ -163,12 +164,14 @@ fn recover2(
 
     let server =
         OprfServer::new_with_key(oprf_key.expose_secret()).expect("error constructing OprfServer");
-    let blinded_oprf_pin: OprfBlindedResult = server.blind_evaluate(&request.blinded_pin);
+    let blinded_oprf_result: OprfBlindedResult = server
+        .blind_evaluate(&request.blinded_oprf_input.expose_secret())
+        .into();
 
     trace!(?record_id, "recover2 completed");
     (
         Recover2Response::Ok {
-            blinded_oprf_pin,
+            blinded_oprf_result: Box::new(blinded_oprf_result),
             masked_tgk_share,
         },
         Some(user_record),
@@ -233,7 +236,7 @@ fn recover3(
             );
             (
                 Recover3Response::Ok {
-                    secret_share: secret_share.clone(),
+                    secret_share: secret_share.as_ref().clone(),
                 },
                 Some(user_record),
             )
@@ -276,7 +279,7 @@ pub fn process(
             (SecretsResponse::Register1(res), None)
         }
         SecretsRequest::Register2(req) => {
-            let res = register2(ctx, record_id, req, user_record_in);
+            let res = register2(ctx, record_id, req.as_ref().clone(), user_record_in);
             (SecretsResponse::Register2(res.0), res.1)
         }
         SecretsRequest::Recover1 => {
