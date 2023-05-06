@@ -204,8 +204,12 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
 
         Box::pin(
             async move {
-                let response =
-                    match marshalling::from_slice(request.collect().await?.to_bytes().as_ref()) {
+                let request_bytes = request.collect().await?.to_bytes();
+
+                let response = if request_bytes.len() >= 2048 {
+                    ClientResponse::PayloadTooLarge
+                } else {
+                    match marshalling::from_slice(request_bytes.as_ref()) {
                         Err(_) => ClientResponse::DecodingError,
                         Ok(request) => {
                             let realms = state.realms.lock().unwrap().clone();
@@ -238,11 +242,20 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                                 response => response,
                             }
                         }
-                    };
-
+                    }
+                };
                 trace!(load_balancer = state.name, ?response);
                 Ok(Response::builder()
                     .header("Access-Control-Allow-Origin", "*")
+                    .status(match response {
+                        ClientResponse::Ok(_) => 200,
+                        ClientResponse::DecodingError
+                        | ClientResponse::MissingSession
+                        | ClientResponse::SessionError => 400,
+                        ClientResponse::InvalidAuth => 401,
+                        ClientResponse::Unavailable => 404,
+                        ClientResponse::PayloadTooLarge => 413,
+                    })
                     .body(Full::new(Bytes::from(
                         marshalling::to_vec(&response).expect("TODO"),
                     )))
