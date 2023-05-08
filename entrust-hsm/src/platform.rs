@@ -1,15 +1,16 @@
 use alloc::{format, vec::Vec};
 use core::{
+    num::NonZeroU32,
     ops::{Deref, Sub},
     slice,
 };
+use rand_core::Error;
 
 use super::seelib::{
     CertType_SEECert, Cmd_GenerateRandom, Cmd_GetWorldSigners, Cmd_NVMemOp,
-    Command_flags_certs_present, M_ByteBlock, M_Certificate, M_CertificateList, M_Cmd,
-    M_Cmd_GenerateRandom_Args, M_Command, M_FileID, M_KeyHash, M_NVMemOpType_Write_OpVal, M_Reply,
-    M_Status, M_Word, NVMemOpType_Read, NVMemOpType_Write, SEElib_FreeReply, SEElib_Transact,
-    Status_OK,
+    Command_flags_certs_present, M_ByteBlock, M_Certificate, M_CertificateList, M_Cmd, M_Command,
+    M_FileID, M_KeyHash, M_NVMemOpType_Write_OpVal, M_Reply, M_Status, M_Word, NVMemOpType_Read,
+    NVMemOpType_Write, SEElib_FreeReply, SEElib_Transact, Status_OK,
 };
 use entrust_api::WorldSignerError;
 use hsmcore::hal::{Clock, IOError, NVRam, Nanos, MAX_NVRAM_SIZE};
@@ -47,22 +48,7 @@ impl rand_core::CryptoRng for NCipher {}
 // instead.
 impl rand_core::RngCore for NCipher {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        let mut cmd = M_Command {
-            cmd: Cmd_GenerateRandom,
-            ..M_Command::default()
-        };
-        cmd.args.generaterandom = M_Cmd_GenerateRandom_Args {
-            lenbytes: dest.len() as M_Word,
-        };
-        unsafe {
-            let mut reply = M_Reply::default();
-            let rc = SEElib_Transact(&mut cmd, &mut reply);
-            assert_eq!(0, rc);
-            assert_eq!(cmd.cmd, reply.cmd);
-            let d = reply.reply.generaterandom.data.as_slice();
-            dest.copy_from_slice(d);
-            SEElib_FreeReply(&mut reply);
-        }
+        self.try_fill_bytes(dest).unwrap()
     }
 
     fn next_u32(&mut self) -> u32 {
@@ -74,7 +60,15 @@ impl rand_core::RngCore for NCipher {
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes(dest);
+        let mut cmd = M_Command::new(Cmd_GenerateRandom);
+        cmd.args.generaterandom.lenbytes = dest.len() as M_Word;
+        let reply = transact(&mut cmd, None).map_err(|err| {
+            rand_core::Error::from(NonZeroU32::new(Error::CUSTOM_START + err.status()).unwrap())
+        })?;
+        unsafe {
+            let d = reply.reply.generaterandom.data.as_slice();
+            dest.copy_from_slice(d);
+        }
         Ok(())
     }
 }
