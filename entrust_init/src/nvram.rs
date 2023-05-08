@@ -5,16 +5,16 @@ use std::{
 };
 
 use entrust_nfast::{
-    Act_NVMemOpPerms, Act_NVMemOpPerms_Details_perms_Free, Act_NVMemOpPerms_Details_perms_GetACL,
-    Act_NVMemOpPerms_Details_perms_Read, Act_NVMemOpPerms_Details_perms_Write, CertType_SigningKey,
-    Cmd_NVMemAlloc, Cmd_NVMemOp, Command_flags_certs_present, KeyMgmtEntType_CertDelgNVbNSO,
-    M_Act_NVMemOpPerms_Details, M_Act__Details, M_Action, M_CertType_SigningKey_CertBody,
-    M_CertType__CertBody, M_Certificate, M_CertificateList, M_Cmd_NVMemAlloc_Args, M_Command,
-    M_FileID, M_FileInfo, M_Hash, M_KeyHashAndMech, M_KeyID, M_ModuleID, M_PermissionGroup, M_Word,
-    Mech_Any, NFKM_LoadAdminKeysHandle, NFKM_WorldInfo, NFKM_cert_setdelg,
-    NFKM_loadadminkeys_stealkey, NFastConn, NFastError, NVMemOpType_GetACL,
-    PermissionGroup_flags_certmech_present, RQCard, RQCard_init, RQCard_logic_loadadmin,
-    RQCard_ui_default, RQCard_whichmodule_anyone, Status_AlreadyExists, M_ACL, NFKM_KNV,
+    Act_NVMemOpPerms, Act_NVMemOpPerms_Details_perms_GetACL, Act_NVMemOpPerms_Details_perms_Read,
+    Act_NVMemOpPerms_Details_perms_Write, CertType_SigningKey, Cmd_NVMemAlloc, Cmd_NVMemOp,
+    Command_flags_certs_present, KeyMgmtEntType_CertDelgNVbNSO, M_Act_NVMemOpPerms_Details,
+    M_Act__Details, M_Action, M_CertType_SigningKey_CertBody, M_CertType__CertBody, M_Certificate,
+    M_CertificateList, M_Cmd_NVMemAlloc_Args, M_Command, M_FileID, M_FileInfo, M_Hash,
+    M_KeyHashAndMech, M_KeyID, M_ModuleID, M_PermissionGroup, M_Word, Mech_Any,
+    NFKM_LoadAdminKeysHandle, NFKM_WorldInfo, NFKM_cert_setdelg, NFKM_loadadminkeys_stealkey,
+    NFastConn, NFastError, NVMemOpType_GetACL, PermissionGroup_flags_certmech_present, RQCard,
+    RQCard_init, RQCard_logic_loadadmin, RQCard_ui_default, RQCard_whichmodule_anyone,
+    Status_AlreadyExists, M_ACL, NFKM_KNV,
 };
 
 #[derive(clap::Args)]
