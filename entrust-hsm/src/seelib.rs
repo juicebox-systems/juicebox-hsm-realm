@@ -5,6 +5,19 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
+pub const Command_flags_BignumMSBitFirst: u32 = 1;
+pub const Command_flags_BignumMSWordFirst: u32 = 2;
+pub const Command_flags_certs_present: u32 = 4;
+pub const Command_flags_Unused: u32 = 8;
+pub const Command_flags_state_present: u32 = 16;
+pub const Command_flags_PoolModule: u32 = 32;
+pub const Command_flags_extractstate_present: u32 = 64;
+pub const Command_flags_RetainState: u32 = 128;
+pub const Command_flags_LongJob: u32 = 65536;
+pub const Command_flags_Resubmit: u32 = 131072;
+pub const Command_flags__reserved: u32 = 4294901760;
+pub const Command_flags__allflags: u32 = 196863;
+pub const Command_flags__presentflags: u32 = 84;
 pub const SEELIB_JOB_REQUEUE: u32 = 1;
 pub type uint32 = ::core::ffi::c_uint;
 pub type M_Word = uint32;

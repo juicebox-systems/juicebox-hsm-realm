@@ -6,7 +6,7 @@
 bindgen --use-core \
     --output src/seelib.rs \
     --allowlist-function "SEElib.*(init|InitComplete|AwaitJobEx|ReturnJob|Transact|FreeReply)" \
-    --allowlist-var "SEELIB_JOB_REQUEUE" \
+    --allowlist-var "SEELIB_JOB_REQUEUE|Command_flags_.*" \
     --no-prepend-enum-name \
     --with-derive-default \
     --impl-debug \

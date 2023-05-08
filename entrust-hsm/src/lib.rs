@@ -12,7 +12,8 @@ extern crate alloc;
 use alloc::{format, string::String, vec, vec::Vec};
 
 use entrust_api::{
-    EntrustRequest, InitializeRequest, InitializeResponse, StartRequest, StartResponse,
+    EntrustRequest, EntrustResponse, InitializeRequest, InitializeResponse, StartRequest,
+    StartResponse,
 };
 use hsmcore::hsm::{Hsm, HsmOptions, RealmKey};
 use loam_sdk_core::marshalling;
@@ -44,12 +45,14 @@ fn process_control_jobs(buf: &mut Vec<u8>) -> Hsm<NCipher> {
         match req {
             Ok(EntrustRequest::Initialize(req)) => {
                 let res = initialize_hsm(req);
-                let data = marshalling::to_vec(&res).unwrap();
+                let resp = EntrustResponse::Initialize(res);
+                let data = marshalling::to_vec(&resp).unwrap();
                 unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
             }
             Ok(EntrustRequest::Start(req)) => {
                 let (hsm, res) = start_hsm(req);
-                let data = marshalling::to_vec(&res).unwrap();
+                let resp = EntrustResponse::Start(res);
+                let data = marshalling::to_vec(&resp).unwrap();
                 unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
                 if let Some(started_hsm) = hsm {
                     return started_hsm;
@@ -70,13 +73,17 @@ fn initialize_hsm(_req: InitializeRequest) -> InitializeResponse {
 }
 
 fn start_hsm(req: StartRequest) -> (Option<Hsm<NCipher>>, StartResponse) {
+    let platform = match NCipher::new() {
+        Err(err) => return (None, StartResponse::WorldSigner(err)),
+        Ok(p) => p,
+    };
     match Hsm::new(
         HsmOptions {
             name: String::from("entrust"),
             tree_overlay_size: req.tree_overlay_size,
             max_sessions: req.max_sessions,
         },
-        NCipher,
+        platform,
         RealmKey::derive_from("010203".as_bytes()),
     ) {
         Ok(hsm) => (Some(hsm), StartResponse::Ok),
