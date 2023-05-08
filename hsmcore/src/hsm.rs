@@ -1750,6 +1750,8 @@ fn secrets_req_name(r: &SecretsRequest) -> &'static str {
     }
 }
 
+const MAX_REQUEST_CIPHERTEXT: usize = 2048;
+
 fn handle_app_request(
     app_ctx: &app::AppContext,
     request: AppRequest,

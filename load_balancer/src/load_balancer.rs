@@ -187,6 +187,8 @@ async fn refresh(
     }
 }
 
+const REQUEST_BODY_SIZE_LIMIT: usize = 2048;
+
 impl Service<Request<IncomingBody>> for LoadBalancer {
     type Response = Response<Full<Bytes>>;
     type Error = hyper::Error;
@@ -206,7 +208,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
             async move {
                 let request_bytes = request.collect().await?.to_bytes();
 
-                let response = if request_bytes.len() >= 2048 {
+                let response = if request_bytes.len() >= REQUEST_BODY_SIZE_LIMIT {
                     ClientResponse::PayloadTooLarge
                 } else {
                     match marshalling::from_slice(request_bytes.as_ref()) {
@@ -253,8 +255,8 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                         | ClientResponse::MissingSession
                         | ClientResponse::SessionError => 400,
                         ClientResponse::InvalidAuth => 401,
-                        ClientResponse::Unavailable => 404,
                         ClientResponse::PayloadTooLarge => 413,
+                        ClientResponse::Unavailable => 503,
                     })
                     .body(Full::new(Bytes::from(
                         marshalling::to_vec(&response).expect("TODO"),
@@ -359,4 +361,28 @@ async fn handle_client_request(
     }
 
     Response::Unavailable
+}
+
+#[cfg(test)]
+mod test {
+    use crate::load_balancer::REQUEST_BODY_SIZE_LIMIT;
+    use loam_sdk_core::{
+        marshalling,
+        requests::{Register2Request, SecretsRequest},
+        types::{MaskedTgkShare, OprfKey, Policy, Salt, UnlockTag, UserSecretShare},
+    };
+
+    #[test]
+    fn test_request_body_size_limit() {
+        let secrets_request = SecretsRequest::Register2(Box::new(Register2Request {
+            salt: Salt::from([0; 32]),
+            oprf_key: OprfKey::from([0; 32]),
+            tag: UnlockTag::from([0; 32]),
+            masked_tgk_share: MaskedTgkShare::try_from(vec![0; 33]).unwrap(),
+            secret_share: UserSecretShare::try_from(vec![0; 146]).unwrap(),
+            policy: Policy { num_guesses: 1 },
+        }));
+        let serialized = marshalling::to_vec(&secrets_request).unwrap();
+        assert!(serialized.len() < REQUEST_BODY_SIZE_LIMIT);
+    }
 }
