@@ -14,8 +14,8 @@ use loam_sdk_core::{
         SecretsResponse,
     },
     types::{
-        MaskedTgkShare, OprfBlindedResult, OprfSeed, OprfServer, Policy, Salt, UnlockTag,
-        UserSecretShare, OPRF_DERIVATION_INFO,
+        MaskedTgkShare, OprfBlindedResult, OprfKey, OprfServer, Policy, Salt, UnlockTag,
+        UserSecretShare,
     },
 };
 
@@ -39,7 +39,7 @@ impl UserRecord {
 enum RegistrationState {
     NotRegistered,
     Registered {
-        oprf_seed: OprfSeed,
+        oprf_key: OprfKey,
         salt: Salt,
         guess_count: u16,
         policy: Policy,
@@ -64,7 +64,7 @@ fn register2(
     trace!(hsm = ctx.hsm_name, ?record_id, "register2 request",);
 
     user_record.registration_state = RegistrationState::Registered {
-        oprf_seed: request.oprf_seed,
+        oprf_key: request.oprf_key,
         salt: request.salt,
         guess_count: 0,
         policy: request.policy,
@@ -124,7 +124,7 @@ fn recover2(
 ) -> (Recover2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
-    let (oprf_seed, masked_tgk_share) = match &mut user_record.registration_state {
+    let (oprf_key, masked_tgk_share) = match &mut user_record.registration_state {
         RegistrationState::Registered {
             guess_count,
             policy,
@@ -140,12 +140,12 @@ fn recover2(
         }
         RegistrationState::Registered {
             guess_count,
-            oprf_seed,
+            oprf_key,
             masked_tgk_share,
             ..
         } => {
             *guess_count += 1;
-            (oprf_seed.clone(), masked_tgk_share.clone())
+            (oprf_key.clone(), masked_tgk_share.clone())
         }
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
@@ -161,8 +161,8 @@ fn recover2(
         }
     };
 
-    let server = OprfServer::new_from_seed(oprf_seed.expose_secret(), OPRF_DERIVATION_INFO)
-        .expect("error constructing OprfServer");
+    let server =
+        OprfServer::new_with_key(oprf_key.expose_secret()).expect("error constructing OprfServer");
     let blinded_oprf_pin: OprfBlindedResult = server.blind_evaluate(&request.blinded_pin);
 
     trace!(?record_id, "recover2 completed");

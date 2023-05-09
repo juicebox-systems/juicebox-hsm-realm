@@ -251,9 +251,9 @@ async fn main() {
         realms: realms
             .into_iter()
             .map(|(id, public_key)| Realm {
-                address: lb.next().unwrap().clone(),
                 id,
-                public_key,
+                address: lb.next().unwrap().clone(),
+                public_key: Some(public_key),
             })
             .collect(),
         register_threshold: 3,

@@ -77,7 +77,7 @@ impl ClusterResult {
                     .iter()
                     .map(|r| Realm {
                         address: self.load_balancers[0].clone(),
-                        public_key: r.communication_public_key.clone(),
+                        public_key: Some(r.communication_public_key.clone()),
                         id: r.realm,
                     })
                     .collect(),
