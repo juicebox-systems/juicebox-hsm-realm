@@ -1771,6 +1771,17 @@ fn handle_app_request(
         Err(response) => return response.into(),
     };
 
+    // This should be enforced by the load balancer, but double check.
+    match &request.encrypted {
+        NoiseRequest::Transport { ciphertext } => {
+            assert!(ciphertext.len() <= MAX_REQUEST_CIPHERTEXT);
+        }
+        NoiseRequest::Handshake { handshake } => {
+            assert_eq!(handshake.client_ephemeral_public.len(), 32);
+            assert!(handshake.payload_ciphertext.len() <= MAX_REQUEST_CIPHERTEXT);
+        }
+    }
+
     let (noise, secrets_request) = match NoiseHelper::decode(
         request.record_id.clone(),
         request.session_id,
