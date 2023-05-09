@@ -72,6 +72,11 @@ pub fn command_nvram(
     Ok(())
 }
 
+// Get the KNV delegation key from the ACS. This is needed to perform the alloc NVRAM operation.
+//
+// See get_admin_key in /opt/nfast/c/csd/examples/csee/utils/hostside/cardset.c
+// and /opt/nfast/c/csd/examples/csee/tickets/hostside/hosttickets.c for entrust examples
+// of similar operations.
 unsafe fn read_nvram_admin_delegation_key(
     conn: &NFastConn,
     world: *mut NFKM_WorldInfo,
