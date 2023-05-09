@@ -31,7 +31,7 @@ struct Args {
     signing: String,
 
     #[command(subcommand)]
-    command: Option<Commands>,
+    command: Commands,
 }
 
 #[derive(clap::Args)]
@@ -87,18 +87,14 @@ fn main() -> anyhow::Result<()> {
         resolve_signing_key(&conn, &args.signing).context("Resolving signing key")?;
 
     match args.command {
-        None => {
-            println!("Please specify a command");
-            Ok(())
-        }
-        Some(Commands::Nvram) => nvram::command_nvram(
+        Commands::Nvram => nvram::command_nvram(
             &mut conn,
             args.module,
             worldinfo,
             signing_key_hash,
             &args.nvram,
         ),
-        Some(Commands::Keys) => {
+        Commands::Keys => {
             todo!()
             // keys::command_keys(conn, args.module, worldinfo, signing_key_hash, &args.keys),
         }
