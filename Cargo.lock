@@ -737,6 +737,7 @@ dependencies = [
  "clap 4.1.8",
  "entrust_api",
  "entrust_nfast",
+ "expect-test",
  "hex",
  "loam-sdk-core",
  "tracing 0.2.0",

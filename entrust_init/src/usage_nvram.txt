@@ -1,0 +1,8 @@
+Create the NVRam allocation
+
+Usage: entrust_init nvram [OPTIONS]
+
+Options:
+      --name <NAME>  The name of the file to create in NVRam. max length 11 characters [default: state]
+      --size <SIZE>  The size (in bytes) of the file to create in NVRam [default: 4096]
+  -h, --help         Print help

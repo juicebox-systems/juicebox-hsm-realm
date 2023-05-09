@@ -1,0 +1,13 @@
+A tool for initializing an Entrust nCipher XC HSM ready for use with Juicebox.
+
+Usage: entrust_init [OPTIONS] <COMMAND>
+
+Commands:
+  nvram  Create the NVRam allocation
+  keys   Create a new set of realm keys
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+  -m, --module <MODULE>    The HSM module to work with. (The default of 1 is fine unless there are multiple HSMs in a host) [default: 1]
+  -s, --signing <SIGNING>  The key that was used to sign the HSM SEE Machine executable and the userdata file. Can either be the name of the seeinteg key in the security world, or a hex string of its hash [default: jbox-signer]
+  -h, --help               Print help

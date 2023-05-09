@@ -18,17 +18,17 @@ use entrust_nfast::{
 };
 
 #[derive(clap::Args)]
-pub struct Args {
+pub struct NVRamArgs {
     /// The name of the file to create in NVRam. max length 11 characters.
-    #[arg(long = "nvram-name", default_value = "state")]
+    #[arg(long, default_value = "state")]
     name: String,
 
     /// The size (in bytes) of the file to create in NVRam.
-    #[arg(long = "nvram-size", default_value_t = 4096)]
+    #[arg(long, default_value_t = 4096)]
     size: M_Word,
 }
 
-impl Args {
+impl NVRamArgs {
     pub fn validate(&self) -> anyhow::Result<()> {
         if self.name.is_empty() {
             return Err(anyhow!("NVRam file name can't be empty"));
@@ -53,7 +53,7 @@ pub fn command_nvram(
     module: M_ModuleID,
     world: *mut NFKM_WorldInfo,
     signing_key_hash: M_Hash,
-    args: &Args,
+    args: &NVRamArgs,
 ) -> anyhow::Result<()> {
     let admin_certs = unsafe {
         read_nvram_admin_delegation_key(conn, world, module)

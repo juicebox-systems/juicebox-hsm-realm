@@ -13,3 +13,6 @@ entrust_nfast = { path = "../entrust_nfast" }
 hex = { workspace = true }
 loam-sdk-core = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+expect-test = { workspace = true }

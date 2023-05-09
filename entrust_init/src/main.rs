@@ -18,16 +18,10 @@ struct Args {
     #[arg(short, long, default_value_t = 1)]
     module: M_ModuleID,
 
-    #[command(flatten)]
-    nvram: nvram::Args,
-
-    #[command(flatten)]
-    keys: KeyArgs,
-
     /// The key that was used to sign the HSM SEE Machine executable and the
     /// userdata file. Can either be the name of the seeinteg key in the
     /// security world, or a hex string of its hash.
-    #[arg(short, long, default_value = "jb_signer")]
+    #[arg(short, long, default_value = "jbox-signer")]
     signing: String,
 
     #[command(subcommand)]
@@ -36,39 +30,39 @@ struct Args {
 
 #[derive(clap::Args)]
 struct KeyArgs {
-    /// The name of the key to generate for calculating HMACs.
-    #[arg(
-        long = "keyname-hmac",
-        long,
-        value_name = "KEYNAME",
-        default_value = "jb_hmac"
-    )]
-    hmac: String,
+    /// The name of the key to generate for calculating MACs.
+    #[arg(long, value_name = "KEYNAME", default_value = "jbox-mac")]
+    mac: String,
 
     /// The name of the key pair to generate for communication.
-    #[arg(long = "key-noise", value_name = "KEYNAME", default_value = "jb_noise")]
+    #[arg(long, value_name = "KEYNAME", default_value = "jbox-noise")]
     noise: String,
 
     /// The name of the key to generate for encrypting/decrypting user records.
-    #[arg(
-        long = "key-record",
-        value_name = "KEYNAME",
-        default_value = "jb_record"
-    )]
+    #[arg(long, value_name = "KEYNAME", default_value = "jbox-record")]
     record: String,
 }
 
 #[derive(Subcommand)]
 enum Commands {
     /// Create the NVRam allocation.
-    Nvram,
+    Nvram(nvram::NVRamArgs),
     /// Create a new set of realm keys.
-    Keys,
+    Keys(KeyArgs),
+}
+
+impl Commands {
+    fn validate(&self) -> anyhow::Result<()> {
+        match &self {
+            Commands::Nvram(args) => args.validate(),
+            Commands::Keys(_args) => Ok(()),
+        }
+    }
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    args.nvram.validate()?;
+    args.command.validate()?;
 
     let mut conn = NFastConn::new();
     unsafe {
@@ -87,14 +81,10 @@ fn main() -> anyhow::Result<()> {
         resolve_signing_key(&conn, &args.signing).context("Resolving signing key")?;
 
     match args.command {
-        Commands::Nvram => nvram::command_nvram(
-            &mut conn,
-            args.module,
-            worldinfo,
-            signing_key_hash,
-            &args.nvram,
-        ),
-        Commands::Keys => {
+        Commands::Nvram(nvargs) => {
+            nvram::command_nvram(&mut conn, args.module, worldinfo, signing_key_hash, &nvargs)
+        }
+        Commands::Keys(_kargs) => {
             todo!()
             // keys::command_keys(conn, args.module, worldinfo, signing_key_hash, &args.keys),
         }
@@ -138,4 +128,41 @@ fn find_key(conn: &NFastConn, app: &str, ident: &str) -> Result<Option<*mut NFKM
     }
     debug!(?app, ?ident, key=?unsafe{*key}, "found key");
     Ok(Some(key))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use expect_test::expect_file;
+
+    #[test]
+    fn test_usage() {
+        expect_file!["usage.txt"].assert_eq(
+            &Args::command()
+                .try_get_matches_from(["entrust_init", "--help"])
+                .unwrap_err()
+                .to_string(),
+        );
+    }
+
+    #[test]
+    fn test_usage_nvram() {
+        expect_file!["usage_nvram.txt"].assert_eq(
+            &Args::command()
+                .try_get_matches_from(["entrust_init", "nvram", "--help"])
+                .unwrap_err()
+                .to_string(),
+        );
+    }
+
+    #[test]
+    fn test_usage_keys() {
+        expect_file!["usage_keys.txt"].assert_eq(
+            &Args::command()
+                .try_get_matches_from(["entrust_init", "keys", "--help"])
+                .unwrap_err()
+                .to_string(),
+        );
+    }
 }
