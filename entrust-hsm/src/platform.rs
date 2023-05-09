@@ -135,8 +135,7 @@ impl Clock for NCipher {
 }
 
 const NVRAM_FILENAME: M_FileID = M_FileID {
-    // state
-    bytes: [b's', b't', b'a', b't', b'e', 0, 0, 0, 0, 0, 0],
+    bytes: *b"state\0\0\0\0\0\0",
 };
 
 const NCIPHER_NVRAM_LEN: usize = 4096;

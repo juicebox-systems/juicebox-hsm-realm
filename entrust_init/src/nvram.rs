@@ -253,13 +253,14 @@ fn alloc_nvram(
                 unsafe { conn.transact(&mut cmd) }.context("reading ACL on existing NVRam file")?;
             let acl = unsafe { rep.reply.nvmemop.res.getacl.acl };
             println!(" with {}", acl);
-            return Ok(());
+            Ok(())
         }
-        Err(err) => return Err(err).context("Trying to create NVRam file"),
-        Ok(_) => {}
+        Err(err) => Err(err).context("Trying to create NVRam file"),
+        Ok(_) => {
+            println!("created NVRam file with name '{name}', size {size} bytes and {acl}");
+            Ok(())
+        }
     }
-    println!("created NVRam file with name '{name}', size {size} bytes and {acl}");
-    Ok(())
 }
 
 fn file_id(n: &str) -> M_FileID {
