@@ -1,0 +1,18 @@
+[package]
+name = "entrust_init"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+entrust_api = { path = "../entrust_api" }
+entrust_nfast = { path = "../entrust_nfast" }
+hex = { workspace = true }
+loam-sdk-core = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+expect-test = { workspace = true }

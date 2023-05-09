@@ -1,4 +1,4 @@
-//! Entrust specific types dealing with initialization and startup of the hsm implementation.
+//! Entrust specific types dealing with initialization and startup of the hsmcore implementation.
 
 #![no_std]
 
@@ -54,4 +54,26 @@ impl Default for StartRequest {
 pub enum StartResponse {
     Ok,
     PersistenceError(String),
+    WorldSigner(WorldSignerError),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum WorldSignerError {
+    FailedToLoad {
+        status: u32, // aka M_Status
+    },
+    /// The SEE Machine failed to find a world signer. Ensure that both the
+    /// SEEMachine binary and the userdata file are signed with a `seeinteg`
+    /// key.
+    NoWorldSigner,
+    /// The SEE Machine found 2 or more world signers, there should only be 1.
+    /// Ensure that both the SEEMachine binary and the userdata file are signed
+    /// with the same `seeinteg` key.
+    TooManyWorldSigners,
+}
+
+impl From<WorldSignerError> for StartResponse {
+    fn from(value: WorldSignerError) -> Self {
+        StartResponse::WorldSigner(value)
+    }
 }

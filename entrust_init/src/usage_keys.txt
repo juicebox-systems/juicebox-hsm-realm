@@ -1,0 +1,9 @@
+Create a new set of realm keys
+
+Usage: entrust_init keys [OPTIONS]
+
+Options:
+      --mac <KEYNAME>     The name of the key to generate for calculating MACs [default: jbox-mac]
+      --noise <KEYNAME>   The name of the key pair to generate for communication [default: jbox-noise]
+      --record <KEYNAME>  The name of the key to generate for encrypting/decrypting user records [default: jbox-record]
+  -h, --help              Print help

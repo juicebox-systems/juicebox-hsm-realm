@@ -5,6 +5,19 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
+pub const Command_flags_BignumMSBitFirst: u32 = 1;
+pub const Command_flags_BignumMSWordFirst: u32 = 2;
+pub const Command_flags_certs_present: u32 = 4;
+pub const Command_flags_Unused: u32 = 8;
+pub const Command_flags_state_present: u32 = 16;
+pub const Command_flags_PoolModule: u32 = 32;
+pub const Command_flags_extractstate_present: u32 = 64;
+pub const Command_flags_RetainState: u32 = 128;
+pub const Command_flags_LongJob: u32 = 65536;
+pub const Command_flags_Resubmit: u32 = 131072;
+pub const Command_flags__reserved: u32 = 4294901760;
+pub const Command_flags__allflags: u32 = 196863;
+pub const Command_flags__presentflags: u32 = 84;
 pub const Cmd_CreateSEEWorld_Args_flags_EnableDebug: u32 = 65536;
 pub const Cmd_CreateSEEWorld_Args_flags__reserved: u32 = 4294901760;
 pub const Cmd_CreateSEEWorld_Args_flags__allflags: u32 = 65536;
@@ -14,9 +27,108 @@ pub const Cmd_LoadBuffer_Args_flags_flashsegment_present: u32 = 2;
 pub const Cmd_LoadBuffer_Args_flags__reserved: u32 = 4294901760;
 pub const Cmd_LoadBuffer_Args_flags__allflags: u32 = 3;
 pub const Cmd_LoadBuffer_Args_flags__presentflags: u32 = 2;
+pub const PermissionGroup_flags_certifier_present: u32 = 1;
+pub const PermissionGroup_flags_FreshCerts: u32 = 2;
+pub const PermissionGroup_flags_certmech_present: u32 = 4;
+pub const PermissionGroup_flags_moduleserial_present: u32 = 8;
+pub const PermissionGroup_flags_NSOCertified: u32 = 16;
+pub const PermissionGroup_flags_LogKeyUsage: u32 = 32;
+pub const PermissionGroup_flags__reserved: u32 = 4294901760;
+pub const PermissionGroup_flags__allflags: u32 = 63;
+pub const PermissionGroup_flags__presentflags: u32 = 13;
+pub const Act_FileCopy_Details_flags_ChangeName: u32 = 256;
+pub const Act_FileCopy_Details_flags__reserved: u32 = 4294967040;
+pub const Act_FileCopy_Details_flags__allflags: u32 = 256;
+pub const Act_FileCopy_Details_flags__presentflags: u32 = 0;
+pub const FileDeviceFlags_NVMem: u32 = 1;
+pub const FileDeviceFlags_PhysToken: u32 = 2;
+pub const FileDeviceFlags_SoftToken: u32 = 4;
+pub const FileDeviceFlags__reserved: u32 = 4294967295;
+pub const FileDeviceFlags__allflags: u32 = 7;
+pub const FileDeviceFlags__presentflags: u32 = 0;
+pub const Act_MakeBlob_Details_flags_AllowKmOnly: u32 = 1;
+pub const Act_MakeBlob_Details_flags_AllowNonKm0: u32 = 2;
+pub const Act_MakeBlob_Details_flags_kmhash_present: u32 = 4;
+pub const Act_MakeBlob_Details_flags_kthash_present: u32 = 8;
+pub const Act_MakeBlob_Details_flags_ktparams_present: u32 = 16;
+pub const Act_MakeBlob_Details_flags_AllowNullKmToken: u32 = 32;
+pub const Act_MakeBlob_Details_flags_blobfile_present: u32 = 64;
+pub const Act_MakeBlob_Details_flags__reserved: u32 = 4278190080;
+pub const Act_MakeBlob_Details_flags__allflags: u32 = 127;
+pub const Act_MakeBlob_Details_flags__presentflags: u32 = 92;
+pub const Act_NVMemOpPerms_Details_perms_Read: u32 = 1;
+pub const Act_NVMemOpPerms_Details_perms_Write: u32 = 2;
+pub const Act_NVMemOpPerms_Details_perms_Incr: u32 = 4;
+pub const Act_NVMemOpPerms_Details_perms_Decr: u32 = 8;
+pub const Act_NVMemOpPerms_Details_perms_BitSet: u32 = 16;
+pub const Act_NVMemOpPerms_Details_perms_BitClear: u32 = 32;
+pub const Act_NVMemOpPerms_Details_perms_Free: u32 = 64;
+pub const Act_NVMemOpPerms_Details_perms_subrange_present: u32 = 128;
+pub const Act_NVMemOpPerms_Details_perms_exactrange_present: u32 = 256;
+pub const Act_NVMemOpPerms_Details_perms_incdeclimit_present: u32 = 512;
+pub const Act_NVMemOpPerms_Details_perms_GetACL: u32 = 1024;
+pub const Act_NVMemOpPerms_Details_perms_LoadBlob: u32 = 2048;
+pub const Act_NVMemOpPerms_Details_perms_Resize: u32 = 4096;
+pub const Act_NVMemOpPerms_Details_perms__allflags: u32 = 8191;
+pub const Act_NVMemOpPerms_Details_perms__presentflags: u32 = 896;
+pub const Act_OpPermissions_Details_perms_DuplicateHandle: u32 = 1;
+pub const Act_OpPermissions_Details_perms_UseAsCertificate: u32 = 2;
+pub const Act_OpPermissions_Details_perms_ExportAsPlain: u32 = 4;
+pub const Act_OpPermissions_Details_perms_GetAppData: u32 = 8;
+pub const Act_OpPermissions_Details_perms_SetAppData: u32 = 16;
+pub const Act_OpPermissions_Details_perms_ReduceACL: u32 = 32;
+pub const Act_OpPermissions_Details_perms_ExpandACL: u32 = 64;
+pub const Act_OpPermissions_Details_perms_Encrypt: u32 = 128;
+pub const Act_OpPermissions_Details_perms_Decrypt: u32 = 256;
+pub const Act_OpPermissions_Details_perms_Verify: u32 = 512;
+pub const Act_OpPermissions_Details_perms_UseAsBlobKey: u32 = 1024;
+pub const Act_OpPermissions_Details_perms_UseAsKM: u32 = 2048;
+pub const Act_OpPermissions_Details_perms_Sign: u32 = 4096;
+pub const Act_OpPermissions_Details_perms_GetACL: u32 = 8192;
+pub const Act_OpPermissions_Details_perms_UseAsLoaderKey: u32 = 16384;
+pub const Act_OpPermissions_Details_perms_SignModuleCert: u32 = 32768;
+pub const Act_OpPermissions_Details_perms__allflags: u32 = 65535;
+pub const Act_OpPermissions_Details_perms__presentflags: u32 = 0;
+pub const Cmd_GenerateKey_Reply_flags_cert_present: u32 = 1;
+pub const Cmd_GenerateKey_Reply_flags__reserved: u32 = 4294901760;
+pub const Cmd_GenerateKey_Reply_flags__allflags: u32 = 1;
+pub const Cmd_GenerateKey_Reply_flags__presentflags: u32 = 1;
 pub const NFastApp_ConnectionFlags_Privileged: u32 = 1;
 pub const NFastApp_ConnectionFlags_NoClientID: u32 = 2;
 pub const NFastApp_ConnectionFlags_ForceClientID: u32 = 4;
+pub const NFKM_NKF_allflags: u32 = 131071;
+pub const NFKM_NKF_RecoveryDefault: u32 = 0;
+pub const NFKM_NKF_RecoveryRequired: u32 = 1;
+pub const NFKM_NKF_RecoveryDisabled: u32 = 2;
+pub const NFKM_NKF_RecoveryForbidden: u32 = 3;
+pub const NFKM_NKF_RecoveryEnabled: u32 = 1;
+pub const NFKM_NKF_RecoveryUnknown: u32 = 0;
+pub const NFKM_NKF_RecoveryNoKey: u32 = 3;
+pub const NFKM_NKF_Recovery_mask: u32 = 3;
+pub const NFKM_NKF_HasCertificate: u32 = 4;
+pub const NFKM_NKF_PublicKey: u32 = 8;
+pub const NFKM_NKF_Protection_mask: u32 = 16496;
+pub const NFKM_NKF_ProtectionUnknown: u32 = 0;
+pub const NFKM_NKF_ProtectionModule: u32 = 16;
+pub const NFKM_NKF_ProtectionCardSet: u32 = 32;
+pub const NFKM_NKF_ProtectionNoKey: u32 = 64;
+pub const NFKM_NKF_ProtectionPassPhrase: u32 = 16384;
+pub const NFKM_NKF_SEEAppKey: u32 = 128;
+pub const NFKM_NKF_TimeLimit: u32 = 256;
+pub const NFKM_NKF_SEEAppKeyHashAndMech: u32 = 512;
+pub const NFKM_NKF_PerAuthUseLimit: u32 = 1024;
+pub const NFKM_NKF_NVMemBlob: u32 = 2048;
+pub const NFKM_NKF_NVMemBlobX: u32 = 4096;
+pub const NFKM_NKF_IKWID: u32 = 8192;
+pub const NFKM_NKF_NoUseLimits: u32 = 32768;
+pub const NFKM_NKF_LogKeyUsage: u32 = 65536;
+pub const NFKM_NKF_AssignedACL: u32 = 131072;
+pub const NFKM_DEFOPPERMS_SIGN: u32 = 36866;
+pub const NFKM_DEFOPPERMS_VERIFY: u32 = 512;
+pub const NFKM_DEFOPPERMS_ENCRYPT: u32 = 1152;
+pub const NFKM_DEFOPPERMS_DECRYPT: u32 = 1280;
+pub type __time_t = ::core::ffi::c_long;
+pub type time_t = __time_t;
 pub type uint32 = ::core::ffi::c_uint;
 pub type M_Word = uint32;
 pub type M_MustBeZeroWord = ::core::ffi::c_int;
@@ -111,6 +223,7 @@ impl Default for M_ASCIIString {
         }
     }
 }
+pub type M_Time = time_t;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct M_ValInfo {
@@ -47482,6 +47595,9 @@ pub struct NFTDM_State {
     _unused: [u8; 0],
 }
 extern "C" {
+    pub static NF_Type_PermissionGroup: NF_StructType;
+}
+extern "C" {
     pub static NF_Type_Cmd_CreateSEEWorld_Args_flags: NF_FlagType;
 }
 extern "C" {
@@ -47492,6 +47608,9 @@ extern "C" {
 }
 extern "C" {
     pub static NF_Type_Cmd_LoadBuffer_Args: NF_StructType;
+}
+extern "C" {
+    pub static NF_Type_PermissionGroup_flags: NF_FlagType;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -47710,9 +47829,5117 @@ extern "C" {
     );
 }
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct nf_arena {
-    pub _address: u8,
+    pub ops: *const nf_arena_ops,
+}
+#[test]
+fn bindgen_test_layout_nf_arena() {
+    const UNINIT: ::core::mem::MaybeUninit<nf_arena> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<nf_arena>(),
+        8usize,
+        concat!("Size of: ", stringify!(nf_arena))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<nf_arena>(),
+        8usize,
+        concat!("Alignment of ", stringify!(nf_arena))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).ops) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(nf_arena),
+            "::",
+            stringify!(ops)
+        )
+    );
+}
+impl Default for nf_arena {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct nf_arena_ops {
+    pub aalloc: ::core::option::Option<
+        unsafe extern "C" fn(a: *mut nf_arena, sz: usize) -> *mut ::core::ffi::c_void,
+    >,
+    pub afree:
+        ::core::option::Option<unsafe extern "C" fn(a: *mut nf_arena, p: *mut ::core::ffi::c_void)>,
+    pub arealloc: ::core::option::Option<
+        unsafe extern "C" fn(
+            a: *mut nf_arena,
+            p: *mut ::core::ffi::c_void,
+            sz: usize,
+        ) -> *mut ::core::ffi::c_void,
+    >,
+    pub adestroy: ::core::option::Option<unsafe extern "C" fn(a: *mut nf_arena)>,
+}
+#[test]
+fn bindgen_test_layout_nf_arena_ops() {
+    const UNINIT: ::core::mem::MaybeUninit<nf_arena_ops> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<nf_arena_ops>(),
+        32usize,
+        concat!("Size of: ", stringify!(nf_arena_ops))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<nf_arena_ops>(),
+        8usize,
+        concat!("Alignment of ", stringify!(nf_arena_ops))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).aalloc) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(nf_arena_ops),
+            "::",
+            stringify!(aalloc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).afree) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(nf_arena_ops),
+            "::",
+            stringify!(afree)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).arealloc) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(nf_arena_ops),
+            "::",
+            stringify!(arealloc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).adestroy) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(nf_arena_ops),
+            "::",
+            stringify!(adestroy)
+        )
+    );
+}
+pub const KeyMgmtEntType_Sentinel: M_KeyMgmtEntType = 0;
+pub const KeyMgmtEntType_Index: M_KeyMgmtEntType = 2;
+pub const KeyMgmtEntType_OldHashKA: M_KeyMgmtEntType = 3;
+pub const KeyMgmtEntType_ESNModule: M_KeyMgmtEntType = 4;
+pub const KeyMgmtEntType_DateWorldInit: M_KeyMgmtEntType = 5;
+pub const KeyMgmtEntType_ParamsLTU: M_KeyMgmtEntType = 6;
+pub const KeyMgmtEntType_Ident: M_KeyMgmtEntType = 8;
+pub const KeyMgmtEntType_AppName: M_KeyMgmtEntType = 9;
+pub const KeyMgmtEntType_NonKey: M_KeyMgmtEntType = 100;
+pub const KeyMgmtEntType_Name: M_KeyMgmtEntType = 101;
+pub const KeyMgmtEntType_ParamsLTNSO: M_KeyMgmtEntType = 122;
+pub const KeyMgmtEntType_BlobKNSO: M_KeyMgmtEntType = 123;
+pub const KeyMgmtEntType_ParamsLTM: M_KeyMgmtEntType = 124;
+pub const KeyMgmtEntType_BlobKM: M_KeyMgmtEntType = 125;
+pub const KeyMgmtEntType_BlobKMC: M_KeyMgmtEntType = 126;
+pub const KeyMgmtEntType_ParamsLTP: M_KeyMgmtEntType = 127;
+pub const KeyMgmtEntType_BlobKP: M_KeyMgmtEntType = 128;
+pub const KeyMgmtEntType_ParamsLTR: M_KeyMgmtEntType = 129;
+pub const KeyMgmtEntType_BlobKRE: M_KeyMgmtEntType = 130;
+pub const KeyMgmtEntType_BlobKRA: M_KeyMgmtEntType = 131;
+pub const KeyMgmtEntType_BlobPubKNSO: M_KeyMgmtEntType = 132;
+pub const KeyMgmtEntType_BlobPubKMC: M_KeyMgmtEntType = 133;
+pub const KeyMgmtEntType_CertKMaKMCbKNSO: M_KeyMgmtEntType = 134;
+pub const KeyMgmtEntType_CertKPbKNSO: M_KeyMgmtEntType = 135;
+pub const KeyMgmtEntType_CertKREaKRAbKNSO: M_KeyMgmtEntType = 136;
+pub const KeyMgmtEntType_HashKM: M_KeyMgmtEntType = 137;
+pub const KeyMgmtEntType_HashKNSO: M_KeyMgmtEntType = 138;
+pub const KeyMgmtEntType_CertKMaKMCbKMC: M_KeyMgmtEntType = 139;
+pub const KeyMgmtEntType_BlobPubKRE: M_KeyMgmtEntType = 140;
+pub const KeyMgmtEntType_BlobPubKRA: M_KeyMgmtEntType = 141;
+pub const KeyMgmtEntType_HashKRE: M_KeyMgmtEntType = 142;
+pub const KeyMgmtEntType_HashKRA: M_KeyMgmtEntType = 143;
+pub const KeyMgmtEntType_CertKMaKMCaKFIPSbKNSO: M_KeyMgmtEntType = 144;
+pub const KeyMgmtEntType_CertKMaKMCaKFIPSbKMC: M_KeyMgmtEntType = 145;
+pub const KeyMgmtEntType_BlobKFIPS: M_KeyMgmtEntType = 146;
+pub const KeyMgmtEntType_BlobPubKFIPS: M_KeyMgmtEntType = 147;
+pub const KeyMgmtEntType_CertKMaKMCaKFIPSbKFIPS: M_KeyMgmtEntType = 148;
+pub const KeyMgmtEntType_KeyPubKNSO: M_KeyMgmtEntType = 149;
+pub const KeyMgmtEntType_CertDelgFIPSbNSO: M_KeyMgmtEntType = 150;
+pub const KeyMgmtEntType_MesgDelgFIPSbNSO: M_KeyMgmtEntType = 151;
+pub const KeyMgmtEntType_ParamsLTFIPS: M_KeyMgmtEntType = 152;
+pub const KeyMgmtEntType_HashKFIPS: M_KeyMgmtEntType = 153;
+pub const KeyMgmtEntType_HashKMC: M_KeyMgmtEntType = 154;
+pub const KeyMgmtEntType_BlobPubKP: M_KeyMgmtEntType = 155;
+pub const KeyMgmtEntType_HashKP: M_KeyMgmtEntType = 156;
+pub const KeyMgmtEntType_CertGenKNSO: M_KeyMgmtEntType = 157;
+pub const KeyMgmtEntType_MesgGenKNSO: M_KeyMgmtEntType = 158;
+pub const KeyMgmtEntType_ParamsLTRKilled: M_KeyMgmtEntType = 159;
+pub const KeyMgmtEntType_CertKREaKRAbKNSOKilled: M_KeyMgmtEntType = 160;
+pub const KeyMgmtEntType_HashKRAKilled: M_KeyMgmtEntType = 161;
+pub const KeyMgmtEntType_HashKREKilled: M_KeyMgmtEntType = 162;
+pub const KeyMgmtEntType_ParamsLTNV: M_KeyMgmtEntType = 163;
+pub const KeyMgmtEntType_BlobKNV: M_KeyMgmtEntType = 164;
+pub const KeyMgmtEntType_BlobPubKNV: M_KeyMgmtEntType = 165;
+pub const KeyMgmtEntType_HashKNV: M_KeyMgmtEntType = 166;
+pub const KeyMgmtEntType_ParamsLTRTC: M_KeyMgmtEntType = 167;
+pub const KeyMgmtEntType_BlobKRTC: M_KeyMgmtEntType = 168;
+pub const KeyMgmtEntType_BlobPubKRTC: M_KeyMgmtEntType = 169;
+pub const KeyMgmtEntType_HashKRTC: M_KeyMgmtEntType = 170;
+pub const KeyMgmtEntType_CertKNVbKNSO: M_KeyMgmtEntType = 171;
+pub const KeyMgmtEntType_MesgDelgNVbNSO: M_KeyMgmtEntType = 172;
+pub const KeyMgmtEntType_CertDelgNVbNSO: M_KeyMgmtEntType = 173;
+pub const KeyMgmtEntType_MesgDelgRTCbNSO: M_KeyMgmtEntType = 174;
+pub const KeyMgmtEntType_CertDelgRTCbNSO: M_KeyMgmtEntType = 175;
+pub const KeyMgmtEntType_CertGenKM: M_KeyMgmtEntType = 176;
+pub const KeyMgmtEntType_MesgGenKM: M_KeyMgmtEntType = 177;
+pub const KeyMgmtEntType_CertGenKMC: M_KeyMgmtEntType = 178;
+pub const KeyMgmtEntType_MesgGenKMC: M_KeyMgmtEntType = 179;
+pub const KeyMgmtEntType_CertGenKRA: M_KeyMgmtEntType = 180;
+pub const KeyMgmtEntType_MesgGenKRA: M_KeyMgmtEntType = 181;
+pub const KeyMgmtEntType_CertGenKRE: M_KeyMgmtEntType = 182;
+pub const KeyMgmtEntType_MesgGenKRE: M_KeyMgmtEntType = 183;
+pub const KeyMgmtEntType_CertGenKP: M_KeyMgmtEntType = 184;
+pub const KeyMgmtEntType_MesgGenKP: M_KeyMgmtEntType = 185;
+pub const KeyMgmtEntType_ESNGen: M_KeyMgmtEntType = 186;
+pub const KeyMgmtEntType_MesgGenKNV: M_KeyMgmtEntType = 187;
+pub const KeyMgmtEntType_CertGenKNV: M_KeyMgmtEntType = 188;
+pub const KeyMgmtEntType_MesgGenKRTC: M_KeyMgmtEntType = 189;
+pub const KeyMgmtEntType_CertGenKRTC: M_KeyMgmtEntType = 190;
+pub const KeyMgmtEntType_CertKRTCbKNSO: M_KeyMgmtEntType = 191;
+pub const KeyMgmtEntType_CertKDSEEbKNSO: M_KeyMgmtEntType = 192;
+pub const KeyMgmtEntType_CertDSEEALLbKNSO: M_KeyMgmtEntType = 193;
+pub const KeyMgmtEntType_ParamsLTDSEE: M_KeyMgmtEntType = 194;
+pub const KeyMgmtEntType_BlobKDSEE: M_KeyMgmtEntType = 195;
+pub const KeyMgmtEntType_BlobPubKDSEE: M_KeyMgmtEntType = 196;
+pub const KeyMgmtEntType_HashKDSEE: M_KeyMgmtEntType = 197;
+pub const KeyMgmtEntType_MesgDelgDSEEbNSO: M_KeyMgmtEntType = 198;
+pub const KeyMgmtEntType_CertDelgDSEEbNSO: M_KeyMgmtEntType = 199;
+pub const KeyMgmtEntType_BlobKA: M_KeyMgmtEntType = 200;
+pub const KeyMgmtEntType_OldAppName: M_KeyMgmtEntType = 201;
+pub const KeyMgmtEntType_AppInfo: M_KeyMgmtEntType = 202;
+pub const KeyMgmtEntType_BlobRecoveryKA: M_KeyMgmtEntType = 203;
+pub const KeyMgmtEntType_HashKA: M_KeyMgmtEntType = 204;
+pub const KeyMgmtEntType_CertKMLaESN: M_KeyMgmtEntType = 210;
+pub const KeyMgmtEntType_HashKML: M_KeyMgmtEntType = 211;
+pub const KeyMgmtEntType_RecoverablePIN: M_KeyMgmtEntType = 212;
+pub const KeyMgmtEntType_MesgSendbKMC: M_KeyMgmtEntType = 213;
+pub const KeyMgmtEntType_CertSendbKMC: M_KeyMgmtEntType = 214;
+pub const KeyMgmtEntType_ParamsLTFTO: M_KeyMgmtEntType = 220;
+pub const KeyMgmtEntType_BlobKFTO: M_KeyMgmtEntType = 221;
+pub const KeyMgmtEntType_BlobPubKFTO: M_KeyMgmtEntType = 222;
+pub const KeyMgmtEntType_HashKFTO: M_KeyMgmtEntType = 223;
+pub const KeyMgmtEntType_CertKFTObKNSO: M_KeyMgmtEntType = 224;
+pub const KeyMgmtEntType_MesgDelgFTObNSO: M_KeyMgmtEntType = 225;
+pub const KeyMgmtEntType_CertDelgFTObNSO: M_KeyMgmtEntType = 226;
+pub const KeyMgmtEntType_MesgGenKFTO: M_KeyMgmtEntType = 227;
+pub const KeyMgmtEntType_CertGenKFTO: M_KeyMgmtEntType = 228;
+pub const KeyMgmtEntType_BlobPubKA: M_KeyMgmtEntType = 301;
+pub const KeyMgmtEntType_ExtFilename: M_KeyMgmtEntType = 302;
+pub const KeyMgmtEntType_ExtFilenameHost: M_KeyMgmtEntType = 303;
+pub const KeyMgmtEntType_BlobPubKML: M_KeyMgmtEntType = 304;
+pub const KeyMgmtEntType_CertGenKA: M_KeyMgmtEntType = 305;
+pub const KeyMgmtEntType_MesgGenKA: M_KeyMgmtEntType = 306;
+pub const KeyMgmtEntType_IdentSEEInteg: M_KeyMgmtEntType = 307;
+pub const KeyMgmtEntType_TimeLimit: M_KeyMgmtEntType = 308;
+pub const KeyMgmtEntType_PerAuthUseLimit: M_KeyMgmtEntType = 309;
+pub const KeyMgmtEntType_CertModuleState: M_KeyMgmtEntType = 310;
+pub const KeyMgmtEntType_MesgModuleState: M_KeyMgmtEntType = 311;
+pub const KeyMgmtEntType_LTUCSoftToken: M_KeyMgmtEntType = 312;
+pub const KeyMgmtEntType_MesgGenKDSEE: M_KeyMgmtEntType = 400;
+pub const KeyMgmtEntType_CertGenKDSEE: M_KeyMgmtEntType = 401;
+pub const KeyMgmtEntType_HashNonDES3KM: M_KeyMgmtEntType = 402;
+pub const KeyMgmtEntType_ModuleKeyType: M_KeyMgmtEntType = 403;
+pub const KeyMgmtEntType_NSOTimeOut: M_KeyMgmtEntType = 404;
+pub const KeyMgmtEntType_CipherSuite: M_KeyMgmtEntType = 405;
+pub const KeyMgmtEntType_HashCipherSuiteKM: M_KeyMgmtEntType = 406;
+pub const KeyMgmtEntType_AlwaysUseStrongPrimes: M_KeyMgmtEntType = 407;
+pub const KeyMgmtEntType_PpMin: M_KeyMgmtEntType = 408;
+pub const KeyMgmtEntType_DisablePKCS1Padding: M_KeyMgmtEntType = 409;
+pub const KeyMgmtEntType_PpStrengthCheck: M_KeyMgmtEntType = 410;
+pub const KeyMgmtEntType_AuditLogging: M_KeyMgmtEntType = 411;
+pub const KeyMgmtEntType_CommonCriteriaCMTS: M_KeyMgmtEntType = 412;
+pub const KeyMgmtEntType_FIPSLevel3Enforcedv2: M_KeyMgmtEntType = 413;
+pub const KeyMgmtEntType_UseFIPSApprovedInternalMechanisms: M_KeyMgmtEntType = 414;
+pub const KeyMgmtEntType_WorldVersion: M_KeyMgmtEntType = 415;
+pub const KeyMgmtEntType_MesgWorldState: M_KeyMgmtEntType = 417;
+pub const KeyMgmtEntType_CertWorldState: M_KeyMgmtEntType = 418;
+pub const KeyMgmtEntType__Max: M_KeyMgmtEntType = 419;
+pub type M_KeyMgmtEntType = ::core::ffi::c_uint;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct M_KeyMgmtFileEntry {
+    pub type_: M_Word,
+    pub data: M_ByteBlock,
+}
+#[test]
+fn bindgen_test_layout_M_KeyMgmtFileEntry() {
+    const UNINIT: ::core::mem::MaybeUninit<M_KeyMgmtFileEntry> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_KeyMgmtFileEntry>(),
+        24usize,
+        concat!("Size of: ", stringify!(M_KeyMgmtFileEntry))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_KeyMgmtFileEntry>(),
+        8usize,
+        concat!("Alignment of ", stringify!(M_KeyMgmtFileEntry))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).type_) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_KeyMgmtFileEntry),
+            "::",
+            stringify!(type_)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).data) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_KeyMgmtFileEntry),
+            "::",
+            stringify!(data)
+        )
+    );
+}
+impl Default for M_KeyMgmtFileEntry {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+extern "C" {
+    pub static NF_KeyMgmtEntType_enumtable: [M_ValInfo; 0usize];
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_CardSetInternalData {
+    _unused: [u8; 0],
+}
+pub type NFKM_CardSetInternalDataPointer = *mut NFKM_CardSetInternalData;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_CardInternalData {
+    _unused: [u8; 0],
+}
+pub type NFKM_CardInternalDataPointer = *mut NFKM_CardInternalData;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_SlotInternalData {
+    _unused: [u8; 0],
+}
+pub type NFKM_SlotInternalDataPointer = *mut NFKM_SlotInternalData;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_ModuleInternalData {
+    _unused: [u8; 0],
+}
+pub type NFKM_ModuleInternalDataPointer = *mut NFKM_ModuleInternalData;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_WorldInternalData {
+    _unused: [u8; 0],
+}
+pub type NFKM_WorldInternalDataPointer = *mut NFKM_WorldInternalData;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_SoftCardInternalData {
+    _unused: [u8; 0],
+}
+pub type NFKM_SoftCardInternalDataPointer = *mut NFKM_SoftCardInternalData;
+pub type NFKM_String = *mut ::core::ffi::c_char;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_ChangeInfo {
+    pub generation: ::core::ffi::c_uint,
+    pub userdata: *mut ::core::ffi::c_void,
+}
+#[test]
+fn bindgen_test_layout_NFKM_ChangeInfo() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_ChangeInfo> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_ChangeInfo>(),
+        16usize,
+        concat!("Size of: ", stringify!(NFKM_ChangeInfo))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_ChangeInfo>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_ChangeInfo))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).generation) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ChangeInfo),
+            "::",
+            stringify!(generation)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).userdata) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ChangeInfo),
+            "::",
+            stringify!(userdata)
+        )
+    );
+}
+impl Default for NFKM_ChangeInfo {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub const SlotState_UnusedTableEntry: NFKM_SlotState = 1;
+pub const SlotState_Empty: NFKM_SlotState = 2;
+pub const SlotState_Blank: NFKM_SlotState = 3;
+pub const SlotState_Admin: NFKM_SlotState = 4;
+pub const SlotState_Operator: NFKM_SlotState = 5;
+pub const SlotState_Unidentified: NFKM_SlotState = 6;
+pub const SlotState_Error: NFKM_SlotState = 7;
+pub const SlotState_Partial: NFKM_SlotState = 8;
+pub const SlotState_Unformatted: NFKM_SlotState = 9;
+pub const SlotState__Max: NFKM_SlotState = 10;
+pub type NFKM_SlotState = ::core::ffi::c_uint;
+pub const ModuleState_Unknown: NFKM_ModuleState = 1;
+pub const ModuleState_Usable: NFKM_ModuleState = 2;
+pub const ModuleState_MaintMode: NFKM_ModuleState = 3;
+pub const ModuleState_Uninitialized: NFKM_ModuleState = 4;
+pub const ModuleState_Factory: NFKM_ModuleState = 5;
+pub const ModuleState_Foreign: NFKM_ModuleState = 6;
+pub const ModuleState_AccelOnly: NFKM_ModuleState = 7;
+pub const ModuleState_Failed: NFKM_ModuleState = 8;
+pub const ModuleState_Unchecked: NFKM_ModuleState = 9;
+pub const ModuleState_InitMode: NFKM_ModuleState = 10;
+pub const ModuleState_PreInitMode: NFKM_ModuleState = 11;
+pub const ModuleState_Unverified: NFKM_ModuleState = 12;
+pub const ModuleState_UnusedTableEntry: NFKM_ModuleState = 13;
+pub const ModuleState__Max: NFKM_ModuleState = 14;
+pub type NFKM_ModuleState = ::core::ffi::c_uint;
+pub const CipherSuite_DLf1024s160mDES3: NFKM_CipherSuite = 0;
+pub const CipherSuite_DLf1024s160mRijndael: NFKM_CipherSuite = 1;
+pub const CipherSuite_DLf3072s256mRijndael: NFKM_CipherSuite = 2;
+pub const CipherSuite_DLf3072s256mAEScSP800131Ar1: NFKM_CipherSuite = 3;
+pub const CipherSuite__Max: NFKM_CipherSuite = 4;
+pub type NFKM_CipherSuite = ::core::ffi::c_uint;
+pub const SWorldVersion_WorldVersionLegacy: NFKM_SWorldVersion = 0;
+pub const SWorldVersion_WorldVersion2: NFKM_SWorldVersion = 2;
+pub const SWorldVersion__Max: NFKM_SWorldVersion = 3;
+pub type NFKM_SWorldVersion = ::core::ffi::c_uint;
+pub const AdminKey_NSO: NFKM_AdminKey = 0;
+pub const AdminKey_M: NFKM_AdminKey = 1;
+pub const AdminKey_RA: NFKM_AdminKey = 2;
+pub const AdminKey_P: NFKM_AdminKey = 3;
+pub const AdminKey_NV: NFKM_AdminKey = 4;
+pub const AdminKey_RTC: NFKM_AdminKey = 5;
+pub const AdminKey_FIPS: NFKM_AdminKey = 6;
+pub const AdminKey_MC: NFKM_AdminKey = 7;
+pub const AdminKey_RE: NFKM_AdminKey = 8;
+pub const AdminKey_DSEE: NFKM_AdminKey = 9;
+pub const AdminKey_FTO: NFKM_AdminKey = 10;
+pub const AdminKey__Max: NFKM_AdminKey = 11;
+pub type NFKM_AdminKey = ::core::ffi::c_uint;
+pub const AdminToken_NSO: NFKM_AdminToken = 0;
+pub const AdminToken_M: NFKM_AdminToken = 1;
+pub const AdminToken_R: NFKM_AdminToken = 2;
+pub const AdminToken_P: NFKM_AdminToken = 3;
+pub const AdminToken_NV: NFKM_AdminToken = 4;
+pub const AdminToken_RTC: NFKM_AdminToken = 5;
+pub const AdminToken_FIPS: NFKM_AdminToken = 6;
+pub const AdminToken_DSEE: NFKM_AdminToken = 9;
+pub const AdminToken_FTO: NFKM_AdminToken = 10;
+pub const AdminToken__Max: NFKM_AdminToken = 11;
+pub type NFKM_AdminToken = ::core::ffi::c_uint;
+pub type NFKM_UTF8String = NFKM_String;
+pub type NFKM_vec_UTF8String = *mut NFKM_UTF8String;
+pub type NFKM_CardSet_flags = M_Word;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NFKM_CardSet {
+    pub v: M_Word,
+    pub name: NFKM_UTF8String,
+    pub n: M_Word,
+    pub k: M_Word,
+    pub n_names: ::core::ffi::c_int,
+    pub names: NFKM_vec_UTF8String,
+    pub hkltu: M_Hash,
+    pub flags: NFKM_CardSet_flags,
+    pub timeout: M_Word,
+    pub intern: NFKM_CardSetInternalDataPointer,
+    pub gentime: M_Time,
+}
+#[test]
+fn bindgen_test_layout_NFKM_CardSet() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_CardSet> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_CardSet>(),
+        88usize,
+        concat!("Size of: ", stringify!(NFKM_CardSet))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_CardSet>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_CardSet))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).v) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_CardSet),
+            "::",
+            stringify!(v)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).name) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_CardSet),
+            "::",
+            stringify!(name)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).n) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_CardSet),
+            "::",
+            stringify!(n)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).k) as usize - ptr as usize },
+        20usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_CardSet),
+            "::",
+            stringify!(k)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).n_names) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_CardSet),
+            "::",
+            stringify!(n_names)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).names) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_CardSet),
+            "::",
+            stringify!(names)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkltu) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_CardSet),
+            "::",
+            stringify!(hkltu)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        60usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_CardSet),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).timeout) as usize - ptr as usize },
+        64usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_CardSet),
+            "::",
+            stringify!(timeout)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).intern) as usize - ptr as usize },
+        72usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_CardSet),
+            "::",
+            stringify!(intern)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).gentime) as usize - ptr as usize },
+        80usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_CardSet),
+            "::",
+            stringify!(gentime)
+        )
+    );
+}
+impl Default for NFKM_CardSet {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for NFKM_CardSet {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "NFKM_CardSet {{ v: {:?}, name: {:?}, n: {:?}, k: {:?}, n_names: {:?}, names: {:?}, hkltu: {:?}, flags: {:?}, timeout: {:?}, intern: {:?}, gentime: {:?} }}" , self . v , self . name , self . n , self . k , self . n_names , self . names , self . hkltu , self . flags , self . timeout , self . intern , self . gentime)
+    }
+}
+pub type NFKM_CardSetIdent = M_Hash;
+pub type NFKM_Card_flags = M_Word;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NFKM_Card {
+    pub v: M_Word,
+    pub name: NFKM_UTF8String,
+    pub cardset: NFKM_CardSetIdent,
+    pub index: M_Word,
+    pub flags: NFKM_Card_flags,
+    pub intern: NFKM_CardInternalDataPointer,
+}
+#[test]
+fn bindgen_test_layout_NFKM_Card() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_Card> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_Card>(),
+        56usize,
+        concat!("Size of: ", stringify!(NFKM_Card))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_Card>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_Card))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).v) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Card),
+            "::",
+            stringify!(v)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).name) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Card),
+            "::",
+            stringify!(name)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).cardset) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Card),
+            "::",
+            stringify!(cardset)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).index) as usize - ptr as usize },
+        36usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Card),
+            "::",
+            stringify!(index)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Card),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).intern) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Card),
+            "::",
+            stringify!(intern)
+        )
+    );
+}
+impl Default for NFKM_Card {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for NFKM_Card {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "NFKM_Card {{ v: {:?}, name: {:?}, cardset: {:?}, index: {:?}, flags: {:?}, intern: {:?} }}" , self . v , self . name , self . cardset , self . index , self . flags , self . intern)
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NFKM_PartialCardset {
+    pub h: M_Hash,
+    pub tag: M_Word,
+}
+#[test]
+fn bindgen_test_layout_NFKM_PartialCardset() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_PartialCardset> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_PartialCardset>(),
+        24usize,
+        concat!("Size of: ", stringify!(NFKM_PartialCardset))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_PartialCardset>(),
+        4usize,
+        concat!("Alignment of ", stringify!(NFKM_PartialCardset))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).h) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_PartialCardset),
+            "::",
+            stringify!(h)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).tag) as usize - ptr as usize },
+        20usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_PartialCardset),
+            "::",
+            stringify!(tag)
+        )
+    );
+}
+impl Default for NFKM_PartialCardset {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for NFKM_PartialCardset {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(
+            f,
+            "NFKM_PartialCardset {{ h: {:?}, tag: {:?} }}",
+            self.h, self.tag
+        )
+    }
+}
+pub type NFKM_SlotInfo_flags = M_Word;
+pub type NFKM_ShareFlag = M_Word;
+pub type NFKM_opt_CardSet = *mut NFKM_CardSet;
+pub type NFKM_opt_Card = *mut NFKM_Card;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NFKM_SlotInfo {
+    pub v: M_Word,
+    pub token: M_PhysToken,
+    pub change: NFKM_ChangeInfo,
+    pub phystype: M_SlotType,
+    pub slotlistflags: M_Word,
+    pub slotstate: NFKM_SlotState,
+    pub flags: NFKM_SlotInfo_flags,
+    pub pp: NFKM_ShareFlag,
+    pub shares: NFKM_ShareFlag,
+    pub shareno: M_Word,
+    pub ecode: M_Status,
+    pub einfo: M_Status__ErrorInfo,
+    pub cardset: NFKM_opt_CardSet,
+    pub intern: NFKM_SlotInternalDataPointer,
+    pub card: NFKM_opt_Card,
+    pub partialtag: M_Word,
+    pub exdata: M_SlotType__SlotExData,
+    pub remoteshares: NFKM_ShareFlag,
+}
+#[test]
+fn bindgen_test_layout_NFKM_SlotInfo() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_SlotInfo> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_SlotInfo>(),
+        160usize,
+        concat!("Size of: ", stringify!(NFKM_SlotInfo))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_SlotInfo>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_SlotInfo))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).v) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(v)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).token) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(token)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).change) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(change)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).phystype) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(phystype)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).slotlistflags) as usize - ptr as usize },
+        36usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(slotlistflags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).slotstate) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(slotstate)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        44usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).pp) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(pp)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).shares) as usize - ptr as usize },
+        52usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(shares)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).shareno) as usize - ptr as usize },
+        56usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(shareno)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).ecode) as usize - ptr as usize },
+        60usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(ecode)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).einfo) as usize - ptr as usize },
+        64usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(einfo)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).cardset) as usize - ptr as usize },
+        88usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(cardset)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).intern) as usize - ptr as usize },
+        96usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(intern)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).card) as usize - ptr as usize },
+        104usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(card)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).partialtag) as usize - ptr as usize },
+        112usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(partialtag)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).exdata) as usize - ptr as usize },
+        120usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(exdata)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).remoteshares) as usize - ptr as usize },
+        152usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SlotInfo),
+            "::",
+            stringify!(remoteshares)
+        )
+    );
+}
+impl Default for NFKM_SlotInfo {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for NFKM_SlotInfo {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "NFKM_SlotInfo {{ v: {:?}, token: {:?}, change: {:?}, phystype: {:?}, slotlistflags: {:?}, slotstate: {:?}, flags: {:?}, pp: {:?}, shares: {:?}, shareno: {:?}, ecode: {:?}, einfo: {:?}, cardset: {:?}, intern: {:?}, card: {:?}, partialtag: {:?}, exdata: {:?}, remoteshares: {:?} }}" , self . v , self . token , self . change , self . phystype , self . slotlistflags , self . slotstate , self . flags , self . pp , self . shares , self . shareno , self . ecode , self . einfo , self . cardset , self . intern , self . card , self . partialtag , self . exdata , self . remoteshares)
+    }
+}
+pub type NFKM_ModuleInfo_flags = M_Word;
+pub type NFKM_opt_SlotInfo = *mut NFKM_SlotInfo;
+pub type NFKM_vec_opt_SlotInfo = *mut NFKM_opt_SlotInfo;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NFKM_ModuleInfo {
+    pub v: M_Word,
+    pub module: M_ModuleID,
+    pub change: NFKM_ChangeInfo,
+    pub state: NFKM_ModuleState,
+    pub flags: NFKM_ModuleInfo_flags,
+    pub n_slots: ::core::ffi::c_int,
+    pub slots: NFKM_vec_opt_SlotInfo,
+    pub esn: NFKM_String,
+    pub hkml: M_Hash,
+    pub intern: NFKM_ModuleInternalDataPointer,
+    pub e4flags: M_Word,
+}
+#[test]
+fn bindgen_test_layout_NFKM_ModuleInfo() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_ModuleInfo> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_ModuleInfo>(),
+        96usize,
+        concat!("Size of: ", stringify!(NFKM_ModuleInfo))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_ModuleInfo>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_ModuleInfo))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).v) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ModuleInfo),
+            "::",
+            stringify!(v)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).module) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ModuleInfo),
+            "::",
+            stringify!(module)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).change) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ModuleInfo),
+            "::",
+            stringify!(change)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).state) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ModuleInfo),
+            "::",
+            stringify!(state)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        28usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ModuleInfo),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).n_slots) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ModuleInfo),
+            "::",
+            stringify!(n_slots)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).slots) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ModuleInfo),
+            "::",
+            stringify!(slots)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).esn) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ModuleInfo),
+            "::",
+            stringify!(esn)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkml) as usize - ptr as usize },
+        56usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ModuleInfo),
+            "::",
+            stringify!(hkml)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).intern) as usize - ptr as usize },
+        80usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ModuleInfo),
+            "::",
+            stringify!(intern)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).e4flags) as usize - ptr as usize },
+        88usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ModuleInfo),
+            "::",
+            stringify!(e4flags)
+        )
+    );
+}
+impl Default for NFKM_ModuleInfo {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for NFKM_ModuleInfo {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "NFKM_ModuleInfo {{ v: {:?}, module: {:?}, change: {:?}, state: {:?}, flags: {:?}, n_slots: {:?}, slots: {:?}, esn: {:?}, hkml: {:?}, intern: {:?}, e4flags: {:?} }}" , self . v , self . module , self . change , self . state , self . flags , self . n_slots , self . slots , self . esn , self . hkml , self . intern , self . e4flags)
+    }
+}
+pub type NFKM_WorldInfo_flags = M_Word;
+pub type NFKM_opt_ModuleInfo = *mut NFKM_ModuleInfo;
+pub type NFKM_vec_opt_ModuleInfo = *mut NFKM_opt_ModuleInfo;
+pub type NFKM_opt_ExistingObjectInfo = *mut NFKM_ExistingObjectInfo;
+pub type NFKM_vec_opt_ExistingObjectInfo = *mut NFKM_opt_ExistingObjectInfo;
+pub type NFKM_opt_Word = *mut M_Word;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NFKM_WorldInfo {
+    pub v: M_Word,
+    pub change: NFKM_ChangeInfo,
+    pub flags: NFKM_WorldInfo_flags,
+    pub n_modules: ::core::ffi::c_int,
+    pub modules: NFKM_vec_opt_ModuleInfo,
+    pub hknso: M_Hash,
+    pub hkm: M_Hash,
+    pub hkmwk: M_Hash,
+    pub hkra: M_Hash,
+    pub hkre: M_Hash,
+    pub blobpubkre: M_ByteBlock,
+    pub intern: NFKM_WorldInternalDataPointer,
+    pub existingclient: M_ClientID,
+    pub n_existingobjects: ::core::ffi::c_int,
+    pub existingobjects: NFKM_vec_opt_ExistingObjectInfo,
+    pub hkfips: M_Hash,
+    pub hkmc: M_Hash,
+    pub acs_n: M_Word,
+    pub acs_k: M_Word,
+    pub hkp: M_Hash,
+    pub blobpubkp: M_ByteBlock,
+    pub hknv: M_Hash,
+    pub blobpubknv: M_ByteBlock,
+    pub hkrtc: M_Hash,
+    pub blobpubkrtc: M_ByteBlock,
+    pub hkdsee: M_Hash,
+    pub blobpubkdsee: M_ByteBlock,
+    pub createtime: M_Time,
+    pub t_m: M_Word,
+    pub t_r: M_Word,
+    pub t_p: M_Word,
+    pub t_nv: M_Word,
+    pub t_rtc: M_Word,
+    pub t_dsee: M_Word,
+    pub blobpubkmc: M_ByteBlock,
+    pub hkfto: M_Hash,
+    pub blobpubkfto: M_ByteBlock,
+    pub t_fto: M_Word,
+    pub blobpubkfips: M_ByteBlock,
+    pub esn: NFKM_String,
+    pub blobpubkml: M_ByteBlock,
+    pub modstatemsg: M_ByteBlock,
+    pub modstatesig: M_ByteBlock,
+    pub kmtype: M_KeyType,
+    pub hkmnull: M_Hash,
+    pub nsotimeout: M_Word,
+    pub ppmin: M_Word,
+    pub suite: NFKM_CipherSuite,
+    pub worldversion: NFKM_SWorldVersion,
+    pub maxauth: NFKM_opt_Word,
+    pub maxtime: NFKM_opt_Word,
+}
+#[test]
+fn bindgen_test_layout_NFKM_WorldInfo() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_WorldInfo> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_WorldInfo>(),
+        632usize,
+        concat!("Size of: ", stringify!(NFKM_WorldInfo))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_WorldInfo>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_WorldInfo))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).v) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(v)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).change) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(change)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).n_modules) as usize - ptr as usize },
+        28usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(n_modules)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).modules) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(modules)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hknso) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hknso)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkm) as usize - ptr as usize },
+        60usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hkm)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkmwk) as usize - ptr as usize },
+        80usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hkmwk)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkra) as usize - ptr as usize },
+        100usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hkra)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkre) as usize - ptr as usize },
+        120usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hkre)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).blobpubkre) as usize - ptr as usize },
+        144usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(blobpubkre)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).intern) as usize - ptr as usize },
+        160usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(intern)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).existingclient) as usize - ptr as usize },
+        168usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(existingclient)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).n_existingobjects) as usize - ptr as usize },
+        188usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(n_existingobjects)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).existingobjects) as usize - ptr as usize },
+        192usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(existingobjects)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkfips) as usize - ptr as usize },
+        200usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hkfips)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkmc) as usize - ptr as usize },
+        220usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hkmc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).acs_n) as usize - ptr as usize },
+        240usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(acs_n)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).acs_k) as usize - ptr as usize },
+        244usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(acs_k)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkp) as usize - ptr as usize },
+        248usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hkp)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).blobpubkp) as usize - ptr as usize },
+        272usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(blobpubkp)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hknv) as usize - ptr as usize },
+        288usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hknv)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).blobpubknv) as usize - ptr as usize },
+        312usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(blobpubknv)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkrtc) as usize - ptr as usize },
+        328usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hkrtc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).blobpubkrtc) as usize - ptr as usize },
+        352usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(blobpubkrtc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkdsee) as usize - ptr as usize },
+        368usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hkdsee)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).blobpubkdsee) as usize - ptr as usize },
+        392usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(blobpubkdsee)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).createtime) as usize - ptr as usize },
+        408usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(createtime)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_m) as usize - ptr as usize },
+        416usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(t_m)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_r) as usize - ptr as usize },
+        420usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(t_r)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_p) as usize - ptr as usize },
+        424usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(t_p)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_nv) as usize - ptr as usize },
+        428usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(t_nv)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_rtc) as usize - ptr as usize },
+        432usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(t_rtc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_dsee) as usize - ptr as usize },
+        436usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(t_dsee)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).blobpubkmc) as usize - ptr as usize },
+        440usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(blobpubkmc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkfto) as usize - ptr as usize },
+        456usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hkfto)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).blobpubkfto) as usize - ptr as usize },
+        480usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(blobpubkfto)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_fto) as usize - ptr as usize },
+        496usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(t_fto)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).blobpubkfips) as usize - ptr as usize },
+        504usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(blobpubkfips)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).esn) as usize - ptr as usize },
+        520usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(esn)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).blobpubkml) as usize - ptr as usize },
+        528usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(blobpubkml)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).modstatemsg) as usize - ptr as usize },
+        544usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(modstatemsg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).modstatesig) as usize - ptr as usize },
+        560usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(modstatesig)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).kmtype) as usize - ptr as usize },
+        576usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(kmtype)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkmnull) as usize - ptr as usize },
+        580usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(hkmnull)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).nsotimeout) as usize - ptr as usize },
+        600usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(nsotimeout)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).ppmin) as usize - ptr as usize },
+        604usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(ppmin)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).suite) as usize - ptr as usize },
+        608usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(suite)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).worldversion) as usize - ptr as usize },
+        612usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(worldversion)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).maxauth) as usize - ptr as usize },
+        616usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(maxauth)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).maxtime) as usize - ptr as usize },
+        624usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_WorldInfo),
+            "::",
+            stringify!(maxtime)
+        )
+    );
+}
+impl Default for NFKM_WorldInfo {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for NFKM_WorldInfo {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "NFKM_WorldInfo {{ v: {:?}, change: {:?}, flags: {:?}, n_modules: {:?}, modules: {:?}, hknso: {:?}, hkm: {:?}, hkmwk: {:?}, hkra: {:?}, hkre: {:?}, blobpubkre: {:?}, intern: {:?}, existingclient: {:?}, n_existingobjects: {:?}, existingobjects: {:?}, hkfips: {:?}, hkmc: {:?}, acs_n: {:?}, acs_k: {:?}, hkp: {:?}, blobpubkp: {:?}, hknv: {:?}, blobpubknv: {:?}, hkrtc: {:?}, blobpubkrtc: {:?}, hkdsee: {:?}, blobpubkdsee: {:?}, createtime: {:?}, t_m: {:?}, t_r: {:?}, t_p: {:?}, t_nv: {:?}, t_rtc: {:?}, t_dsee: {:?}, blobpubkmc: {:?}, hkfto: {:?}, blobpubkfto: {:?}, t_fto: {:?}, blobpubkfips: {:?}, esn: {:?}, blobpubkml: {:?}, modstatemsg: {:?}, modstatesig: {:?}, kmtype: {:?}, hkmnull: {:?}, nsotimeout: {:?}, ppmin: {:?}, suite: {:?}, worldversion: {:?}, maxauth: {:?}, maxtime: {:?} }}" , self . v , self . change , self . flags , self . n_modules , self . modules , self . hknso , self . hkm , self . hkmwk , self . hkra , self . hkre , self . blobpubkre , self . intern , self . existingclient , self . n_existingobjects , self . existingobjects , self . hkfips , self . hkmc , self . acs_n , self . acs_k , self . hkp , self . blobpubkp , self . hknv , self . blobpubknv , self . hkrtc , self . blobpubkrtc , self . hkdsee , self . blobpubkdsee , self . createtime , self . t_m , self . t_r , self . t_p , self . t_nv , self . t_rtc , self . t_dsee , self . blobpubkmc , self . hkfto , self . blobpubkfto , self . t_fto , self . blobpubkfips , self . esn , self . blobpubkml , self . modstatemsg , self . modstatesig , self . kmtype , self . hkmnull , self . nsotimeout , self . ppmin , self . suite , self . worldversion , self . maxauth , self . maxtime)
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NFKM_ExistingObjectInfo {
+    pub module: M_ModuleID,
+    pub hash: M_Hash,
+    pub change: NFKM_ChangeInfo,
+    pub id: M_KeyID,
+}
+#[test]
+fn bindgen_test_layout_NFKM_ExistingObjectInfo() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_ExistingObjectInfo> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_ExistingObjectInfo>(),
+        48usize,
+        concat!("Size of: ", stringify!(NFKM_ExistingObjectInfo))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_ExistingObjectInfo>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_ExistingObjectInfo))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).module) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ExistingObjectInfo),
+            "::",
+            stringify!(module)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hash) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ExistingObjectInfo),
+            "::",
+            stringify!(hash)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).change) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ExistingObjectInfo),
+            "::",
+            stringify!(change)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).id) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_ExistingObjectInfo),
+            "::",
+            stringify!(id)
+        )
+    );
+}
+impl Default for NFKM_ExistingObjectInfo {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for NFKM_ExistingObjectInfo {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(
+            f,
+            "NFKM_ExistingObjectInfo {{ module: {:?}, hash: {:?}, change: {:?}, id: {:?} }}",
+            self.module, self.hash, self.change, self.id
+        )
+    }
+}
+pub type NFKM_vec_KeyMgmtFileEntry = *mut M_KeyMgmtFileEntry;
+pub type NFKM_Key_flags = M_Word;
+pub type NFKM_SoftCardIdent = M_Hash;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NFKM_Key {
+    pub privblob: M_ByteBlock,
+    pub pubblob: M_ByteBlock,
+    pub privblobrecov: M_ByteBlock,
+    pub name: NFKM_UTF8String,
+    pub appname: NFKM_String,
+    pub ident: NFKM_String,
+    pub hash: M_Hash,
+    pub n_entries: ::core::ffi::c_int,
+    pub entries: NFKM_vec_KeyMgmtFileEntry,
+    pub flags: NFKM_Key_flags,
+    pub cardset: NFKM_CardSetIdent,
+    pub v: M_Word,
+    pub timehigh: M_Word,
+    pub timelow: M_Word,
+    pub oldident: NFKM_String,
+    pub kcmsg: M_ByteBlock,
+    pub kcsig: M_ByteBlock,
+    pub esn: NFKM_String,
+    pub blobpubkml: M_ByteBlock,
+    pub modcert: M_ByteBlock,
+    pub gentime: M_Time,
+    pub identseeinteg: NFKM_String,
+    pub timelimit: M_Word,
+    pub pa_uselimit: M_Word,
+    pub modstatemsg: M_ByteBlock,
+    pub modstatesig: M_ByteBlock,
+    pub softcard: NFKM_SoftCardIdent,
+}
+#[test]
+fn bindgen_test_layout_NFKM_Key() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_Key> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_Key>(),
+        304usize,
+        concat!("Size of: ", stringify!(NFKM_Key))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_Key>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_Key))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).privblob) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(privblob)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).pubblob) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(pubblob)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).privblobrecov) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(privblobrecov)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).name) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(name)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).appname) as usize - ptr as usize },
+        56usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(appname)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).ident) as usize - ptr as usize },
+        64usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(ident)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hash) as usize - ptr as usize },
+        72usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(hash)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).n_entries) as usize - ptr as usize },
+        92usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(n_entries)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).entries) as usize - ptr as usize },
+        96usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(entries)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        104usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).cardset) as usize - ptr as usize },
+        108usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(cardset)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).v) as usize - ptr as usize },
+        128usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(v)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).timehigh) as usize - ptr as usize },
+        132usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(timehigh)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).timelow) as usize - ptr as usize },
+        136usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(timelow)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).oldident) as usize - ptr as usize },
+        144usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(oldident)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).kcmsg) as usize - ptr as usize },
+        152usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(kcmsg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).kcsig) as usize - ptr as usize },
+        168usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(kcsig)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).esn) as usize - ptr as usize },
+        184usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(esn)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).blobpubkml) as usize - ptr as usize },
+        192usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(blobpubkml)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).modcert) as usize - ptr as usize },
+        208usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(modcert)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).gentime) as usize - ptr as usize },
+        224usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(gentime)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).identseeinteg) as usize - ptr as usize },
+        232usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(identseeinteg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).timelimit) as usize - ptr as usize },
+        240usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(timelimit)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).pa_uselimit) as usize - ptr as usize },
+        244usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(pa_uselimit)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).modstatemsg) as usize - ptr as usize },
+        248usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(modstatemsg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).modstatesig) as usize - ptr as usize },
+        264usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(modstatesig)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).softcard) as usize - ptr as usize },
+        280usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_Key),
+            "::",
+            stringify!(softcard)
+        )
+    );
+}
+impl Default for NFKM_Key {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for NFKM_Key {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "NFKM_Key {{ privblob: {:?}, pubblob: {:?}, privblobrecov: {:?}, name: {:?}, appname: {:?}, ident: {:?}, hash: {:?}, n_entries: {:?}, entries: {:?}, flags: {:?}, cardset: {:?}, v: {:?}, timehigh: {:?}, timelow: {:?}, oldident: {:?}, kcmsg: {:?}, kcsig: {:?}, esn: {:?}, blobpubkml: {:?}, modcert: {:?}, gentime: {:?}, identseeinteg: {:?}, timelimit: {:?}, pa_uselimit: {:?}, modstatemsg: {:?}, modstatesig: {:?}, softcard: {:?} }}" , self . privblob , self . pubblob , self . privblobrecov , self . name , self . appname , self . ident , self . hash , self . n_entries , self . entries , self . flags , self . cardset , self . v , self . timehigh , self . timelow , self . oldident , self . kcmsg , self . kcsig , self . esn , self . blobpubkml , self . modcert , self . gentime , self . identseeinteg , self . timelimit , self . pa_uselimit , self . modstatemsg , self . modstatesig , self . softcard)
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_KeyIdent {
+    pub appname: NFKM_String,
+    pub ident: NFKM_String,
+}
+#[test]
+fn bindgen_test_layout_NFKM_KeyIdent() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_KeyIdent> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_KeyIdent>(),
+        16usize,
+        concat!("Size of: ", stringify!(NFKM_KeyIdent))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_KeyIdent>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_KeyIdent))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).appname) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_KeyIdent),
+            "::",
+            stringify!(appname)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).ident) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_KeyIdent),
+            "::",
+            stringify!(ident)
+        )
+    );
+}
+impl Default for NFKM_KeyIdent {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub type NFKM_InitModuleParams_f = M_Word;
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct NFKM_InitModuleParams {
+    pub f: NFKM_InitModuleParams_f,
+}
+#[test]
+fn bindgen_test_layout_NFKM_InitModuleParams() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_InitModuleParams> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_InitModuleParams>(),
+        4usize,
+        concat!("Size of: ", stringify!(NFKM_InitModuleParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_InitModuleParams>(),
+        4usize,
+        concat!("Alignment of ", stringify!(NFKM_InitModuleParams))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).f) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitModuleParams),
+            "::",
+            stringify!(f)
+        )
+    );
+}
+pub type NFKM_InitWorldParams_f = M_Word;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_InitWorldParams {
+    pub f: NFKM_InitWorldParams_f,
+    pub t: M_Word,
+    pub n: M_Word,
+    pub t_m: M_Word,
+    pub t_r: M_Word,
+    pub t_p: M_Word,
+    pub t_nv: M_Word,
+    pub t_rtc: M_Word,
+    pub t_dsee: M_Word,
+    pub dmask: M_Word,
+    pub t_fto: M_Word,
+    pub ppmin: M_Word,
+    pub kmtype: M_KeyType,
+    pub nsotimeout: M_Word,
+    pub suite: NFKM_CipherSuite,
+    pub worldversion: NFKM_SWorldVersion,
+    pub maxauth: M_Word,
+    pub maxtime: M_Word,
+}
+#[test]
+fn bindgen_test_layout_NFKM_InitWorldParams() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_InitWorldParams> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_InitWorldParams>(),
+        72usize,
+        concat!("Size of: ", stringify!(NFKM_InitWorldParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_InitWorldParams>(),
+        4usize,
+        concat!("Alignment of ", stringify!(NFKM_InitWorldParams))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).f) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(f)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(t)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).n) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(n)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_m) as usize - ptr as usize },
+        12usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(t_m)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_r) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(t_r)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_p) as usize - ptr as usize },
+        20usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(t_p)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_nv) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(t_nv)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_rtc) as usize - ptr as usize },
+        28usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(t_rtc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_dsee) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(t_dsee)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).dmask) as usize - ptr as usize },
+        36usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(dmask)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).t_fto) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(t_fto)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).ppmin) as usize - ptr as usize },
+        44usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(ppmin)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).kmtype) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(kmtype)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).nsotimeout) as usize - ptr as usize },
+        52usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(nsotimeout)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).suite) as usize - ptr as usize },
+        56usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(suite)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).worldversion) as usize - ptr as usize },
+        60usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(worldversion)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).maxauth) as usize - ptr as usize },
+        64usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(maxauth)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).maxtime) as usize - ptr as usize },
+        68usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_InitWorldParams),
+            "::",
+            stringify!(maxtime)
+        )
+    );
+}
+impl Default for NFKM_InitWorldParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NFKM_FIPS140AuthState {
+    pub mn: M_ModuleID,
+    pub lt: M_KeyID,
+    pub key: M_KeyID,
+    pub hkltfips: M_Hash,
+    pub cardkind: NFKM_SlotState,
+    pub hkltu: M_Hash,
+}
+#[test]
+fn bindgen_test_layout_NFKM_FIPS140AuthState() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_FIPS140AuthState> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_FIPS140AuthState>(),
+        56usize,
+        concat!("Size of: ", stringify!(NFKM_FIPS140AuthState))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_FIPS140AuthState>(),
+        4usize,
+        concat!("Alignment of ", stringify!(NFKM_FIPS140AuthState))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).mn) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_FIPS140AuthState),
+            "::",
+            stringify!(mn)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).lt) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_FIPS140AuthState),
+            "::",
+            stringify!(lt)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).key) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_FIPS140AuthState),
+            "::",
+            stringify!(key)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkltfips) as usize - ptr as usize },
+        12usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_FIPS140AuthState),
+            "::",
+            stringify!(hkltfips)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).cardkind) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_FIPS140AuthState),
+            "::",
+            stringify!(cardkind)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkltu) as usize - ptr as usize },
+        36usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_FIPS140AuthState),
+            "::",
+            stringify!(hkltu)
+        )
+    );
+}
+impl Default for NFKM_FIPS140AuthState {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for NFKM_FIPS140AuthState {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "NFKM_FIPS140AuthState {{ mn: {:?}, lt: {:?}, key: {:?}, hkltfips: {:?}, cardkind: {:?}, hkltu: {:?} }}" , self . mn , self . lt , self . key , self . hkltfips , self . cardkind , self . hkltu)
+    }
+}
+pub type NFKM_SoftCard_flags = M_Word;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NFKM_SoftCard {
+    pub v: M_Word,
+    pub name: NFKM_UTF8String,
+    pub hkltu: M_Hash,
+    pub flags: NFKM_SoftCard_flags,
+    pub gentime: M_Time,
+    pub intern: NFKM_SoftCardInternalDataPointer,
+}
+#[test]
+fn bindgen_test_layout_NFKM_SoftCard() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_SoftCard> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_SoftCard>(),
+        56usize,
+        concat!("Size of: ", stringify!(NFKM_SoftCard))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_SoftCard>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_SoftCard))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).v) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SoftCard),
+            "::",
+            stringify!(v)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).name) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SoftCard),
+            "::",
+            stringify!(name)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hkltu) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SoftCard),
+            "::",
+            stringify!(hkltu)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        36usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SoftCard),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).gentime) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SoftCard),
+            "::",
+            stringify!(gentime)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).intern) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_SoftCard),
+            "::",
+            stringify!(intern)
+        )
+    );
+}
+impl Default for NFKM_SoftCard {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for NFKM_SoftCard {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "NFKM_SoftCard {{ v: {:?}, name: {:?}, hkltu: {:?}, flags: {:?}, gentime: {:?}, intern: {:?} }}" , self . v , self . name , self . hkltu , self . flags , self . gentime , self . intern)
+    }
+}
+extern "C" {
+    pub static NF_SlotState_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ModuleState_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_CipherSuite_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_SWorldVersion_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_AdminKey_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_AdminToken_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_CardSet_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Card_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_SlotInfo_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ShareFlag_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_ModuleInfo_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_WorldInfo_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Key_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_InitModuleParams_f_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_InitWorldParams_f_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_SoftCard_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_WorldState_flags_table: [M_ValInfo; 0usize];
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_GetInfoParams {
+    pub f: ::core::ffi::c_ulong,
+    pub n_partials: usize,
+    pub partials: *const NFKM_PartialCardset,
+    pub reading: ::core::option::Option<
+        unsafe extern "C" fn(arg1: M_ModuleID, arg2: M_SlotID, user: *mut ::core::ffi::c_void),
+    >,
+    pub reading_user: *mut ::core::ffi::c_void,
+}
+#[test]
+fn bindgen_test_layout_NFKM_GetInfoParams() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_GetInfoParams> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_GetInfoParams>(),
+        40usize,
+        concat!("Size of: ", stringify!(NFKM_GetInfoParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_GetInfoParams>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_GetInfoParams))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).f) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_GetInfoParams),
+            "::",
+            stringify!(f)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).n_partials) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_GetInfoParams),
+            "::",
+            stringify!(n_partials)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).partials) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_GetInfoParams),
+            "::",
+            stringify!(partials)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).reading) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_GetInfoParams),
+            "::",
+            stringify!(reading)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).reading_user) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_GetInfoParams),
+            "::",
+            stringify!(reading_user)
+        )
+    );
+}
+impl Default for NFKM_GetInfoParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+extern "C" {
+    pub fn NFKM_getinfo(
+        app: NFast_AppHandle,
+        world_io: *mut *mut NFKM_WorldInfo,
+        cctx: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+pub type NFKM_FIPS140AuthHandle = *mut NFKM_FIPS140AuthState;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_MakeCSState {
+    _unused: [u8; 0],
+}
+pub type NFKM_MakeCSHandle = *mut NFKM_MakeCSState;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_MakeACLParams {
+    pub f: M_Word,
+    pub op_base: M_Word,
+    pub op_bic: M_Word,
+    pub cs: *const NFKM_CardSet,
+    pub seeinteg: *const M_Hash,
+    pub timelimit: M_Word,
+    pub seeintegkham: *const M_KeyHashAndMech,
+    pub pa_uselimit: M_Word,
+    pub fips: NFKM_FIPS140AuthHandle,
+    pub hknvacl: *const M_Hash,
+    pub sc: *const NFKM_SoftCard,
+}
+#[test]
+fn bindgen_test_layout_NFKM_MakeACLParams() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_MakeACLParams> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_MakeACLParams>(),
+        80usize,
+        concat!("Size of: ", stringify!(NFKM_MakeACLParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_MakeACLParams>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_MakeACLParams))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).f) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeACLParams),
+            "::",
+            stringify!(f)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).op_base) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeACLParams),
+            "::",
+            stringify!(op_base)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).op_bic) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeACLParams),
+            "::",
+            stringify!(op_bic)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).cs) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeACLParams),
+            "::",
+            stringify!(cs)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).seeinteg) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeACLParams),
+            "::",
+            stringify!(seeinteg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).timelimit) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeACLParams),
+            "::",
+            stringify!(timelimit)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).seeintegkham) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeACLParams),
+            "::",
+            stringify!(seeintegkham)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).pa_uselimit) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeACLParams),
+            "::",
+            stringify!(pa_uselimit)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).fips) as usize - ptr as usize },
+        56usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeACLParams),
+            "::",
+            stringify!(fips)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hknvacl) as usize - ptr as usize },
+        64usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeACLParams),
+            "::",
+            stringify!(hknvacl)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).sc) as usize - ptr as usize },
+        72usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeACLParams),
+            "::",
+            stringify!(sc)
+        )
+    );
+}
+impl Default for NFKM_MakeACLParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+extern "C" {
+    pub fn NFKM_newkey_makeacl(
+        app: NFast_AppHandle,
+        conn: NFastApp_Connection,
+        world: *const NFKM_WorldInfo,
+        cardset: *const NFKM_CardSet,
+        flags: M_Word,
+        opperms_base: M_Word,
+        opperms_maskout: M_Word,
+        acl: *mut M_ACL,
+        cctx: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_newkey_makeaclx(
+        app: NFast_AppHandle,
+        conn: NFastApp_Connection,
+        world: *const NFKM_WorldInfo,
+        map: *const NFKM_MakeACLParams,
+        acl: *mut M_ACL,
+        cc: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NFKM_MakeBlobsParams {
+    pub f: M_Word,
+    pub kpriv: M_KeyID,
+    pub kpub: M_KeyID,
+    pub lt: M_KeyID,
+    pub cs: *const NFKM_CardSet,
+    pub fips: NFKM_FIPS140AuthHandle,
+    pub knv: M_KeyID,
+    pub knvacl: M_KeyID,
+    pub sc: *const NFKM_SoftCard,
+    pub certifier: M_KeyID,
+    pub hcertifier: M_Hash,
+}
+#[test]
+fn bindgen_test_layout_NFKM_MakeBlobsParams() {
+    const UNINIT: ::core::mem::MaybeUninit<NFKM_MakeBlobsParams> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NFKM_MakeBlobsParams>(),
+        72usize,
+        concat!("Size of: ", stringify!(NFKM_MakeBlobsParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NFKM_MakeBlobsParams>(),
+        8usize,
+        concat!("Alignment of ", stringify!(NFKM_MakeBlobsParams))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).f) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeBlobsParams),
+            "::",
+            stringify!(f)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).kpriv) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeBlobsParams),
+            "::",
+            stringify!(kpriv)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).kpub) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeBlobsParams),
+            "::",
+            stringify!(kpub)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).lt) as usize - ptr as usize },
+        12usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeBlobsParams),
+            "::",
+            stringify!(lt)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).cs) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeBlobsParams),
+            "::",
+            stringify!(cs)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).fips) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeBlobsParams),
+            "::",
+            stringify!(fips)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).knv) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeBlobsParams),
+            "::",
+            stringify!(knv)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).knvacl) as usize - ptr as usize },
+        36usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeBlobsParams),
+            "::",
+            stringify!(knvacl)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).sc) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeBlobsParams),
+            "::",
+            stringify!(sc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).certifier) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeBlobsParams),
+            "::",
+            stringify!(certifier)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hcertifier) as usize - ptr as usize },
+        52usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NFKM_MakeBlobsParams),
+            "::",
+            stringify!(hcertifier)
+        )
+    );
+}
+impl Default for NFKM_MakeBlobsParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for NFKM_MakeBlobsParams {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "NFKM_MakeBlobsParams {{ f: {:?}, kpriv: {:?}, kpub: {:?}, lt: {:?}, cs: {:?}, fips: {:?}, knv: {:?}, knvacl: {:?}, sc: {:?}, certifier: {:?}, hcertifier: {:?} }}" , self . f , self . kpriv , self . kpub , self . lt , self . cs , self . fips , self . knv , self . knvacl , self . sc , self . certifier , self . hcertifier)
+    }
+}
+extern "C" {
+    pub fn NFKM_newkey_makeblobs(
+        app: NFast_AppHandle,
+        conn: NFastApp_Connection,
+        world: *const NFKM_WorldInfo,
+        privatekey: M_KeyID,
+        publickey: M_KeyID,
+        cardset: *const NFKM_CardSet,
+        logtokenid: M_KeyID,
+        flags: M_Word,
+        newkeydata_io: *mut NFKM_Key,
+        cctx: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_newkey_makeblobsx(
+        app: NFast_AppHandle,
+        conn: NFastApp_Connection,
+        w: *const NFKM_WorldInfo,
+        mbp: *const NFKM_MakeBlobsParams,
+        k: *mut NFKM_Key,
+        cc: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_newkey_makeauth(
+        app: NFast_AppHandle,
+        world: *const NFKM_WorldInfo,
+        cmd_flags: *mut M_Word,
+        cmd_certs: *mut *mut M_CertificateList,
+        fips140auth: NFKM_FIPS140AuthHandle,
+        cctx: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_findkey(
+        app: NFast_AppHandle,
+        keyident: NFKM_KeyIdent,
+        info_r: *mut *mut NFKM_Key,
+        cctx: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_recordkey(
+        app: NFast_AppHandle,
+        key: *mut NFKM_Key,
+        cctx: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_cmd_loadblob(
+        app: NFast_AppHandle,
+        conn: NFastApp_Connection,
+        mn: M_ModuleID,
+        blob: *const M_ByteBlock,
+        idlt: M_KeyID,
+        idk_r: *mut M_KeyID,
+        whatfor: *const ::core::ffi::c_char,
+        cctx: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_cert_add(
+        app: NFast_AppHandle,
+        n: ::core::ffi::c_uint,
+        cv: *mut *mut M_Certificate,
+        f: *mut M_Word,
+        cl: *mut *mut M_CertificateList,
+        cc: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_cert_setdelg(
+        app: NFast_AppHandle,
+        w: *const NFKM_WorldInfo,
+        c: *mut M_Certificate,
+        ty_cert: M_Word,
+        cc: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_cert_remoteshare(
+        app: NFast_AppHandle,
+        conn: NFastApp_Connection,
+        w: *const NFKM_WorldInfo,
+        c: *mut M_Certificate,
+        m: *mut NFKM_ModuleInfo,
+        cc: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+pub const NFKM_KNSO: NFKM_AdminKeys = 0;
+pub const NFKM_KM: NFKM_AdminKeys = 1;
+pub const NFKM_KRA: NFKM_AdminKeys = 2;
+pub const NFKM_KP: NFKM_AdminKeys = 3;
+pub const NFKM_KNV: NFKM_AdminKeys = 4;
+pub const NFKM_KRTC: NFKM_AdminKeys = 5;
+pub const NFKM_KFIPS: NFKM_AdminKeys = 6;
+pub const NFKM_KMC: NFKM_AdminKeys = 7;
+pub const NFKM_KRE: NFKM_AdminKeys = 8;
+pub const NFKM_KDSEE: NFKM_AdminKeys = 9;
+pub const NFKM_KFTO: NFKM_AdminKeys = 10;
+pub const NFKM_KMAX: NFKM_AdminKeys = 11;
+pub type NFKM_AdminKeys = ::core::ffi::c_uint;
+pub const NFKM_LTNSO: NFKM_AdminTokens = 0;
+pub const NFKM_LTM: NFKM_AdminTokens = 1;
+pub const NFKM_LTR: NFKM_AdminTokens = 2;
+pub const NFKM_LTP: NFKM_AdminTokens = 3;
+pub const NFKM_LTNV: NFKM_AdminTokens = 4;
+pub const NFKM_LTRTC: NFKM_AdminTokens = 5;
+pub const NFKM_LTFIPS: NFKM_AdminTokens = 6;
+pub const NFKM_LTDSEE: NFKM_AdminTokens = 9;
+pub const NFKM_LTFTO: NFKM_AdminTokens = 10;
+pub const NFKM_LTMAX: NFKM_AdminTokens = 11;
+pub type NFKM_AdminTokens = ::core::ffi::c_uint;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NFKM_LoadAdminKeys {
+    _unused: [u8; 0],
+}
+pub type NFKM_LoadAdminKeysHandle = *mut NFKM_LoadAdminKeys;
+extern "C" {
+    pub fn NFKM_loadadminkeys_begin(
+        app: NFast_AppHandle,
+        conn: NFastApp_Connection,
+        lakh: *mut NFKM_LoadAdminKeysHandle,
+        m: *const NFKM_ModuleInfo,
+        cc: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_loadadminkeys_selecttokens(
+        lakh: NFKM_LoadAdminKeysHandle,
+        k: *const ::core::ffi::c_int,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_loadadminkeys_selecttoken(
+        lakh: NFKM_LoadAdminKeysHandle,
+        k: ::core::ffi::c_int,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_loadadminkeys_whichtokens(lakh: NFKM_LoadAdminKeysHandle) -> NFKM_ShareFlag;
+}
+extern "C" {
+    pub fn NFKM_loadadminkeys_loadtokens(
+        lakh: NFKM_LoadAdminKeysHandle,
+        left: *mut ::core::ffi::c_int,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_loadadminkeys_nextcard(
+        lakh: NFKM_LoadAdminKeysHandle,
+        s: *const NFKM_SlotInfo,
+        pp: *const M_Hash,
+        left: *mut ::core::ffi::c_int,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_loadadminkeys_getobjects(
+        lakh: NFKM_LoadAdminKeysHandle,
+        v: *mut M_KeyID,
+        v_k: *const ::core::ffi::c_int,
+        v_lt: *const ::core::ffi::c_int,
+        f: ::core::ffi::c_uint,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_loadadminkeys_getkey(
+        lakh: NFKM_LoadAdminKeysHandle,
+        i: ::core::ffi::c_int,
+        k: *mut M_KeyID,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_loadadminkeys_stealkey(
+        lakh: NFKM_LoadAdminKeysHandle,
+        i: ::core::ffi::c_int,
+        k: *mut M_KeyID,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_loadadminkeys_gettoken(
+        lakh: NFKM_LoadAdminKeysHandle,
+        i: ::core::ffi::c_int,
+        k: *mut M_KeyID,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_loadadminkeys_stealtoken(
+        lakh: NFKM_LoadAdminKeysHandle,
+        i: ::core::ffi::c_int,
+        k: *mut M_KeyID,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_loadadminkeys_done(lakh: NFKM_LoadAdminKeysHandle);
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct nf_darray {
+    _unused: [u8; 0],
+}
+pub const RQMsg_Unused: RQ_RQMsg = 0;
+pub const RQMsg_SlotChanges: RQ_RQMsg = 1;
+pub const RQMsg_OperationInfo: RQ_RQMsg = 2;
+pub const RQMsg_OperationFinished: RQ_RQMsg = 3;
+pub const RQMsg_SlowCommandReply: RQ_RQMsg = 4;
+pub const RQMsg_CardAlreadyRead: RQ_RQMsg = 5;
+pub const RQMsg_CardAlreadyWritten: RQ_RQMsg = 6;
+pub const RQMsg_Readable: RQ_RQMsg = 7;
+pub const RQMsg_SlotContentsUnsuitable: RQ_RQMsg = 8;
+pub const RQMsg_CardInfo: RQ_RQMsg = 9;
+pub const RQMsg_CardIOFailure: RQ_RQMsg = 10;
+pub const RQMsg_GeneralProblem: RQ_RQMsg = 11;
+pub const RQMsg_ModuleProgress: RQ_RQMsg = 12;
+pub const RQMsg_Confirm: RQ_RQMsg = 14;
+pub const RQMsg_ModuleNotSuitable: RQ_RQMsg = 15;
+pub const RQMsg_Writable: RQ_RQMsg = 16;
+pub const RQMsg__Max: RQ_RQMsg = 17;
+pub type RQ_RQMsg = ::core::ffi::c_uint;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQ_RQMsg_CardIOFailure_Info {
+    pub desc: NFKM_String,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_CardIOFailure_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_CardIOFailure_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_CardIOFailure_Info>(),
+        8usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg_CardIOFailure_Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_CardIOFailure_Info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg_CardIOFailure_Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).desc) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_CardIOFailure_Info),
+            "::",
+            stringify!(desc)
+        )
+    );
+}
+impl Default for RQ_RQMsg_CardIOFailure_Info {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQ_RQMsg_CardInfo_Info {
+    pub desc: NFKM_String,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_CardInfo_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_CardInfo_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_CardInfo_Info>(),
+        8usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg_CardInfo_Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_CardInfo_Info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg_CardInfo_Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).desc) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_CardInfo_Info),
+            "::",
+            stringify!(desc)
+        )
+    );
+}
+impl Default for RQ_RQMsg_CardInfo_Info {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub type RQ_RQMsg_Confirm_Info_flags = M_Word;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQ_RQMsg_Confirm_Info {
+    pub flags: RQ_RQMsg_Confirm_Info_flags,
+    pub pp: *mut M_Hash,
+    pub name: *mut NFKM_String,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_Confirm_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_Confirm_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_Confirm_Info>(),
+        24usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg_Confirm_Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_Confirm_Info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg_Confirm_Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_Confirm_Info),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).pp) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_Confirm_Info),
+            "::",
+            stringify!(pp)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).name) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_Confirm_Info),
+            "::",
+            stringify!(name)
+        )
+    );
+}
+impl Default for RQ_RQMsg_Confirm_Info {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQ_RQMsg_GeneralProblem_Info {
+    pub desc: NFKM_String,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_GeneralProblem_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_GeneralProblem_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_GeneralProblem_Info>(),
+        8usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg_GeneralProblem_Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_GeneralProblem_Info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg_GeneralProblem_Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).desc) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_GeneralProblem_Info),
+            "::",
+            stringify!(desc)
+        )
+    );
+}
+impl Default for RQ_RQMsg_GeneralProblem_Info {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQ_RQMsg_ModuleNotSuitable_Info {
+    pub desc: NFKM_String,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_ModuleNotSuitable_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_ModuleNotSuitable_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_ModuleNotSuitable_Info>(),
+        8usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg_ModuleNotSuitable_Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_ModuleNotSuitable_Info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg_ModuleNotSuitable_Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).desc) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_ModuleNotSuitable_Info),
+            "::",
+            stringify!(desc)
+        )
+    );
+}
+impl Default for RQ_RQMsg_ModuleNotSuitable_Info {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub type RQ_RQMsg_ModuleProgress_Info_flags = M_Word;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQ_RQMsg_ModuleProgress_Info {
+    pub desc: NFKM_String,
+    pub flags: RQ_RQMsg_ModuleProgress_Info_flags,
+    pub ndone: M_Word,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_ModuleProgress_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_ModuleProgress_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_ModuleProgress_Info>(),
+        16usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg_ModuleProgress_Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_ModuleProgress_Info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg_ModuleProgress_Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).desc) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_ModuleProgress_Info),
+            "::",
+            stringify!(desc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_ModuleProgress_Info),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).ndone) as usize - ptr as usize },
+        12usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_ModuleProgress_Info),
+            "::",
+            stringify!(ndone)
+        )
+    );
+}
+impl Default for RQ_RQMsg_ModuleProgress_Info {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub type RQ_RQMsg_OperationInfo_Info_flags = M_Word;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQ_RQMsg_OperationInfo_Info {
+    pub desc: NFKM_String,
+    pub flags: RQ_RQMsg_OperationInfo_Info_flags,
+    pub needed: M_Word,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_OperationInfo_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_OperationInfo_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_OperationInfo_Info>(),
+        16usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg_OperationInfo_Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_OperationInfo_Info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg_OperationInfo_Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).desc) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_OperationInfo_Info),
+            "::",
+            stringify!(desc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_OperationInfo_Info),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).needed) as usize - ptr as usize },
+        12usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_OperationInfo_Info),
+            "::",
+            stringify!(needed)
+        )
+    );
+}
+impl Default for RQ_RQMsg_OperationInfo_Info {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub type RQ_RQMsg_Readable_Info_flags = M_Word;
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct RQ_RQMsg_Readable_Info {
+    pub flags: RQ_RQMsg_Readable_Info_flags,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_Readable_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_Readable_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_Readable_Info>(),
+        4usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg_Readable_Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_Readable_Info>(),
+        4usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg_Readable_Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_Readable_Info),
+            "::",
+            stringify!(flags)
+        )
+    );
+}
+pub type RQ_vec_ModuleSlot = *mut RQ_ModuleSlot;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQ_RQMsg_SlotChanges_Info {
+    pub n_items: ::core::ffi::c_int,
+    pub items: RQ_vec_ModuleSlot,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_SlotChanges_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_SlotChanges_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_SlotChanges_Info>(),
+        16usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg_SlotChanges_Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_SlotChanges_Info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg_SlotChanges_Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).n_items) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_SlotChanges_Info),
+            "::",
+            stringify!(n_items)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).items) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_SlotChanges_Info),
+            "::",
+            stringify!(items)
+        )
+    );
+}
+impl Default for RQ_RQMsg_SlotChanges_Info {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQ_RQMsg_SlotContentsUnsuitable_Info {
+    pub desc: NFKM_String,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_SlotContentsUnsuitable_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_SlotContentsUnsuitable_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_SlotContentsUnsuitable_Info>(),
+        8usize,
+        concat!(
+            "Size of: ",
+            stringify!(RQ_RQMsg_SlotContentsUnsuitable_Info)
+        )
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_SlotContentsUnsuitable_Info>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(RQ_RQMsg_SlotContentsUnsuitable_Info)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).desc) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_SlotContentsUnsuitable_Info),
+            "::",
+            stringify!(desc)
+        )
+    );
+}
+impl Default for RQ_RQMsg_SlotContentsUnsuitable_Info {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub type RQ_opt_Reply = *mut M_Reply;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQ_RQMsg_SlowCommandReply_Info {
+    pub rc: M_Status,
+    pub reply: RQ_opt_Reply,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_SlowCommandReply_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_SlowCommandReply_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_SlowCommandReply_Info>(),
+        16usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg_SlowCommandReply_Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_SlowCommandReply_Info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg_SlowCommandReply_Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).rc) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_SlowCommandReply_Info),
+            "::",
+            stringify!(rc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).reply) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_SlowCommandReply_Info),
+            "::",
+            stringify!(reply)
+        )
+    );
+}
+impl Default for RQ_RQMsg_SlowCommandReply_Info {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub type RQ_RQMsg_Writable_Info_flags = M_Word;
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct RQ_RQMsg_Writable_Info {
+    pub flags: RQ_RQMsg_Writable_Info_flags,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg_Writable_Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg_Writable_Info> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg_Writable_Info>(),
+        4usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg_Writable_Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg_Writable_Info>(),
+        4usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg_Writable_Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg_Writable_Info),
+            "::",
+            stringify!(flags)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union RQ_RQMsg__Info {
+    pub cardiofailure: RQ_RQMsg_CardIOFailure_Info,
+    pub cardinfo: RQ_RQMsg_CardInfo_Info,
+    pub confirm: RQ_RQMsg_Confirm_Info,
+    pub generalproblem: RQ_RQMsg_GeneralProblem_Info,
+    pub modulenotsuitable: RQ_RQMsg_ModuleNotSuitable_Info,
+    pub moduleprogress: RQ_RQMsg_ModuleProgress_Info,
+    pub operationinfo: RQ_RQMsg_OperationInfo_Info,
+    pub readable: RQ_RQMsg_Readable_Info,
+    pub slotchanges: RQ_RQMsg_SlotChanges_Info,
+    pub slotcontentsunsuitable: RQ_RQMsg_SlotContentsUnsuitable_Info,
+    pub slowcommandreply: RQ_RQMsg_SlowCommandReply_Info,
+    pub writable: RQ_RQMsg_Writable_Info,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMsg__Info() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMsg__Info> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMsg__Info>(),
+        24usize,
+        concat!("Size of: ", stringify!(RQ_RQMsg__Info))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMsg__Info>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQ_RQMsg__Info))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).cardiofailure) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(cardiofailure)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).cardinfo) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(cardinfo)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).confirm) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(confirm)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).generalproblem) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(generalproblem)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).modulenotsuitable) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(modulenotsuitable)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).moduleprogress) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(moduleprogress)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).operationinfo) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(operationinfo)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).readable) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(readable)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).slotchanges) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(slotchanges)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).slotcontentsunsuitable) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(slotcontentsunsuitable)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).slowcommandreply) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(slowcommandreply)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).writable) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMsg__Info),
+            "::",
+            stringify!(writable)
+        )
+    );
+}
+impl Default for RQ_RQMsg__Info {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for RQ_RQMsg__Info {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "RQ_RQMsg__Info {{ union }}")
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct RQ_RQMessage {
+    pub v: M_Word,
+    pub module: M_ModuleID,
+    pub slot: M_SlotID,
+    pub tag: M_Word,
+    pub relevance: M_Word,
+    pub msg: RQ_RQMsg,
+    pub info: RQ_RQMsg__Info,
+}
+#[test]
+fn bindgen_test_layout_RQ_RQMessage() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_RQMessage> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_RQMessage>(),
+        48usize,
+        concat!("Size of: ", stringify!(RQ_RQMessage))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_RQMessage>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQ_RQMessage))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).v) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMessage),
+            "::",
+            stringify!(v)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).module) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMessage),
+            "::",
+            stringify!(module)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).slot) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMessage),
+            "::",
+            stringify!(slot)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).tag) as usize - ptr as usize },
+        12usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMessage),
+            "::",
+            stringify!(tag)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).relevance) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMessage),
+            "::",
+            stringify!(relevance)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).msg) as usize - ptr as usize },
+        20usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMessage),
+            "::",
+            stringify!(msg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).info) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_RQMessage),
+            "::",
+            stringify!(info)
+        )
+    );
+}
+impl Default for RQ_RQMessage {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for RQ_RQMessage {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "RQ_RQMessage {{ v: {:?}, module: {:?}, slot: {:?}, tag: {:?}, relevance: {:?}, msg: {:?}, info: {:?} }}" , self . v , self . module , self . slot , self . tag , self . relevance , self . msg , self . info)
+    }
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct RQ_ModuleSlot {
+    pub module: M_ModuleID,
+    pub slot: M_SlotID,
+}
+#[test]
+fn bindgen_test_layout_RQ_ModuleSlot() {
+    const UNINIT: ::core::mem::MaybeUninit<RQ_ModuleSlot> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQ_ModuleSlot>(),
+        8usize,
+        concat!("Size of: ", stringify!(RQ_ModuleSlot))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQ_ModuleSlot>(),
+        4usize,
+        concat!("Alignment of ", stringify!(RQ_ModuleSlot))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).module) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_ModuleSlot),
+            "::",
+            stringify!(module)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).slot) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQ_ModuleSlot),
+            "::",
+            stringify!(slot)
+        )
+    );
+}
+extern "C" {
+    pub static NF_RQMsg_enumtable: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_RQMsg_Confirm_Info_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_RQMsg_ModuleProgress_Info_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_RQMsg_OperationInfo_Info_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_RQMsg_Readable_Info_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_RQMsg_Writable_Info_flags_table: [M_ValInfo; 0usize];
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQCard_UI_Ctx {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQCard_Logic_Ctx {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQCard_WhichModule_Ctx {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQCard_Core_ModuleCtx {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQCard_Logic_ModuleCtx {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQCard_FIPS {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct RQCard {
+    pub app: NFast_AppHandle,
+    pub conn: NFastApp_Connection,
+    pub world: *mut NFKM_WorldInfo,
+    pub cctx: *mut NFast_Call_Context,
+    pub arena: *mut nf_arena,
+    pub fc: NF_Free_Context,
+    pub gip: NFKM_GetInfoParams,
+    pub uf: *const RQCard_UI_Fns,
+    pub uc: *mut RQCard_UI_Ctx,
+    pub wf: *const RQCard_WhichModule_Fns,
+    pub wc: *mut RQCard_WhichModule_Ctx,
+    pub lf: *const RQCard_Logic_Fns,
+    pub lc: *mut RQCard_Logic_Ctx,
+    pub fi: *mut RQCard_FIPS,
+    pub fi_poll: ::core::option::Option<
+        unsafe extern "C" fn(q: *mut RQCard, arg1: *const RQ_RQMessage) -> M_Status,
+    >,
+    pub co: RQCard__bindgen_ty_1,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct RQCard__bindgen_ty_1 {
+    pub inside: ::core::ffi::c_uint,
+    pub flags: ::core::ffi::c_uint,
+    pub n_dms: ::core::ffi::c_int,
+    pub dms: *mut RQ_RQMessage,
+    pub openend_finished_buf: RQ_RQMessage,
+    pub pm_alldone: ::core::ffi::c_int,
+    pub pm_n_cmcs: ::core::ffi::c_int,
+    pub pm_cmcs: *mut RQCard_Core_ModuleCtx,
+    pub readings: *mut nf_darray,
+    pub readings_st: M_Status,
+}
+#[test]
+fn bindgen_test_layout_RQCard__bindgen_ty_1() {
+    const UNINIT: ::core::mem::MaybeUninit<RQCard__bindgen_ty_1> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQCard__bindgen_ty_1>(),
+        104usize,
+        concat!("Size of: ", stringify!(RQCard__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQCard__bindgen_ty_1>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQCard__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).inside) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard__bindgen_ty_1),
+            "::",
+            stringify!(inside)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard__bindgen_ty_1),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).n_dms) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard__bindgen_ty_1),
+            "::",
+            stringify!(n_dms)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).dms) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard__bindgen_ty_1),
+            "::",
+            stringify!(dms)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).openend_finished_buf) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard__bindgen_ty_1),
+            "::",
+            stringify!(openend_finished_buf)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).pm_alldone) as usize - ptr as usize },
+        72usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard__bindgen_ty_1),
+            "::",
+            stringify!(pm_alldone)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).pm_n_cmcs) as usize - ptr as usize },
+        76usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard__bindgen_ty_1),
+            "::",
+            stringify!(pm_n_cmcs)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).pm_cmcs) as usize - ptr as usize },
+        80usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard__bindgen_ty_1),
+            "::",
+            stringify!(pm_cmcs)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).readings) as usize - ptr as usize },
+        88usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard__bindgen_ty_1),
+            "::",
+            stringify!(readings)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).readings_st) as usize - ptr as usize },
+        96usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard__bindgen_ty_1),
+            "::",
+            stringify!(readings_st)
+        )
+    );
+}
+impl Default for RQCard__bindgen_ty_1 {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for RQCard__bindgen_ty_1 {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "RQCard__bindgen_ty_1 {{ inside: {:?}, flags: {:?}, n_dms: {:?}, dms: {:?}, openend_finished_buf: {:?}, pm_alldone: {:?}, pm_n_cmcs: {:?}, pm_cmcs: {:?}, readings: {:?}, readings_st: {:?} }}" , self . inside , self . flags , self . n_dms , self . dms , self . openend_finished_buf , self . pm_alldone , self . pm_n_cmcs , self . pm_cmcs , self . readings , self . readings_st)
+    }
+}
+#[test]
+fn bindgen_test_layout_RQCard() {
+    const UNINIT: ::core::mem::MaybeUninit<RQCard> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQCard>(),
+        256usize,
+        concat!("Size of: ", stringify!(RQCard))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQCard>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQCard))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).app) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(app)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).conn) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(conn)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).world) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(world)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).cctx) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(cctx)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).arena) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(arena)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).fc) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(fc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).gip) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(gip)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).uf) as usize - ptr as usize },
+        88usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(uf)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).uc) as usize - ptr as usize },
+        96usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(uc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).wf) as usize - ptr as usize },
+        104usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(wf)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).wc) as usize - ptr as usize },
+        112usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(wc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).lf) as usize - ptr as usize },
+        120usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(lf)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).lc) as usize - ptr as usize },
+        128usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(lc)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).fi) as usize - ptr as usize },
+        136usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(fi)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).fi_poll) as usize - ptr as usize },
+        144usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(fi_poll)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).co) as usize - ptr as usize },
+        152usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard),
+            "::",
+            stringify!(co)
+        )
+    );
+}
+impl Default for RQCard {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for RQCard {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "RQCard {{ app: {:?}, conn: {:?}, world: {:?}, cctx: {:?}, arena: {:?}, fc: {:?}, gip: {:?}, uf: {:?}, uc: {:?}, wf: {:?}, wc: {:?}, lf: {:?}, lc: {:?}, fi: {:?}, fi_poll: {:?}, co: {:?} }}" , self . app , self . conn , self . world , self . cctx , self . arena , self . fc , self . gip , self . uf , self . uc , self . wf , self . wc , self . lf , self . lc , self . fi , self . fi_poll , self . co)
+    }
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct RQCard_UI_Fns {
+    pub display: ::core::option::Option<
+        unsafe extern "C" fn(
+            q: *mut RQCard,
+            n_old: ::core::ffi::c_int,
+            m_old: *const RQ_RQMessage,
+            n_new: ::core::ffi::c_int,
+            m_new: *const RQ_RQMessage,
+        ),
+    >,
+    pub reading: ::core::option::Option<
+        unsafe extern "C" fn(
+            q: *mut RQCard,
+            n_modslots: ::core::ffi::c_int,
+            modslots: *const RQ_ModuleSlot,
+        ),
+    >,
+    pub destroy: ::core::option::Option<unsafe extern "C" fn(q: *mut RQCard)>,
+    pub eventloop: ::core::option::Option<unsafe extern "C" fn(q: *mut RQCard) -> M_Status>,
+}
+#[test]
+fn bindgen_test_layout_RQCard_UI_Fns() {
+    const UNINIT: ::core::mem::MaybeUninit<RQCard_UI_Fns> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQCard_UI_Fns>(),
+        32usize,
+        concat!("Size of: ", stringify!(RQCard_UI_Fns))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQCard_UI_Fns>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQCard_UI_Fns))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).display) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_UI_Fns),
+            "::",
+            stringify!(display)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).reading) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_UI_Fns),
+            "::",
+            stringify!(reading)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).destroy) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_UI_Fns),
+            "::",
+            stringify!(destroy)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).eventloop) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_UI_Fns),
+            "::",
+            stringify!(eventloop)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct RQCard_Logic_Fns {
+    pub event: ::core::option::Option<
+        unsafe extern "C" fn(q: *mut RQCard, ev: *const RQ_RQMessage) -> M_Status,
+    >,
+    pub destroy: ::core::option::Option<unsafe extern "C" fn(q: *mut RQCard)>,
+    pub mc_size: usize,
+    pub mc_init: ::core::option::Option<
+        unsafe extern "C" fn(
+            q: *mut RQCard,
+            lmc: *mut RQCard_Logic_ModuleCtx,
+            mi: *mut NFKM_ModuleInfo,
+        ) -> M_Status,
+    >,
+    pub mc_destroy: ::core::option::Option<
+        unsafe extern "C" fn(q: *mut RQCard, lmc: *mut RQCard_Logic_ModuleCtx),
+    >,
+    pub mr_size: usize,
+    pub mr_destroy: ::core::option::Option<
+        unsafe extern "C" fn(q: *mut RQCard, results: *const ::core::ffi::c_void),
+    >,
+}
+#[test]
+fn bindgen_test_layout_RQCard_Logic_Fns() {
+    const UNINIT: ::core::mem::MaybeUninit<RQCard_Logic_Fns> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQCard_Logic_Fns>(),
+        56usize,
+        concat!("Size of: ", stringify!(RQCard_Logic_Fns))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQCard_Logic_Fns>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQCard_Logic_Fns))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).event) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_Logic_Fns),
+            "::",
+            stringify!(event)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).destroy) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_Logic_Fns),
+            "::",
+            stringify!(destroy)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).mc_size) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_Logic_Fns),
+            "::",
+            stringify!(mc_size)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).mc_init) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_Logic_Fns),
+            "::",
+            stringify!(mc_init)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).mc_destroy) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_Logic_Fns),
+            "::",
+            stringify!(mc_destroy)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).mr_size) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_Logic_Fns),
+            "::",
+            stringify!(mr_size)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).mr_destroy) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_Logic_Fns),
+            "::",
+            stringify!(mr_destroy)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct RQCard_WhichModule_Fns {
+    pub desired: ::core::option::Option<
+        unsafe extern "C" fn(q: *mut RQCard, mi: *mut NFKM_ModuleInfo) -> M_Status,
+    >,
+    pub finished: ::core::option::Option<
+        unsafe extern "C" fn(q: *mut RQCard, cancelled: M_Status) -> M_Status,
+    >,
+    pub destroy: ::core::option::Option<unsafe extern "C" fn(q: *mut RQCard)>,
+}
+#[test]
+fn bindgen_test_layout_RQCard_WhichModule_Fns() {
+    const UNINIT: ::core::mem::MaybeUninit<RQCard_WhichModule_Fns> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<RQCard_WhichModule_Fns>(),
+        24usize,
+        concat!("Size of: ", stringify!(RQCard_WhichModule_Fns))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<RQCard_WhichModule_Fns>(),
+        8usize,
+        concat!("Alignment of ", stringify!(RQCard_WhichModule_Fns))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).desired) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_WhichModule_Fns),
+            "::",
+            stringify!(desired)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).finished) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_WhichModule_Fns),
+            "::",
+            stringify!(finished)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).destroy) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(RQCard_WhichModule_Fns),
+            "::",
+            stringify!(destroy)
+        )
+    );
+}
+extern "C" {
+    pub fn RQCard_findmodule(
+        q: *mut RQCard,
+        module: M_ModuleID,
+        mi_r: *mut *mut NFKM_ModuleInfo,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_findslot(
+        arg1: *mut RQCard,
+        arg2: M_ModuleID,
+        arg3: M_SlotID,
+        arg4: *mut *mut NFKM_SlotInfo,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_strdup(q: *mut RQCard, s: *const ::core::ffi::c_char)
+        -> *mut ::core::ffi::c_char;
+}
+extern "C" {
+    pub fn RQCard_ui_default(rqcard: *mut RQCard) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_ui_scroll(q: *mut RQCard) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_ui_test(q: *mut RQCard) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_ui_auto(q: *mut RQCard) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_init(
+        q: *mut RQCard,
+        app: NFast_AppHandle,
+        conn: NFastApp_Connection,
+        world: *mut NFKM_WorldInfo,
+        cctx: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_set_oneshot(q: *mut RQCard, oneshot: ::core::ffi::c_int);
+}
+extern "C" {
+    pub fn RQCard_destroy(q: *mut RQCard);
+}
+extern "C" {
+    pub fn RQCard_logic_indoctrinate(q: *mut RQCard, imp: *const NFKM_InitModuleParams)
+        -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_initworld(
+        q: *mut RQCard,
+        mid: *mut M_ModuleID,
+        iwp: *const NFKM_InitWorldParams,
+        imp: *const NFKM_InitModuleParams,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_loadadmin(
+        q: *mut RQCard,
+        tokens: *const ::core::ffi::c_int,
+        op_desc: *const ::core::ffi::c_char,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_replaceocs(q: *mut RQCard) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_ocs_specific(
+        q: *mut RQCard,
+        ocs: *const M_Hash,
+        op_desc: *const ::core::ffi::c_char,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_ocs_anyone(
+        q: *mut RQCard,
+        ocs_r: *mut M_Hash,
+        op_desc: *const ::core::ffi::c_char,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_ocs_these(
+        q: *mut RQCard,
+        n_ocss: ::core::ffi::c_int,
+        ocss: *const M_Hash,
+        op_desc: *const ::core::ffi::c_char,
+        objs_r: *mut *mut nf_darray,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_ocs_these_ex(
+        q: *mut RQCard,
+        n_ocss: ::core::ffi::c_int,
+        ocss: *const M_Hash,
+        op_desc: *const ::core::ffi::c_char,
+        objs_r: *mut *mut nf_darray,
+        flags: M_Word,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_ocs_lots(
+        q: *mut RQCard,
+        op_desc: *const ::core::ffi::c_char,
+        objs_r: *mut *mut nf_darray,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_ocs_several_destroy(q: *mut RQCard, objs: *mut nf_darray) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_cardinfo(q: *mut RQCard, prevent: M_Word) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_createocs(
+        q: *mut RQCard,
+        name: *const ::core::ffi::c_char,
+        n: ::core::ffi::c_int,
+        k: ::core::ffi::c_int,
+        makecs_flags: M_Word,
+        timeout: ::core::ffi::c_int,
+        log_flags: M_Word,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_createocs_endonly(
+        q: *mut RQCard,
+        mcs: NFKM_MakeCSHandle,
+        n: ::core::ffi::c_int,
+        fips140auth: NFKM_FIPS140AuthHandle,
+        lco_flags: M_Word,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_createocs_midonly(
+        q: *mut RQCard,
+        mcs: NFKM_MakeCSHandle,
+        n: ::core::ffi::c_int,
+        fips140auth: NFKM_FIPS140AuthHandle,
+        lco_flags: M_Word,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_replaceacs(
+        q: *mut RQCard,
+        mi: *mut NFKM_ModuleInfo,
+        unsafe_: *mut ::core::ffi::c_int,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_recoverpin(q: *mut RQCard, mi: *mut NFKM_ModuleInfo) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_logic_removecards(q: *mut RQCard) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_whichmodule_specific(
+        q: *mut RQCard,
+        mno: M_ModuleID,
+        resultplace: *mut ::core::ffi::c_void,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_whichmodule_anyone(
+        q: *mut RQCard,
+        m_r: *mut M_ModuleID,
+        resultplace: *mut ::core::ffi::c_void,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_whichmodule_these_array(
+        q: *mut RQCard,
+        nresults_r: *mut ::core::ffi::c_int,
+        modules_r: *mut *mut M_ModuleID,
+        results_r: *mut *mut ::core::ffi::c_void,
+        nmodules_req: ::core::ffi::c_int,
+        modules_req: *mut M_ModuleID,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_whichmodule_many_array(
+        q: *mut RQCard,
+        nresults_r: *mut ::core::ffi::c_int,
+        modules_r: *mut *mut M_ModuleID,
+        results_r: *mut *mut ::core::ffi::c_void,
+    ) -> M_Status;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RQCard_WM_Many_MergeKeys {
+    _unused: [u8; 0],
+}
+extern "C" {
+    pub fn RQCard_whichmodule_many_mergekeys(
+        arg1: *mut RQCard,
+        id_r: *mut M_KeyID,
+        mk_r: *mut RQCard_WM_Many_MergeKeys,
+    ) -> M_Status;
+}
+extern "C" {
+    pub fn RQCard_whichmodule_many_mergekeys_destroy(
+        arg1: *mut RQCard,
+        mk_r: *mut RQCard_WM_Many_MergeKeys,
+    );
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]

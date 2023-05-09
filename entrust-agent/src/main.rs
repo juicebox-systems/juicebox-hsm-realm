@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use clap::Parser;
-use entrust_api::{EntrustRequest, EntrustResponse, StartRequest};
+use entrust_api::{EntrustRequest, EntrustResponse, StartRequest, StartResponse};
 use entrust_nfast::{
     Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
     Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_LoadBuffer,
@@ -243,8 +243,19 @@ impl TransportInner {
         if self.world_id.is_none() {
             self.world_id = Some(self.start_seeworld()?);
 
-            self.transact_control_job(EntrustRequest::Start(StartRequest::default()))
-                .expect("StartRequest to HSM failed");
+            match self
+                .transact_control_job(EntrustRequest::Start(StartRequest::default()))
+                .expect("StartRequest to HSM failed")
+            {
+                EntrustResponse::Initialize(_) => panic!("Wrong response type received from HSM"),
+                EntrustResponse::Start(StartResponse::Ok) => {}
+                EntrustResponse::Start(StartResponse::PersistenceError(msg)) => {
+                    panic!("HSM Failed to start due to persistence error: {msg}")
+                }
+                EntrustResponse::Start(StartResponse::WorldSigner(err)) => {
+                    panic!("HSM Failed to start due to code signing related issue: {err:?}")
+                }
+            }
         }
         Ok(())
     }
