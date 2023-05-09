@@ -22,7 +22,7 @@ pub struct NCipher {
     // The hash of the key used to sign the SEEMachine/Userdata. We need this
     // when accessing resources that are restricted to the signing key. This
     // needs making into a Certificate to make the calls, but we can't keep it
-    // as a certificate here because a certificate contains raw points, which
+    // as a certificate here because a certificate contains raw pointers, which
     // makes it problematic.
     world_cert_key: M_KeyHash,
 }
@@ -217,9 +217,9 @@ impl M_Command {
     }
 }
 
-// Transact a command with the HSM module. Optionally include a certificate list
-// for the supplied world signer, so that the request inherits permissions
-// associated to the world signers key. (like ACL entries).
+// Execute a command with the HSM module and wait for the response. Optionally
+// include a certificate list for the supplied world signer, so that the request
+// inherits permissions associated to the world signers key. (like ACL entries).
 fn transact(cmd: &mut M_Command, signer: Option<M_KeyHash>) -> Result<Reply, SeeError> {
     let mut cert = M_Certificate::default();
     let mut certs = M_CertificateList {

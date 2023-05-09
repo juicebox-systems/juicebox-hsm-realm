@@ -11,7 +11,7 @@ use entrust_nfast::{
 mod nvram;
 
 #[derive(Parser)]
-#[command(about = "A tool for initializing an Entrust nCipherXC HSM ready for use with Juicebox.")]
+#[command(about = "A tool for initializing an Entrust nCipher XC HSM ready for use with Juicebox.")]
 struct Args {
     /// The HSM module to work with. (The default of 1 is fine unless there are
     /// multiple HSMs in a host).

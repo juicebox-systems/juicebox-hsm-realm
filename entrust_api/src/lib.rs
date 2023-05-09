@@ -66,9 +66,9 @@ pub enum WorldSignerError {
     /// SEEMachine binary and the userdata file are signed with a `seeinteg`
     /// key.
     NoWorldSigner,
-    /// The SEE Machine 2 or more world signer, there should only be 1. Ensure
-    /// that both the SEEMachine binary and the userdata file are signed with
-    /// the same `seeinteg` key.
+    /// The SEE Machine found 2 or more world signers, there should only be 1.
+    /// Ensure that both the SEEMachine binary and the userdata file are signed
+    /// with the same `seeinteg` key.
     TooManyWorldSigners,
 }
 
