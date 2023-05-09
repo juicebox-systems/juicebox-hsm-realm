@@ -96,7 +96,7 @@ pub enum NFastError {
 impl Display for NFastError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fn lookup<'a>(status: M_Status) -> Cow<'a, str> {
-            enum_name(status, unsafe { &NF_Status_enumtable })
+            lookup_name(status, unsafe { &NF_Status_enumtable })
         }
         match self {
             Self::Api(status) => {
@@ -149,7 +149,7 @@ impl M_Command {
     }
 }
 
-pub fn enum_name(val: u32, table: &[M_ValInfo]) -> Cow<'_, str> {
+pub fn lookup_name(val: u32, table: &[M_ValInfo]) -> Cow<'_, str> {
     let cstr = unsafe { NF_Lookup(val, table.as_ptr()) };
     if cstr.is_null() {
         Cow::Owned(format!("[Unknown:{}]", val))
@@ -159,12 +159,12 @@ pub fn enum_name(val: u32, table: &[M_ValInfo]) -> Cow<'_, str> {
     }
 }
 
-pub fn enum_names(val: u32, max: u32, table: &[M_ValInfo]) -> Vec<Cow<'_, str>> {
+pub fn flag_names(val: u32, max: u32, table: &[M_ValInfo]) -> Vec<Cow<'_, str>> {
     let mut m: u32 = 1;
     let mut res = Vec::new();
     while m <= max {
         if m & val != 0 {
-            res.push(enum_name(m, table));
+            res.push(lookup_name(m, table));
         }
         m <<= 1;
     }
@@ -259,7 +259,7 @@ impl Display for M_ACL {
 }
 
 pub fn m_permissiongroup_names(f: M_PermissionGroup_flags) -> Vec<Cow<'static, str>> {
-    enum_names(f, PermissionGroup_flags__allflags, unsafe {
+    flag_names(f, PermissionGroup_flags__allflags, unsafe {
         &NF_PermissionGroup_flags_table
     })
 }
@@ -267,7 +267,7 @@ pub fn m_permissiongroup_names(f: M_PermissionGroup_flags) -> Vec<Cow<'static, s
 impl Display for M_Act_OpPermissions_Details {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(
-            &enum_names(
+            &flag_names(
                 self.perms,
                 Act_OpPermissions_Details_perms__allflags,
                 unsafe { &NF_Act_OpPermissions_Details_perms_table },
@@ -283,7 +283,7 @@ impl Display for M_Act_MakeBlob_Details {
             write!(
                 f,
                 "Flags: {}",
-                enum_names(self.flags, Act_MakeBlob_Details_flags__allflags, unsafe {
+                flag_names(self.flags, Act_MakeBlob_Details_flags__allflags, unsafe {
                     &NF_Act_MakeBlob_Details_flags_table
                 })
                 .join(", ")
@@ -311,7 +311,7 @@ impl Display for M_Act_MakeArchiveBlob_Details {
             write!(
                 f,
                 "Flags: {}",
-                enum_names(self.flags, Act_MakeBlob_Details_flags__allflags, unsafe {
+                flag_names(self.flags, Act_MakeBlob_Details_flags__allflags, unsafe {
                     &NF_Act_MakeArchiveBlob_Details_flags_table
                 })
                 .join(", ")
@@ -333,7 +333,7 @@ impl Display for M_Act_NVMemOpPerms_Details {
         write!(
             f,
             "perms: {}",
-            enum_names(
+            flag_names(
                 self.perms,
                 Act_NVMemOpPerms_Details_perms__allflags,
                 unsafe { &NF_Act_NVMemOpPerms_Details_perms_table }
@@ -359,7 +359,7 @@ impl Display for M_Act_FileCopy_Details {
             write!(
                 f,
                 "flags: {} ",
-                enum_names(self.flags, Act_FileCopy_Details_flags__allflags, unsafe {
+                flag_names(self.flags, Act_FileCopy_Details_flags__allflags, unsafe {
                     &NF_Act_FileCopy_Details_flags_table
                 })
                 .join(", ")
@@ -368,7 +368,7 @@ impl Display for M_Act_FileCopy_Details {
         write!(
             f,
             "from: {} ",
-            enum_names(self.from, FileDeviceFlags__allflags, unsafe {
+            flag_names(self.from, FileDeviceFlags__allflags, unsafe {
                 &NF_FileDeviceFlags_table
             })
             .join(", ")
@@ -376,7 +376,7 @@ impl Display for M_Act_FileCopy_Details {
         write!(
             f,
             "to: {}",
-            enum_names(self.to, FileDeviceFlags__allflags, unsafe {
+            flag_names(self.to, FileDeviceFlags__allflags, unsafe {
                 &NF_FileDeviceFlags_table
             })
             .join(", ")
@@ -408,7 +408,7 @@ impl Display for M_KeyHashAndMech {
 }
 
 pub fn m_mech_name(m: M_Mech) -> Cow<'static, str> {
-    unsafe { enum_name(m, &NF_Mech_enumtable) }
+    unsafe { lookup_name(m, &NF_Mech_enumtable) }
 }
 
 impl Display for M_Hash {
