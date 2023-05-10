@@ -208,6 +208,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
             async move {
                 let request_bytes = request.collect().await?.to_bytes();
 
+                // todo: figure out a way to reject without reading all bytes into memory first
                 let response = if request_bytes.len() >= REQUEST_BODY_SIZE_LIMIT {
                     ClientResponse::PayloadTooLarge
                 } else {
