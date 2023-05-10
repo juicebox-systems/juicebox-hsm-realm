@@ -60,15 +60,15 @@ use types::{
 const SESSION_LIFETIME: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Deserialize, Serialize)]
-pub struct RealmKey(digest::Key<SimpleHmac<Blake2s256>>);
+pub struct MacKey(digest::Key<SimpleHmac<Blake2s256>>);
 
-impl fmt::Debug for RealmKey {
+impl fmt::Debug for MacKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("(redacted)")
     }
 }
 
-impl RealmKey {
+impl MacKey {
     pub fn random(rng: &mut impl CryptoRng) -> Self {
         let mut key = digest::Key::<SimpleHmac<Blake2s256>>::default();
         rng.fill_bytes(&mut key);
@@ -125,7 +125,7 @@ struct GroupConfigurationStatementBuilder<'a> {
 }
 
 impl<'a> GroupConfigurationStatementBuilder<'a> {
-    fn calculate(&self, key: &RealmKey) -> SimpleHmac<Blake2s256> {
+    fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
         let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
         mac.update(b"group configuration|");
         mac.update(&self.realm.0);
@@ -138,13 +138,13 @@ impl<'a> GroupConfigurationStatementBuilder<'a> {
         mac
     }
 
-    fn build(&self, key: &RealmKey) -> GroupConfigurationStatement {
+    fn build(&self, key: &MacKey) -> GroupConfigurationStatement {
         GroupConfigurationStatement(self.calculate(key).finalize().into_bytes())
     }
 
     fn verify(
         &self,
-        key: &RealmKey,
+        key: &MacKey,
         statement: &GroupConfigurationStatement,
     ) -> Result<(), digest::MacError> {
         self.calculate(key).verify(&statement.0)
@@ -160,7 +160,7 @@ struct CapturedStatementBuilder<'a> {
 }
 
 impl<'a> CapturedStatementBuilder<'a> {
-    fn calculate(&self, key: &RealmKey) -> SimpleHmac<Blake2s256> {
+    fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
         let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
         mac.update(b"captured|");
         mac.update(&self.hsm.0);
@@ -175,15 +175,11 @@ impl<'a> CapturedStatementBuilder<'a> {
         mac
     }
 
-    fn build(&self, key: &RealmKey) -> CapturedStatement {
+    fn build(&self, key: &MacKey) -> CapturedStatement {
         CapturedStatement(self.calculate(key).finalize().into_bytes())
     }
 
-    fn verify(
-        &self,
-        key: &RealmKey,
-        statement: &CapturedStatement,
-    ) -> Result<(), digest::MacError> {
+    fn verify(&self, key: &MacKey, statement: &CapturedStatement) -> Result<(), digest::MacError> {
         self.calculate(key).verify(&statement.0)
     }
 }
@@ -198,7 +194,7 @@ struct EntryHmacBuilder<'a> {
 }
 
 impl<'a> EntryHmacBuilder<'a> {
-    fn calculate(&self, key: &RealmKey) -> SimpleHmac<Blake2s256> {
+    fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
         let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
         mac.update(b"entry|");
         mac.update(&self.realm.0);
@@ -247,16 +243,16 @@ impl<'a> EntryHmacBuilder<'a> {
         mac
     }
 
-    fn build(&self, key: &RealmKey) -> EntryHmac {
+    fn build(&self, key: &MacKey) -> EntryHmac {
         EntryHmac(self.calculate(key).finalize().into_bytes())
     }
 
-    fn verify(&self, key: &RealmKey, hmac: &EntryHmac) -> Result<(), digest::MacError> {
+    fn verify(&self, key: &MacKey, hmac: &EntryHmac) -> Result<(), digest::MacError> {
         self.calculate(key).verify(&hmac.0)
     }
 
     fn verify_entry(
-        key: &RealmKey,
+        key: &MacKey,
         realm: RealmId,
         group: GroupId,
         entry: &'a LogEntry,
@@ -289,7 +285,7 @@ struct TransferStatementBuilder<'a> {
 }
 
 impl<'a> TransferStatementBuilder<'a> {
-    fn calculate(&self, key: &RealmKey) -> SimpleHmac<Blake2s256> {
+    fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
         let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
         mac.update(b"transfer|");
         mac.update(&self.realm.0);
@@ -306,15 +302,11 @@ impl<'a> TransferStatementBuilder<'a> {
         mac
     }
 
-    fn build(&self, key: &RealmKey) -> TransferStatement {
+    fn build(&self, key: &MacKey) -> TransferStatement {
         TransferStatement(self.calculate(key).finalize().into_bytes())
     }
 
-    fn verify(
-        &self,
-        key: &RealmKey,
-        statement: &TransferStatement,
-    ) -> Result<(), digest::MacError> {
+    fn verify(&self, key: &MacKey, statement: &TransferStatement) -> Result<(), digest::MacError> {
         self.calculate(key).verify(&statement.0)
     }
 }
@@ -332,10 +324,10 @@ impl NodeHasher<DataHash> for MerkleHasher {
 }
 
 /// A private key used to encrypt/decrypt record values.
-struct RecordEncryptionKey([u8; 32]);
+pub struct RecordEncryptionKey([u8; 32]);
 
 impl RecordEncryptionKey {
-    fn from(realm_key: &RealmKey) -> Self {
+    fn from(realm_key: &MacKey) -> Self {
         // generated from /dev/random
         let salt = [
             0x61u8, 0x33, 0xcf, 0xf6, 0xf6, 0x70, 0x27, 0xd2, 0x0c, 0x3d, 0x8b, 0x42, 0x5a, 0x21,
@@ -355,6 +347,7 @@ pub struct Hsm<P: Platform> {
     options: HsmOptions,
     persistent: MutationTracker<PersistentState, NVRamWriter<P>>,
     volatile: VolatileState,
+    realm_keys: RealmKeys,
 }
 
 pub struct HsmOptions {
@@ -363,11 +356,15 @@ pub struct HsmOptions {
     pub max_sessions: u16,
 }
 
+pub struct RealmKeys {
+    pub communication: (x25519::StaticSecret, x25519::PublicKey),
+    pub record: RecordEncryptionKey,
+    pub mac: MacKey,
+}
+
 #[derive(Deserialize, Serialize)]
 struct PersistentState {
     id: HsmId,
-    realm_key: RealmKey, // TODO: rename. This is used for MACs.
-    realm_communication: (x25519::StaticSecret, x25519::PublicKey),
     realm: Option<PersistentRealmState>,
 }
 
@@ -385,7 +382,6 @@ struct PersistentGroupState {
 
 struct VolatileState {
     leader: HashMap<GroupId, LeaderVolatileGroupState>,
-    record_key: RecordEncryptionKey,
     captured: HashMap<GroupId, (LogIndex, EntryHmac)>,
     // A Group can be in leader, stepping_down or neither. Its never in both leader & stepping_down.
     stepping_down: HashMap<GroupId, SteppingDownVolatileGroupState>,
@@ -509,11 +505,31 @@ impl<N: NVRam> OnMutationFinished<PersistentState> for NVRamWriter<N> {
     }
 }
 
+impl RealmKeys {
+    // TODO: This is an insecure placeholder.
+    pub fn insecure_derive(k: MacKey) -> Self {
+        let communication = {
+            // TODO: This is an insecure placeholder.
+            let mut buf = [0u8; 32];
+            buf.copy_from_slice(&k.0[..32]);
+            let secret = x25519::StaticSecret::from(buf);
+            let public = x25519::PublicKey::from(&secret);
+            (secret, public)
+        };
+        let record = RecordEncryptionKey::from(&k);
+        RealmKeys {
+            communication,
+            record,
+            mac: k,
+        }
+    }
+}
+
 impl<P: Platform> Hsm<P> {
     pub fn new(
         options: HsmOptions,
         mut platform: P,
-        realm_key: RealmKey,
+        realm_keys: RealmKeys,
     ) -> Result<Self, PersistenceError> {
         let writer = NVRamWriter {
             nvram: platform.clone(),
@@ -522,19 +538,8 @@ impl<P: Platform> Hsm<P> {
             Some(state) => state,
             None => {
                 let hsm_id = HsmId::random(&mut platform);
-
-                let realm_communication = {
-                    // TODO: This is an insecure placeholder.
-                    let mut buf = [0u8; 32];
-                    buf.copy_from_slice(&realm_key.0[..32]);
-                    let secret = x25519::StaticSecret::from(buf);
-                    let public = x25519::PublicKey::from(&secret);
-                    (secret, public)
-                };
                 let state = PersistentState {
                     id: hsm_id,
-                    realm_key,
-                    realm_communication,
                     realm: None,
                 };
                 writer.finished(&state);
@@ -554,7 +559,6 @@ impl<P: Platform> Hsm<P> {
             })
             .collect();
 
-        let record_key = RecordEncryptionKey::from(&persistent.realm_key);
         Ok(Hsm {
             options,
             platform,
@@ -562,9 +566,9 @@ impl<P: Platform> Hsm<P> {
             volatile: VolatileState {
                 leader: HashMap::new(),
                 captured,
-                record_key,
                 stepping_down: HashMap::new(),
             },
+            realm_keys,
         })
     }
 
@@ -676,7 +680,7 @@ impl<P: Platform> Hsm<P> {
             group,
             configuration: &configuration,
         }
-        .build(&self.persistent.realm_key);
+        .build(&self.realm_keys.mac);
 
         {
             let mut persistent = self.persistent.mutate();
@@ -716,7 +720,7 @@ impl<P: Platform> Hsm<P> {
             transferring_out: &transferring_out,
             prev_hmac: &prev_hmac,
         }
-        .build(&self.persistent.realm_key);
+        .build(&self.realm_keys.mac);
 
         let entry = LogEntry {
             index,
@@ -764,7 +768,7 @@ impl<P: Platform> Hsm<P> {
         let response =
             StatusResponse {
                 id: self.persistent.id,
-                public_key: self.persistent.realm_communication.1.as_bytes().to_vec(),
+                public_key: self.realm_keys.communication.1.as_bytes().to_vec(),
                 realm: self.persistent.realm.as_ref().map(|realm| RealmStatus {
                     id: realm.id,
                     groups: realm
@@ -913,7 +917,7 @@ impl<P: Platform> Hsm<P> {
                         group: request.group,
                         configuration: &request.configuration,
                     })
-                    .verify(&self.persistent.realm_key, &request.statement)
+                    .verify(&self.realm_keys.mac, &request.statement)
                     .is_err()
                     {
                         return Response::InvalidStatement;
@@ -969,7 +973,7 @@ impl<P: Platform> Hsm<P> {
 
                     for entry in request.entries {
                         if EntryHmacBuilder::verify_entry(
-                            &self.persistent.realm_key,
+                            &self.realm_keys.mac,
                             request.realm,
                             request.group,
                             &entry,
@@ -1074,7 +1078,7 @@ impl<P: Platform> Hsm<P> {
                                     };
                                 }
                                 if EntryHmacBuilder::verify_entry(
-                                    &self.persistent.realm_key,
+                                    &self.realm_keys.mac,
                                     request.realm,
                                     request.group,
                                     &request.last_entry,
@@ -1185,7 +1189,7 @@ impl<P: Platform> Hsm<P> {
                             index: *index,
                             entry_hmac,
                         }
-                        .build(&state.realm_key);
+                        .build(&self.realm_keys.mac);
                         Captured {
                             group: *group,
                             hsm: state.id,
@@ -1321,7 +1325,7 @@ impl<P: Platform> Hsm<P> {
                 transferring_out: &transferring_out,
                 prev_hmac: &prev_hmac,
             }
-            .build(&self.persistent.realm_key);
+            .build(&self.realm_keys.mac);
 
             leader.tree = keeping_partition.as_ref().map(|p| {
                 Tree::with_existing_root(
@@ -1427,7 +1431,7 @@ impl<P: Platform> Hsm<P> {
                 partition,
                 nonce: request.nonce,
             }
-            .build(&self.persistent.realm_key);
+            .build(&self.realm_keys.mac);
 
             Response::Ok(statement)
         })();
@@ -1494,7 +1498,7 @@ impl<P: Platform> Hsm<P> {
                 partition: &request.transferring,
                 nonce: request.nonce,
             })
-            .verify(&self.persistent.realm_key, &request.statement)
+            .verify(&self.realm_keys.mac, &request.statement)
             .is_err()
             {
                 return Response::InvalidStatement;
@@ -1533,7 +1537,7 @@ impl<P: Platform> Hsm<P> {
                 transferring_out: &transferring_out,
                 prev_hmac: &prev_hmac,
             }
-            .build(&self.persistent.realm_key);
+            .build(&self.realm_keys.mac);
 
             let entry = LogEntry {
                 index,
@@ -1608,7 +1612,7 @@ impl<P: Platform> Hsm<P> {
                 transferring_out: &transferring_out,
                 prev_hmac: &prev_hmac,
             }
-            .build(&self.persistent.realm_key);
+            .build(&self.realm_keys.mac);
 
             let entry = LogEntry {
                 index,
@@ -1650,8 +1654,8 @@ impl<P: Platform> Hsm<P> {
                         {
                             match noise::Handshake::start(
                                 (
-                                    &self.persistent.realm_communication.0,
-                                    &self.persistent.realm_communication.1,
+                                    &self.realm_keys.communication.0,
+                                    &self.realm_keys.communication.1,
                                 ),
                                 &request.handshake,
                                 &mut self.platform,
@@ -1713,8 +1717,7 @@ impl<P: Platform> Hsm<P> {
                             handle_app_request(
                                 &app_ctx,
                                 request,
-                                &self.volatile.record_key,
-                                &self.persistent,
+                                &self.realm_keys,
                                 leader,
                                 &mut app_req_name,
                                 &mut self.platform,
@@ -1753,8 +1756,7 @@ fn secrets_req_name(r: &SecretsRequest) -> &'static str {
 fn handle_app_request(
     app_ctx: &app::AppContext,
     request: AppRequest,
-    leaf_key: &RecordEncryptionKey,
-    persistent: &PersistentState,
+    keys: &RealmKeys,
     leader: &mut LeaderVolatileGroupState,
     req_name_out: &mut Option<&'static str>,
     rng: &mut dyn CryptoRng,
@@ -1764,7 +1766,7 @@ fn handle_app_request(
         .as_mut()
         .expect("caller should have checked that this leader owns a partition");
 
-    let (merkle, record) = match MerkleHelper::get_record(request.proof, leaf_key, tree) {
+    let (merkle, record) = match MerkleHelper::get_record(request.proof, &keys.record, tree) {
         Ok(record) => record,
         Err(response) => return response.into(),
     };
@@ -1774,7 +1776,7 @@ fn handle_app_request(
         request.session_id,
         &request.encrypted,
         &mut leader.sessions,
-        &persistent.realm_communication,
+        &keys.communication,
         rng,
     ) {
         Ok(secrets_request) => secrets_request,
@@ -1794,13 +1796,7 @@ fn handle_app_request(
 
     let (root_hash, store_delta) = merkle.update_overlay(change);
 
-    let new_entry = make_next_log_entry(
-        leader,
-        request.realm,
-        request.group,
-        root_hash,
-        &persistent.realm_key,
-    );
+    let new_entry = make_next_log_entry(leader, request.realm, request.group, root_hash, &keys.mac);
     leader.log.push_back(LeaderLogEntry {
         entry: new_entry.clone(),
         response: Some(secrets_response),
@@ -2017,7 +2013,7 @@ fn make_next_log_entry(
     realm: RealmId,
     group: GroupId,
     root_hash: DataHash,
-    realm_key: &RealmKey,
+    mac_key: &MacKey,
 ) -> LogEntry {
     let last_entry = leader.log.back().unwrap();
 
@@ -2038,7 +2034,7 @@ fn make_next_log_entry(
         transferring_out: &transferring_out,
         prev_hmac: &prev_hmac,
     }
-    .build(realm_key);
+    .build(mac_key);
 
     LogEntry {
         index,
@@ -2053,14 +2049,13 @@ fn make_next_log_entry(
 mod test {
     use hashbrown::HashMap;
     use loam_sdk_core::{marshalling, types::RealmId};
-    use x25519_dalek as x25519;
 
     use super::{
         super::bitvec,
         super::hal::MAX_NVRAM_SIZE,
         super::merkle::{agent::StoreKey, NodeHasher},
         types::{Configuration, DataHash, EntryHmac, GroupId, HsmId, LogIndex},
-        MerkleHasher, PersistentGroupState, PersistentRealmState, PersistentState, RealmKey,
+        MerkleHasher, PersistentGroupState, PersistentRealmState, PersistentState,
     };
 
     #[test]
@@ -2082,15 +2077,6 @@ mod test {
     fn persistent_data_size() {
         // Verify that a PersistentState with 16 groups with 8 HSMs each fits in the NVRAM limit.
 
-        let realm_key = RealmKey::derive_from("its a test".as_bytes());
-
-        let realm_communication = {
-            let mut buf = [0u8; 32];
-            buf.copy_from_slice(&realm_key.0[..32]);
-            let secret = x25519::StaticSecret::from(buf);
-            let public = x25519::PublicKey::from(&secret);
-            (secret, public)
-        };
         let group = PersistentGroupState {
             configuration: Configuration(vec![
                 HsmId([10; 16]),
@@ -2110,8 +2096,6 @@ mod test {
         }
         let p = PersistentState {
             id: HsmId([1; 16]),
-            realm_key,
-            realm_communication,
             realm: Some(PersistentRealmState {
                 id: RealmId([2; 16]),
                 groups,

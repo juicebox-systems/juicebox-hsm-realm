@@ -46,7 +46,7 @@ impl<P: Platform> Hsm<P> {
                     index: captured.index,
                     entry_hmac: &captured.hmac,
                 }
-                .verify(&self.persistent.realm_key, &captured.statement))
+                .verify(&self.realm_keys.mac, &captured.statement))
                 {
                     Ok(_) => true,
                     Err(err) => {
