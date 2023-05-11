@@ -1235,7 +1235,8 @@ impl<P: Platform> Hsm<P> {
                 return Response::InvalidRealm;
             }
 
-            if realm.groups.get(&request.source).is_none() {
+            if realm.groups.get(&request.source).is_none() || request.source == request.destination
+            {
                 return Response::InvalidGroup;
             };
 
@@ -1403,7 +1404,8 @@ impl<P: Platform> Hsm<P> {
                 return Response::InvalidRealm;
             }
 
-            if realm.groups.get(&request.source).is_none() {
+            if realm.groups.get(&request.source).is_none() || request.source == request.destination
+            {
                 return Response::InvalidGroup;
             };
 
@@ -1580,7 +1582,8 @@ impl<P: Platform> Hsm<P> {
                 return Response::InvalidRealm;
             }
 
-            if realm.groups.get(&request.source).is_none() {
+            if realm.groups.get(&request.source).is_none() || request.source == request.destination
+            {
                 return Response::InvalidGroup;
             };
 
