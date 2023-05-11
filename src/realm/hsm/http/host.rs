@@ -131,6 +131,8 @@ impl HttpHsm {
         address: SocketAddr,
     ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
         let listener = TcpListener::bind(address).await?;
+        // This allows you to pass port 0 for an OS-assigned port.
+        let address = listener.local_addr()?;
         let url = Url::parse(&format!("http://{address}")).unwrap();
 
         Ok((
