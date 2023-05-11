@@ -77,17 +77,10 @@ async fn main() {
     let dir = args.state_dir.unwrap_or_else(random_tmp_dir);
     if !dir.exists() {
         fs::create_dir_all(&dir).unwrap_or_else(|e| {
-            panic!(
-                "failed to create directory '{}' for persistent state: {e:?}",
-                dir.display()
-            )
+            panic!("failed to create directory {dir:?} for persistent state: {e:?}")
         });
     } else if dir.is_file() {
-        println!(
-            "the --dir argument should be a directory, but '{}' is a file.",
-            dir.display()
-        );
-        return;
+        panic!("--state-dir should be a directory, but {dir:?} is a file");
     }
 
     let hsm = HttpHsm::new(dir.clone(), name.clone(), args.key)
