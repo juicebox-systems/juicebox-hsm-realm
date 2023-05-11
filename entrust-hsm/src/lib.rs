@@ -15,7 +15,7 @@ use entrust_api::{
     EntrustRequest, EntrustResponse, InitializeRequest, InitializeResponse, StartRequest,
     StartResponse,
 };
-use hsmcore::hsm::{Hsm, HsmOptions, RealmKey};
+use hsmcore::hsm::{Hsm, HsmOptions, MacKey, RealmKeys};
 use loam_sdk_core::marshalling;
 use platform::NCipher;
 use seelib::{
@@ -84,7 +84,7 @@ fn start_hsm(req: StartRequest) -> (Option<Hsm<NCipher>>, StartResponse) {
             max_sessions: req.max_sessions,
         },
         platform,
-        RealmKey::derive_from("010203".as_bytes()),
+        RealmKeys::insecure_derive(MacKey::derive_from("010203".as_bytes())),
     ) {
         Ok(hsm) => (Some(hsm), StartResponse::Ok),
         Err(err) => (None, StartResponse::PersistenceError(format!("{:?}", err))),

@@ -10,7 +10,7 @@ use tokio::runtime::Handle;
 use tokio::time::sleep;
 use tracing::{debug, info};
 
-use hsmcore::hsm::RealmKey;
+use hsmcore::hsm::MacKey;
 use loam_mvp::clap_parsers::parse_listen;
 use loam_mvp::logging;
 use loam_mvp::realm::hsm::http::host::HttpHsm;
@@ -32,8 +32,8 @@ struct Args {
     name: Option<String>,
 
     /// Derive realm key from this input.
-    #[arg(short, long, value_parser=parse_realm_key)]
-    key: RealmKey,
+    #[arg(short, long, value_parser=derive_mac_key)]
+    key: MacKey,
 
     /// Directory to store the persistent state file in [default: a random temp dir]
     #[arg(short, long)]
@@ -97,8 +97,8 @@ async fn main() {
     join_handle.await.unwrap();
 }
 
-fn parse_realm_key(s: &str) -> Result<RealmKey, String> {
-    Ok(RealmKey::derive_from(s.as_bytes()))
+fn derive_mac_key(s: &str) -> Result<MacKey, String> {
+    Ok(MacKey::derive_from(s.as_bytes()))
 }
 
 fn random_tmp_dir() -> PathBuf {
