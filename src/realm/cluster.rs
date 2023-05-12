@@ -1,3 +1,4 @@
+use anyhow::Context;
 use bytes::Bytes;
 use futures::future::join_all;
 use futures::{Future, FutureExt};
@@ -100,12 +101,11 @@ impl Manager {
         m
     }
 
-    pub async fn listen(
-        self,
-        address: SocketAddr,
-    ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
-        let listener = TcpListener::bind(address).await?;
-        let url = Url::parse(&format!("https://{address}")).unwrap();
+    pub async fn listen(self, address: SocketAddr) -> Result<(Url, JoinHandle<()>), anyhow::Error> {
+        let listener = TcpListener::bind(address)
+            .await
+            .with_context(|| format!("failed to bind to {address}"))?;
+        let url = Url::parse(&format!("http://{address}")).unwrap();
 
         Ok((
             url,

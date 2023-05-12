@@ -23,7 +23,7 @@ impl ProcessGroup {
             // so they are killed in the reverse order that they were started
             // in.
             Ok(child) => self.0.lock().unwrap().push_front(ProcessKiller(child)),
-            Err(e) => panic!("failed to spawn command: {e}"),
+            Err(e) => panic!("failed to spawn command ({command:?}): {e}"),
         }
     }
 

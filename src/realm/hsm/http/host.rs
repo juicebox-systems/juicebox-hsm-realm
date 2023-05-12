@@ -1,3 +1,4 @@
+use anyhow::Context;
 use bytes::Bytes;
 use futures::Future;
 use hsmcore::hal::{Clock, IOError, NVRam, Nanos, MAX_NVRAM_SIZE};
@@ -126,11 +127,10 @@ impl HttpHsm {
         )?))))
     }
 
-    pub async fn listen(
-        self,
-        address: SocketAddr,
-    ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
-        let listener = TcpListener::bind(address).await?;
+    pub async fn listen(self, address: SocketAddr) -> Result<(Url, JoinHandle<()>), anyhow::Error> {
+        let listener = TcpListener::bind(address)
+            .await
+            .with_context(|| format!("failed to bind to {address}"))?;
         // This allows you to pass port 0 for an OS-assigned port.
         let address = listener.local_addr()?;
         let url = Url::parse(&format!("http://{address}")).unwrap();

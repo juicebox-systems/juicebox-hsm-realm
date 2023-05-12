@@ -37,6 +37,10 @@ pub async fn transfer(
         ?range,
         "transferring ownership"
     );
+    assert_ne!(
+        source, destination,
+        "cannot transfer ownership to the same group (unsupported)"
+    );
 
     let agent_client = Client::new(ClientOptions::default());
 

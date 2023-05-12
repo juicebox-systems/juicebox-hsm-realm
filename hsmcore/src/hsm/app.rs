@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -38,16 +39,19 @@ impl UserRecord {
 #[derive(Debug, Serialize, Deserialize)]
 enum RegistrationState {
     NotRegistered,
-    Registered {
-        oprf_key: OprfKey,
-        salt: Salt,
-        guess_count: u16,
-        policy: Policy,
-        masked_tgk_share: MaskedTgkShare,
-        tag: UnlockTag,
-        secret_share: UserSecretShare,
-    },
+    Registered(Box<RegisteredState>),
     NoGuesses,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RegisteredState {
+    oprf_key: OprfKey,
+    salt: Salt,
+    guess_count: u16,
+    policy: Policy,
+    masked_tgk_share: MaskedTgkShare,
+    tag: UnlockTag,
+    secret_share: UserSecretShare,
 }
 
 fn register1(ctx: &AppContext, record_id: &RecordId) -> Register1Response {
@@ -63,7 +67,7 @@ fn register2(
 ) -> (Register2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "register2 request",);
 
-    user_record.registration_state = RegistrationState::Registered {
+    user_record.registration_state = RegistrationState::Registered(Box::new(RegisteredState {
         oprf_key: request.oprf_key,
         salt: request.salt,
         guess_count: 0,
@@ -71,7 +75,7 @@ fn register2(
         masked_tgk_share: request.masked_tgk_share,
         tag: request.tag,
         secret_share: request.secret_share,
-    };
+    }));
 
     (Register2Response::Ok, Some(user_record))
 }
@@ -84,11 +88,7 @@ fn recover1(
     trace!(hsm = ctx.hsm_name, ?record_id, "recover1 request",);
 
     match &user_record.registration_state {
-        RegistrationState::Registered {
-            guess_count,
-            policy,
-            ..
-        } if *guess_count >= policy.num_guesses => {
+        RegistrationState::Registered(state) if state.guess_count >= state.policy.num_guesses => {
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
@@ -97,8 +97,10 @@ fn recover1(
             user_record.registration_state = RegistrationState::NoGuesses;
             (Recover1Response::NoGuesses, Some(user_record))
         }
-        RegistrationState::Registered { salt, .. } => (
-            Recover1Response::Ok { salt: salt.clone() },
+        RegistrationState::Registered(state) => (
+            Recover1Response::Ok {
+                salt: state.salt.clone(),
+            },
             Some(user_record),
         ),
         RegistrationState::NoGuesses => {
@@ -125,11 +127,7 @@ fn recover2(
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
     let (oprf_key, masked_tgk_share) = match &mut user_record.registration_state {
-        RegistrationState::Registered {
-            guess_count,
-            policy,
-            ..
-        } if *guess_count >= policy.num_guesses => {
+        RegistrationState::Registered(state) if state.guess_count >= state.policy.num_guesses => {
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
@@ -138,14 +136,9 @@ fn recover2(
             user_record.registration_state = RegistrationState::NoGuesses;
             return (Recover2Response::NoGuesses, Some(user_record));
         }
-        RegistrationState::Registered {
-            guess_count,
-            oprf_key,
-            masked_tgk_share,
-            ..
-        } => {
-            *guess_count += 1;
-            (oprf_key.clone(), masked_tgk_share.clone())
+        RegistrationState::Registered(state) => {
+            state.guess_count += 1;
+            (state.oprf_key.clone(), state.masked_tgk_share.clone())
         }
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
@@ -163,12 +156,14 @@ fn recover2(
 
     let server =
         OprfServer::new_with_key(oprf_key.expose_secret()).expect("error constructing OprfServer");
-    let blinded_oprf_pin: OprfBlindedResult = server.blind_evaluate(&request.blinded_pin);
+    let blinded_oprf_result: OprfBlindedResult = server
+        .blind_evaluate(&request.blinded_oprf_input.expose_secret())
+        .into();
 
     trace!(?record_id, "recover2 completed");
     (
         Recover2Response::Ok {
-            blinded_oprf_pin,
+            blinded_oprf_result,
             masked_tgk_share,
         },
         Some(user_record),
@@ -192,18 +187,13 @@ fn recover3(
             );
             (Recover3Response::NotRegistered, None)
         }
-        RegistrationState::Registered {
-            tag,
-            policy,
-            guess_count,
-            ..
-        } if !bool::from(request.tag.ct_eq(tag)) => {
+        RegistrationState::Registered(state) if !bool::from(request.tag.ct_eq(&state.tag)) => {
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
                 "can't recover: bad unlock tag"
             );
-            let guesses_remaining = policy.num_guesses - *guess_count;
+            let guesses_remaining = state.policy.num_guesses - state.guess_count;
             let mut user_record_out = None;
 
             if guesses_remaining == 0 {
@@ -220,12 +210,8 @@ fn recover3(
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
             (Recover3Response::NoGuesses, None)
         }
-        RegistrationState::Registered {
-            guess_count,
-            secret_share,
-            ..
-        } => {
-            *guess_count = 0;
+        RegistrationState::Registered(state) => {
+            state.guess_count = 0;
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
@@ -233,7 +219,7 @@ fn recover3(
             );
             (
                 Recover3Response::Ok {
-                    secret_share: secret_share.clone(),
+                    secret_share: state.secret_share.clone(),
                 },
                 Some(user_record),
             )
@@ -276,7 +262,7 @@ pub fn process(
             (SecretsResponse::Register1(res), None)
         }
         SecretsRequest::Register2(req) => {
-            let res = register2(ctx, record_id, req, user_record_in);
+            let res = register2(ctx, record_id, *req, user_record_in);
             (SecretsResponse::Register2(res.0), res.1)
         }
         SecretsRequest::Recover1 => {
