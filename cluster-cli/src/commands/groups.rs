@@ -3,21 +3,22 @@ use cli_table::{print_stdout, Cell, Table};
 use reqwest::Url;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use hsmcore::hsm::types::{GroupId, GroupStatus, HsmId, LeaderStatus};
+use hsmcore::hsm::types::{GroupId, GroupStatus, HsmId, LeaderStatus, OwnedRange};
 use loam_mvp::http_client::Client;
 use loam_mvp::realm::{agent::types::AgentService, store::bigtable::StoreClient};
 use loam_sdk_core::types::RealmId;
 
 use crate::get_hsm_statuses;
 
+#[derive(Default)]
+struct GroupInfo {
+    members: Vec<(HsmId, GroupStatus)>,
+    leader: Option<(HsmId, LeaderStatus)>,
+}
+
 pub async fn status(c: &Client<AgentService>, store: &StoreClient) -> anyhow::Result<()> {
     let status_responses = get_hsm_statuses(c, store).await?;
 
-    #[derive(Default)]
-    struct GroupInfo {
-        members: Vec<(HsmId, GroupStatus)>,
-        leader: Option<(HsmId, LeaderStatus)>,
-    }
     let mut realms: BTreeMap<RealmId, BTreeSet<GroupId>> = BTreeMap::new();
     let mut groups: BTreeMap<GroupId, GroupInfo> = BTreeMap::new();
     for (_, status_response) in &status_responses {
@@ -37,73 +38,63 @@ pub async fn status(c: &Client<AgentService>, store: &StoreClient) -> anyhow::Re
         .into_iter()
         .map(|(url, status)| (status.id, url))
         .collect();
+
     for (realm, realm_groups) in realms {
         println!("Realm: {:?}", realm);
         for group_id in realm_groups {
             println!("\tGroup: {:?}", group_id);
             let group = &groups[&group_id];
-            let rows: Vec<_> = group
-                .members
-                .iter()
-                .map(|(hsm_id, group_status)| {
-                    let leader = group
-                        .leader
-                        .as_ref()
-                        .filter(|(id, _)| id == hsm_id)
-                        .map(|(_, status)| status);
-                    vec![
-                        hsm_id.to_string().cell(),
-                        addresses.get(hsm_id).unwrap().to_string().cell(),
-                        group_status.role.to_string().cell(),
-                        match &group_status.captured {
-                            None => "None".cell(),
-                            Some((index, _hmac)) => index.to_string().cell(),
-                        }
-                        .justify(Justify::Right),
-                        match leader {
-                            Some(LeaderStatus {
-                                committed: Some(commit_idx),
-                                ..
-                            }) => commit_idx.to_string().cell(),
-                            Some(LeaderStatus {
-                                committed: None, ..
-                            }) => "None".cell(),
-                            _ => "".cell(),
-                        }
-                        .justify(Justify::Right),
-                        match leader {
-                            Some(LeaderStatus {
-                                owned_range: Some(range),
-                                ..
-                            }) => format!(
-                                "{}-\n{}",
-                                hex::encode(range.start.0),
-                                hex::encode(range.end.0)
-                            )
-                            .cell(),
-                            Some(LeaderStatus {
-                                owned_range: None, ..
-                            }) => "None".cell(),
-                            _ => "".cell(),
-                        },
-                    ]
-                })
-                .collect();
-            let table = rows
-                .table()
-                .separator(Separator::builder().title(Some(Default::default())).build())
-                .title(vec![
-                    "HSM ID",
-                    "Agent URL",
-                    "Role",
-                    "Captured",
-                    "Commit",
-                    "Owned Range",
-                ])
-                .color_choice(cli_table::ColorChoice::Never);
-            assert!(print_stdout(table).is_ok());
+            if let Some((_, leader)) = &group.leader {
+                if let Some(OwnedRange { start, end }) = &leader.owned_range {
+                    println!("\tOwns: {}-", hex::encode(start.0));
+                    println!("\t      {}", hex::encode(end.0));
+                }
+            }
+            print_group_table(group, &addresses);
         }
         println!();
     }
     Ok(())
+}
+
+fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
+    let rows: Vec<_> = group
+        .members
+        .iter()
+        .map(|(hsm_id, group_status)| {
+            let leader = group
+                .leader
+                .as_ref()
+                .filter(|(id, _)| id == hsm_id)
+                .map(|(_, status)| status);
+            vec![
+                hsm_id.to_string().cell(),
+                addresses.get(hsm_id).unwrap().to_string().cell(),
+                group_status.role.to_string().cell(),
+                match &group_status.captured {
+                    None => "None".cell(),
+                    Some((index, _hmac)) => index.to_string().cell(),
+                }
+                .justify(Justify::Right),
+                match leader {
+                    Some(LeaderStatus {
+                        committed: Some(commit_idx),
+                        ..
+                    }) => commit_idx.to_string().cell(),
+                    Some(LeaderStatus {
+                        committed: None, ..
+                    }) => "None".cell(),
+                    _ => "".cell(),
+                }
+                .justify(Justify::Right),
+            ]
+        })
+        .collect();
+
+    let table = rows
+        .table()
+        .separator(Separator::builder().title(Some(Default::default())).build())
+        .title(vec!["HSM ID", "Agent URL", "Role", "Captured", "Commit"])
+        .color_choice(cli_table::ColorChoice::Never);
+    assert!(print_stdout(table).is_ok());
 }
