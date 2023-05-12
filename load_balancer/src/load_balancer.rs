@@ -36,7 +36,7 @@ use loam_mvp::realm::agent::types::{
 };
 use loam_mvp::realm::store::bigtable::StoreClient;
 use loam_mvp::secret_manager::SecretManager;
-use loam_sdk_core::requests::{ClientRequest, ClientResponse};
+use loam_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use loam_sdk_core::types::RealmId;
 
 #[derive(Clone)]
@@ -204,8 +204,13 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
 
         Box::pin(
             async move {
-                let response =
-                    match marshalling::from_slice(request.collect().await?.to_bytes().as_ref()) {
+                let request_bytes = request.collect().await?.to_bytes();
+
+                // todo: figure out a way to reject without reading all bytes into memory first
+                let response = if request_bytes.len() >= BODY_SIZE_LIMIT {
+                    ClientResponse::PayloadTooLarge
+                } else {
+                    match marshalling::from_slice(request_bytes.as_ref()) {
                         Err(_) => ClientResponse::DecodingError,
                         Ok(request) => {
                             let realms = state.realms.lock().unwrap().clone();
@@ -238,11 +243,20 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                                 response => response,
                             }
                         }
-                    };
-
+                    }
+                };
                 trace!(load_balancer = state.name, ?response);
                 Ok(Response::builder()
                     .header("Access-Control-Allow-Origin", "*")
+                    .status(match response {
+                        ClientResponse::Ok(_) => 200,
+                        ClientResponse::DecodingError
+                        | ClientResponse::MissingSession
+                        | ClientResponse::SessionError => 400,
+                        ClientResponse::InvalidAuth => 401,
+                        ClientResponse::PayloadTooLarge => 413,
+                        ClientResponse::Unavailable => 503,
+                    })
                     .body(Full::new(Bytes::from(
                         marshalling::to_vec(&response).expect("TODO"),
                     )))
