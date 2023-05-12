@@ -51,7 +51,7 @@ async fn refresh_loop<B: BulkLoad>(backend: B, cache: Cache, interval: Duration)
                 let mut locked = cache.lock().await;
                 *locked = secrets;
             }
-            Err(e) => warn!(e, "failed to refresh secrets cache"),
+            Err(err) => warn!(?err, "failed to refresh secrets cache"),
         }
     }
 }

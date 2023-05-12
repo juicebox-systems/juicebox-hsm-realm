@@ -387,8 +387,10 @@ dependencies = [
  "hsmcore",
  "loam-mvp",
  "loam-sdk",
+ "loam-sdk-core",
  "loam-sdk-networking",
  "reqwest",
+ "serde_json",
  "thiserror",
  "tokio",
  "tracing 0.2.0",
@@ -1432,6 +1434,7 @@ dependencies = [
 name = "loam-mvp"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "async-recursion",
  "async-trait",
  "blake2",
@@ -1474,6 +1477,7 @@ dependencies = [
  "serde_json",
  "signal-hook",
  "tempfile",
+ "thiserror",
  "tokio",
  "tokio-rustls 0.23.4",
  "tonic",

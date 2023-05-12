@@ -3,6 +3,10 @@ name = "cluster-cli"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "cluster"
+path = "src/main.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -15,8 +19,10 @@ hex = { workspace = true }
 hsmcore = { workspace = true }
 loam-mvp = { path = ".." }
 loam-sdk = { workspace = true }
+loam-sdk-core = { workspace = true }
 loam-sdk-networking = { workspace = true }
 reqwest = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

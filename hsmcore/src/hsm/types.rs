@@ -35,6 +35,7 @@ impl fmt::Debug for HsmId {
         fmt::Display::fmt(self, f)
     }
 }
+
 impl fmt::Display for HsmId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in self.0 {
@@ -306,17 +307,17 @@ impl fmt::Debug for TransferStatement {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StatusRequest {}
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StatusResponse {
     pub id: HsmId,
     pub realm: Option<RealmStatus>,
     pub public_key: Vec<u8>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RealmStatus {
     pub id: RealmId,
     pub groups: Vec<GroupStatus>,

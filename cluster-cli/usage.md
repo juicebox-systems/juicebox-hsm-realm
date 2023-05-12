@@ -1,0 +1,242 @@
+## `cluster --help`
+
+```
+A CLI tool for interacting with the cluster
+
+Usage: cluster [OPTIONS] <COMMAND>
+
+Commands:
+  agents         Print basic information about every discoverable agent
+  auth-token     Create an auth token for a test tenant
+  configuration  Print a configuration that uses the discoverable realm(s)
+  experimental   Subcommands that are not yet stable and may be dangerous
+  groups         Print information about every discoverable realm and group
+  new-group      Create a new group on a set of agents' HSMs
+  new-realm      Create a new realm and group on a set of agents' HSMs
+  stepdown       Ask an HSM to step down as leader for any groups that it's leading
+  transfer       Transfer ownership of user records from one group to another
+  help           Print this message or the help of the given subcommand(s)
+
+Options:
+      --bigtable-project <PROJECT>    The name of the GCP project that contains the bigtable instance [default: prj]
+      --bigtable-instance <INSTANCE>  The name of the bigtable instance to connect to [default: instance]
+      --bigtable-url <URL>            The url to the big table emulator [default uses GCP endpoints]
+  -h, --help                          Print help
+
+```
+
+## `cluster agents --help`
+
+```
+Print basic information about every discoverable agent.
+
+See 'groups' for a higher-level view of the realms and groups in the cluster.
+
+Usage: cluster agents
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+```
+
+## `cluster auth-token --help`
+
+```
+Create an auth token for a test tenant.
+
+The token is printed to stdout.
+
+Usage: cluster auth-token <TENANT> <USER>
+
+Arguments:
+  <TENANT>
+          A tenant ID that must begin with "test-".
+          
+          The tenant's secret auth key must already exist in GCP Secret Manager.
+
+  <USER>
+          Any user ID
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+```
+
+## `cluster configuration --help`
+
+```
+Print a configuration that uses the discoverable realm(s).
+
+The configuration is printed in a JSON format that the demo client accepts.
+
+Usage: cluster configuration <LOAD_BALANCER>
+
+Arguments:
+  <LOAD_BALANCER>
+          A URL to a load balancer that sends requests to all of the discoverable realms.
+          
+          The load balancer is not accessed, but its URL is included in the configuration.
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+```
+
+## `cluster experimental --help`
+
+```
+Subcommands that are not yet stable and may be dangerous
+
+Usage: cluster experimental <COMMAND>
+
+Commands:
+  assimilate  Reconfigure any available agents/HSMs into a nominal and well-balanced realm
+  help        Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+```
+
+## `cluster experimental assimilate --help`
+
+```
+Reconfigure any available agents/HSMs into a nominal and well-balanced realm.
+
+This is marked experimental because it does not currently handle all scenarios. It's included because it can still be a useful time-saving tool for development and testing purposes for scenarios it does support.
+
+Usage: cluster experimental assimilate [OPTIONS]
+
+Options:
+      --group-size <GROUP_SIZE>
+          The target number of HSMs per group (and also the number of groups each HSM is a member of).
+          
+          The number of HSMs available must be at least this large.
+          
+          [default: 5]
+
+      --realm <REALM>
+          If provided, the HSMs already in this realm, as well as HSMs not currently in any realm, are assimilated.
+          
+          Default: create a new realm if none are discoverable, use the one realm if exactly one is found, or fail if more than one realm is found.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+```
+
+## `cluster groups --help`
+
+```
+Print information about every discoverable realm and group.
+
+This does not include information about agents that are not participating in any groups. See 'agents' for lower-level information about agents.
+
+Usage: cluster groups
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+```
+
+## `cluster new-group --help`
+
+```
+Create a new group on a set of agents' HSMs.
+
+The new group will not have ownership of any user records. Use 'transfer' to assign it ownership.
+
+Usage: cluster new-group --realm <REALM> <AGENTS>...
+
+Arguments:
+  <AGENTS>...
+          URLs of agents whose HSMs will form the new group
+
+Options:
+      --realm <REALM>
+          The ID of the realm in which to create the new group.
+          
+          If any of the HSMs have not joined the realm, this will irreversibly assign them to the realm.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+```
+
+## `cluster new-realm --help`
+
+```
+Create a new realm and group on a set of agents' HSMs.
+
+The new group will own all of the user record space. Use 'new-group' and 'transfer' to repartition across additional groups.
+
+Usage: cluster new-realm <AGENTS>...
+
+Arguments:
+  <AGENTS>...
+          URLs of agents whose HSMs will form the new realm and group
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+```
+
+## `cluster stepdown --help`
+
+```
+Ask an HSM to step down as leader for any groups that it's leading
+
+Usage: cluster stepdown [OPTIONS] <HSM>
+
+Arguments:
+  <HSM>  A full HSM ID or an unambiguous prefix of an HSM ID
+
+Options:
+  -c, --cluster <CLUSTER>  URL to a cluster manager, which will execute the request [default: http://localhost:8079]
+  -h, --help               Print help
+
+```
+
+## `cluster transfer --help`
+
+```
+Transfer ownership of user records from one group to another.
+
+Both groups must already exist and be part of the same realm.
+
+Usage: cluster transfer --realm <REALM> --source <SOURCE> --destination <DESTINATION> --start <START> --end <END>
+
+Options:
+      --realm <REALM>
+          Realm ID
+
+      --source <SOURCE>
+          ID of group that currently owns the range to be transferred.
+          
+          The source group's current ownership must extend from exactly '--start' and/or up to exactly '--end'. In other words, this transfer cannot leave a gap in the source group's owned range.
+
+      --destination <DESTINATION>
+          ID of group that should be the new owner of the range.
+          
+          The destination group must currently own either nothing or an adjacent range.
+
+      --start <START>
+          The first record ID in the range, in hex.
+          
+          Example: 0000000000000000000000000000000000000000000000000000000000000000
+
+      --end <END>
+          The last record ID in the range (inclusive), in hex.
+          
+          Example: 7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+```
+

@@ -1,4 +1,5 @@
 use futures::future::try_join_all;
+use thiserror::Error;
 use tracing::{debug, info};
 use url::Url;
 
@@ -12,19 +13,28 @@ use hsmcore::hsm::types as hsm_types;
 use loam_sdk_core::types::RealmId;
 use loam_sdk_networking::rpc::{self, RpcError};
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum NewRealmError {
+    #[error("RPC error: {0}")]
     NetworkError(RpcError),
+    #[error("no HSM found at {agent}")]
     NoHsm { agent: Url },
+    #[error("HSM at {agent} is already in a realm")]
     HaveRealm { agent: Url },
+    #[error("invalid configuration")]
     InvalidConfiguration,
+    #[error("invalid group statement")]
     InvalidGroupStatement,
+    #[error("error accessing Bigtable")]
     NoStore,
+    #[error("could not create log entry in Bigtable: precondition failed")]
     StorePreconditionFailed,
 }
 
 pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmError> {
     type Error = NewRealmError;
+    assert!(!group.is_empty());
+
     info!("setting up new realm");
     let agent_client = Client::new(ClientOptions::default());
 
@@ -44,6 +54,7 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
         }),
     })
     .collect::<Result<Vec<HsmId>, Error>>()?;
+
     let first = hsms[0];
     let configuration = {
         let mut sorted = hsms;
@@ -132,14 +143,21 @@ pub async fn new_realm(group: &[Url]) -> Result<(RealmId, GroupId), NewRealmErro
     Ok((realm_id, group_id))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum NewGroupError {
+    #[error("RPC error: {0}")]
     NetworkError(RpcError),
+    #[error("no HSM found at {agent}")]
     NoHsm { agent: Url },
+    #[error("HSM at {agent} not in given realm")]
     InvalidRealm { agent: Url },
+    #[error("invalid configuration")]
     InvalidConfiguration,
+    #[error("invalid group statement")]
     InvalidGroupStatement,
+    #[error("error accessing Bigtable")]
     NoStore,
+    #[error("could not create log entry in Bigtable: precondition failed")]
     StorePreconditionFailed,
 }
 
