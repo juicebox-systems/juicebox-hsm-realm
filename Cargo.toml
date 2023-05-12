@@ -115,6 +115,7 @@ tracing-subscriber = { git = "https://github.com/tokio-rs/tracing" }
 
 
 [dependencies]
+anyhow = { workspace = true }
 async-trait = { workspace = true }
 blake2 = { workspace = true }
 bytes = { workspace = true }

@@ -1,3 +1,4 @@
+use anyhow::Context;
 use bytes::Bytes;
 use futures::channel::oneshot;
 use futures::Future;
@@ -247,11 +248,10 @@ impl<T: Transport + 'static> Agent<T> {
         Ok((configuration, peers))
     }
 
-    pub async fn listen(
-        self,
-        address: SocketAddr,
-    ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
-        let listener = TcpListener::bind(address).await?;
+    pub async fn listen(self, address: SocketAddr) -> Result<(Url, JoinHandle<()>), anyhow::Error> {
+        let listener = TcpListener::bind(address)
+            .await
+            .with_context(|| format!("failed to bind to {address}"))?;
         let url = Url::parse(&format!("http://{address}")).unwrap();
 
         self.start_service_registration(url.clone());

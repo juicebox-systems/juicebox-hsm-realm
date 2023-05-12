@@ -2,6 +2,7 @@ use ::http::{HeaderName, HeaderValue};
 use async_trait::async_trait;
 use reqwest::Certificate;
 use std::{collections::HashMap, marker::PhantomData, str::FromStr};
+use tracing::warn;
 
 use loam_sdk::http;
 use loam_sdk_networking::rpc;
@@ -57,7 +58,11 @@ impl<F: rpc::Service> http::Client for Client<F> {
         }
 
         match request_builder.send().await {
-            Err(_) => None,
+            Err(err) => {
+                warn!(%err, "error sending HTTP request");
+                None
+            }
+
             Ok(response) => {
                 let status = response.status().as_u16();
                 let mut headers = HashMap::new();
@@ -67,7 +72,10 @@ impl<F: rpc::Service> http::Client for Client<F> {
                     }
                 }
                 match response.bytes().await {
-                    Err(_) => None,
+                    Err(err) => {
+                        warn!(%err, "error receiving HTTP response");
+                        None
+                    }
                     Ok(bytes) => Some(http::Response {
                         status_code: status,
                         headers,

@@ -1,3 +1,4 @@
+use anyhow::Context;
 use bytes::Bytes;
 use futures::future::join_all;
 use futures::Future;
@@ -65,8 +66,10 @@ impl LoadBalancer {
         self,
         address: SocketAddr,
         cert_resolver: Arc<dyn ResolvesServerCert>,
-    ) -> Result<(Url, JoinHandle<()>), Box<dyn std::error::Error + Send + Sync>> {
-        let listener = TcpListener::bind(address).await?;
+    ) -> Result<(Url, JoinHandle<()>), anyhow::Error> {
+        let listener = TcpListener::bind(address)
+            .await
+            .with_context(|| format!("failed to bind to {address}"))?;
         let url = Url::parse(&format!("https://{address}")).unwrap();
         self.start_refresher().await;
 

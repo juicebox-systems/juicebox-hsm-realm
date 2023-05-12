@@ -13,6 +13,7 @@ use tracing::{info, trace, warn, Span};
 use super::super::{hsm::client::Transport, store::bigtable::StoreClient};
 use super::types::{ReadCapturedRequest, ReadCapturedResponse};
 use super::Agent;
+use crate::logging::Spew;
 use hsmcore::hsm::{
     commit::HsmElection,
     types::{
@@ -28,6 +29,8 @@ enum CommitterStatus {
     NoLongerLeader,
 }
 
+static NVRAM_WRITER_SPEW: Spew = Spew::new();
+
 impl<T: Transport + 'static> Agent<T> {
     pub(super) fn start_nvram_writer(&self) {
         trace!(agent = self.0.name, "starting nvram writer task");
@@ -39,7 +42,9 @@ impl<T: Transport + 'static> Agent<T> {
                 sleep(how_long_to_wait(SystemTime::now(), WRITE_INTERVAL_MILLIS)).await;
                 match agent.0.hsm.send(PersistStateRequest {}).await {
                     Err(err) => {
-                        warn!(?err, "failed to request HSM to write to NVRAM");
+                        if let Some(suppressed) = NVRAM_WRITER_SPEW.ok() {
+                            warn!(?err, suppressed, "failed to request HSM to write to NVRAM");
+                        }
                     }
                     Ok(PersistStateResponse::Ok { captured, .. }) => {
                         agent.0.state.lock().unwrap().captures = captured

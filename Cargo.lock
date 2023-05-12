@@ -1432,6 +1432,7 @@ dependencies = [
 name = "loam-mvp"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "async-recursion",
  "async-trait",
  "blake2",

@@ -130,7 +130,17 @@ impl<T: Transport> HsmClient<T> {
                 if elapsed > interval {
                     m.last_reported = Instant::now();
                     for (metric_name, h) in &m.metrics {
-                        info!(agent=self.0.name, metric=metric_name, count=?h.len(), min=?h.min(), mean=%format!("{:0.1}",h.mean()), p99=?h.value_at_quantile(0.99), max=?h.max(), "hsm metric");
+                        info!(
+                            agent=self.0.name,
+                            metric=metric_name,
+                            count=?h.len(),
+                            min=?h.min(),
+                            mean=format!("{:0.1}", h.mean()),
+                            p99=?h.value_at_quantile(0.99),
+                            max=?h.max(),
+                            units="ns",
+                            "hsm metric",
+                        );
                     }
                     m.metrics.clear();
                 }
