@@ -1,18 +1,8 @@
 use async_trait::async_trait;
 use clap::Parser;
-use entrust_api::{EntrustRequest, EntrustResponse, StartRequest, StartResponse};
-use entrust_nfast::{
-    Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
-    Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_LoadBuffer,
-    Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine, Cmd_TraceSEEWorld,
-    M_ByteBlock, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args, M_Cmd_CreateSEEWorld_Args,
-    M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args, M_Cmd_SEEJob_Args, M_Cmd_SetSEEMachine_Args,
-    M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID, M_Status, M_Word, ModuleMode_Default,
-    NFastApp_Connect, NFastApp_Connection, NFastApp_ConnectionFlags_Privileged,
-    NFastApp_Disconnect, NFastConn, NFastError, Reply, SEEInitStatus_OK, Status_OK,
-    Status_ObjectInUse, Status_SEEWorldFailed,
-};
 use std::cmp::min;
+use std::ffi::CString;
+use std::fmt::Display;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -23,6 +13,18 @@ use tokio::runtime::Handle;
 use tokio::time::Instant;
 use tracing::{debug, info, instrument, warn};
 
+use entrust_api::{StartRequest, StartResponse, Ticket};
+use entrust_nfast::{
+    find_key, Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
+    Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_GetTicket, Cmd_LoadBuffer,
+    Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine, Cmd_TraceSEEWorld,
+    M_ByteBlock, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args, M_Cmd_CreateSEEWorld_Args,
+    M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args, M_Cmd_SEEJob_Args, M_Cmd_SetSEEMachine_Args,
+    M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID, M_Status, M_Word, ModuleMode_Default,
+    NFKM_cmd_loadblob, NFastApp_Connect, NFastApp_Connection, NFastApp_ConnectionFlags_Privileged,
+    NFastApp_Disconnect, NFastConn, NFastError, Reply, SEEInitStatus_OK, Status_OK,
+    Status_ObjectInUse, Status_SEEWorldFailed, TicketDestination_AnySEEWorld,
+};
 use loam_mvp::clap_parsers::parse_duration;
 use loam_mvp::future_task::FutureTasks;
 use loam_mvp::google_auth;
@@ -157,6 +159,20 @@ pub enum SeeError {
     HsmMarshallingError,
 }
 
+impl Display for SeeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SeeError::Serialization(err) => write!(f, "Serialization error: {:?}", err),
+            SeeError::Deserialization(err) => write!(f, "Deserialization error: {:?}", err),
+            SeeError::NFast(err) => write!(f, "NFastError: {}", err),
+            SeeError::SeeWorldFailed => write!(f, "SEEWorld failed"),
+            SeeError::HsmMarshallingError => {
+                write!(f, "HSM Failed to marshal a request or response")
+            }
+        }
+    }
+}
+
 impl From<DeserializationError> for SeeError {
     fn from(v: DeserializationError) -> Self {
         Self::Deserialization(v)
@@ -219,26 +235,14 @@ impl Transport for EntrustSeeTransport {
 
 impl TransportInner {
     #[instrument(level = "trace", skip(self, msg))]
-    fn send_rpc_msg(&mut self, msg_name: &str, mut msg: Vec<u8>) -> Result<Vec<u8>, SeeError> {
+    fn send_rpc_msg(&mut self, msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, SeeError> {
         unsafe {
             self.connect()?;
-
-            let mut cmd = M_Command::new(Cmd_SEEJob);
-            cmd.args.seejob = M_Cmd_SEEJob_Args {
-                worldid: self.world_id.expect("connect() sets the world_id"),
-                seeargs: M_ByteBlock {
-                    len: msg.len() as M_Word,
-                    ptr: msg.as_mut_ptr(),
-                },
-            };
-            let start = Instant::now();
-            let reply = self.transact(&mut cmd)?;
-            debug!(dur=?start.elapsed(), req=msg_name, "Entrust HSM request transacted");
-
-            let resp_vec = reply.reply.seejob.seereply.as_slice().to_vec();
-            self.collect_trace_buffer();
-            Ok(resp_vec)
         }
+        let start = Instant::now();
+        let resp_vec = self.transact_seejob(msg)?;
+        debug!(dur=?start.elapsed(), req=msg_name, "Entrust HSM request transacted");
+        Ok(resp_vec)
     }
 
     unsafe fn connect(&mut self) -> Result<(), SeeError> {
@@ -246,40 +250,123 @@ impl TransportInner {
         if self.world_id.is_none() {
             self.world_id = Some(self.start_seeworld()?);
 
-            match self
-                .transact_control_job(EntrustRequest::Start(StartRequest::default()))
-                .expect("StartRequest to HSM failed")
-            {
-                EntrustResponse::Initialize(_) => panic!("Wrong response type received from HSM"),
-                EntrustResponse::Start(StartResponse::Ok) => {}
-                EntrustResponse::Start(StartResponse::PersistenceError(msg)) => {
-                    panic!("HSM Failed to start due to persistence error: {msg}")
-                }
-                EntrustResponse::Start(StartResponse::WorldSigner(err)) => {
-                    panic!("HSM Failed to start due to code signing related issue: {err:?}")
-                }
-            }
+            self.start_hsmcore();
         }
         Ok(())
     }
 
-    fn transact_control_job(&mut self, req: EntrustRequest) -> Result<EntrustResponse, SeeError> {
-        let mut data = marshalling::to_vec(&req)?;
+    fn start_hsmcore(&mut self) {
+        // Collect up all the key tickets we need.
+        let comm_private_key = self.ticket_for_key("simple", "jbox-noise", KeyHalf::Private);
+        let comm_public_key = self.ticket_for_key("simple", "jbox-noise", KeyHalf::Public);
+        let mac_key = self.ticket_for_key("simple", "jbox-mac", KeyHalf::Private);
+        let record_key = self.ticket_for_key("simple", "jbox-record", KeyHalf::Private);
+
+        // send a StartRequest Job to get HSMCore running.
+        let start = StartRequest {
+            tree_overlay_size: 511,
+            max_sessions: 511,
+            comm_private_key,
+            comm_public_key,
+            mac_key,
+            record_key,
+        };
+        let start_msg = marshalling::to_vec(&start).expect("Failed to serialize StartRequest");
+        let resp_bytes = self
+            .transact_seejob(start_msg)
+            .expect("StartRequest to HSM failed");
+
+        // Check the response.
+        let start_rep: StartResponse = marshalling::from_slice(&resp_bytes)
+            .expect("Failed to deserialize response from StartRequest job");
+        match start_rep {
+            StartResponse::Ok => {
+                info!("HSMCore started and ready for work")
+            }
+            StartResponse::PersistenceError(msg) => {
+                panic!("HSMCore failed to start due to persistence error: {msg}")
+            }
+            StartResponse::WorldSigner(err) => {
+                panic!("HSMCore failed to start due to code signing related issue: {err:?}")
+            }
+            StartResponse::InvalidTicket(k, status) => {
+                panic!(
+                    "HSMCore failed to start due to invalid ticket for key {k:?} with error {}",
+                    NFastError::Api(status)
+                )
+            }
+            StartResponse::InvalidKeyLength {
+                role,
+                expecting,
+                actual,
+            } => {
+                panic!("HSMCore failed to start due to key {role:?} having unexpected length of {actual} when it should be {expecting}")
+            }
+        }
+    }
+
+    fn transact_seejob(&mut self, mut data: Vec<u8>) -> Result<Vec<u8>, SeeError> {
         let mut cmd = M_Command::new(Cmd_SEEJob);
         cmd.args.seejob = M_Cmd_SEEJob_Args {
-            worldid: self.world_id.unwrap(),
+            worldid: self
+                .world_id
+                .expect("SEEWorld should have already been started"),
             seeargs: M_ByteBlock {
                 len: data.len() as M_Word,
                 ptr: data.as_mut_ptr(),
             },
         };
         let rep = self.transact(&mut cmd)?;
-        let resp = unsafe {
-            let data = rep.reply.seejob.seereply.as_slice();
-            marshalling::from_slice::<EntrustResponse>(data)?
-        };
+        let resp = unsafe { rep.reply.seejob.seereply.as_slice().to_vec() };
         self.collect_trace_buffer();
         Ok(resp)
+    }
+
+    // If there's a problem generating a ticket for a key, then we can't start
+    // the hsmcore, and retrying is highly unlikely to work. So this panics on
+    // all the error conditions.
+    fn ticket_for_key(&mut self, app: &str, ident: &str, half: KeyHalf) -> Ticket {
+        debug!(?app, ?ident, "Trying to find key in security world");
+
+        let key = match find_key(&self.conn, app, ident) {
+            Err(err) => panic!("Error looking for key {app},{ident} in the security world {err}"),
+            Ok(None) => panic!("Unable to find key {app},{ident} in the security world"),
+            Ok(Some(key)) => key,
+        };
+        let mut key_id: M_KeyID = 0;
+        let for_str = CString::new("ticket for key for use by hsmcore").unwrap();
+        let rc = unsafe {
+            NFKM_cmd_loadblob(
+                self.conn.app,
+                self.conn.conn,
+                self.module.into(),
+                match half {
+                    KeyHalf::Public => &key.pubblob,
+                    KeyHalf::Private => &key.privblob,
+                },
+                0,
+                &mut key_id,
+                for_str.as_ptr(),
+                null_mut(),
+            )
+        };
+        if rc != 0 {
+            panic!(
+                "failed to NFKM_cmd_loadblob for {app},{ident}, error: {}",
+                NFastError::Api(rc)
+            )
+        }
+        /* Get key ticket */
+        let mut cmd = M_Command::new(Cmd_GetTicket);
+        cmd.args.getticket.obj = key_id;
+        cmd.args.getticket.dest = TicketDestination_AnySEEWorld;
+        let reply = self.transact(&mut cmd).unwrap_or_else(|err| {
+            panic!("Cmd_GetTicket failed for key {app},{ident}, error: {err}")
+        });
+
+        let ticket = unsafe { reply.reply.getticket.ticket.as_slice().to_vec() };
+        debug!(?app, ?ident, "Generated key ticket");
+        Ticket(ticket)
     }
 
     unsafe fn start_seeworld(&mut self) -> Result<M_KeyID, SeeError> {
@@ -501,4 +588,9 @@ impl TransportInner {
             NFastApp_Disconnect(priv_conn, null_mut());
         }
     }
+}
+
+enum KeyHalf {
+    Public,
+    Private,
 }

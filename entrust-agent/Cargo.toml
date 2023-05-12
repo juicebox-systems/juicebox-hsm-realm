@@ -14,6 +14,7 @@ entrust_nfast = { path = "../entrust_nfast" }
 http = { workspace = true }
 hsmcore = { path = "../hsmcore" }
 loam-mvp = { path = ".." }
+serde = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 loam-sdk-core = { workspace = true }

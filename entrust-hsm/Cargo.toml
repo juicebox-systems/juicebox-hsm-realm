@@ -10,6 +10,7 @@ entrust_api = { path = "../entrust_api" }
 hsmcore = { path = "../hsmcore" }
 loam-sdk-core = { workspace = true }
 rand_core = { workspace = true }
+x25519-dalek = { workspace = true }
 
 [lib]
 crate-type = ["staticlib"]

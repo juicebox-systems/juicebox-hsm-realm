@@ -1,0 +1,10 @@
+Show the ACL on a key in the security world
+
+Usage: entrust_init acl <APP> <IDENT>
+
+Arguments:
+  <APP>    The app name that the key is in. Typically simple or seeinteg
+  <IDENT>  The name of the key
+
+Options:
+  -h, --help  Print help

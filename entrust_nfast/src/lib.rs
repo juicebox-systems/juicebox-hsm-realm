@@ -1,6 +1,13 @@
-use std::{borrow::Cow, ffi::CStr, fmt::Display, ops::Deref, ptr::null_mut, slice};
+use std::{
+    borrow::Cow,
+    ffi::{CStr, CString},
+    fmt::Display,
+    ops::Deref,
+    ptr::null_mut,
+    slice,
+};
 use thiserror::Error;
-use tracing::warn;
+use tracing::{debug, warn};
 
 mod nfastapp;
 pub use nfastapp::*;
@@ -146,6 +153,52 @@ impl M_Command {
             cmd,
             ..Self::default()
         }
+    }
+}
+
+// Look for a key in the security world.
+pub fn find_key(
+    conn: &NFastConn,
+    app: &str,
+    ident: &str,
+) -> Result<Option<SecurityWorldKey>, NFastError> {
+    let app_cstr = CString::new(app).unwrap();
+    let ident_cstr = CString::new(ident).unwrap();
+    let keyid = NFKM_KeyIdent {
+        appname: app_cstr.as_ptr() as *mut i8,
+        ident: ident_cstr.as_ptr() as *mut i8,
+    };
+
+    let mut key: *mut NFKM_Key = null_mut();
+    let rc = unsafe { NFKM_findkey(conn.app, keyid, &mut key, null_mut()) };
+    if rc != 0 {
+        return Err(NFastError::Api(rc));
+    }
+    if key.is_null() {
+        debug!(?app, ?ident, "no key found");
+        return Ok(None);
+    }
+    debug!(?app, ?ident, key_hash=%unsafe{(*key).hash}, "found key");
+    Ok(Some(SecurityWorldKey {
+        conn: conn.clone(),
+        inner: key,
+    }))
+}
+
+pub struct SecurityWorldKey {
+    conn: NFastConn,
+    inner: *mut NFKM_Key,
+}
+impl Drop for SecurityWorldKey {
+    fn drop(&mut self) {
+        unsafe { NFKM_freekey(self.conn.app, self.inner, null_mut()) };
+    }
+}
+impl Deref for SecurityWorldKey {
+    type Target = NFKM_Key;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &(*self.inner) }
     }
 }
 

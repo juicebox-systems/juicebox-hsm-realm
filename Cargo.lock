@@ -708,6 +708,7 @@ dependencies = [
  "http",
  "loam-mvp",
  "loam-sdk-core",
+ "serde",
  "tokio",
  "tracing 0.2.0",
 ]
@@ -720,6 +721,7 @@ dependencies = [
  "hsmcore",
  "loam-sdk-core",
  "rand_core 0.6.4",
+ "x25519-dalek",
 ]
 
 [[package]]

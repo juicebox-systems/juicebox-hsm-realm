@@ -69,6 +69,12 @@ impl fmt::Debug for MacKey {
 }
 
 impl MacKey {
+    pub fn from(v: [u8; 64]) -> Self {
+        let mut key = digest::Key::<SimpleHmac<Blake2s256>>::default();
+        key.copy_from_slice(&v);
+        Self(key)
+    }
+
     pub fn random(rng: &mut impl CryptoRng) -> Self {
         let mut key = digest::Key::<SimpleHmac<Blake2s256>>::default();
         rng.fill_bytes(&mut key);
@@ -327,7 +333,11 @@ impl NodeHasher<DataHash> for MerkleHasher {
 pub struct RecordEncryptionKey([u8; 32]);
 
 impl RecordEncryptionKey {
-    fn from(realm_key: &MacKey) -> Self {
+    pub fn from(v: [u8; 32]) -> Self {
+        Self(v)
+    }
+
+    fn derive_from(realm_key: &MacKey) -> Self {
         // generated from /dev/random
         let salt = [
             0x61u8, 0x33, 0xcf, 0xf6, 0xf6, 0x70, 0x27, 0xd2, 0x0c, 0x3d, 0x8b, 0x42, 0x5a, 0x21,
@@ -516,7 +526,7 @@ impl RealmKeys {
             let public = x25519::PublicKey::from(&secret);
             (secret, public)
         };
-        let record = RecordEncryptionKey::from(&k);
+        let record = RecordEncryptionKey::derive_from(&k);
         RealmKeys {
             communication,
             record,
