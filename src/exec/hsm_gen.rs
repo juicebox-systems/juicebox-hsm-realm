@@ -88,27 +88,7 @@ impl HsmGenerator {
             count -= 1;
         }
         iter::repeat_with(|| {
-            let hsm_port = self.port.next();
             let agent_port = self.port.next();
-            let hsm_address = SocketAddr::from(([127, 0, 0, 1], hsm_port));
-            let hsm_url = Url::parse(&format!("http://{hsm_address}")).unwrap();
-            let mut cmd = Command::new(format!(
-                "target/{}/http_hsm",
-                if cfg!(debug_assertions) {
-                    "debug"
-                } else {
-                    "release"
-                }
-            ));
-            cmd.arg("--listen")
-                .arg(hsm_address.to_string())
-                .arg("--key")
-                .arg(&self.secret);
-            if let Some(d) = &hsm_dir {
-                cmd.arg("--state-dir").arg(d.as_os_str());
-            }
-            process_group.spawn(&mut cmd);
-
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
             let mut cmd = Command::new(format!(
@@ -119,12 +99,15 @@ impl HsmGenerator {
                     "release"
                 }
             ));
-            cmd.arg("--listen")
-                .arg(agent_address)
-                .arg("--hsm")
-                .arg(hsm_url.to_string());
+            cmd.arg("--key")
+                .arg(&self.secret)
+                .arg("--listen")
+                .arg(agent_address);
             if metrics.report_metrics(next_is_leader) {
                 cmd.arg("--metrics").arg("1000");
+            }
+            if let Some(d) = &hsm_dir {
+                cmd.arg("--state-dir").arg(d.as_os_str());
             }
             next_is_leader = false;
             bigtable.add_to_cmd(&mut cmd);

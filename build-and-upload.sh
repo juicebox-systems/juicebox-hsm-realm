@@ -24,7 +24,6 @@ cargo build "--$MODE" \
   --bin cluster \
   --bin cluster_manager \
   --bin demo \
-  --bin http_hsm \
   --bin load_balancer
 
 echo 'Uploading artifacts to Google Cloud Storage'
@@ -33,7 +32,6 @@ gcloud storage cp \
   "target/$MODE/cluster" \
   "target/$MODE/cluster_manager" \
   "target/$MODE/demo" \
-  "target/$MODE/http_hsm" \
   "target/$MODE/load_balancer" \
   "gs://$GSPATH/"
 

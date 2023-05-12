@@ -135,7 +135,10 @@ async fn main() {
     };
 
     let lb = LoadBalancer::new(name, store, secret_manager);
-    let (url, join_handle) = lb.listen(args.listen, cert_resolver).await.expect("TODO");
+    let (url, join_handle) = lb
+        .listen(args.listen, cert_resolver)
+        .await
+        .expect("failed to listen for connections");
     info!(url = %url, "Load balancer started");
     join_handle.await.unwrap();
 

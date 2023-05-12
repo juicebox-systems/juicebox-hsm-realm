@@ -32,7 +32,7 @@ use super::mutation::{MutationTracker, OnMutationFinished};
 use app::RecordChange;
 use cache::Cache;
 use loam_sdk_core::{
-    requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse},
+    requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
     types::{RealmId, SessionId},
     {marshalling, marshalling::DeserializationError},
 };
@@ -1773,6 +1773,17 @@ fn handle_app_request(
         Ok(record) => record,
         Err(response) => return response.into(),
     };
+
+    // This should be enforced by the load balancer, but double check.
+    match &request.encrypted {
+        NoiseRequest::Transport { ciphertext } => {
+            assert!(ciphertext.len() <= BODY_SIZE_LIMIT);
+        }
+        NoiseRequest::Handshake { handshake } => {
+            assert_eq!(handshake.client_ephemeral_public.len(), 32);
+            assert!(handshake.payload_ciphertext.len() <= BODY_SIZE_LIMIT);
+        }
+    }
 
     let (noise, secrets_request) = match NoiseHelper::decode(
         request.record_id.clone(),

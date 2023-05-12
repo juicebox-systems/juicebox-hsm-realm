@@ -131,7 +131,10 @@ async fn main() {
         agent_clone.shutdown(Duration::from_secs(10)).await;
     }));
 
-    let (url, join_handle) = agent.listen(args.listen).await.expect("TODO");
+    let (url, join_handle) = agent
+        .listen(args.listen)
+        .await
+        .expect("failed to listen for connections");
     info!(url = %url, "Agent started");
     join_handle.await.unwrap();
 }
