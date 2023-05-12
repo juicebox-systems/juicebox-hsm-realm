@@ -1,13 +1,14 @@
-A host agent to pair with an HSM
+A host agent that embeds an insecure software HSM
 
-Usage: agent [OPTIONS]
+Usage: agent [OPTIONS] --key <KEY>
 
 Options:
       --bigtable-project <PROJECT>    The name of the GCP project that contains the bigtable instance [default: prj]
       --bigtable-instance <INSTANCE>  The name of the bigtable instance to connect to [default: instance]
       --bigtable-url <URL>            The url to the big table emulator [default uses GCP endpoints]
-      --hsm <HSM>                     Address of HSM (HTTP) [default: http://localhost:8080]
+  -k, --key <KEY>                     Derive realm key from this input (insecure)
   -l, --listen <LISTEN>               The IP/port to listen on [default: 127.0.0.1:8082]
-  -n, --name <NAME>                   Name of the agent in logging [default: agent{listen}]
   -m, --metrics <METRICS>             HSM Metrics reporting interval in milliseconds [default: no reporting]
+  -n, --name <NAME>                   Name of the agent in logging [default: agent{listen}]
+  -s, --state-dir <STATE_DIR>         Directory to store the persistent state file in [default: a random temp dir]
   -h, --help                          Print help

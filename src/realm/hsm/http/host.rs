@@ -131,6 +131,8 @@ impl HttpHsm {
         let listener = TcpListener::bind(address)
             .await
             .with_context(|| format!("failed to bind to {address}"))?;
+        // This allows you to pass port 0 for an OS-assigned port.
+        let address = listener.local_addr()?;
         let url = Url::parse(&format!("http://{address}")).unwrap();
 
         Ok((
