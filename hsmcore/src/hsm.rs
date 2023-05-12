@@ -32,7 +32,7 @@ use super::mutation::{MutationTracker, OnMutationFinished};
 use app::RecordChange;
 use cache::Cache;
 use loam_sdk_core::{
-    requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse},
+    requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
     types::{RealmId, SessionId},
     {marshalling, marshalling::DeserializationError},
 };
@@ -1750,8 +1750,6 @@ fn secrets_req_name(r: &SecretsRequest) -> &'static str {
     }
 }
 
-const MAX_REQUEST_CIPHERTEXT: usize = 2048;
-
 fn handle_app_request(
     app_ctx: &app::AppContext,
     request: AppRequest,
@@ -1774,11 +1772,11 @@ fn handle_app_request(
     // This should be enforced by the load balancer, but double check.
     match &request.encrypted {
         NoiseRequest::Transport { ciphertext } => {
-            assert!(ciphertext.len() <= MAX_REQUEST_CIPHERTEXT);
+            assert!(ciphertext.len() <= BODY_SIZE_LIMIT);
         }
         NoiseRequest::Handshake { handshake } => {
             assert_eq!(handshake.client_ephemeral_public.len(), 32);
-            assert!(handshake.payload_ciphertext.len() <= MAX_REQUEST_CIPHERTEXT);
+            assert!(handshake.payload_ciphertext.len() <= BODY_SIZE_LIMIT);
         }
     }
 

@@ -36,7 +36,7 @@ use loam_mvp::realm::agent::types::{
 };
 use loam_mvp::realm::store::bigtable::StoreClient;
 use loam_mvp::secret_manager::SecretManager;
-use loam_sdk_core::requests::{ClientRequest, ClientResponse};
+use loam_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use loam_sdk_core::types::RealmId;
 
 #[derive(Clone)]
@@ -187,8 +187,6 @@ async fn refresh(
     }
 }
 
-const REQUEST_BODY_SIZE_LIMIT: usize = 2048;
-
 impl Service<Request<IncomingBody>> for LoadBalancer {
     type Response = Response<Full<Bytes>>;
     type Error = hyper::Error;
@@ -209,7 +207,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                 let request_bytes = request.collect().await?.to_bytes();
 
                 // todo: figure out a way to reject without reading all bytes into memory first
-                let response = if request_bytes.len() >= REQUEST_BODY_SIZE_LIMIT {
+                let response = if request_bytes.len() >= BODY_SIZE_LIMIT {
                     ClientResponse::PayloadTooLarge
                 } else {
                     match marshalling::from_slice(request_bytes.as_ref()) {
@@ -362,28 +360,4 @@ async fn handle_client_request(
     }
 
     Response::Unavailable
-}
-
-#[cfg(test)]
-mod test {
-    use crate::load_balancer::REQUEST_BODY_SIZE_LIMIT;
-    use loam_sdk_core::{
-        marshalling,
-        requests::{Register2Request, SecretsRequest},
-        types::{MaskedTgkShare, OprfKey, Policy, Salt, UnlockTag, UserSecretShare},
-    };
-
-    #[test]
-    fn test_request_body_size_limit() {
-        let secrets_request = SecretsRequest::Register2(Box::new(Register2Request {
-            salt: Salt::from([0; 32]),
-            oprf_key: OprfKey::from([0; 32]),
-            tag: UnlockTag::from([0; 32]),
-            masked_tgk_share: MaskedTgkShare::try_from(vec![0; 33]).unwrap(),
-            secret_share: UserSecretShare::try_from(vec![0; 146]).unwrap(),
-            policy: Policy { num_guesses: 1 },
-        }));
-        let serialized = marshalling::to_vec(&secrets_request).unwrap();
-        assert!(serialized.len() < REQUEST_BODY_SIZE_LIMIT);
-    }
 }
