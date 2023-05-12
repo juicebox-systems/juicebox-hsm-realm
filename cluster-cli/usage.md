@@ -6,7 +6,7 @@ A CLI tool for interacting with the cluster
 Usage: cluster [OPTIONS] <COMMAND>
 
 Commands:
-  agents         Print basic information about every discoverable agent
+  agents         Print detailed information about every discoverable agent
   auth-token     Create an auth token for a test tenant
   configuration  Print a configuration that uses the discoverable realm(s)
   experimental   Subcommands that are not yet stable and may be dangerous
@@ -28,7 +28,7 @@ Options:
 ## `cluster agents --help`
 
 ```
-Print basic information about every discoverable agent.
+Print detailed information about every discoverable agent.
 
 See 'groups' for a higher-level view of the realms and groups in the cluster.
 

@@ -32,7 +32,7 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Print basic information about every discoverable agent.
+    /// Print detailed information about every discoverable agent.
     ///
     /// See 'groups' for a higher-level view of the realms and groups in the
     /// cluster.
