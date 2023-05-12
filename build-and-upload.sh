@@ -17,9 +17,11 @@ fi
 
 echo "Building version $GIT in $MODE mode"
 cargo build "--$MODE" \
+  --package cluster-cli \
   --package load_balancer \
   --package loam-mvp \
   --bin agent \
+  --bin cluster \
   --bin cluster_manager \
   --bin demo \
   --bin load_balancer
@@ -27,6 +29,7 @@ cargo build "--$MODE" \
 echo 'Uploading artifacts to Google Cloud Storage'
 gcloud storage cp \
   "target/$MODE/agent" \
+  "target/$MODE/cluster" \
   "target/$MODE/cluster_manager" \
   "target/$MODE/demo" \
   "target/$MODE/load_balancer" \

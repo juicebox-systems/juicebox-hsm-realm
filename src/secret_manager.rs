@@ -9,11 +9,10 @@ mod google_secret_manager;
 mod periodic;
 mod secrets_file;
 
+pub use anyhow::Error;
 pub use google_secret_manager::Client as GoogleSecretManagerClient;
 pub use periodic::{BulkLoad, Periodic};
 pub use secrets_file::SecretsFile;
-
-pub type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 /// A value that should remain confidential.
 #[derive(Deserialize)]

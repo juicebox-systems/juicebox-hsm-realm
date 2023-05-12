@@ -74,12 +74,24 @@ fn should_log(module_path: Option<&str>) -> bool {
 }
 
 pub fn configure(service_name: &str) {
+    configure_with_options(Options {
+        process_name: service_name.to_owned(),
+        default_log_level: Level::INFO,
+    })
+}
+
+pub struct Options {
+    pub process_name: String,
+    pub default_log_level: Level,
+}
+
+pub fn configure_with_options(options: Options) {
     let log_level = std::env::var("LOGLEVEL")
         .map(|s| match Level::from_str(&s) {
             Ok(level) => level,
             Err(e) => panic!("failed to parse LOGLEVEL: {e}"),
         })
-        .unwrap_or(Level::INFO);
+        .unwrap_or(options.default_log_level);
 
     let terminal = tracing_subscriber::fmt::Subscriber::new()
         .with_file(true)
@@ -126,7 +138,7 @@ pub fn configure(service_name: &str) {
                 .with_sampler(Sampler::TraceIdRatioBased(0.1))
                 .with_resource(Resource::new(vec![KeyValue::new(
                     "service.name",
-                    service_name.to_owned(),
+                    options.process_name,
                 )])),
         )
         .install_batch(opentelemetry::runtime::Tokio)

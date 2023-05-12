@@ -1,4 +1,5 @@
 use std::time::Duration;
+use thiserror::Error;
 use tokio::time::sleep;
 use tracing::info;
 
@@ -14,9 +15,11 @@ use hsmcore::hsm::types as hsm_types;
 use loam_sdk_core::types::RealmId;
 use loam_sdk_networking::rpc;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum TransferError {
+    #[error("source group missing leader")]
     NoSourceLeader,
+    #[error("destination missing leader")]
     NoDestinationLeader,
     // TODO: more error cases hidden in todo!()s.
 }
