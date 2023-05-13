@@ -323,10 +323,7 @@ fn create_private_key_acl(
     let rc =
         unsafe { NFKM_newkey_makeaclx(conn.app, conn.conn, world, &params, &mut acl, null_mut()) };
     if rc != 0 {
-        return Err(anyhow!(
-            "NFKM_newkey_makeaclx failed with error: {}",
-            NFastError::Api(rc)
-        ));
+        return Err(NFastError::Api(rc)).context("NFKM_newkey_makeaclx failed");
     }
     // The generated ACL is fine other than the permissions for the admin which are way too permissive.
     // In our case we can just remove those all together.
@@ -354,10 +351,7 @@ fn create_public_key_acl(conn: &NFastConn, world: *mut NFKM_WorldInfo) -> anyhow
     let rc =
         unsafe { NFKM_newkey_makeaclx(conn.app, conn.conn, world, &params, &mut acl, null_mut()) };
     if rc != 0 {
-        return Err(anyhow!(
-            "NFKM_newkey_makeaclx failed with error: {}",
-            NFastError::Api(rc)
-        ));
+        return Err(NFastError::Api(rc)).context("NFKM_newkey_makeaclx failed");
     }
     Ok(Acl {
         app: conn.app,
@@ -386,7 +380,7 @@ impl Drop for Acl {
 /// Will prompt the user to insert the OCS cards if the key is protected by an OCS.
 pub fn load_private_key_blob(
     conn: &mut NFastConn,
-    module: M_ModuleID,
+    mut module: M_ModuleID,
     world: *mut NFKM_WorldInfo,
     app: &str,
     ident: &str,
@@ -396,7 +390,6 @@ pub fn load_private_key_blob(
     {
         None => Ok(None),
         Some(key) => {
-            let mut module = module;
             let mut ltid: M_KeyID = 0;
             if key.flags & Key_flags_ProtectionCardSet != 0 {
                 (module, ltid) = get_ocs_ltid(conn, world, key.cardset)?;

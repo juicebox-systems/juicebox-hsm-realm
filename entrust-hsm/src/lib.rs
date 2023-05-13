@@ -152,11 +152,10 @@ fn redeem_ticket<const N: usize>(
     mut ticket: Ticket,
     world_signer: M_Hash,
 ) -> Result<[u8; N], StartResponse> {
-    let mut cmd = M_Command::new(Cmd_RedeemTicket);
-    cmd.args.redeemticket.ticket = M_ByteBlock::from_vec(&mut ticket.0);
-
     let err_mapper = |err: SeeError| StartResponse::InvalidTicket(key_role, err.status());
 
+    let mut cmd = M_Command::new(Cmd_RedeemTicket);
+    cmd.args.redeemticket.ticket = M_ByteBlock::from_vec(&mut ticket.0);
     let reply = transact(&mut cmd, Some(world_signer)).map_err(err_mapper)?;
     let key_id = unsafe { reply.reply.redeemticket.obj };
 
