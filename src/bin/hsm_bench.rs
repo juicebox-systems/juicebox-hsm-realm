@@ -17,8 +17,8 @@ use loam_sdk::{Client, Pin, UserSecret};
 use loam_sdk_core::types::Policy;
 use loam_sdk_networking::rpc::LoadBalancerService;
 
+/// An end-to-end benchmark to stress an HSM.
 #[derive(Debug, Parser)]
-#[command(about = "An end-to-end benchmark to stress an HSM")]
 struct Args {
     #[command(flatten)]
     bigtable: BigTableArgs,
@@ -138,8 +138,8 @@ async fn main() {
                 debug!(completed, "ok");
                 completed += 1;
             }
-            Err(e) => {
-                warn!(err=?e, "client got error");
+            Err(err) => {
+                warn!(?err, "client got error");
                 errors += 1;
             }
         }
