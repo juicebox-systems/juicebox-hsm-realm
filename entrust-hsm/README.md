@@ -8,7 +8,7 @@ You'll need the Entrust/nCipher SDK to be installed (On linux)
 
 `./compile_ncipherxc.sh` will compile using our custom powerpc / ncipher target. 
 
-This generates a entrust-hsm.elf file in the relevant target/$TARGET/release
+This generates an `entrust-hsm.elf` file in the relevant `target/$TARGET/release`
 directory. Once correctly code signed (see below) the entrust-agent host process
 can be run. This will use the APIs to have the HSM load and start the SEEMachine
 world, and then start handling requests.
@@ -26,8 +26,8 @@ Our `entrust_init` tool is used to configure NVRAM access and create realm keys.
 
 The code signing key (aka seeinteg) is required to be an OCS protected key.
 
- * Create the security world (if needed) For production pick better quorums and
-   don't set dseeall
+Create the security world (if needed). For production pick better quorums and
+don't set dseeall
 
  ```sh
 sudo /opt/nfast/bin/nopclearfail --initialization --module=1 --wait
@@ -35,9 +35,9 @@ sudo /opt/nfast/bin/new-world --initialize --acs-quorum=1/1 dseeall
 sudo /opt/nfast/bin/nopclearfail --operational -m 1 --wait
 ```
 
- * Create an OCS cardset `sudo /opt/nfast/bin/createocs --name codesign -Q 1/1 -m 1 -P -R`
- * Create a signing key
+Create an OCS cardset ```sudo /opt/nfast/bin/createocs --name codesign -Q 1/1 -m 1 -P -R```
 
+Create a signing key
  ```sh
 $ sudo /opt/nfast/bin/generatekey -m 1 -c codesign  seeinteg
 recovery: Key recovery? (yes/no) [yes] > no
@@ -63,11 +63,23 @@ key generation parameters:
 Key successfully generated.
 ```
 
- * Sign the SEEMachine software `/opt/nfast/bin/tct2 --sign-and-pack --infile entrust-hsm.elf --outfile=hsm.sar  -k jbox-signer --is-machine --machine-type powerPCELF`
- * Sign a dummy userdata file `/opt/nfast/bin/tct2 --sign-and-pack --infile dummy --outfile=dummy.sar -k jbox-signer --machine-key-ident jbox-signer --machine-type powerPCELF`
- * Signing will require the OCS card(s) from above to be loaded.
- * Create the NVRAM file `entrust_init nvram` this will need the ACS card(s).
- * Create the realm keys. This only needs doing once per realm, the NVRAM needs doing per HSM. `sudo entrust_init keys`
+Sign the SEEMachine software.
+```sh
+/opt/nfast/bin/tct2 --sign-and-pack --infile entrust-hsm.elf --outfile=hsm.sar  -k jbox-signer --is-machine --machine-type powerPCELF
+```
+
+Create and sign a dummy userdata file (the exact contents of this file don't matter).
+
+```sh
+echo "dummy" > dummy
+/opt/nfast/bin/tct2 --sign-and-pack --infile dummy --outfile=dummy.sar -k jbox-signer --machine-key-ident jbox-signer --machine-type powerPCELF
+```
+
+Signing will require the OCS card(s) from above to be loaded.
+
+Create the NVRAM file `entrust_init nvram` this will need the ACS card(s).
+
+Create the realm keys. This only needs doing once per realm, the NVRAM needs doing per HSM. `sudo entrust_init keys`
 
 We use our own tools for the NVRAM & realm keys to ensure they get a restrictive
 ACL on them. The Entrust tools tend to give admins lots of rights in the ACLs
@@ -77,44 +89,50 @@ You should now be able to run the agent manually and see the seeworld & hsm star
 ```sh
 LOGLEVEL=debug ./entrust-agent --bigtable-project crucial-limiter-377716 --bigtable-instance simon-ssd -i hsm.sar -u dummy.sar -t
 
-2023-05-12T01:37:48.662605Z  INFO src/logging.rs:144: initialized logging to terminal and telemetry to OTLP/Jaeger. you can set verbosity with env var LOGLEVEL. max_level=DEBUG
-2023-05-12T01:37:48.662965Z  INFO src/google_auth.rs:22: initializing Google Cloud authentication with Application Default Credentials
-2023-05-12T01:37:48.662996Z DEBUG /home/simon/.cargo/git/checkouts/gcp_auth-0a7a4d6a48633ebe/579fae9/src/authentication_manager.rs:44: Initializing gcp_auth
-2023-05-12T01:37:49.423299Z DEBUG /home/simon/.cargo/git/checkouts/gcp_auth-0a7a4d6a48633ebe/579fae9/src/authentication_manager.rs:52: Using GCloudAuthorizedUser
-2023-05-12T01:37:49.423321Z  INFO src/realm/store/bigtable.rs:85: Connecting to Bigtable Data instance="simon-ssd" project="crucial-limiter-377716" data_url=https://bigtable.googleapis.com/
-2023-05-12T01:37:49.442178Z  INFO src/realm/store/bigtable.rs:106: Connecting to Bigtable Admin inst="simon-ssd" project="crucial-limiter-377716" admin_url=https://bigtableadmin.googleapis.com/
-2023-05-12T01:37:53.122452Z  INFO entrust-agent/src/main.rs:414: Successfully started SEEWorld
-2023-05-12T01:37:53.122501Z DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-noise"
-2023-05-12T01:37:53.122665Z DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-noise" key_hash=045f3884d76f004592dd50279316425ec0bff268
-2023-05-12T01:37:53.129751Z DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-noise"
-2023-05-12T01:37:53.129801Z DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-noise"
-2023-05-12T01:37:53.129910Z DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-noise" key_hash=045f3884d76f004592dd50279316425ec0bff268
-2023-05-12T01:37:53.131027Z DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-noise"
-2023-05-12T01:37:53.131073Z DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-mac"
-2023-05-12T01:37:53.131185Z DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-mac" key_hash=fd16169ae11bababa274aaf69f4e553a613e9c21
-2023-05-12T01:37:53.132075Z DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-mac"
-2023-05-12T01:37:53.132090Z DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-record"
-2023-05-12T01:37:53.132144Z DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-record" key_hash=afcda0ad6f3b2aeae9b7d072a47150be8cab54e4
-2023-05-12T01:37:53.132801Z DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-record"
-2023-05-12T01:37:53.749786Z  INFO entrust-agent/src/main.rs:281: HSMCore started and ready for work
-2023-05-12T01:37:53.751044Z DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=1.213141ms req="Status"
-2023-05-12T01:37:53.751201Z  INFO entrust-agent/src/main.rs:137: Agent started url=http://127.0.0.1:8082/
-2023-05-12T01:37:53.751966Z DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=737.381µs req="Status"
-2023-05-12T01:37:53.752072Z  INFO src/realm/agent.rs:341: registering agent with service discovery hsm=34f65c62af130da099a5c7563221fb63 url=http://127.0.0.1:8082/
-2023-05-12T01:37:53.802541Z DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=731.44µs req="PersistState"
-2023-05-12T01:37:53.903118Z DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=1.042124ms req="PersistState"
+ INFO src/logging.rs:144: initialized logging to terminal and telemetry to OTLP/Jaeger. you can set verbosity with env var LOGLEVEL. max_level=DEBUG
+ INFO src/google_auth.rs:22: initializing Google Cloud authentication with Application Default Credentials
+DEBUG /home/simon/.cargo/git/checkouts/gcp_auth-0a7a4d6a48633ebe/579fae9/src/authentication_manager.rs:44: Initializing gcp_auth
+DEBUG /home/simon/.cargo/git/checkouts/gcp_auth-0a7a4d6a48633ebe/579fae9/src/authentication_manager.rs:52: Using GCloudAuthorizedUser
+ INFO src/realm/store/bigtable.rs:85: Connecting to Bigtable Data instance="simon-ssd" project="crucial-limiter-377716" data_url=https://bigtable.googleapis.com/
+ INFO src/realm/store/bigtable.rs:106: Connecting to Bigtable Admin inst="simon-ssd" project="crucial-limiter-377716" admin_url=https://bigtableadmin.googleapis.com/
+ INFO entrust-agent/src/main.rs:414: Successfully started SEEWorld
+DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-noise"
+DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-noise" key_hash=045f3884d76f004592dd50279316425ec0bff268
+DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-noise"
+DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-noise"
+DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-noise" key_hash=045f3884d76f004592dd50279316425ec0bff268
+DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-noise"
+DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-mac"
+DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-mac" key_hash=fd16169ae11bababa274aaf69f4e553a613e9c21
+DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-mac"
+DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-record"
+DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-record" key_hash=afcda0ad6f3b2aeae9b7d072a47150be8cab54e4
+DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-record"
+ INFO entrust-agent/src/main.rs:281: HSMCore started and ready for work
+DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=1.213141ms req="Status"
+ INFO entrust-agent/src/main.rs:137: Agent started url=http://127.0.0.1:8082/
+DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=737.381µs req="Status"
+ INFO src/realm/agent.rs:341: registering agent with service discovery hsm=34f65c62af130da099a5c7563221fb63 url=http://127.0.0.1:8082/
+DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=731.44µs req="PersistState"
+DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=1.042124ms req="PersistState"
 ```
 
 ### About Keys
 
 The `entrust_init` tool creates unrecoverable module protected keys in the
 security world. These have an ACL that restricts access to SEEMachine code
-signed with a specific signing key.
+signed with a specific signing key. The security world organizes keys into
+groups called "applications" which is like a namespace / categorization /
+functionality bucket. The 2 "apps" you are likely to see mentioned are "simple"
+where the realm keys are stored and "seeinteg" where the code signing key is
+stored. Inside this app namespace keys are given an string id called an "ident"
+and optionally a name.
 
-The agent at startup will find the keys by name in the security world and load
-them. It now has a reference to the key in the HSM. It generates a ticket for
-each key and sends the tickets to the SEEMachine as part of the StartRequest
-message.
+The agent at startup will use the security world APIs (they start with NFKM_) to
+load the keys from the "simple" app namespace with the idents: jbox-mac,
+jbox-record and jbox-noise. It now has a reference to the key in the HSM. It
+generates a ticket for each key and sends the tickets to the SEEMachine as part
+of the StartRequest message.
 
 The SEEMachine when it receives the tickets from the StartRequest message will
 first redeem the ticket. This gives it a reference to the key it can use to then
