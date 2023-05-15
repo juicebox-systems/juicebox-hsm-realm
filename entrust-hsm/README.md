@@ -42,7 +42,7 @@ Create a signing key
 $ sudo /opt/nfast/bin/generatekey -m 1 -c codesign  seeinteg
 recovery: Key recovery? (yes/no) [yes] > no
 type: Key type? (RSA, DSA) [RSA] >
-size: Key size? (bits, minimum 1024) [2048] >
+size: Key size? (bits, minimum 1024) [4096] >
 OPTIONAL: pubexp: Public exponent for RSA key (hex)? []
 >
 plainname: Key name? [] > jbox-signer
@@ -55,7 +55,7 @@ key generation parameters:
  recovery     Key recovery                       no
  verify       Verify security of key             yes
  type         Key type                           RSA
- size         Key size                           2048
+ size         Key size                           4096
  pubexp       Public exponent for RSA key (hex)
  plainname    Key name                           jbox-signer
  nvram        Blob in NVRAM (needs ACS)          no
