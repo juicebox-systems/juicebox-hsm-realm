@@ -1,7 +1,10 @@
 use ::http::{HeaderName, HeaderValue};
 use async_trait::async_trait;
 use reqwest::Certificate;
-use std::{collections::HashMap, marker::PhantomData, str::FromStr};
+use std::collections::HashMap;
+use std::marker::PhantomData;
+use std::str::FromStr;
+use std::time::Duration;
 use tracing::warn;
 
 use loam_sdk::http;
@@ -22,7 +25,9 @@ pub struct Client<F: rpc::Service> {
 
 impl<F: rpc::Service> Client<F> {
     pub fn new(options: ClientOptions) -> Self {
-        let mut b = reqwest::Client::builder().use_rustls_tls();
+        let mut b = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .use_rustls_tls();
         for c in options.additional_root_certs {
             b = b.add_root_certificate(c);
         }
