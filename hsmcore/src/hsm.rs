@@ -1818,7 +1818,7 @@ fn handle_app_request(
 
     let secrets_response = noise.encode(secrets_response, &mut leader.sessions);
 
-    let (root_hash, store_delta) = merkle.update_overlay(change);
+    let (root_hash, store_delta) = merkle.update_overlay(rng, change);
 
     let new_entry = make_next_log_entry(leader, request.realm, request.group, root_hash, &keys.mac);
     leader.log.push_back(LeaderLogEntry {
@@ -1845,7 +1845,7 @@ impl<'a> MerkleHelper<'a> {
         leaf_key: &'a RecordEncryptionKey,
         tree: &'a mut Tree<MerkleHasher, DataHash>,
     ) -> Result<(Self, Option<Vec<u8>>), AppError> {
-        use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
+        use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 
         // TODO: do we check anywhere that `request_proof.key` matches `request.record_id`?
 
@@ -1865,9 +1865,16 @@ impl<'a> MerkleHelper<'a> {
             None => None,
             Some(l) => {
                 let cipher =
-                    ChaCha20Poly1305::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
-                let nonce = Nonce::from_slice(&latest_proof.key.0[..12]);
-                match cipher.decrypt(nonce, l.value.as_slice()) {
+                    XChaCha20Poly1305::new_from_slice(&leaf_key.0).expect("couldn't create cipher");
+                let nonce_size = XNonce::default().len();
+                if l.value.len() <= nonce_size {
+                    warn!(size=%l.value.len(), "received leaf value smaller than the nonce size");
+                    return Err(AppError::InvalidRecordData);
+                }
+                let (cipher_text, nonce_bytes) =
+                    l.value.as_slice().split_at(l.value.len() - nonce_size);
+                let nonce = XNonce::from_slice(nonce_bytes);
+                match cipher.decrypt(nonce, cipher_text) {
                     Ok(plain_text) => Some(plain_text),
                     Err(e) => {
                         warn!(?e, "failed to decrypt leaf value");
@@ -1904,17 +1911,21 @@ impl<'a> MerkleHelper<'a> {
         ))
     }
 
-    fn update_overlay(self, change: Option<RecordChange>) -> (DataHash, StoreDelta<DataHash>) {
-        use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
+    fn update_overlay(
+        self,
+        rng: &mut dyn CryptoRng,
+        change: Option<RecordChange>,
+    ) -> (DataHash, StoreDelta<DataHash>) {
+        use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 
         match change {
             Some(change) => match change {
                 RecordChange::Update(mut record) => {
-                    let cipher = ChaCha20Poly1305::new_from_slice(&self.leaf_key.0)
+                    let cipher = XChaCha20Poly1305::new_from_slice(&self.leaf_key.0)
                         .expect("couldn't create cipher");
-                    // TODO: can we use this nonce to help generate unique leaf hashes?
-                    // TODO: can we use or add the previous root hash into this? (this seems hard as you need the same nonce to decode it)
-                    let nonce = Nonce::from_slice(&self.latest_proof.key.0[..12]);
+
+                    let mut nonce = XNonce::default();
+                    rng.fill_bytes(&mut nonce);
                     record
                         .extend_from_slice(&self.update_num.checked_add(1).unwrap().to_be_bytes());
                     let plain_text: &[u8] = &record;
@@ -1923,9 +1934,10 @@ impl<'a> MerkleHelper<'a> {
                     // the integrity of the record twice: once in the Merkle tree hash and once in the AEAD tag.
                     // We may also want to use the AD part of AEAD. For example, the generation number in the user's record isn't necessarily
                     // private and could allow the agent to reply to some queries without the HSM getting involved.
-                    let cipher_text = cipher
-                        .encrypt(nonce, plain_text)
+                    let mut cipher_text = cipher
+                        .encrypt(&nonce, plain_text)
                         .expect("couldn't encrypt record");
+                    cipher_text.extend_from_slice(&nonce);
 
                     self.tree
                         .insert(self.latest_proof, cipher_text)
