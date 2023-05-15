@@ -71,30 +71,34 @@ fn process_start_jobs(buf: &mut Vec<u8>) -> Hsm<NCipher> {
 fn start_hsm(req: StartRequest) -> Result<Hsm<NCipher>, StartResponse> {
     let platform = NCipher::new()?;
 
-    let comm_private_key: [u8; 32] = redeem_ticket(
+    let comm_private_key = x25519::StaticSecret::from(redeem_ticket(
         KeyRole::CommunicationPrivateKey,
         req.comm_private_key,
         platform.world_signer,
-    )?;
+    )?);
 
-    let comm_public_key: [u8; 32] = redeem_ticket(
+    let comm_public_key = x25519::PublicKey::from(redeem_ticket(
         KeyRole::CommunicationPublicKey,
         req.comm_public_key,
         platform.world_signer,
-    )?;
+    )?);
 
-    let record_key: [u8; 32] =
-        redeem_ticket(KeyRole::RecordKey, req.record_key, platform.world_signer)?;
+    let record_key = RecordEncryptionKey::from(redeem_ticket(
+        KeyRole::RecordKey,
+        req.record_key,
+        platform.world_signer,
+    )?);
 
-    let mac_key: [u8; 64] = redeem_ticket(KeyRole::MacKey, req.mac_key, platform.world_signer)?;
+    let mac_key = MacKey::from(redeem_ticket(
+        KeyRole::MacKey,
+        req.mac_key,
+        platform.world_signer,
+    )?);
 
     let keys = RealmKeys {
-        communication: (
-            x25519::StaticSecret::from(comm_private_key),
-            x25519::PublicKey::from(comm_public_key),
-        ),
-        record: RecordEncryptionKey::from(record_key),
-        mac: MacKey::from(mac_key),
+        communication: (comm_private_key, comm_public_key),
+        record: record_key,
+        mac: mac_key,
     };
 
     Hsm::new(
