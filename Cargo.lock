@@ -403,6 +403,7 @@ dependencies = [
  "anyhow",
  "clap 4.1.8",
  "futures",
+ "hdrhistogram",
  "loam-mvp",
  "loam-sdk",
  "loam-sdk-networking",

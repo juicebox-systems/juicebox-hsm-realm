@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use futures::StreamExt;
+use hdrhistogram::Histogram;
 use loam_sdk::{Policy, TokioSleeper};
 use loam_sdk_networking::rpc::LoadBalancerService;
 use reqwest::Certificate;
@@ -174,22 +175,40 @@ async fn benchmark(
         futures::stream::iter((0..count).map(|i| run_op(op, i, client_builder.clone())))
             .buffer_unordered(concurrency);
 
+    let mut durations_ns: Histogram<u64> = Histogram::new(1).unwrap();
     let mut errors: usize = 0;
-    while let Some(ok) = stream.next().await {
-        if !ok {
-            errors += 1;
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(duration) => {
+                durations_ns
+                    .record(duration.as_nanos().try_into().unwrap())
+                    .unwrap();
+            }
+            Err(()) => {
+                errors += 1;
+            }
         }
     }
 
-    let elapsed = start.elapsed().as_secs_f64();
+    let elapsed_s = start.elapsed().as_secs_f64();
 
     info!(
         ?op,
         count,
         concurrency,
-        seconds = elapsed,
-        ops_per_s = (count as f64) / elapsed,
-        ms_per_op = elapsed * 1000.0 / (count as f64),
+        elapsed = format!("{:0.3} s", elapsed_s),
+        throughput = format!("{:0.3} op/s", count as f64 / elapsed_s),
+        min = format!("{:0.3} ms", durations_ns.min() as f64 / 1e6),
+        mean = format!("{:0.3} ms", durations_ns.mean() / 1e6),
+        p95 = format!(
+            "{:0.3} ms",
+            durations_ns.value_at_quantile(0.95) as f64 / 1e6
+        ),
+        p99 = format!(
+            "{:0.3} ms",
+            durations_ns.value_at_quantile(0.99) as f64 / 1e6
+        ),
+        max = format!("{:0.3} ms", durations_ns.max() as f64 / 1e6),
         "completed benchmark"
     );
     if errors > 0 {
@@ -197,7 +216,12 @@ async fn benchmark(
     }
 }
 
-async fn run_op(op: Operation, i: usize, client_builder: Arc<ClientBuilder>) -> bool {
+async fn run_op(
+    op: Operation,
+    i: usize,
+    client_builder: Arc<ClientBuilder>,
+) -> Result<Duration, ()> {
+    let start = Instant::now();
     // Each operation creates a fresh client so that it cannot reuse TCP, HTTP,
     // TLS, or Noise connections, which would be cheating.
     let client = client_builder.build(format!("mario{i}"));
@@ -210,10 +234,10 @@ async fn run_op(op: Operation, i: usize, client_builder: Arc<ClientBuilder>) -> 
             )
             .await
         {
-            Ok(_) => true,
+            Ok(_) => Ok(start.elapsed()),
             Err(err) => {
                 debug!(?op, ?err, i, "client got error");
-                false
+                Err(())
             }
         },
 
@@ -221,18 +245,18 @@ async fn run_op(op: Operation, i: usize, client_builder: Arc<ClientBuilder>) -> 
             .recover(&Pin::from(format!("pin{i}").into_bytes()))
             .await
         {
-            Ok(_) => true,
+            Ok(_) => Ok(start.elapsed()),
             Err(err) => {
                 debug!(?op, ?err, i, "client got error");
-                false
+                Err(())
             }
         },
 
         Operation::Delete => match client.delete().await {
-            Ok(_) => true,
+            Ok(_) => Ok(start.elapsed()),
             Err(err) => {
                 debug!(?op, ?err, i, "client got error");
-                false
+                Err(())
             }
         },
     }

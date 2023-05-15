@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
+hdrhistogram = { workspace = true }
 loam-mvp = { path = ".." }
 loam-sdk = { workspace = true }
 loam-sdk-networking = { workspace = true }
