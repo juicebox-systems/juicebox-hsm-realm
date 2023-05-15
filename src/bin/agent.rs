@@ -1,5 +1,11 @@
+use anyhow::anyhow;
+use blake2::Blake2s256;
 use clap::Parser;
 use futures::future;
+use hkdf::Hkdf;
+use hmac::SimpleHmac;
+use hsmcore::hsm::RealmKeys;
+use hsmcore::hsm::RecordEncryptionKey;
 use loam_mvp::clap_parsers::parse_listen;
 use loam_mvp::future_task::FutureTasks;
 use rand::{rngs::OsRng, RngCore};
@@ -27,9 +33,9 @@ struct Args {
     #[command(flatten)]
     bigtable: BigTableArgs,
 
-    /// Derive realm key from this input (insecure).
-    #[arg(short, long, value_parser=derive_mac_key)]
-    key: MacKey,
+    /// Derive realm keys from this input (insecure).
+    #[arg(short, long)]
+    key: String,
 
     /// The IP/port to listen on.
     #[arg(
@@ -83,7 +89,8 @@ async fn main() {
         panic!("--state-dir should be a directory, but {dir:?} is a file");
     }
 
-    let hsm = HttpHsm::new(dir.clone(), name.clone(), args.key)
+    let keys = insecure_derive_realm_keys(&args.key).unwrap();
+    let hsm = HttpHsm::new(dir.clone(), name.clone(), keys)
         .expect("HttpHsm failed to initialize from prior state");
     let (hsm_url, hsm_handle) = hsm.listen("127.0.0.1:0".parse().unwrap()).await.unwrap();
     info!(url = %hsm_url, dir=%dir.display(), "HSM started");
@@ -127,8 +134,32 @@ async fn main() {
     future::try_join(hsm_handle, agent_handle).await.unwrap();
 }
 
-fn derive_mac_key(s: &str) -> Result<MacKey, String> {
-    Ok(MacKey::derive_from(s.as_bytes()))
+fn insecure_derive_realm_keys(s: &str) -> anyhow::Result<RealmKeys> {
+    if s.is_empty() {
+        return Err(anyhow!("the key can't be empty"));
+    }
+    let salts = [
+        // from /dev/urandom
+        hex::decode("12DC3D4454D4FFFDBCD5F3484DC23D6BD4CB1323DB3D5BFB53DE88589FD48D34")?,
+        hex::decode("591ABF589B93E8F75EEA54F2BE94360C5BCA05903AA85C7DE6847F4E48A50EED")?,
+        hex::decode("B9782DBCA82235A2871226DD05807C955592FD5FC29280A536DFD2E02D2A9BFE")?,
+    ];
+    let mac = MacKey::from(derive_from(s.as_bytes(), &salts[0]));
+    let record = RecordEncryptionKey::from(derive_from(s.as_bytes(), &salts[1]));
+    let noise_priv = x25519_dalek::StaticSecret::from(derive_from(s.as_bytes(), &salts[2]));
+    let noise_pub = x25519_dalek::PublicKey::from(&noise_priv);
+    Ok(RealmKeys {
+        communication: (noise_priv, noise_pub),
+        record,
+        mac,
+    })
+}
+
+fn derive_from<const N: usize>(b: &[u8], salt: &[u8]) -> [u8; N] {
+    let kdf = Hkdf::<Blake2s256, SimpleHmac<Blake2s256>>::new(Some(salt), b);
+    let mut out = [0u8; N];
+    kdf.expand(&[], &mut out).unwrap();
+    out
 }
 
 fn random_tmp_dir() -> PathBuf {

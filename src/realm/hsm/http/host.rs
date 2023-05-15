@@ -2,7 +2,7 @@ use anyhow::Context;
 use bytes::Bytes;
 use futures::Future;
 use hsmcore::hal::{Clock, IOError, NVRam, Nanos, MAX_NVRAM_SIZE};
-use hsmcore::hsm::{Hsm, HsmError, HsmOptions, MacKey, PersistenceError, RealmKeys};
+use hsmcore::hsm::{Hsm, HsmError, HsmOptions, PersistenceError, RealmKeys};
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -113,7 +113,7 @@ impl HttpHsm {
     pub fn new(
         state_dir: PathBuf,
         name: String,
-        mac_key: MacKey,
+        realm_keys: RealmKeys,
     ) -> Result<Self, PersistenceError> {
         let state_file = state_dir.join(&name);
         Ok(HttpHsm(Arc::new(Mutex::new(Hsm::new(
@@ -123,7 +123,7 @@ impl HttpHsm {
                 max_sessions: 511,
             },
             StdPlatform { state_file },
-            RealmKeys::insecure_derive(mac_key),
+            realm_keys,
         )?))))
     }
 
