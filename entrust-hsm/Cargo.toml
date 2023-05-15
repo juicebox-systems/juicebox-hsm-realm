@@ -14,3 +14,7 @@ x25519-dalek = { workspace = true }
 
 [lib]
 crate-type = ["staticlib"]
+
+[features]
+# enables development/test features such as metrics and re-initialization
+dev = []

@@ -4,7 +4,7 @@ set -o pipefail
 TARGET=e5500-entrust-ncipherxc-gnu
 
 # Compile Rust code
-cargo +nightly build --target $TARGET.json --release -Z build-std=core,alloc
+cargo +nightly build --target $TARGET.json --release -Z build-std=core,alloc $@
 
 # Compile C code
 /opt/nfast/gcc/bin/powerpc-codesafe-linux-gnu-gcc \
