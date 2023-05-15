@@ -22,6 +22,19 @@ pub const Cmd_CreateSEEWorld_Args_flags_EnableDebug: u32 = 65536;
 pub const Cmd_CreateSEEWorld_Args_flags__reserved: u32 = 4294901760;
 pub const Cmd_CreateSEEWorld_Args_flags__allflags: u32 = 65536;
 pub const Cmd_CreateSEEWorld_Args_flags__presentflags: u32 = 0;
+pub const Cmd_GenerateKey_Args_flags_Certify: u32 = 1;
+pub const Cmd_GenerateKey_Args_flags_appdata_present: u32 = 2;
+pub const Cmd_GenerateKey_Args_flags_PairwiseCheck: u32 = 4;
+pub const Cmd_GenerateKey_Args_flags__reserved: u32 = 4294901760;
+pub const Cmd_GenerateKey_Args_flags__allflags: u32 = 7;
+pub const Cmd_GenerateKey_Args_flags__presentflags: u32 = 2;
+pub const Cmd_GenerateKeyPair_Args_flags_Certify: u32 = 1;
+pub const Cmd_GenerateKeyPair_Args_flags_appdatapriv_present: u32 = 2;
+pub const Cmd_GenerateKeyPair_Args_flags_appdatapub_present: u32 = 4;
+pub const Cmd_GenerateKeyPair_Args_flags_PairwiseCheck: u32 = 8;
+pub const Cmd_GenerateKeyPair_Args_flags__reserved: u32 = 4294901760;
+pub const Cmd_GenerateKeyPair_Args_flags__allflags: u32 = 15;
+pub const Cmd_GenerateKeyPair_Args_flags__presentflags: u32 = 6;
 pub const Cmd_LoadBuffer_Args_flags_Final: u32 = 1;
 pub const Cmd_LoadBuffer_Args_flags_flashsegment_present: u32 = 2;
 pub const Cmd_LoadBuffer_Args_flags__reserved: u32 = 4294901760;
@@ -36,6 +49,17 @@ pub const PermissionGroup_flags_LogKeyUsage: u32 = 32;
 pub const PermissionGroup_flags__reserved: u32 = 4294901760;
 pub const PermissionGroup_flags__allflags: u32 = 63;
 pub const PermissionGroup_flags__presentflags: u32 = 13;
+pub const Act_DeriveKey_Details_flags_params_present: u32 = 1;
+pub const Act_DeriveKey_Details_flags__allflags: u32 = 1;
+pub const Act_DeriveKey_Details_flags__presentflags: u32 = 1;
+pub const Act_DeriveKeyEx_Details_flags_params_present: u32 = 1;
+pub const Act_DeriveKeyEx_Details_flags__allflags: u32 = 1;
+pub const Act_DeriveKeyEx_Details_flags__presentflags: u32 = 1;
+pub const Act_FeatureEnable_Details_flags_SetSEEMachine: u32 = 1;
+pub const Act_FeatureEnable_Details_flags_GenerateKLF: u32 = 2;
+pub const Act_FeatureEnable_Details_flags__reserved: u32 = 4294967294;
+pub const Act_FeatureEnable_Details_flags__allflags: u32 = 3;
+pub const Act_FeatureEnable_Details_flags__presentflags: u32 = 0;
 pub const Act_FileCopy_Details_flags_ChangeName: u32 = 256;
 pub const Act_FileCopy_Details_flags__reserved: u32 = 4294967040;
 pub const Act_FileCopy_Details_flags__allflags: u32 = 256;
@@ -46,6 +70,11 @@ pub const FileDeviceFlags_SoftToken: u32 = 4;
 pub const FileDeviceFlags__reserved: u32 = 4294967295;
 pub const FileDeviceFlags__allflags: u32 = 7;
 pub const FileDeviceFlags__presentflags: u32 = 0;
+pub const Act_MakeArchiveBlob_Details_flags_kahash_present: u32 = 1;
+pub const Act_MakeArchiveBlob_Details_flags_blobfile_present: u32 = 2;
+pub const Act_MakeArchiveBlob_Details_flags__reserved: u32 = 4294901760;
+pub const Act_MakeArchiveBlob_Details_flags__allflags: u32 = 3;
+pub const Act_MakeArchiveBlob_Details_flags__presentflags: u32 = 3;
 pub const Act_MakeBlob_Details_flags_AllowKmOnly: u32 = 1;
 pub const Act_MakeBlob_Details_flags_AllowNonKm0: u32 = 2;
 pub const Act_MakeBlob_Details_flags_kmhash_present: u32 = 4;
@@ -71,6 +100,8 @@ pub const Act_NVMemOpPerms_Details_perms_LoadBlob: u32 = 2048;
 pub const Act_NVMemOpPerms_Details_perms_Resize: u32 = 4096;
 pub const Act_NVMemOpPerms_Details_perms__allflags: u32 = 8191;
 pub const Act_NVMemOpPerms_Details_perms__presentflags: u32 = 896;
+pub const Act_NVMemUseLimit_Details_flags__allflags: u32 = 0;
+pub const Act_NVMemUseLimit_Details_flags__presentflags: u32 = 0;
 pub const Act_OpPermissions_Details_perms_DuplicateHandle: u32 = 1;
 pub const Act_OpPermissions_Details_perms_UseAsCertificate: u32 = 2;
 pub const Act_OpPermissions_Details_perms_ExportAsPlain: u32 = 4;
@@ -89,13 +120,43 @@ pub const Act_OpPermissions_Details_perms_UseAsLoaderKey: u32 = 16384;
 pub const Act_OpPermissions_Details_perms_SignModuleCert: u32 = 32768;
 pub const Act_OpPermissions_Details_perms__allflags: u32 = 65535;
 pub const Act_OpPermissions_Details_perms__presentflags: u32 = 0;
+pub const Act_SendKey_Details_flags_rm_present: u32 = 1;
+pub const Act_SendKey_Details_flags__allflags: u32 = 1;
+pub const Act_SendKey_Details_flags__presentflags: u32 = 1;
+pub const Act_SendShare_Details_flags_rm_present: u32 = 1;
+pub const Act_SendShare_Details_flags_rsd_present: u32 = 2;
+pub const Act_SendShare_Details_flags__allflags: u32 = 3;
+pub const Act_SendShare_Details_flags__presentflags: u32 = 3;
 pub const Cmd_GenerateKey_Reply_flags_cert_present: u32 = 1;
 pub const Cmd_GenerateKey_Reply_flags__reserved: u32 = 4294901760;
 pub const Cmd_GenerateKey_Reply_flags__allflags: u32 = 1;
 pub const Cmd_GenerateKey_Reply_flags__presentflags: u32 = 1;
+pub const Cmd_GenerateKeyPair_Reply_flags_certpriv_present: u32 = 1;
+pub const Cmd_GenerateKeyPair_Reply_flags_certpub_present: u32 = 2;
+pub const Cmd_GenerateKeyPair_Reply_flags__reserved: u32 = 4294901760;
+pub const Cmd_GenerateKeyPair_Reply_flags__allflags: u32 = 3;
+pub const Cmd_GenerateKeyPair_Reply_flags__presentflags: u32 = 3;
 pub const NFastApp_ConnectionFlags_Privileged: u32 = 1;
 pub const NFastApp_ConnectionFlags_NoClientID: u32 = 2;
 pub const NFastApp_ConnectionFlags_ForceClientID: u32 = 4;
+pub const Key_flags_RecoveryEnabled: u32 = 1;
+pub const Key_flags_RecoveryDisabled: u32 = 2;
+pub const Key_flags_HasCertificate: u32 = 4;
+pub const Key_flags_PublicKey: u32 = 8;
+pub const Key_flags_ProtectionModule: u32 = 16;
+pub const Key_flags_ProtectionCardSet: u32 = 32;
+pub const Key_flags_ProtectionNoKey: u32 = 64;
+pub const Key_flags_SEEAppKey: u32 = 128;
+pub const Key_flags_TimeLimit: u32 = 256;
+pub const Key_flags_SEEAppKeyHashAndMech: u32 = 512;
+pub const Key_flags_PerAuthUseLimit: u32 = 1024;
+pub const Key_flags_NVMemBlob: u32 = 2048;
+pub const Key_flags_NVMemBlobX: u32 = 4096;
+pub const Key_flags_IKWID: u32 = 8192;
+pub const Key_flags_ProtectionPassPhrase: u32 = 16384;
+pub const Key_flags_Current: u32 = 32768;
+pub const Key_flags__allflags: u32 = 65535;
+pub const Key_flags__presentflags: u32 = 0;
 pub const NFKM_NKF_allflags: u32 = 131071;
 pub const NFKM_NKF_RecoveryDefault: u32 = 0;
 pub const NFKM_NKF_RecoveryRequired: u32 = 1;
@@ -123,10 +184,6 @@ pub const NFKM_NKF_IKWID: u32 = 8192;
 pub const NFKM_NKF_NoUseLimits: u32 = 32768;
 pub const NFKM_NKF_LogKeyUsage: u32 = 65536;
 pub const NFKM_NKF_AssignedACL: u32 = 131072;
-pub const NFKM_DEFOPPERMS_SIGN: u32 = 36866;
-pub const NFKM_DEFOPPERMS_VERIFY: u32 = 512;
-pub const NFKM_DEFOPPERMS_ENCRYPT: u32 = 1152;
-pub const NFKM_DEFOPPERMS_DECRYPT: u32 = 1280;
 pub type __time_t = ::core::ffi::c_long;
 pub type time_t = __time_t;
 pub type uint32 = ::core::ffi::c_uint;
@@ -47828,6 +47885,14 @@ extern "C" {
         reply: *mut M_Reply,
     );
 }
+extern "C" {
+    pub fn NFastApp_FreeACL(
+        app: *mut NFast_Application,
+        cctx: *mut NFast_Call_Context,
+        tctx: *mut NFast_Transaction_Context,
+        acl: *mut M_ACL,
+    );
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct nf_arena {
@@ -50656,6 +50721,13 @@ extern "C" {
         cctx: *mut NFast_Call_Context,
     ) -> M_Status;
 }
+extern "C" {
+    pub fn NFKM_getusablemodule(
+        w: *const NFKM_WorldInfo,
+        module: ::core::ffi::c_int,
+        moduleinfop: *mut *mut NFKM_ModuleInfo,
+    ) -> M_Status;
+}
 pub type NFKM_FIPS140AuthHandle = *mut NFKM_FIPS140AuthState;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -51025,12 +51097,26 @@ extern "C" {
     ) -> M_Status;
 }
 extern "C" {
+    pub fn NFKM_newkey_writecert(
+        app: NFast_AppHandle,
+        conn: NFastApp_Connection,
+        m: *const NFKM_ModuleInfo,
+        kpriv: M_KeyID,
+        mc: *mut M_ModuleCert,
+        k: *mut NFKM_Key,
+        cctx: *mut NFast_Call_Context,
+    ) -> M_Status;
+}
+extern "C" {
     pub fn NFKM_findkey(
         app: NFast_AppHandle,
         keyident: NFKM_KeyIdent,
         info_r: *mut *mut NFKM_Key,
         cctx: *mut NFast_Call_Context,
     ) -> M_Status;
+}
+extern "C" {
+    pub fn NFKM_freekey(app: NFast_AppHandle, info: *mut NFKM_Key, cctx: *mut NFast_Call_Context);
 }
 extern "C" {
     pub fn NFKM_recordkey(

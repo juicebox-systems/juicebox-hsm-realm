@@ -1,13 +1,13 @@
 use anyhow::{anyhow, Context};
 use clap::{command, Parser, Subcommand};
-use std::{ffi::CString, ptr::null_mut};
-use tracing::debug;
+use std::ptr::null_mut;
 
 use entrust_nfast::{
-    M_Hash, M_ModuleID, NFKM_Key, NFKM_KeyIdent, NFKM_WorldInfo, NFKM_findkey, NFKM_getinfo,
-    NFastConn, NFastError,
+    find_key, M_Hash, M_ModuleID, NFKM_WorldInfo, NFKM_getinfo, NFastConn, NFastError,
 };
 
+mod acl;
+mod keys;
 mod nvram;
 
 #[derive(Parser)]
@@ -28,34 +28,27 @@ struct Args {
     command: Commands,
 }
 
-#[derive(clap::Args)]
-struct KeyArgs {
-    /// The name of the key to generate for calculating MACs.
-    #[arg(long, value_name = "KEYNAME", default_value = "jbox-mac")]
-    mac: String,
-
-    /// The name of the key pair to generate for communication.
-    #[arg(long, value_name = "KEYNAME", default_value = "jbox-noise")]
-    noise: String,
-
-    /// The name of the key to generate for encrypting/decrypting user records.
-    #[arg(long, value_name = "KEYNAME", default_value = "jbox-record")]
-    record: String,
-}
-
 #[derive(Subcommand)]
 enum Commands {
     /// Create the NVRam allocation.
     Nvram(nvram::NVRamArgs),
     /// Create a new set of realm keys.
-    Keys(KeyArgs),
+    Keys(keys::KeyArgs),
+    /// Show the ACL on a key in the security world.
+    Acl {
+        /// The app name that the key is in. Typically simple or seeinteg.
+        app: String,
+        /// The name of the key.
+        ident: String,
+    },
 }
 
 impl Commands {
     fn validate(&self) -> anyhow::Result<()> {
         match &self {
             Commands::Nvram(args) => args.validate(),
-            Commands::Keys(_args) => Ok(()),
+            Commands::Keys(args) => args.validate(),
+            Commands::Acl { app, ident } => acl::validate_args(app, ident),
         }
     }
 }
@@ -77,16 +70,19 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let signing_key_hash =
-        resolve_signing_key(&conn, &args.signing).context("Resolving signing key")?;
-
     match args.command {
         Commands::Nvram(nvargs) => {
+            let signing_key_hash =
+                resolve_signing_key(&conn, &args.signing).context("Resolving signing key")?;
             nvram::command_nvram(&mut conn, args.module, worldinfo, signing_key_hash, &nvargs)
         }
-        Commands::Keys(_kargs) => {
-            todo!()
-            // keys::command_keys(conn, args.module, worldinfo, signing_key_hash, &args.keys),
+        Commands::Keys(kargs) => {
+            let signing_key_hash =
+                resolve_signing_key(&conn, &args.signing).context("Resolving signing key")?;
+            keys::command_keys(conn, args.module, worldinfo, signing_key_hash, &kargs)
+        }
+        Commands::Acl { app, ident } => {
+            acl::command_acl(conn, args.module, worldinfo, &app, &ident)
         }
     }
 }
@@ -105,29 +101,8 @@ fn resolve_signing_key(conn: &NFastConn, input: &str) -> anyhow::Result<M_Hash> 
             "There is no signing key called '{}' in the security world",
             input,
         )),
-        Some(key) => unsafe { Ok((*key).hash) },
+        Some(key) => Ok(key.hash),
     }
-}
-
-fn find_key(conn: &NFastConn, app: &str, ident: &str) -> Result<Option<*mut NFKM_Key>, NFastError> {
-    let app_cstr = CString::new(app).unwrap();
-    let ident_cstr = CString::new(ident).unwrap();
-    let keyid = NFKM_KeyIdent {
-        appname: app_cstr.as_ptr() as *mut i8,
-        ident: ident_cstr.as_ptr() as *mut i8,
-    };
-
-    let mut key: *mut NFKM_Key = null_mut();
-    let rc = unsafe { NFKM_findkey(conn.app, keyid, &mut key, null_mut()) };
-    if rc != 0 {
-        return Err(NFastError::Api(rc));
-    }
-    if key.is_null() {
-        debug!(?app, ?ident, "no key found");
-        return Ok(None);
-    }
-    debug!(?app, ?ident, key=?unsafe{*key}, "found key");
-    Ok(Some(key))
 }
 
 #[cfg(test)]
@@ -161,6 +136,16 @@ mod tests {
         expect_file!["usage_keys.txt"].assert_eq(
             &Args::command()
                 .try_get_matches_from(["entrust_init", "keys", "--help"])
+                .unwrap_err()
+                .to_string(),
+        );
+    }
+
+    #[test]
+    fn test_usage_acl() {
+        expect_file!["usage_acl.txt"].assert_eq(
+            &Args::command()
+                .try_get_matches_from(["entrust_init", "acl", "--help"])
                 .unwrap_err()
                 .to_string(),
         );

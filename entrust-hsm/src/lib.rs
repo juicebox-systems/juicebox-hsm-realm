@@ -10,16 +10,15 @@ mod seelib;
 extern crate alloc;
 
 use alloc::{format, string::String, vec, vec::Vec};
+use x25519_dalek as x25519;
 
-use entrust_api::{
-    EntrustRequest, EntrustResponse, InitializeRequest, InitializeResponse, StartRequest,
-    StartResponse,
-};
-use hsmcore::hsm::{Hsm, HsmOptions, MacKey, RealmKeys};
+use entrust_api::{KeyRole, StartRequest, StartResponse, Ticket};
+use hsmcore::hsm::{Hsm, HsmOptions, MacKey, RealmKeys, RecordEncryptionKey};
 use loam_sdk_core::marshalling;
-use platform::NCipher;
+use platform::{transact, NCipher, SeeError};
 use seelib::{
-    M_Status, M_Word, SEElib_AwaitJobEx, SEElib_InitComplete, SEElib_ReturnJob, Status_BufferFull,
+    Cmd_Export, Cmd_RedeemTicket, M_ByteBlock, M_Command, M_Hash, M_Status, M_Word,
+    SEElib_AwaitJobEx, SEElib_InitComplete, SEElib_ReturnJob, Status_BufferFull,
     SEELIB_JOB_REQUEUE,
 };
 
@@ -30,65 +29,88 @@ pub extern "C" fn rust_main() -> isize {
         SEElib_InitComplete(0);
     }
 
-    // We process control jobs until we get a StartRequest, when we then
-    // load the HSM instance and start handling application requests.
-    let hsm = process_control_jobs(&mut buf);
+    // We process start jobs until we get a successful HSM instance, then start
+    // handling application requests.
+    let hsm = process_start_jobs(&mut buf);
     process_hsm_jobs(hsm, &mut buf);
     unreachable!()
 }
 
-fn process_control_jobs(buf: &mut Vec<u8>) -> Hsm<NCipher> {
+fn process_start_jobs(buf: &mut Vec<u8>) -> Hsm<NCipher> {
     loop {
         let (tag, job) = await_job(buf);
 
-        let req: Result<EntrustRequest, _> = marshalling::from_slice(job);
+        let req: Result<StartRequest, _> = marshalling::from_slice(job);
         match req {
-            Ok(EntrustRequest::Initialize(req)) => {
-                let res = initialize_hsm(req);
-                let resp = EntrustResponse::Initialize(res);
-                let data = marshalling::to_vec(&resp).unwrap();
-                unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
-            }
-            Ok(EntrustRequest::Start(req)) => {
-                let (hsm, res) = start_hsm(req);
-                let resp = EntrustResponse::Start(res);
+            Ok(req) => {
+                let (hsm, resp) = match start_hsm(req) {
+                    Ok(hsm) => (Some(hsm), StartResponse::Ok),
+                    Err(res) => (None, res),
+                };
                 let data = marshalling::to_vec(&resp).unwrap();
                 unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
                 if let Some(started_hsm) = hsm {
                     return started_hsm;
                 }
+                // Its exceedingly unlikely that another StartRequest will
+                // succeed. However we keep looping trying start requests
+                // because we don't want this SEEWorld process to exit on its
+                // own. If it did that would end with the the hard server
+                // treating it as crashed, which can be very slow to recover
+                // from. The agent though will panic on the failed StartRequest
+                // which'll have the hard server shutdown the SEEWorld.
             }
             Err(_) => {
+                // We couldn't deserialize the StartRequest we got
                 unsafe { SEElib_ReturnJob(tag, buf.as_ptr(), 0) };
             }
         }
     }
 }
 
-fn initialize_hsm(_req: InitializeRequest) -> InitializeResponse {
-    // // redeem our tickets for keyIds.
-    // let k = export_key(req.hmac_key_ticket);
+fn start_hsm(req: StartRequest) -> Result<Hsm<NCipher>, StartResponse> {
+    let platform = NCipher::new()?;
 
-    InitializeResponse::Ok
-}
+    let comm_private_key = x25519::StaticSecret::from(redeem_ticket(
+        KeyRole::CommunicationPrivateKey,
+        req.comm_private_key,
+        platform.world_signer,
+    )?);
 
-fn start_hsm(req: StartRequest) -> (Option<Hsm<NCipher>>, StartResponse) {
-    let platform = match NCipher::new() {
-        Err(err) => return (None, StartResponse::WorldSigner(err)),
-        Ok(p) => p,
+    let comm_public_key = x25519::PublicKey::from(redeem_ticket(
+        KeyRole::CommunicationPublicKey,
+        req.comm_public_key,
+        platform.world_signer,
+    )?);
+
+    let record_key = RecordEncryptionKey::from(redeem_ticket(
+        KeyRole::RecordKey,
+        req.record_key,
+        platform.world_signer,
+    )?);
+
+    let mac_key = MacKey::from(redeem_ticket(
+        KeyRole::MacKey,
+        req.mac_key,
+        platform.world_signer,
+    )?);
+
+    let keys = RealmKeys {
+        communication: (comm_private_key, comm_public_key),
+        record: record_key,
+        mac: mac_key,
     };
-    match Hsm::new(
+
+    Hsm::new(
         HsmOptions {
             name: String::from("entrust"),
             tree_overlay_size: req.tree_overlay_size,
             max_sessions: req.max_sessions,
         },
         platform,
-        RealmKeys::insecure_derive(MacKey::derive_from("010203".as_bytes())),
-    ) {
-        Ok(hsm) => (Some(hsm), StartResponse::Ok),
-        Err(err) => (None, StartResponse::PersistenceError(format!("{:?}", err))),
-    }
+        keys,
+    )
+    .map_err(|err| StartResponse::PersistenceError(format!("{:?}", err)))
 }
 
 fn process_hsm_jobs(mut hsm: Hsm<NCipher>, buf: &mut Vec<u8>) {
@@ -126,4 +148,34 @@ fn await_job(buf: &mut Vec<u8>) -> (M_Word, &[u8]) {
         }
         return (tag, &buf[..(len as usize)]);
     }
+}
+
+// Redeem a ticket for a keyId, then export the key to get its actual bytes.
+fn redeem_ticket<const N: usize>(
+    key_role: KeyRole,
+    mut ticket: Ticket,
+    world_signer: M_Hash,
+) -> Result<[u8; N], StartResponse> {
+    let err_mapper = |err: SeeError| StartResponse::InvalidTicket(key_role, err.status());
+
+    let mut cmd = M_Command::new(Cmd_RedeemTicket);
+    cmd.args.redeemticket.ticket = M_ByteBlock::from_vec(&mut ticket.0);
+    let reply = transact(&mut cmd, Some(world_signer)).map_err(err_mapper)?;
+    let key_id = unsafe { reply.reply.redeemticket.obj };
+
+    let mut cmd = M_Command::new(Cmd_Export);
+    cmd.args.export.key = key_id;
+    let reply = transact(&mut cmd, Some(world_signer)).map_err(err_mapper)?;
+
+    let key = unsafe { reply.reply.export.data.data.random.k.as_slice() };
+    if key.len() != N {
+        return Err(StartResponse::InvalidKeyLength {
+            role: key_role,
+            expecting: N,
+            actual: key.len(),
+        });
+    }
+    let mut res = [0u8; N];
+    res.copy_from_slice(key);
+    Ok(res)
 }

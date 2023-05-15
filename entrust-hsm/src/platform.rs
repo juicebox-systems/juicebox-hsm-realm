@@ -24,7 +24,7 @@ pub struct NCipher {
     // needs making into a Certificate to make the calls, but we can't keep it
     // as a certificate here because a certificate contains raw pointers, which
     // makes it problematic.
-    world_cert_key: M_KeyHash,
+    pub world_signer: M_KeyHash,
 }
 
 impl NCipher {
@@ -35,7 +35,7 @@ impl NCipher {
         match unsafe { reply.reply.getworldsigners.n_sigs } {
             0 => Err(WorldSignerError::NoWorldSigner),
             1 => Ok(NCipher {
-                world_cert_key: unsafe { (*reply.reply.getworldsigners.sigs).hash },
+                world_signer: unsafe { (*reply.reply.getworldsigners.sigs).hash },
             }),
             _ => Err(WorldSignerError::TooManyWorldSigners),
         }
@@ -76,6 +76,12 @@ impl rand_core::RngCore for NCipher {
 impl M_ByteBlock {
     pub unsafe fn as_slice(&self) -> &[u8] {
         slice::from_raw_parts(self.ptr, self.len as usize)
+    }
+    pub fn from_vec(v: &mut Vec<u8>) -> Self {
+        M_ByteBlock {
+            len: v.len() as M_Word,
+            ptr: v.as_mut_ptr(),
+        }
     }
 }
 
@@ -159,7 +165,7 @@ impl NVRam for NCipher {
         cmd.args.nvmemop.op = NVMemOpType_Read;
         cmd.args.nvmemop.name = NVRAM_FILENAME;
 
-        let reply = transact(&mut cmd, Some(self.world_cert_key))
+        let reply = transact(&mut cmd, Some(self.world_signer))
             .map_err(|err| IOError(format!("SEElib_Transact for NVMemOp read failed: {err:?}")))?;
 
         let mut data = unsafe { reply.reply.nvmemop.res.read.data.as_slice().to_vec() };
@@ -201,14 +207,14 @@ impl NVRam for NCipher {
             },
         };
 
-        transact(&mut cmd, Some(self.world_cert_key))
+        transact(&mut cmd, Some(self.world_signer))
             .map_err(|err| IOError(format!("NVMemOp write failed: {err:?}")))?;
         Ok(())
     }
 }
 
 impl M_Command {
-    fn new(cmd: M_Cmd) -> Self {
+    pub fn new(cmd: M_Cmd) -> Self {
         M_Command {
             cmd,
             ..M_Command::default()
@@ -219,7 +225,7 @@ impl M_Command {
 // Execute a command with the HSM module and wait for the response. Optionally
 // include a certificate list for the supplied world signer, so that the request
 // inherits permissions associated to the world signers key. (like ACL entries).
-fn transact(cmd: &mut M_Command, signer: Option<M_KeyHash>) -> Result<Reply, SeeError> {
+pub fn transact(cmd: &mut M_Command, signer: Option<M_KeyHash>) -> Result<Reply, SeeError> {
     let mut cert = M_Certificate::default();
     let mut certs = M_CertificateList {
         n_certs: 0,
@@ -249,7 +255,7 @@ fn transact(cmd: &mut M_Command, signer: Option<M_KeyHash>) -> Result<Reply, See
 }
 
 #[derive(Debug)]
-enum SeeError {
+pub enum SeeError {
     // A C API call returned an error.
     Api(M_Status),
     // A Command was transacted and returned an error.
@@ -257,7 +263,7 @@ enum SeeError {
 }
 
 impl SeeError {
-    fn status(&self) -> M_Status {
+    pub fn status(&self) -> M_Status {
         match self {
             SeeError::Api(status) => *status,
             SeeError::Transact(status) => *status,
@@ -265,7 +271,7 @@ impl SeeError {
     }
 }
 
-struct Reply {
+pub struct Reply {
     inner: M_Reply,
 }
 
