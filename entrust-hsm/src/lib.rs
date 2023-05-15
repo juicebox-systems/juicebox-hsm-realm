@@ -10,6 +10,7 @@ mod seelib;
 extern crate alloc;
 
 use alloc::{format, string::String, vec, vec::Vec};
+use core::cmp::min;
 use x25519_dalek as x25519;
 
 use entrust_api::{KeyRole, StartRequest, StartResponse, Ticket};
@@ -21,6 +22,9 @@ use seelib::{
     SEElib_AwaitJobEx, SEElib_InitComplete, SEElib_ReturnJob, Status_BufferFull,
     SEELIB_JOB_REQUEUE,
 };
+
+// We'll refuse SEEJobs that are larger than this.
+const MAX_JOB_SIZE_BYTES: usize = 1024 * 1024;
 
 #[no_mangle]
 pub extern "C" fn rust_main() -> isize {
@@ -139,11 +143,17 @@ fn await_job(buf: &mut Vec<u8>) -> (M_Word, &[u8]) {
     let mut tag: M_Word = 0;
     loop {
         let mut len = buf.len() as M_Word;
-        let rc =
-            unsafe { SEElib_AwaitJobEx(&mut tag, buf.as_mut_ptr(), &mut len, SEELIB_JOB_REQUEUE) };
+        let flags = if buf.len() == MAX_JOB_SIZE_BYTES {
+            // Without requeue jobs larger than the available buffer size get
+            // outright rejected.
+            0
+        } else {
+            SEELIB_JOB_REQUEUE
+        };
+        let rc = unsafe { SEElib_AwaitJobEx(&mut tag, buf.as_mut_ptr(), &mut len, flags) };
         let rc = rc as M_Status;
         if rc == Status_BufferFull {
-            buf.resize(len as usize, 0);
+            buf.resize(min(len as usize, MAX_JOB_SIZE_BYTES), 0);
             continue;
         }
         return (tag, &buf[..(len as usize)]);
