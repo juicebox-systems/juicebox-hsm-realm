@@ -1,6 +1,5 @@
 use clap::Parser;
-use loam_sdk::TokioSleeper;
-use loam_sdk_core::types::Policy;
+use loam_sdk::{Policy, TokioSleeper};
 use loam_sdk_networking::rpc::LoadBalancerService;
 use reqwest::Certificate;
 use std::fs;
@@ -11,8 +10,8 @@ use loam_mvp::http_client;
 use loam_mvp::logging;
 use loam_sdk::{AuthToken, Client, Pin, RecoverError, UserSecret};
 
+/// A Rust demo of the SDK.
 #[derive(Parser)]
-#[command(about = "A rust demo of the loam-sdk")]
 struct Args {
     /// The SDK client configuration information, as a JSON string.
     #[arg(short, long)]
@@ -22,9 +21,10 @@ struct Args {
     #[arg(short, long)]
     auth_token: AuthToken,
 
-    /// Name of the file containing the certificate(s) used by the load balancer for terminating TLS.
-    #[arg(long)]
-    tls_certificate: PathBuf,
+    /// DER file containing self-signed certificate for connecting to the load
+    /// balancers over TLS. May be given more than once.
+    #[arg(long = "tls-certificate", value_name = "PATH")]
+    tls_certificates: Vec<PathBuf>,
 }
 
 #[tokio::main]
@@ -36,17 +36,21 @@ async fn main() {
     let configuration =
         serde_json::from_str(&args.configuration).expect("failed to parse configuration");
 
-    let lb_cert = Certificate::from_der(
-        &fs::read(&args.tls_certificate).expect("failed to read certificate file"),
-    )
-    .expect("failed to decode certificate file");
+    let lb_certs = args
+        .tls_certificates
+        .iter()
+        .map(|path| {
+            Certificate::from_der(&fs::read(path).expect("failed to read certificate file"))
+                .expect("failed to decode certificate file")
+        })
+        .collect();
 
     let client: Client<TokioSleeper, http_client::Client<LoadBalancerService>> = Client::with_tokio(
         configuration,
         vec![],
         args.auth_token,
         http_client::Client::new(http_client::ClientOptions {
-            additional_root_certs: vec![lb_cert],
+            additional_root_certs: lb_certs,
         }),
     );
 

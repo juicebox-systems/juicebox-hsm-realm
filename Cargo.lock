@@ -397,6 +397,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cluster_bench"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap 4.1.8",
+ "futures",
+ "hdrhistogram",
+ "loam-mvp",
+ "loam-sdk",
+ "loam-sdk-networking",
+ "reqwest",
+ "serde_json",
+ "tokio",
+ "tracing 0.2.0",
+]
+
+[[package]]
 name = "codegen"
 version = "0.0.0"
 dependencies = [

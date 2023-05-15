@@ -1,0 +1,19 @@
+[package]
+name = "cluster_bench"
+version = "0.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+hdrhistogram = { workspace = true }
+loam-mvp = { path = ".." }
+loam-sdk = { workspace = true }
+loam-sdk-networking = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
