@@ -1779,10 +1779,11 @@ fn handle_app_request(
         .as_mut()
         .expect("caller should have checked that this leader owns a partition");
 
-    let (merkle, record) = match MerkleHelper::get_record(request.proof, &keys.record, tree) {
-        Ok(record) => record,
-        Err(response) => return response.into(),
-    };
+    let (merkle, record) =
+        match MerkleHelper::get_record(&request.record_id, request.proof, &keys.record, tree) {
+            Ok(record) => record,
+            Err(response) => return response.into(),
+        };
 
     // This should be enforced by the load balancer, but double check.
     match &request.encrypted {
@@ -1841,13 +1842,17 @@ struct MerkleHelper<'a> {
 
 impl<'a> MerkleHelper<'a> {
     fn get_record(
+        record_id: &RecordId,
         request_proof: ReadProof<DataHash>,
         leaf_key: &'a RecordEncryptionKey,
         tree: &'a mut Tree<MerkleHasher, DataHash>,
     ) -> Result<(Self, Option<Vec<u8>>), AppError> {
         use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
 
-        // TODO: do we check anywhere that `request_proof.key` matches `request.record_id`?
+        if *record_id != request_proof.key {
+            warn!(?record_id, proof_key=?request_proof.key, "Received proof for wrong record_id");
+            return Err(AppError::InvalidProof);
+        }
 
         let latest_proof = match tree.latest_proof(request_proof) {
             Ok(v) => v,
