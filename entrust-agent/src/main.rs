@@ -82,7 +82,6 @@ struct Args {
     metrics: Option<Duration>,
 
     /// Reinitialize the NVRAM state back to blank, effectively making a new HSM.
-    /// Requires that the SEEMachine image used has the 'dev' feature enabled.
     #[arg(long, default_value_t = false)]
     reinitialize: bool,
 }

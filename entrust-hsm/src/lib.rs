@@ -105,7 +105,6 @@ fn start_hsm(req: StartRequest) -> Result<Hsm<NCipher>, StartResponse> {
         mac: mac_key,
     };
 
-    #[cfg(feature = "dev")]
     if req.nvram == entrust_api::NvRamState::Reinitialize {
         use hsmcore::hal::NVRam;
         platform.write(Vec::new()).map_err(|err| {
