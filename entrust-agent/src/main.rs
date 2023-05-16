@@ -13,7 +13,7 @@ use tokio::runtime::Handle;
 use tokio::time::Instant;
 use tracing::{debug, info, instrument, warn};
 
-use entrust_api::{StartRequest, StartResponse, Ticket};
+use entrust_api::{NvRamState, StartRequest, StartResponse, Ticket};
 use entrust_nfast::{
     find_key, Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
     Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_GetTicket, Cmd_LoadBuffer,
@@ -80,6 +80,10 @@ struct Args {
     /// HSM Metrics reporting interval in milliseconds [default: no reporting]
     #[arg(long, value_parser=parse_duration)]
     metrics: Option<Duration>,
+
+    /// Reinitialize the NVRAM state back to blank, effectively making a new HSM.
+    #[arg(long, default_value_t = false)]
+    reinitialize: bool,
 }
 
 #[tokio::main]
@@ -124,7 +128,13 @@ async fn main() {
         .await
         .expect("Unable to connect to Bigtable admin");
 
-    let hsm_t = EntrustSeeTransport::new(args.module, args.trace, args.image, args.userdata);
+    let hsm_t = EntrustSeeTransport::new(
+        args.module,
+        args.trace,
+        args.image,
+        args.userdata,
+        args.reinitialize,
+    );
     let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);
 
     let agent = Agent::new(name, hsm, store, store_admin);
@@ -200,7 +210,13 @@ impl From<NFastError> for SeeError {
 #[derive(Debug)]
 struct EntrustSeeTransport(Arc<Mutex<TransportInner>>);
 impl EntrustSeeTransport {
-    fn new(module: u8, tracing: bool, see_machine: PathBuf, userdata: PathBuf) -> Self {
+    fn new(
+        module: u8,
+        tracing: bool,
+        see_machine: PathBuf,
+        userdata: PathBuf,
+        reinit_nvram: bool,
+    ) -> Self {
         Self(Arc::new(Mutex::new(TransportInner {
             tracing,
             module,
@@ -208,6 +224,11 @@ impl EntrustSeeTransport {
             userdata,
             conn: NFastConn::new(),
             world_id: None,
+            nvram: if reinit_nvram {
+                NvRamState::Reinitialize
+            } else {
+                NvRamState::LastWritten
+            },
         })))
     }
 }
@@ -220,6 +241,7 @@ struct TransportInner {
     userdata: PathBuf,
     conn: NFastConn,
     world_id: Option<M_KeyID>,
+    nvram: NvRamState,
 }
 
 unsafe impl Send for TransportInner {}
@@ -270,6 +292,7 @@ impl TransportInner {
             comm_public_key,
             mac_key,
             record_key,
+            nvram: self.nvram,
         };
         let start_msg = marshalling::to_vec(&start).expect("Failed to serialize StartRequest");
         let resp_bytes = self

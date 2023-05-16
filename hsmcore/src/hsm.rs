@@ -331,10 +331,19 @@ pub struct Hsm<P: Platform> {
     realm_keys: RealmKeys,
 }
 
+pub enum MetricsReporting {
+    // If disabled, then per request metrics won't be reported back to the agent
+    // even if the request asks for them.
+    Disabled,
+    Enabled,
+}
+
 pub struct HsmOptions {
     pub name: String,
     pub tree_overlay_size: u16,
     pub max_sessions: u16,
+    // Metrics should be set to Disabled for production deployments.
+    pub metrics: MetricsReporting,
 }
 
 pub struct RealmKeys {
@@ -548,8 +557,11 @@ impl<P: Platform> Hsm<P> {
         };
         let req_name = request.req.name();
 
-        // TODO: We need to ensure that metrics can't be enabled on production builds for HSMs.
-        let metrics = Metrics::new(req_name, request.metrics, self.platform.clone());
+        let request_metrics = match self.options.metrics {
+            MetricsReporting::Disabled => MetricsAction::Skip,
+            MetricsReporting::Enabled => request.metrics,
+        };
+        let metrics = Metrics::new(req_name, request_metrics, self.platform.clone());
 
         match request.req {
             HsmRequest::Status(r) => self.dispatch_request(metrics, r, Self::handle_status_request),

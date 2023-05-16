@@ -14,3 +14,7 @@ x25519-dalek = { workspace = true }
 
 [lib]
 crate-type = ["staticlib"]
+
+[features]
+# enables insecure features such as metrics
+insecure = []

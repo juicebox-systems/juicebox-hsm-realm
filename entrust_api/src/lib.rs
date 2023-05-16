@@ -11,6 +11,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Ticket(pub Vec<u8>);
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum NvRamState {
+    LastWritten,
+    Reinitialize,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StartRequest {
     pub tree_overlay_size: u16,
@@ -19,6 +25,7 @@ pub struct StartRequest {
     pub comm_public_key: Ticket,
     pub mac_key: Ticket,
     pub record_key: Ticket,
+    pub nvram: NvRamState,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

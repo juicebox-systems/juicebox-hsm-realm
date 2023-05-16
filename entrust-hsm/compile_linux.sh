@@ -4,7 +4,7 @@ set -o pipefail
 TARGET=powerpc-unknown-linux-gnu
 
 # Compile Rust code
-cargo +nightly build --target $TARGET --release -Z build-std
+cargo +nightly build --target $TARGET --release -Z build-std $@
 
 # Compile C code
 /opt/nfast/gcc/bin/powerpc-codesafe-linux-gnu-gcc \

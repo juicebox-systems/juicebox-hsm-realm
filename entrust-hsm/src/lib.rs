@@ -14,7 +14,7 @@ use core::cmp::min;
 use x25519_dalek as x25519;
 
 use entrust_api::{KeyRole, StartRequest, StartResponse, Ticket};
-use hsmcore::hsm::{Hsm, HsmOptions, MacKey, RealmKeys, RecordEncryptionKey};
+use hsmcore::hsm::{Hsm, HsmOptions, MacKey, MetricsReporting, RealmKeys, RecordEncryptionKey};
 use loam_sdk_core::marshalling;
 use platform::{transact, NCipher, SeeError};
 use seelib::{
@@ -105,11 +105,25 @@ fn start_hsm(req: StartRequest) -> Result<Hsm<NCipher>, StartResponse> {
         mac: mac_key,
     };
 
+    if req.nvram == entrust_api::NvRamState::Reinitialize {
+        use hsmcore::hal::NVRam;
+        platform.write(Vec::new()).map_err(|err| {
+            StartResponse::PersistenceError(format!("error while re-initializing NVRAM: {:?}", err))
+        })?;
+    }
+
+    let metrics = if cfg!(feature = "insecure") {
+        MetricsReporting::Enabled
+    } else {
+        MetricsReporting::Disabled
+    };
+
     Hsm::new(
         HsmOptions {
             name: String::from("entrust"),
             tree_overlay_size: req.tree_overlay_size,
             max_sessions: req.max_sessions,
+            metrics,
         },
         platform,
         keys,
