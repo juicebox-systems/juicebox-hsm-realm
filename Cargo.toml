@@ -135,6 +135,7 @@ gcp_auth = { workspace = true }
 hdrhistogram = { workspace = true }
 h2 = { workspace = true }
 hex = { workspace = true }
+hkdf = { workspace = true }
 hmac = { workspace = true }
 hsmcore = { workspace = true }
 http = { workspace = true }
