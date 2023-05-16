@@ -10,7 +10,6 @@ use core::fmt::{self, Debug};
 use core::time::Duration;
 use digest::Digest;
 use hashbrown::{hash_map::Entry, HashMap}; // TODO: randomize hasher
-use hkdf::Hkdf;
 use hmac::{Mac, SimpleHmac};
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace, warn};
@@ -73,20 +72,6 @@ impl MacKey {
         let mut key = digest::Key::<SimpleHmac<Blake2s256>>::default();
         key.copy_from_slice(&v);
         Self(key)
-    }
-
-    pub fn random(rng: &mut impl CryptoRng) -> Self {
-        let mut key = digest::Key::<SimpleHmac<Blake2s256>>::default();
-        rng.fill_bytes(&mut key);
-        Self(key)
-    }
-    // derive a realmKey from the supplied input.
-    // TODO, ensure this goes away.
-    pub fn derive_from(b: &[u8]) -> Self {
-        let kdf = Hkdf::<Blake2s256, SimpleHmac<Blake2s256>>::new(Some(b"worlds worst secret"), b);
-        let mut out = [0u8; 64];
-        kdf.expand(&[], &mut out).unwrap();
-        Self(out.into())
     }
 }
 
@@ -336,20 +321,6 @@ impl RecordEncryptionKey {
     pub fn from(v: [u8; 32]) -> Self {
         Self(v)
     }
-
-    fn derive_from(realm_key: &MacKey) -> Self {
-        // generated from /dev/random
-        let salt = [
-            0x61u8, 0x33, 0xcf, 0xf6, 0xf6, 0x70, 0x27, 0xd2, 0x0c, 0x3d, 0x8b, 0x42, 0x5a, 0x21,
-            0xeb, 0xb2, 0x6b, 0x91, 0x0a, 0x97, 0x5c, 0xee, 0xfa, 0x57, 0xf7, 0x76, 0x5d, 0x96,
-            0x49, 0xa4, 0xd3, 0xd6,
-        ];
-        let info = "record".as_bytes();
-        let hk = Hkdf::<Blake2s256, SimpleHmac<Blake2s256>>::new(Some(&salt), &realm_key.0);
-        let mut out = [0u8; 32];
-        hk.expand(info, &mut out).unwrap();
-        Self(out)
-    }
 }
 
 pub struct Hsm<P: Platform> {
@@ -512,26 +483,6 @@ impl<N: NVRam> OnMutationFinished<PersistentState> for NVRamWriter<N> {
         let d = Blake2s256::digest(&data);
         data.extend(d);
         self.nvram.write(data).expect("Write to NVRam failed")
-    }
-}
-
-impl RealmKeys {
-    // TODO: This is an insecure placeholder.
-    pub fn insecure_derive(k: MacKey) -> Self {
-        let communication = {
-            // TODO: This is an insecure placeholder.
-            let mut buf = [0u8; 32];
-            buf.copy_from_slice(&k.0[..32]);
-            let secret = x25519::StaticSecret::from(buf);
-            let public = x25519::PublicKey::from(&secret);
-            (secret, public)
-        };
-        let record = RecordEncryptionKey::derive_from(&k);
-        RealmKeys {
-            communication,
-            record,
-            mac: k,
-        }
     }
 }
 

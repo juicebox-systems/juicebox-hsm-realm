@@ -12,7 +12,6 @@ chacha20poly1305 = { workspace = true }
 ciborium = { workspace = true }
 digest = { workspace = true }
 hashbrown = { version = "0.13.2", features = ["serde"] }
-hkdf = { workspace = true }
 hmac = { workspace = true }
 loam-sdk-core = { workspace = true }
 loam-sdk-noise = { workspace = true }
