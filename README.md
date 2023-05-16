@@ -119,6 +119,44 @@ COLLECTOR_OTLP_ENABLED=true ./jaeger-1.42.0-linux-amd64/jaeger-all-in-one --coll
 
 Open <http://localhost:16686/>.
 
+## Datadog
+
+Traces & metrics can be sent to Datadog. Follow the
+[instructions](https://docs.datadoghq.com/agent/) to install the datadog agent.
+Update the `/etc/datadog-agent/datadog.yaml` file to enable the open telemetry
+collector. To do this find the open telemetry section and uncomment out the
+otlp_config, receiver, protocols, grpc, endpoint lines. It should look like this
+when done
+
+```yaml
+otlp_config:
+
+  ## @param receiver - custom object - optional
+  ## The receiver configuration. It follows the OpenTelemetry Collector's OTLP Receiver Configuration.
+  ## This template lists the most commonly used settings; see the OpenTelemetry Collector documentation
+  ## for a full list of available settings:
+  ## https://github.com/open-telemetry/opentelemetry-collector/blob/main/receiver/otlpreceiver/config.md
+  #
+  receiver:
+
+    ## @param protocols - custom object - optional
+    ## Configuration for the supported protocols.
+    #
+    protocols:
+
+        ## @param grpc - custom object - optional
+        ## Configuration for OTLP/gRPC listener.
+        ## Setting this as an empty section enables the OTLP/gRPC listener with default options.
+        #
+        grpc:
+
+          ## @param endpoint - string - optional - default: 0.0.0.0:4317
+          ## @env DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT - string - optional - default: 0.0.0.0:4317
+          ## The OTLP/gRPC listener endpoint.
+          #
+          endpoint: 0.0.0.0:4317
+```
+
 
 ## TLS Certificates
 

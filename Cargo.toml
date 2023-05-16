@@ -45,6 +45,7 @@ cli-table = { version = "0.4.7", default-features = false }
 criterion = "0.4.0"
 ctrlc = "3.2.5"
 digest = "0.10.6"
+dogstatsd = "0.8.1"
 expect-test = "1.4.1"
 futures = "0.3.25"
 gcp_auth = "0.8.0"
@@ -130,6 +131,7 @@ bytes = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
 digest = { workspace = true }
+dogstatsd = { workspace = true }
 futures = { workspace = true }
 gcp_auth = { workspace = true }
 hdrhistogram = { workspace = true }

@@ -59,6 +59,7 @@ struct AgentInner<T> {
     store_admin: bigtable::StoreAdminClient,
     peer_client: Client<AgentService>,
     state: Mutex<State>,
+    metrics: dogstatsd::Client,
 }
 
 #[derive(Debug)]
@@ -118,6 +119,7 @@ impl<T: Transport + 'static> Agent<T> {
                 leader: HashMap::new(),
                 captures: Vec::new(),
             }),
+            metrics: dogstatsd::Client::new(dogstatsd::Options::default()).unwrap(),
         }))
     }
 
@@ -1314,6 +1316,8 @@ impl<T: Transport + 'static> Agent<T> {
     async fn keep_appending(&self, realm: RealmId, group: GroupId, next: LogIndex) {
         let mut next = next;
         let mut batch = Vec::new();
+        let metric_tags = &[&format!("realm:{:?}", realm), &format!("group:{:?}", group)];
+        let mut queue_depth: usize;
 
         loop {
             let mut delta = StoreDelta::default();
@@ -1340,8 +1344,10 @@ impl<T: Transport + 'static> Agent<T> {
                     leader.appending = NotAppending { next };
                     return;
                 }
+                queue_depth = leader.append_queue.len();
             }
 
+            let start = Instant::now();
             match self.0.store.append(&realm, &group, &batch, delta).await {
                 Err(bigtable::AppendError::LogPrecondition) => {
                     warn!(
@@ -1363,9 +1369,50 @@ impl<T: Transport + 'static> Agent<T> {
                         .expect("error during leader stepdown");
                     return;
                 }
-                Err(_) => todo!(),
-                Ok(()) => {}
+                Err(err) => todo!("{err:?}"),
+                Ok(()) => {
+                    self.update_append_metrics(
+                        start.elapsed(),
+                        batch.len(),
+                        queue_depth,
+                        metric_tags,
+                    );
+                }
             }
+        }
+    }
+
+    fn update_append_metrics(
+        &self,
+        elapsed: Duration,
+        batch_size: usize,
+        queue_depth: usize,
+        tags: &[&String],
+    ) {
+        if let Err(err) =
+            self.0
+                .metrics
+                .timing("bigtable.append.time.ms", elapsed.as_millis() as i64, tags)
+        {
+            warn!(?err, "failed to send metrics to agent");
+            return;
+        }
+
+        if let Err(err) =
+            self.0
+                .metrics
+                .histogram("bigtable.append.batch.size", batch_size.to_string(), tags)
+        {
+            warn!(?err, "failed to send metrics to agent");
+            return;
+        }
+
+        if let Err(err) =
+            self.0
+                .metrics
+                .histogram("bigtable.append.queue.size", queue_depth.to_string(), tags)
+        {
+            warn!(?err, "failed to send metrics to agent");
         }
     }
 }
