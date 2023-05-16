@@ -112,7 +112,7 @@ fn start_hsm(req: StartRequest) -> Result<Hsm<NCipher>, StartResponse> {
         })?;
     }
 
-    let metrics = if cfg!(feature = "dev") {
+    let metrics = if cfg!(feature = "insecure") {
         MetricsReporting::Enabled
     } else {
         MetricsReporting::Disabled

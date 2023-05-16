@@ -13,12 +13,12 @@ directory. Once correctly code signed (see below) the entrust-agent host process
 can be run. This will use the APIs to have the HSM load and start the SEEMachine
 world, and then start handling requests.
 
-## Dev features
+## Insecure features
 
 By default the compile scripts build production builds. If you want a build with
-the development features (per request metrics and NVRAM initialization) enabled
-you add `--features dev` to the relevant compile call, e.g.
-`./compile_linux.sh --features dev`
+the insecure features (currently just per request metrics) enabled you add
+`--features insecure` to the relevant compile call, e.g.
+`./compile_linux.sh --features insecure`
 
 # HSM and Security World configuration
 
