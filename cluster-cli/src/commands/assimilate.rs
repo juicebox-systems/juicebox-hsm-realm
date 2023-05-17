@@ -18,9 +18,11 @@ pub async fn assimilate(
     agents_client: &Client<AgentService>,
     store: &StoreClient,
 ) -> anyhow::Result<()> {
+    assert_ne!(group_size, 0);
+
     let get_checked_hsm_statuses = || async {
         let hsm_statuses = get_hsm_statuses(agents_client, store).await?;
-        if hsm_statuses.is_empty() || hsm_statuses.len() < group_size {
+        if hsm_statuses.len() < group_size {
             return Err(anyhow!(
                 "not enough HSMs: found {hsms} but need {group_size}",
                 hsms = hsm_statuses.len()
