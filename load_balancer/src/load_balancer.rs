@@ -156,6 +156,7 @@ async fn refresh(
                                 realm: Some(status),
                                 ..
                             }),
+                        ..
                     }) => {
                         let realm = realms.entry(status.id).or_default();
                         for group in status.groups {

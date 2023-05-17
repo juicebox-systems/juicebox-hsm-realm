@@ -1,5 +1,6 @@
 use blake2::{Blake2s256, Digest};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 use hsm_types::{
     Configuration, GroupConfigurationStatement, GroupId, HsmId, LogIndex, OwnedRange, Partition,
@@ -26,6 +27,7 @@ pub struct StatusRequest {}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StatusResponse {
+    pub uptime: Duration,
     pub hsm: Option<hsm_types::StatusResponse>,
 }
 

@@ -43,39 +43,42 @@ fn print_agent_status(hsm_id: &HsmId, url: &Url, status: Result<StatusResponse, 
     println!("{TAB}discovery HSM ID: {hsm_id}");
 
     match status {
-        Ok(StatusResponse { hsm }) => match hsm {
-            Some(status) => {
-                println!(
-                    "{TAB}reported HSM ID:  {} ({})",
-                    status.id,
-                    if &status.id == hsm_id {
-                        "matches"
-                    } else {
-                        "differs"
-                    }
-                );
-                println!("{TAB}public key: {}", hex::encode(status.public_key));
+        Ok(StatusResponse { uptime, hsm }) => {
+            println!("{TAB}uptime: {} s", uptime.as_secs());
+            match hsm {
+                Some(status) => {
+                    println!(
+                        "{TAB}reported HSM ID:  {} ({})",
+                        status.id,
+                        if &status.id == hsm_id {
+                            "matches"
+                        } else {
+                            "differs"
+                        }
+                    );
+                    println!("{TAB}public key: {}", hex::encode(status.public_key));
 
-                match status.realm {
-                    Some(mut realm) => {
-                        println!("{TAB}realm ID: {:?}", realm.id);
+                    match status.realm {
+                        Some(mut realm) => {
+                            println!("{TAB}realm ID: {:?}", realm.id);
 
-                        realm.groups.sort_unstable_by_key(|group| group.id);
-                        for group in realm.groups {
-                            print_group_status(&status.id, &group);
+                            realm.groups.sort_unstable_by_key(|group| group.id);
+                            for group in realm.groups {
+                                print_group_status(&status.id, &group);
+                            }
+                        }
+
+                        None => {
+                            println!("{TAB}no realm");
                         }
                     }
+                }
 
-                    None => {
-                        println!("{TAB}no realm");
-                    }
+                None => {
+                    println!("{TAB}no HSM found");
                 }
             }
-
-            None => {
-                println!("{TAB}no HSM found");
-            }
-        },
+        }
 
         Err(e) => {
             println!("{TAB}error getting status: {e}");
