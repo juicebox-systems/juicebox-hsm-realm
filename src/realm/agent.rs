@@ -287,7 +287,6 @@ impl<T: Transport + 'static> Agent<T> {
     /// if its leading and wait for all the pending responses to be sent to the
     /// client. Blocks until the shutdown is complete.
     pub async fn shutdown(&self, timeout: Duration) {
-        // TODO: Should this stop new connections coming in?
         let leading = {
             let state = self.0.state.lock().unwrap();
             if state.leader.is_empty() {
