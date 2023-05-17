@@ -18,19 +18,30 @@ pub async fn assimilate(
     agents_client: &Client<AgentService>,
     store: &StoreClient,
 ) -> anyhow::Result<()> {
-    let mut hsm_statuses = get_hsm_statuses(agents_client, store).await?;
-    if hsm_statuses.is_empty() || hsm_statuses.len() < group_size {
-        return Err(anyhow!(
-            "not enough HSMs: found {hsms} but need {group_size}",
-            hsms = hsm_statuses.len()
-        ));
-    }
+    let get_checked_hsm_statuses = || async {
+        let hsm_statuses = get_hsm_statuses(agents_client, store).await?;
+        if hsm_statuses.is_empty() || hsm_statuses.len() < group_size {
+            return Err(anyhow!(
+                "not enough HSMs: found {hsms} but need {group_size}",
+                hsms = hsm_statuses.len()
+            ));
+        }
+        Ok(hsm_statuses)
+    };
+
+    let mut hsm_statuses: Vec<(Url, StatusResponse)> = get_checked_hsm_statuses().await?;
 
     let realm = match realm {
         Some(realm) => realm,
         None => match get_unique_realm(&hsm_statuses)? {
             Some(realm) => realm,
-            None => cluster::new_realm(&[hsm_statuses[0].0.clone()]).await?.0,
+            None => {
+                let realm = cluster::new_realm(&[hsm_statuses[0].0.clone()]).await?.0;
+                // We need to update the status for this HSM, since it now owns
+                // the entire range. Out of laziness, refresh all of them.
+                hsm_statuses = get_checked_hsm_statuses().await?;
+                realm
+            }
         },
     };
 
