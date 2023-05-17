@@ -17,15 +17,18 @@ use std::time::Duration;
 use tokio::runtime::Handle;
 use tracing::info;
 
+use agent_core::Agent;
 use hsmcore::hsm::MacKey;
 use loam_mvp::clap_parsers::parse_duration;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
-use loam_mvp::realm::agent::Agent;
 use loam_mvp::realm::hsm::client::HsmClient;
-use loam_mvp::realm::hsm::http::client::HsmHttpClient;
-use loam_mvp::realm::hsm::http::host::HttpHsm;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
+
+mod http_hsm;
+
+use http_hsm::client::HsmHttpClient;
+use http_hsm::host::HttpHsm;
 
 /// A host agent that embeds an insecure software HSM.
 #[derive(Parser)]
@@ -181,7 +184,7 @@ mod tests {
 
     #[test]
     fn test_usage() {
-        expect_file!["agent_usage.txt"].assert_eq(
+        expect_file!["../usage.txt"].assert_eq(
             &Args::command()
                 .try_get_matches_from(["agent", "--help"])
                 .unwrap_err()

@@ -7,9 +7,7 @@ edition = "2021"
 
 [dependencies]
 blake2 = { workspace = true }
-bytes = { workspace = true }
 chacha20poly1305 = { workspace = true }
-ciborium = { workspace = true }
 digest = { workspace = true }
 hashbrown = { version = "0.13.2", features = ["serde"] }
 hmac = { workspace = true }
@@ -19,7 +17,6 @@ rand_core = { workspace = true }
 serde = { workspace = true }
 subtle = { workspace = true }
 tracing = { workspace = true }
-voprf = { workspace = true }
 x25519-dalek = { workspace = true }
 
 [dev-dependencies]
