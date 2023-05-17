@@ -1371,7 +1371,7 @@ impl<T: Transport + 'static> Agent<T> {
                 }
                 Err(err) => todo!("{err:?}"),
                 Ok(()) => {
-                    self.update_append_metrics(
+                    self.record_append_metrics(
                         start.elapsed(),
                         batch.len(),
                         queue_depth,
@@ -1382,7 +1382,7 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
-    fn update_append_metrics(
+    fn record_append_metrics(
         &self,
         elapsed: Duration,
         batch_size: usize,
@@ -1394,7 +1394,7 @@ impl<T: Transport + 'static> Agent<T> {
                 .metrics
                 .timing("bigtable.append.time.ms", elapsed.as_millis() as i64, tags)
         {
-            warn!(?err, "failed to send metrics to agent");
+            warn!(?err, "failed to send metrics to Datadog agent");
             return;
         }
 
@@ -1403,7 +1403,7 @@ impl<T: Transport + 'static> Agent<T> {
                 .metrics
                 .histogram("bigtable.append.batch.size", batch_size.to_string(), tags)
         {
-            warn!(?err, "failed to send metrics to agent");
+            warn!(?err, "failed to send metrics to Datadog agent");
             return;
         }
 
@@ -1412,7 +1412,7 @@ impl<T: Transport + 'static> Agent<T> {
                 .metrics
                 .histogram("bigtable.append.queue.size", queue_depth.to_string(), tags)
         {
-            warn!(?err, "failed to send metrics to agent");
+            warn!(?err, "failed to send metrics to Datadog agent");
         }
     }
 }
