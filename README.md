@@ -119,6 +119,23 @@ COLLECTOR_OTLP_ENABLED=true ./jaeger-1.42.0-linux-amd64/jaeger-all-in-one --coll
 
 Open <http://localhost:16686/>.
 
+## Datadog
+
+Traces & metrics can be sent to Datadog. Follow the
+[instructions](https://docs.datadoghq.com/agent/) to install the datadog agent.
+Update the `/etc/datadog-agent/datadog.yaml` file to enable the open telemetry
+collector. To do this find the open telemetry section and uncomment out the
+otlp_config, receiver, protocols, grpc, endpoint lines. It should look like this
+when done. Or you can copy this and paste it at the top of the file.
+
+```yaml
+otlp_config:
+  receiver:
+    protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+```
+
 
 ## TLS Certificates
 
