@@ -2,6 +2,8 @@ use anyhow::Context;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use reqwest::Url;
+use std::fmt;
+use std::time::Duration;
 
 use hsmcore::hsm::types::{GroupStatus, HsmId, OwnedRange};
 use loam_mvp::http_client::Client;
@@ -44,7 +46,7 @@ fn print_agent_status(hsm_id: &HsmId, url: &Url, status: Result<StatusResponse, 
 
     match status {
         Ok(StatusResponse { uptime, hsm }) => {
-            println!("{TAB}uptime: {} s", uptime.as_secs());
+            println!("{TAB}uptime: {}", Uptime(uptime));
             match hsm {
                 Some(status) => {
                     println!(
@@ -129,5 +131,40 @@ fn print_group_status(hsm_id: &HsmId, group: &GroupStatus) {
         None => {
             println!("{TAB}{TAB}captured: none");
         }
+    }
+}
+
+struct Uptime(Duration);
+
+impl fmt::Display for Uptime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = self.0.as_secs();
+        let seconds = s % 60;
+        let m = s / 60;
+        let minutes = m % 60;
+        let h = m / 60;
+        let hours = h % 24;
+        let days = h / 24;
+        write!(f, "{days}d {hours}h {minutes}m {seconds}s")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_uptime_display() {
+        assert_eq!(
+            Uptime(Duration::from_millis(30999)).to_string(),
+            "0d 0h 0m 30s"
+        );
+        assert_eq!(
+            Uptime(Duration::from_secs(
+                (2 * 24 * 60 * 60) + (3 * 60 * 60) + (4 * 60) + 5
+            ))
+            .to_string(),
+            "2d 3h 4m 5s"
+        );
     }
 }
