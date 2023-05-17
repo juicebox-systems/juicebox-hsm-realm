@@ -130,6 +130,7 @@ impl Manager {
                                     realm: Some(rs),
                                     ..
                                 }),
+                            ..
                         }) if id == *hsm => Ok(rs
                             .groups
                             .into_iter()

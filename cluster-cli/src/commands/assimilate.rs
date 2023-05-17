@@ -3,7 +3,6 @@ use futures::future::try_join_all;
 use reqwest::Url;
 use std::cmp::min;
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use hsmcore::hsm::types::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
 use loam_mvp::http_client::Client;
@@ -19,19 +18,32 @@ pub async fn assimilate(
     agents_client: &Client<AgentService>,
     store: &StoreClient,
 ) -> anyhow::Result<()> {
-    let mut hsm_statuses = get_hsm_statuses(agents_client, store).await?;
-    if hsm_statuses.is_empty() || hsm_statuses.len() < group_size {
-        return Err(anyhow!(
-            "not enough HSMs: found {hsms} but need {group_size}",
-            hsms = hsm_statuses.len()
-        ));
-    }
+    assert_ne!(group_size, 0);
+
+    let get_checked_hsm_statuses = || async {
+        let hsm_statuses = get_hsm_statuses(agents_client, store).await?;
+        if hsm_statuses.len() < group_size {
+            return Err(anyhow!(
+                "not enough HSMs: found {hsms} but need {group_size}",
+                hsms = hsm_statuses.len()
+            ));
+        }
+        Ok(hsm_statuses)
+    };
+
+    let mut hsm_statuses: Vec<(Url, StatusResponse)> = get_checked_hsm_statuses().await?;
 
     let realm = match realm {
         Some(realm) => realm,
         None => match get_unique_realm(&hsm_statuses)? {
             Some(realm) => realm,
-            None => cluster::new_realm(&[hsm_statuses[0].0.clone()]).await?.0,
+            None => {
+                let realm = cluster::new_realm(&[hsm_statuses[0].0.clone()]).await?.0;
+                // We need to update the status for this HSM, since it now owns
+                // the entire range. Out of laziness, refresh all of them.
+                hsm_statuses = get_checked_hsm_statuses().await?;
+                realm
+            }
         },
     };
 
@@ -39,8 +51,6 @@ pub async fn assimilate(
         None => true,
         Some(realm_status) => realm_status.id == realm,
     });
-
-    let hsm_statuses = Arc::new(hsm_statuses);
 
     let new_groups: Vec<GroupId> = nominal_groups(group_size, realm, &hsm_statuses).await?;
 
@@ -136,30 +146,56 @@ fn get_unique_realm(hsm_statuses: &[(Url, StatusResponse)]) -> anyhow::Result<Op
 async fn nominal_groups(
     group_size: usize,
     realm: RealmId,
-    hsm_statuses: &Arc<Vec<(Url, StatusResponse)>>,
+    hsm_statuses: &[(Url, StatusResponse)],
 ) -> anyhow::Result<Vec<GroupId>> {
+    // Groups are not "reused" so that if the number of HSMs is exactly the
+    // group size, then the result is that many groups, not just one.
+    let mut used: HashSet<GroupId> = HashSet::new();
+
+    // The outcome for a particular search is summarized and cloned into this
+    // enum to avoid shared state with async code.
+    enum Group {
+        Existing { id: GroupId },
+        New { agent_urls: Vec<Url> },
+    }
+
     let mut groups: Vec<GroupId> =
         try_join_all(hsm_statuses.iter().enumerate().map(|(i, (_, status0))| {
-            let hsm_statuses = hsm_statuses.clone();
-            async move {
-                let target = hsm_statuses.iter().cycle().skip(i).take(group_size);
-                let target_hsms: HashSet<&HsmId> =
-                    target.clone().map(|(_, status)| &status.id).collect();
+            let target = hsm_statuses.iter().cycle().skip(i).take(group_size);
+            let target_hsms: HashSet<&HsmId> =
+                target.clone().map(|(_, status)| &status.id).collect();
 
-                if let Some(group) = status0.realm.as_ref().and_then(|realm_status| {
-                    realm_status
-                        .groups
-                        .iter()
-                        .find(|group| target_hsms == HashSet::from_iter(&group.configuration.0))
-                }) {
-                    Ok(group.id)
-                } else {
-                    let target_urls: Vec<Url> = target.map(|(url, _)| url.clone()).collect();
-                    cluster::new_group(realm, &target_urls).await
+            // Look for a not-yet-used group consisting of `target_hsms`. For
+            // stability, pick the group with the smallest ID if there are
+            // multiple candidates.
+            let group: Group = match status0.realm.as_ref().and_then(|realm_status| {
+                realm_status
+                    .groups
+                    .iter()
+                    .filter(|group| !used.contains(&group.id))
+                    .filter(|group| target_hsms == HashSet::from_iter(&group.configuration.0))
+                    .map(|group| group.id)
+                    .min()
+            }) {
+                Some(id) => {
+                    used.insert(id);
+                    Group::Existing { id }
+                }
+                None => Group::New {
+                    agent_urls: target.map(|(url, _)| url.clone()).collect(),
+                },
+            };
+
+            // Actually create the group, if needed.
+            async move {
+                match group {
+                    Group::Existing { id } => Ok(id),
+                    Group::New { agent_urls } => cluster::new_group(realm, &agent_urls).await,
                 }
             }
         }))
         .await?;
+
     groups.sort_unstable();
     Ok(groups)
 }

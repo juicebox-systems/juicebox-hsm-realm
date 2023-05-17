@@ -10,5 +10,5 @@ Options:
   -n, --name <NAME>                   Name of the load balancer in logging [default: lb{listen}]
       --secrets-file <SECRETS_FILE>   Name of JSON file containing per-tenant keys for authentication. The default is to fetch these from Google Secret Manager
       --tls-key <TLS_KEY>             Name of the file containing the private key for terminating TLS
-      --tls-cert <TLS_CERT>           Name of the file containing the certificate(s) for terminating TLS
+      --tls-cert <TLS_CERT>           Name of the PEM file containing the certificate(s) for terminating TLS
   -h, --help                          Print help

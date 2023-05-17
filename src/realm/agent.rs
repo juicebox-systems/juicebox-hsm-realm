@@ -54,6 +54,7 @@ pub struct Agent<T>(Arc<AgentInner<T>>);
 #[derive(Debug)]
 struct AgentInner<T> {
     name: String,
+    boot_time: Instant,
     hsm: HsmClient<T>,
     store: bigtable::StoreClient,
     store_admin: bigtable::StoreAdminClient,
@@ -111,6 +112,7 @@ impl<T: Transport + 'static> Agent<T> {
     ) -> Self {
         Self(Arc::new(AgentInner {
             name,
+            boot_time: Instant::now(),
             hsm,
             store,
             store_admin,
@@ -459,6 +461,7 @@ impl<T: Transport + 'static> Agent<T> {
         let hsm_status = self.0.hsm.send(hsm_types::StatusRequest {}).await;
         Ok(StatusResponse {
             hsm: hsm_status.ok(),
+            uptime: self.0.boot_time.elapsed(),
         })
     }
 
