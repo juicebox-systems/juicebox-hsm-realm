@@ -327,12 +327,13 @@ async fn handle_client_request(
         )
         .await
         {
-            Err(_) => {
+            Err(err) => {
                 warn!(
                     load_balancer = name,
                     agent = %partition.leader,
                     realm = ?request.realm,
                     group = ?partition.group,
+                    %err,
                     "http error",
                 );
             }
