@@ -486,8 +486,6 @@ struct NVRamWriter<N: NVRam> {
 }
 impl<N: NVRam> OnMutationFinished<PersistentState> for NVRamWriter<N> {
     fn finished(&self, state: &PersistentState) {
-        // TODO, which if any of the keys in self.persistent should be written out here vs read from the HSM
-        // key store at initialization time.
         let mut data = marshalling::to_vec(&state).expect("failed to serialize state");
         let d = Blake2s256::digest(&data);
         data.extend(d);
