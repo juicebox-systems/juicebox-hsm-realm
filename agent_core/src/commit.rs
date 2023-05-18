@@ -11,7 +11,7 @@ use tokio::time::sleep;
 use tracing::{info, trace, warn, Span};
 
 use super::types::{ReadCapturedRequest, ReadCapturedResponse};
-use super::Agent;
+use super::{Agent, MetricsWarn};
 use hsmcore::hsm::{
     commit::HsmElection,
     types::{
@@ -163,6 +163,14 @@ impl<T: Transport + 'static> Agent<T> {
                     num_responses=?responses.len(),
                     "HSM committed entry"
                 );
+                self.0
+                    .metrics
+                    .gauge(
+                        "agent.commit.log.index",
+                        committed.0.to_string(),
+                        [&format!("realm:{:?}", realm), &format!("group:{:?}", group)],
+                    )
+                    .warn();
                 (committed, responses, role)
             }
             Ok(CommitResponse::AlreadyCommitted { committed: c }) => {
@@ -205,13 +213,22 @@ impl<T: Transport + 'static> Agent<T> {
     ) -> i32 {
         let mut released_count = 0;
         let mut locked = self.0.state.lock().unwrap();
+        let metric_tags = &[&format!("realm:{:?}", realm), &format!("group:{:?}", group)];
         if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
             for (hmac, client_response) in responses {
-                if let Some(sender) = leader.response_channels.remove(&hmac) {
+                if let Some((start, sender)) = leader.response_channels.remove(&hmac) {
                     if sender.send(client_response).is_err() {
                         warn!("dropping response on the floor: client no longer waiting");
                     }
                     released_count += 1;
+                    self.0
+                        .metrics
+                        .timing(
+                            "agent.commit.latency.ms",
+                            start.elapsed().as_millis() as i64,
+                            metric_tags,
+                        )
+                        .warn();
                 } else {
                     warn!("dropping response on the floor: client never waiting");
                 }

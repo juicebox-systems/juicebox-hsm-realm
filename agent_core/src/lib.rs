@@ -1,5 +1,6 @@
 use anyhow::Context;
 use bytes::Bytes;
+use dogstatsd::DogstatsdResult;
 use futures::channel::oneshot;
 use futures::Future;
 use hsmcore::hsm::types::{DataHash, LogEntry};
@@ -79,7 +80,7 @@ struct LeaderState {
     /// This serves as a mutex to prevent multiple concurrent appends to the
     /// store.
     appending: AppendingState,
-    response_channels: HashMap<EntryHmac, oneshot::Sender<NoiseResponse>>,
+    response_channels: HashMap<EntryHmac, (Instant, oneshot::Sender<NoiseResponse>)>,
     /// When set the leader is stepping down, and should stop processing once
     /// this log entry is complete.
     stepdown_at: Option<LogIndex>,
@@ -1184,9 +1185,10 @@ impl<T: Transport + 'static> Agent<T> {
                     let leader = locked.leader.get_mut(&(realm, group))
                         .expect("The HSM thought it was leader and generated a response, but the agent has no leader state");
 
-                    leader
-                        .response_channels
-                        .insert(append_request.entry.entry_hmac.clone(), sender);
+                    leader.response_channels.insert(
+                        append_request.entry.entry_hmac.clone(),
+                        (Instant::now(), sender),
+                    );
                 }
 
                 self.append(realm, group, append_request);
@@ -1392,29 +1394,30 @@ impl<T: Transport + 'static> Agent<T> {
         queue_depth: usize,
         tags: &[&String],
     ) {
-        if let Err(err) =
-            self.0
-                .metrics
-                .timing("bigtable.append.time.ms", elapsed.as_millis() as i64, tags)
-        {
-            warn!(?err, "failed to send metrics to Datadog agent");
-            return;
-        }
+        self.0
+            .metrics
+            .timing("bigtable.append.time.ms", elapsed.as_millis() as i64, tags)
+            .warn();
 
-        if let Err(err) =
-            self.0
-                .metrics
-                .histogram("bigtable.append.batch.size", batch_size.to_string(), tags)
-        {
-            warn!(?err, "failed to send metrics to Datadog agent");
-            return;
-        }
+        self.0
+            .metrics
+            .histogram("bigtable.append.batch.size", batch_size.to_string(), tags)
+            .warn();
 
-        if let Err(err) =
-            self.0
-                .metrics
-                .histogram("bigtable.append.queue.size", queue_depth.to_string(), tags)
-        {
+        self.0
+            .metrics
+            .histogram("bigtable.append.queue.size", queue_depth.to_string(), tags)
+            .warn();
+    }
+}
+
+pub trait MetricsWarn {
+    fn warn(&self);
+}
+
+impl MetricsWarn for DogstatsdResult {
+    fn warn(&self) {
+        if let Err(err) = self {
             warn!(?err, "failed to send metrics to Datadog agent");
         }
     }
