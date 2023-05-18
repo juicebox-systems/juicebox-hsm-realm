@@ -92,7 +92,7 @@ impl HsmGenerator {
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
             let mut cmd = Command::new(format!(
-                "target/{}/agent",
+                "target/{}/software_agent",
                 if cfg!(debug_assertions) {
                     "debug"
                 } else {

@@ -13,6 +13,7 @@ use tokio::runtime::Handle;
 use tokio::time::Instant;
 use tracing::{debug, info, instrument, warn};
 
+use agent_core::Agent;
 use entrust_api::{NvRamState, StartRequest, StartResponse, Ticket};
 use entrust_nfast::{
     find_key, Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
@@ -29,7 +30,6 @@ use loam_mvp::clap_parsers::parse_duration;
 use loam_mvp::future_task::FutureTasks;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
-use loam_mvp::realm::agent::Agent;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};

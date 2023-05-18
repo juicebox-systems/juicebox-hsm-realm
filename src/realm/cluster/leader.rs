@@ -87,6 +87,7 @@ pub async fn find_leaders(
                         id: hsm_id,
                         ..
                     }),
+                ..
             }) => {
                 for group in status.groups {
                     if group.leader.is_some() {

@@ -10,10 +10,8 @@ use tokio::task::JoinSet;
 use tokio::time::sleep;
 use tracing::{info, trace, warn, Span};
 
-use super::super::{hsm::client::Transport, store::bigtable::StoreClient};
 use super::types::{ReadCapturedRequest, ReadCapturedResponse};
 use super::Agent;
-use crate::logging::Spew;
 use hsmcore::hsm::{
     commit::HsmElection,
     types::{
@@ -21,6 +19,8 @@ use hsmcore::hsm::{
         PersistStateRequest, PersistStateResponse,
     },
 };
+use loam_mvp::logging::Spew;
+use loam_mvp::realm::{hsm::client::Transport, store::bigtable::StoreClient};
 use loam_sdk::RealmId;
 
 #[derive(Debug, Eq, PartialEq)]
