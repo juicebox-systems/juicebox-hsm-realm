@@ -11,7 +11,7 @@ use tokio::time::sleep;
 use tracing::{info, trace, warn, Span};
 
 use super::types::{ReadCapturedRequest, ReadCapturedResponse};
-use super::Agent;
+use super::{Agent, MetricsWarn};
 use hsmcore::hsm::{
     commit::HsmElection,
     types::{
@@ -163,6 +163,14 @@ impl<T: Transport + 'static> Agent<T> {
                     num_responses=?responses.len(),
                     "HSM committed entry"
                 );
+                self.0
+                    .metrics
+                    .gauge(
+                        "agent.commit.log.index",
+                        committed.0.to_string(),
+                        [&format!("realm:{:?}", realm), &format!("group:{:?}", group)],
+                    )
+                    .warn_err();
                 (committed, responses, role)
             }
             Ok(CommitResponse::AlreadyCommitted { committed: c }) => {
