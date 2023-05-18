@@ -48,7 +48,7 @@ struct Args {
     #[arg(long)]
     tls_key: PathBuf,
 
-    /// Name of the file containing the certificate(s) for terminating TLS.
+    /// Name of the PEM file containing the certificate(s) for terminating TLS.
     #[arg(long)]
     tls_cert: PathBuf,
 }
