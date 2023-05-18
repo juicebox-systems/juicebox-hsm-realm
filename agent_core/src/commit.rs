@@ -170,7 +170,7 @@ impl<T: Transport + 'static> Agent<T> {
                         committed.0.to_string(),
                         [&format!("realm:{:?}", realm), &format!("group:{:?}", group)],
                     )
-                    .warn();
+                    .warn_err();
                 (committed, responses, role)
             }
             Ok(CommitResponse::AlreadyCommitted { committed: c }) => {
@@ -228,7 +228,7 @@ impl<T: Transport + 'static> Agent<T> {
                             start.elapsed().as_millis() as i64,
                             metric_tags,
                         )
-                        .warn();
+                        .warn_err();
                 } else {
                     warn!("dropping response on the floor: client never waiting");
                 }

@@ -1397,26 +1397,26 @@ impl<T: Transport + 'static> Agent<T> {
         self.0
             .metrics
             .timing("bigtable.append.time.ms", elapsed.as_millis() as i64, tags)
-            .warn();
+            .warn_err();
 
         self.0
             .metrics
             .histogram("bigtable.append.batch.size", batch_size.to_string(), tags)
-            .warn();
+            .warn_err();
 
         self.0
             .metrics
             .histogram("bigtable.append.queue.size", queue_depth.to_string(), tags)
-            .warn();
+            .warn_err();
     }
 }
 
 pub trait MetricsWarn {
-    fn warn(&self);
+    fn warn_err(&self);
 }
 
 impl MetricsWarn for DogstatsdResult {
-    fn warn(&self) {
+    fn warn_err(&self) {
         if let Err(err) = self {
             warn!(?err, "failed to send metrics to Datadog agent");
         }
