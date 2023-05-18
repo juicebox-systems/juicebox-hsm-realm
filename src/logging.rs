@@ -1,3 +1,4 @@
+use is_terminal::IsTerminal;
 use opentelemetry::sdk::propagation::TraceContextPropagator;
 use opentelemetry::sdk::trace::Sampler;
 use opentelemetry::sdk::Resource;
@@ -93,12 +94,6 @@ pub fn configure_with_options(options: Options) {
         })
         .unwrap_or(options.default_log_level);
 
-    let terminal = tracing_subscriber::fmt::Subscriber::new()
-        .with_file(true)
-        .with_line_number(true)
-        .with_span_events(FmtSpan::ACTIVE)
-        .with_target(false);
-
     // By default, opentelemetry spews pretty often to stderr when it can't
     // find a server to submit traces to. This quiets down the errors and sends
     // them to the logger.
@@ -144,14 +139,38 @@ pub fn configure_with_options(options: Options) {
         .install_batch(opentelemetry::runtime::Tokio)
         .expect("TODO");
 
-    let telemetry = tracing_opentelemetry::subscriber().with_tracer(tracer);
     opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
 
-    tracing_subscriber::registry()
-        .with(FilterFn::new(|metadata| should_log(metadata.module_path())))
-        .with(terminal.with_filter(LevelFilter::from_level(log_level)))
-        .with(telemetry)
-        .init();
+    if std::io::stdout().is_terminal() {
+        let text_terminal = tracing_subscriber::fmt::Subscriber::new()
+            .with_file(true)
+            .with_line_number(true)
+            .with_span_events(FmtSpan::ACTIVE)
+            .with_target(false);
+
+        let telemetry = tracing_opentelemetry::subscriber().with_tracer(tracer);
+
+        tracing_subscriber::registry()
+            .with(FilterFn::new(|metadata| should_log(metadata.module_path())))
+            .with(text_terminal.with_filter(LevelFilter::from_level(log_level)))
+            .with(telemetry)
+            .init();
+    } else {
+        let json_terminal = tracing_subscriber::fmt::Subscriber::new()
+            .json()
+            .with_file(true)
+            .with_line_number(true)
+            .with_span_events(FmtSpan::ACTIVE)
+            .with_target(false);
+
+        let telemetry = tracing_opentelemetry::subscriber().with_tracer(tracer);
+
+        tracing_subscriber::registry()
+            .with(FilterFn::new(|metadata| should_log(metadata.module_path())))
+            .with(json_terminal.with_filter(LevelFilter::from_level(log_level)))
+            .with(telemetry)
+            .init();
+    }
 
     info!(
         max_level = %log_level,
