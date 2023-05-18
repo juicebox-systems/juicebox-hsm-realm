@@ -49,6 +49,7 @@ dogstatsd = "0.8.1"
 expect-test = "1.4.1"
 futures = "0.3.25"
 gcp_auth = "0.8.0"
+generic-array = { version = "0.14.7", features = ["serde", "zeroize"] }
 h2 = { version = "0.3.17" }
 hdrhistogram = { version = "7.5.2", default-features = false }
 hex = "0.4.3"
@@ -106,11 +107,11 @@ tracing-opentelemetry = { version = "*" }
 # The latest Cargo.toml of tracing-subscriber in Git has an old version number.
 tracing-subscriber = { version = "*" }
 url = { version = "2.3.1", features = ["serde"] }
-voprf = { version = "0.4.0" }
-x25519-dalek = { version = "2.0.0-pre.1", default-features = false, features = [
+voprf = { version = "0.5.0-pre.3" }
+x25519-dalek = { version = "2.0.0-rc.2", features = [
     "reusable_secrets",
     "serde",
-    "u64_backend",      # TODO: need 32-bit on HSMs
+    "static_secrets",
 ] }
 
 [patch.crates-io]
@@ -121,6 +122,8 @@ secrecy = { git = "ssh://git@github.com/Loam-Security/secrecy.git", branch = "lo
 tracing = { git = "https://github.com/tokio-rs/tracing" }
 tracing-opentelemetry = { git = "https://github.com/tokio-rs/tracing" }
 tracing-subscriber = { git = "https://github.com/tokio-rs/tracing" }
+# This VOPRF commit is v0.5.0-pre.3 plus an update to curve25519-dalek.
+voprf = { git = "https://github.com/facebook/voprf", rev = "4bd2cf466e45a7003f7acf34d5278b0871dbdb11" }
 
 
 [dependencies]
