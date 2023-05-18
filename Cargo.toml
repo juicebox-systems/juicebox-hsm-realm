@@ -64,6 +64,7 @@ hsmcore = { path = "hsmcore" }
 http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
+is-terminal = "0.4.7"
 jsonwebtoken = { version = "8.3.0", default-features = false }
 libc = { version = "0.2.139", default-features = false }
 loam-sdk = { path = "sdk/rust/sdk/client", features = ["tokio"] }
@@ -109,7 +110,7 @@ tracing = { version = "0.2.0", default-features = false, features = [
 # The latest Cargo.toml of tracing-opentelemetry in Git has an old version number.
 tracing-opentelemetry = { version = "*" }
 # The latest Cargo.toml of tracing-subscriber in Git has an old version number.
-tracing-subscriber = { version = "*" }
+tracing-subscriber = { version = "*", features= ["json"] }
 url = { version = "2.3.1", features = ["serde"] }
 voprf = { version = "0.5.0-pre.3" }
 x25519-dalek = { version = "2.0.0-rc.2", features = [
@@ -146,6 +147,7 @@ hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
+is-terminal = { workspace = true }
 jsonwebtoken = { workspace = true }
 libc = { workspace = true }
 loam-sdk = { workspace = true }
