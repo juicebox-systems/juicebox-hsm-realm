@@ -213,22 +213,13 @@ impl<T: Transport + 'static> Agent<T> {
     ) -> i32 {
         let mut released_count = 0;
         let mut locked = self.0.state.lock().unwrap();
-        let metric_tags = &[&format!("realm:{:?}", realm), &format!("group:{:?}", group)];
         if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
             for (hmac, client_response) in responses {
-                if let Some((start, sender)) = leader.response_channels.remove(&hmac) {
+                if let Some(sender) = leader.response_channels.remove(&hmac) {
                     if sender.send(client_response).is_err() {
                         warn!("dropping response on the floor: client no longer waiting");
                     }
                     released_count += 1;
-                    self.0
-                        .metrics
-                        .timing(
-                            "agent.commit.latency.ms",
-                            start.elapsed().as_millis() as i64,
-                            metric_tags,
-                        )
-                        .warn_err();
                 } else {
                     warn!("dropping response on the floor: client never waiting");
                 }

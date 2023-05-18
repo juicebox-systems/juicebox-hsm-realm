@@ -80,7 +80,7 @@ struct LeaderState {
     /// This serves as a mutex to prevent multiple concurrent appends to the
     /// store.
     appending: AppendingState,
-    response_channels: HashMap<EntryHmac, (Instant, oneshot::Sender<NoiseResponse>)>,
+    response_channels: HashMap<EntryHmac, oneshot::Sender<NoiseResponse>>,
     /// When set the leader is stepping down, and should stop processing once
     /// this log entry is complete.
     stepdown_at: Option<LogIndex>,
@@ -1180,20 +1180,31 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(append_request) => {
                 let (sender, receiver) = oneshot::channel::<NoiseResponse>();
 
+                let start = Instant::now();
                 {
                     let mut locked = self.0.state.lock().unwrap();
                     let leader = locked.leader.get_mut(&(realm, group))
                         .expect("The HSM thought it was leader and generated a response, but the agent has no leader state");
 
-                    leader.response_channels.insert(
-                        append_request.entry.entry_hmac.clone(),
-                        (Instant::now(), sender),
-                    );
+                    leader
+                        .response_channels
+                        .insert(append_request.entry.entry_hmac.clone(), sender);
                 }
 
                 self.append(realm, group, append_request);
                 match receiver.await {
-                    Ok(response) => Ok(Response::Ok(response)),
+                    Ok(response) => {
+                        self.0
+                            .metrics
+                            .timing(
+                                "agent.commit.latency.ms",
+                                start.elapsed().as_millis() as i64,
+                                [&format!("realm:{:?}", realm), &format!("group:{:?}", group)],
+                            )
+                            .warn_err();
+
+                        Ok(Response::Ok(response))
+                    }
                     Err(oneshot::Canceled) => Ok(Response::NotLeader),
                 }
             }
