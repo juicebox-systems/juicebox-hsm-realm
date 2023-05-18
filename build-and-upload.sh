@@ -20,19 +20,20 @@ cargo build "--$MODE" \
   --package cluster-cli \
   --package load_balancer \
   --package loam-mvp \
-  --bin agent \
+  --package software_agent \
   --bin cluster \
   --bin cluster_manager \
   --bin demo \
-  --bin load_balancer
+  --bin load_balancer \
+  --bin software_agent
 
 echo 'Uploading artifacts to Google Cloud Storage'
 gcloud storage cp \
-  "target/$MODE/agent" \
   "target/$MODE/cluster" \
   "target/$MODE/cluster_manager" \
   "target/$MODE/demo" \
   "target/$MODE/load_balancer" \
+  "target/$MODE/software_agent" \
   "gs://$GSPATH/"
 
 echo 'Upload done:'

@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "agent_core",
     "cluster_bench",
     "cluster-cli",
     "codegen",
@@ -10,14 +11,17 @@ members = [
     "entrust_nfast",
     "hsmcore",
     "load_balancer",
+    "software_agent",
 ]
 default-members = [
     ".",
+    "agent_core",
     "cluster_bench",
     "cluster-cli",
     "codegen",
     "hsmcore",
     "load_balancer",
+    "software_agent",
 ]
 # This allows the sdk packages to reference their workspace (for dependencies
 # and such), rather than this one.
@@ -131,14 +135,10 @@ bytes = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
 digest = { workspace = true }
-dogstatsd = { workspace = true }
 futures = { workspace = true }
 gcp_auth = { workspace = true }
 hdrhistogram = { workspace = true }
-h2 = { workspace = true }
 hex = { workspace = true }
-hkdf = { workspace = true }
-hmac = { workspace = true }
 hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
@@ -156,15 +156,11 @@ prost = { workspace = true }
 prost-types = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
-rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-signal-hook = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-rustls = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
@@ -172,7 +168,6 @@ tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 voprf = { workspace = true }
-x25519-dalek = { workspace = true }
 
 [dev-dependencies]
 async-recursion = { workspace = true }
