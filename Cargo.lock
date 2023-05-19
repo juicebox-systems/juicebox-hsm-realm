@@ -1619,6 +1619,7 @@ dependencies = [
  "hmac",
  "rand_core",
  "serde",
+ "tracing 0.2.0",
  "x25519-dalek",
 ]
 
