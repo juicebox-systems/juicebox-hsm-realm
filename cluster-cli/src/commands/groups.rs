@@ -67,7 +67,7 @@ fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
                 .as_ref()
                 .filter(|(id, _)| id == hsm_id)
                 .map(|(_, status)| status);
-            vec![
+            [
                 hsm_id.to_string().cell(),
                 addresses.get(hsm_id).unwrap().to_string().cell(),
                 group_status.role.to_string().cell(),
@@ -89,12 +89,30 @@ fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
                 .justify(Justify::Right),
             ]
         })
+        // Include rows for HSMs in the configuration that didn't respond.
+        .chain(
+            group.members[0]
+                .1
+                .configuration
+                .0
+                .iter()
+                .filter(|hsm_id| !group.members.iter().any(|(h, _)| &h == hsm_id))
+                .map(|hsm_id| {
+                    [
+                        hsm_id.to_string().cell(),
+                        "[error: not found]".cell(),
+                        "".cell(),
+                        "".cell(),
+                        "".cell(),
+                    ]
+                }),
+        )
         .collect();
 
     let table = rows
         .table()
         .separator(Separator::builder().title(Some(Default::default())).build())
-        .title(vec!["HSM ID", "Agent URL", "Role", "Captured", "Commit"])
+        .title(["HSM ID", "Agent URL", "Role", "Captured", "Commit"])
         .color_choice(cli_table::ColorChoice::Never);
     assert!(print_stdout(table).is_ok());
 }
