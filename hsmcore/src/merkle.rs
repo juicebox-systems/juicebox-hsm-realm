@@ -396,7 +396,7 @@ mod tests {
     }
 
     pub fn rec_id(bytes: &[u8]) -> RecordId {
-        let mut r = RecordId([0u8; 32]);
+        let mut r = RecordId([0u8; RecordId::NUM_BYTES]);
         r.0[..bytes.len()].copy_from_slice(bytes);
         r
     }
@@ -564,7 +564,7 @@ mod tests {
                     }
                 }
                 Node::Leaf(_l) => {
-                    assert_eq!(n.0.prefix.len(), RecordId::num_bits());
+                    assert_eq!(n.0.prefix.len(), RecordId::NUM_BITS);
                 }
             }
         }

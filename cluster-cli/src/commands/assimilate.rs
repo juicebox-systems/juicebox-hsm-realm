@@ -214,9 +214,9 @@ fn partition_evenly(n: usize) -> Vec<OwnedRange> {
 
     (0..n)
         .map(|i| {
-            let mut start = [0; 32];
+            let mut start = [0; RecordId::NUM_BYTES];
             start[..4].copy_from_slice(&((partition_size * i) as u32).to_be_bytes());
-            let mut end = [0xff; 32];
+            let mut end = [0xff; RecordId::NUM_BYTES];
             if i + 1 < n {
                 end[..4].copy_from_slice(&((partition_size * (i + 1) - 1) as u32).to_be_bytes());
                 OwnedRange {

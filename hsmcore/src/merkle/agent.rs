@@ -163,22 +163,24 @@ impl StoreKeyStart {
         self.0
     }
 }
+
 // Encode the prefix and delimiter into the supplied buffer.
 fn encode_prefix_into(prefix: &KeyVec, dest: &mut Vec<u8>) {
     base128::encode(prefix.as_bytes(), prefix.len(), dest);
 }
 
 // Generates the encoded version of each prefix for this recordId. starts at
-// prefix[..0] and end with at prefix[..=recordId::num_bits()]
+// prefix[..0] and end with at prefix[..=RecordId::NUM_BITS]
 pub fn all_store_key_starts(k: &RecordId) -> Vec<StoreKeyStart> {
-    let mut out = Vec::with_capacity(RecordId::num_bits() + 1);
-    for i in 0..=RecordId::num_bits() {
+    let mut out = Vec::with_capacity(RecordId::NUM_BITS + 1);
+    for i in 0..=RecordId::NUM_BITS {
         let mut enc = Vec::new();
         base128::encode(&k.0, i, &mut enc);
         out.push(StoreKeyStart(enc));
     }
     out
 }
+
 #[cfg(test)]
 pub mod tests {
     use std::collections::HashMap;
@@ -368,14 +370,14 @@ pub mod tests {
                 assert_eq!(buff, prefix.0, "with prefix len {i}");
             }
         };
-        test(RecordId([0x00; 32]));
-        test(RecordId([0x01; 32]));
-        test(RecordId([0x5a; 32]));
-        test(RecordId([0xa5; 32]));
-        test(RecordId([0x7F; 32]));
-        test(RecordId([0x80; 32]));
-        test(RecordId([0xFE; 32]));
-        test(RecordId([0xFF; 32]));
+        test(RecordId([0x00; RecordId::NUM_BYTES]));
+        test(RecordId([0x01; RecordId::NUM_BYTES]));
+        test(RecordId([0x5a; RecordId::NUM_BYTES]));
+        test(RecordId([0xa5; RecordId::NUM_BYTES]));
+        test(RecordId([0x7F; RecordId::NUM_BYTES]));
+        test(RecordId([0x80; RecordId::NUM_BYTES]));
+        test(RecordId([0xFE; RecordId::NUM_BYTES]));
+        test(RecordId([0xFF; RecordId::NUM_BYTES]));
     }
 
     #[test]
@@ -425,7 +427,7 @@ pub mod tests {
         // insert some keys, collect the deltas
         let mut root = init_root;
         let mut d: StoreDelta<TestHash>;
-        for key in (1..6).map(|i| RecordId([i; 32])) {
+        for key in (1..6).map(|i| RecordId([i; RecordId::NUM_BYTES])) {
             let rp = read(&TEST_REALM, &store, &range, &init_root, &key)
                 .await
                 .unwrap();
