@@ -52,16 +52,36 @@ impl<'a> fmt::Debug for Hex<'a> {
 
 static STREAM_SPEW: Spew = Spew::new();
 
-#[instrument(level = "trace", skip(bigtable, request), fields(retry_count))]
+#[instrument(
+    level = "trace",
+    skip(bigtable, request),
+    fields(
+        num_request_items,
+        num_response_chunks,
+        num_response_messages,
+        num_response_rows,
+        retry_count,
+    )
+)]
 pub async fn read_rows(
     bigtable: &mut BigtableClient,
     request: ReadRowsRequest,
 ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
+    Span::current().record(
+        "num_request_items",
+        match &request.rows {
+            Some(rows) => rows.row_keys.len() + rows.row_ranges.len(),
+            None => 0,
+        },
+    );
+
     let mut retry_count = 0;
     'outer: loop {
         let mut stream = bigtable.read_rows(request.clone()).await?.into_inner();
         let mut rows = Vec::new();
         let mut active_row: Option<RowBuffer> = None;
+        let mut num_response_chunks: usize = 0;
+        let mut num_response_messages: usize = 0;
         loop {
             match stream.message().await {
                 Err(e) => {
@@ -81,6 +101,8 @@ pub async fn read_rows(
                 }
                 Ok(None) => break,
                 Ok(Some(message)) => {
+                    num_response_messages += 1;
+                    num_response_chunks += message.chunks.len();
                     for chunk in message.chunks {
                         let complete_row;
                         (active_row, complete_row) = process_read_chunk(chunk, active_row);
@@ -95,6 +117,9 @@ pub async fn read_rows(
             active_row.is_none(),
             "ReadRowsResponse missing chunks: last row didn't complete",
         );
+        Span::current().record("num_response_chunks", num_response_chunks);
+        Span::current().record("num_response_messages", num_response_messages);
+        Span::current().record("num_response_rows", rows.len());
         Span::current().record("retry_count", retry_count);
         return Ok(rows);
     }

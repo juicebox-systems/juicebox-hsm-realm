@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
-use tracing::{info, trace, warn, Span};
+use tracing::{info, instrument, trace, warn, Span};
 
 use super::types::{ReadCapturedRequest, ReadCapturedResponse};
 use super::{Agent, MetricsWarn};
@@ -84,6 +84,7 @@ impl<T: Transport + 'static> Agent<T> {
         });
     }
 
+    #[instrument(level = "trace", skip(self, config, peers))]
     async fn commit_maybe(
         &self,
         realm: RealmId,
@@ -105,24 +106,7 @@ impl<T: Transport + 'static> Agent<T> {
         }
 
         // We're still leader for this group. See if we can move the commit index forward.
-
-        // Go get the captures from all the group members for this realm/group.
-        let urls: Vec<Url> = config.0.iter().filter_map(|hsm| peers.url(hsm)).collect();
-        let captures: Vec<Captured> = join_all(urls.iter().map(|url| {
-            rpc::send(
-                &self.0.peer_client,
-                url,
-                ReadCapturedRequest { realm, group },
-            )
-        }))
-        .await
-        .into_iter()
-        // skip network failures
-        .filter_map(|r| r.ok())
-        .filter_map(|r| match r {
-            ReadCapturedResponse::Ok(captured) => captured,
-        })
-        .collect();
+        let captures = self.get_captures(realm, group, config, peers).await;
 
         // Calculate a commit index.
         let mut election = HsmElection::new(&config.0);
@@ -143,14 +127,55 @@ impl<T: Transport + 'static> Agent<T> {
             }
         }
         trace!(?group, index=?commit_index, "election has quorum");
-        let commit_request = CommitRequest {
-            realm,
-            group,
-            captures,
-        };
 
-        // Ask the HSM to do the commit
-        let response = self.0.hsm.send(commit_request).await;
+        self.do_commit(
+            CommitRequest {
+                realm,
+                group,
+                captures,
+            },
+            last_committed,
+        )
+        .await
+    }
+
+    // Go get the captures from all the group members for this realm/group.
+    #[instrument(level = "trace", skip(self, config, peers))]
+    async fn get_captures(
+        &self,
+        realm: RealmId,
+        group: GroupId,
+        config: &Configuration,
+        peers: &PeerCache,
+    ) -> Vec<Captured> {
+        let urls: Vec<Url> = config.0.iter().filter_map(|hsm| peers.url(hsm)).collect();
+        join_all(urls.iter().map(|url| {
+            rpc::send(
+                &self.0.peer_client,
+                url,
+                ReadCapturedRequest { realm, group },
+            )
+        }))
+        .await
+        .into_iter()
+        // skip network failures
+        .filter_map(|r| r.ok())
+        .filter_map(|r| match r {
+            ReadCapturedResponse::Ok(captured) => captured,
+        })
+        .collect()
+    }
+
+    // Ask the HSM to do the commit.
+    #[instrument(level = "trace", skip(self, request), fields(released_count))]
+    async fn do_commit(
+        &self,
+        request: CommitRequest,
+        last_committed: Option<LogIndex>,
+    ) -> CommitterStatus {
+        let realm = request.realm;
+        let group = request.group;
+        let response = self.0.hsm.send(request).await;
         let (new_committed, responses, role) = match response {
             Ok(CommitResponse::Ok {
                 committed,
@@ -210,7 +235,7 @@ impl<T: Transport + 'static> Agent<T> {
         realm: RealmId,
         group: GroupId,
         responses: Vec<(EntryHmac, NoiseResponse)>,
-    ) -> i32 {
+    ) -> usize {
         let mut released_count = 0;
         let mut locked = self.0.state.lock().unwrap();
         if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
