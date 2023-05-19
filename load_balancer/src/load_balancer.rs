@@ -6,7 +6,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use loam_mvp::metrics::Warn;
+use loam_mvp::metrics::{Tags, Warn};
 use loam_sdk_core::marshalling;
 use loam_sdk_networking::rpc;
 use opentelemetry_http::HeaderExtractor;
@@ -292,7 +292,7 @@ async fn handle_client_request(
     agent_client: &Client<AgentService>,
     metrics: &dogstatsd::Client,
 ) -> ClientResponse {
-    let mut tags = RequestTags::new();
+    let mut tags = Tags::with_capacity(5);
     let start = Instant::now();
     let result = handle_client_request_inner(
         request,
@@ -317,7 +317,7 @@ async fn handle_client_request(
     result
 }
 
-fn add_client_response(tags: &mut RequestTags, response: &ClientResponse) {
+fn add_client_response(tags: &mut Tags, response: &ClientResponse) {
     let (code, success) = match response {
         ClientResponse::Ok(_) => ("Ok", true),
         ClientResponse::Unavailable => ("Unavailable", false),
@@ -331,17 +331,6 @@ fn add_client_response(tags: &mut RequestTags, response: &ClientResponse) {
     tags.push("success", if success { "true" } else { "false" });
 }
 
-struct RequestTags(Vec<String>);
-
-impl RequestTags {
-    fn new() -> Self {
-        RequestTags(Vec::with_capacity(5))
-    }
-    fn push(&mut self, name: &str, val: &str) {
-        self.0.push(format!("{}:{}", name, val));
-    }
-}
-
 #[tracing::instrument(level = "trace", skip(request, realms, agent_client, request_tags))]
 async fn handle_client_request_inner(
     request: &ClientRequest,
@@ -349,7 +338,7 @@ async fn handle_client_request_inner(
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
     agent_client: &Client<AgentService>,
-    request_tags: &mut RequestTags,
+    request_tags: &mut Tags,
 ) -> ClientResponse {
     type Response = ClientResponse;
 
