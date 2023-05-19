@@ -1,6 +1,5 @@
 use anyhow::Context;
 use bytes::Bytes;
-use dogstatsd::DogstatsdResult;
 use futures::channel::oneshot;
 use futures::Future;
 use hsmcore::hsm::types::{DataHash, LogEntry};
@@ -8,6 +7,7 @@ use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use loam_mvp::metrics::Warn;
 use opentelemetry_http::HeaderExtractor;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -123,7 +123,12 @@ impl<T: Transport + 'static> Agent<T> {
                 leader: HashMap::new(),
                 captures: Vec::new(),
             }),
-            metrics: dogstatsd::Client::new(dogstatsd::Options::default()).unwrap(),
+            metrics: dogstatsd::Client::new(
+                dogstatsd::OptionsBuilder::new()
+                    .default_tag(String::from("service:agent"))
+                    .build(),
+            )
+            .unwrap(),
         }))
     }
 
@@ -1425,17 +1430,5 @@ impl<T: Transport + 'static> Agent<T> {
             .metrics
             .histogram("bigtable.append.queue.size", queue_depth.to_string(), tags)
             .warn_err();
-    }
-}
-
-pub trait MetricsWarn {
-    fn warn_err(&self);
-}
-
-impl MetricsWarn for DogstatsdResult {
-    fn warn_err(&self) {
-        if let Err(err) = self {
-            warn!(?err, "failed to send metrics to Datadog agent");
-        }
     }
 }

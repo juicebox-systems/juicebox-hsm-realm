@@ -139,6 +139,7 @@ bytes = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
 digest = { workspace = true }
+dogstatsd = { workspace = true }
 futures = { workspace = true }
 gcp_auth = { workspace = true }
 hdrhistogram = { workspace = true }
