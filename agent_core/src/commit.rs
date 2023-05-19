@@ -1,5 +1,6 @@
 use futures::future::join_all;
 use hsmcore::hsm::types::{Captured, EntryHmac, GroupMemberRole};
+use loam_mvp::metrics::Warn;
 use loam_sdk_core::requests::NoiseResponse;
 use loam_sdk_networking::rpc;
 use reqwest::Url;
@@ -11,7 +12,7 @@ use tokio::time::sleep;
 use tracing::{info, instrument, trace, warn, Span};
 
 use super::types::{ReadCapturedRequest, ReadCapturedResponse};
-use super::{Agent, MetricsWarn};
+use super::Agent;
 use hsmcore::hsm::{
     commit::HsmElection,
     types::{

@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
+dogstatsd = { workspace = true }
 futures = { workspace = true }
 hsmcore = { workspace = true }
 http-body-util = { workspace = true }

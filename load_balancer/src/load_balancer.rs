@@ -6,6 +6,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use loam_mvp::metrics::{Tags, Warn};
 use loam_sdk_core::marshalling;
 use loam_sdk_networking::rpc;
 use opentelemetry_http::HeaderExtractor;
@@ -15,7 +16,7 @@ use std::iter::zip;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time;
@@ -49,6 +50,7 @@ struct State {
     secret_manager: Box<dyn SecretManager>,
     agent_client: Client<AgentService>,
     realms: Mutex<Arc<HashMap<RealmId, Vec<Partition>>>>,
+    metrics: dogstatsd::Client,
 }
 
 impl LoadBalancer {
@@ -59,6 +61,12 @@ impl LoadBalancer {
             secret_manager,
             agent_client: Client::new(ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
+            metrics: dogstatsd::Client::new(
+                dogstatsd::OptionsBuilder::default()
+                    .default_tag(String::from("service:load-balancer"))
+                    .build(),
+            )
+            .unwrap(),
         }))
     }
 
@@ -224,6 +232,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                                 &realms,
                                 state.secret_manager.as_ref(),
                                 &state.agent_client,
+                                &state.metrics,
                             )
                             .await
                             {
@@ -241,6 +250,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                                         &refreshed_realms,
                                         state.secret_manager.as_ref(),
                                         &state.agent_client,
+                                        &state.metrics,
                                     )
                                     .await
                                 }
@@ -280,6 +290,55 @@ async fn handle_client_request(
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
     agent_client: &Client<AgentService>,
+    metrics: &dogstatsd::Client,
+) -> ClientResponse {
+    let mut tags = Tags::with_capacity(5);
+    let start = Instant::now();
+    let result = handle_client_request_inner(
+        request,
+        name,
+        realms,
+        secret_manager,
+        agent_client,
+        &mut tags,
+    )
+    .await;
+
+    add_client_response(&mut tags, &result);
+    tags.push("realm", &format!("{:?}", request.realm));
+
+    metrics
+        .timing(
+            "load-balancer.request.time.ms",
+            start.elapsed().as_millis() as i64,
+            tags.0,
+        )
+        .warn_err();
+    result
+}
+
+fn add_client_response(tags: &mut Tags, response: &ClientResponse) {
+    let (code, success) = match response {
+        ClientResponse::Ok(_) => ("Ok", true),
+        ClientResponse::Unavailable => ("Unavailable", false),
+        ClientResponse::InvalidAuth => ("InvalidAuth", false),
+        ClientResponse::MissingSession => ("MissingSession", false),
+        ClientResponse::SessionError => ("SessionError", false),
+        ClientResponse::DecodingError => ("DecodingError", false),
+        ClientResponse::PayloadTooLarge => ("PayloadTooLarge", false),
+    };
+    tags.push("result", code);
+    tags.push("success", if success { "true" } else { "false" });
+}
+
+#[tracing::instrument(level = "trace", skip(request, realms, agent_client, request_tags))]
+async fn handle_client_request_inner(
+    request: &ClientRequest,
+    name: &str,
+    realms: &HashMap<RealmId, Vec<Partition>>,
+    secret_manager: &dyn SecretManager,
+    agent_client: &Client<AgentService>,
+    request_tags: &mut Tags,
 ) -> ClientResponse {
     type Response = ClientResponse;
 
@@ -299,20 +358,20 @@ async fn handle_client_request(
             Ok(claims) => claims,
             Err(_) => return Response::InvalidAuth,
         },
-        Ok(None) => {
-            return Response::InvalidAuth;
-        }
+        Ok(None) => return Response::InvalidAuth,
         Err(err) => {
             warn!(?tenant, ?version, ?err, "failed to get tenant key secret");
             return Response::Unavailable;
         }
     };
     let record_id = make_record_id(&claims.issuer, &claims.subject);
+    request_tags.push("tenant", &claims.issuer);
 
     for partition in partitions {
         if !partition.owned_range.contains(&record_id) {
             continue;
         }
+        request_tags.push("group", &format!("{:?}", partition.group));
 
         match rpc::send(
             agent_client,
