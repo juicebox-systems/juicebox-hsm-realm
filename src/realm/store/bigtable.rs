@@ -25,7 +25,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tonic::transport::Endpoint;
-use tracing::{info, instrument, trace};
+use tracing::{info, instrument, trace, Span};
 use url::Url;
 
 use super::super::merkle::agent::TreeStoreReader;
@@ -353,7 +353,11 @@ impl StoreClient {
         })
     }
 
-    #[instrument(level = "trace", skip(self))]
+    #[instrument(
+        level = "trace",
+        name = "append_log_entries_and_update_merkle_tree",
+        skip(self)
+    )]
     pub async fn append(
         &self,
         realm: &RealmId,
@@ -366,7 +370,8 @@ impl StoreClient {
         Ok(())
     }
 
-    // broken out for testing. Returns the join handle of the delete task if one was started.
+    // Helper for `append` that's broken out for testing. Returns the join
+    // handle of the delete task if one was started.
     pub async fn append_inner<F: Future + Send + 'static>(
         &self,
         realm: &RealmId,
@@ -432,8 +437,6 @@ impl StoreClient {
             prev = e;
         }
 
-        let mut bigtable = self.bigtable.clone();
-
         // Write new Merkle nodes.
         let new_merkle_entries = delta
             .add
@@ -452,6 +455,8 @@ impl StoreClient {
             })
             .collect::<Vec<_>>();
 
+        let mut bigtable = self.bigtable.clone();
+
         if !new_merkle_entries.is_empty() {
             mutate_rows(
                 &mut bigtable,
@@ -468,32 +473,9 @@ impl StoreClient {
             })?;
         }
 
-        // Append the new row but only if it doesn't yet exist.
-        let append_response = bigtable
-            .check_and_mutate_row(CheckAndMutateRowRequest {
-                table_name: log_table(&self.instance, realm),
-                app_profile_id: String::new(),
-                row_key: log_key(group, entries[0].index),
-                predicate_filter: None, // checks for any value
-                true_mutations: Vec::new(),
-                false_mutations: entries
-                    .iter()
-                    .map(|entry| Mutation {
-                        mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
-                            family_name: String::from("f"),
-                            column_qualifier: DownwardLogIndex(entry.index).bytes().to_vec(),
-                            timestamp_micros: -1,
-                            value: marshalling::to_vec(entry).expect("TODO"),
-                        })),
-                    })
-                    .collect(),
-            })
-            .await
-            .map_err(AppendError::Grpc)?
-            .into_inner();
-        if append_response.predicate_matched {
-            return Err(AppendError::LogPrecondition);
-        }
+        // Append the new entries but only if no other writer has appended.
+        self.log_append(&mut bigtable, realm, group, entries)
+            .await?;
 
         // append is supposed to be called sequentially, so this isn't racy.
         // Even if its not called sequentially last_write is purely a
@@ -532,6 +514,44 @@ impl StoreClient {
             "append succeeded"
         );
         Ok(delete_handle)
+    }
+
+    /// Append a new batch of log entries, but only if the row doesn't yet
+    /// exist.
+    #[instrument(level = "trace", skip(self, bigtable, entries), fields(num_entries = entries.len()))]
+    async fn log_append(
+        &self,
+        bigtable: &mut BigtableClient,
+        realm: &RealmId,
+        group: &GroupId,
+        entries: &[LogEntry],
+    ) -> Result<(), AppendError> {
+        let append_response = bigtable
+            .check_and_mutate_row(CheckAndMutateRowRequest {
+                table_name: log_table(&self.instance, realm),
+                app_profile_id: String::new(),
+                row_key: log_key(group, entries[0].index),
+                predicate_filter: None, // checks for any value
+                true_mutations: Vec::new(),
+                false_mutations: entries
+                    .iter()
+                    .map(|entry| Mutation {
+                        mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
+                            family_name: String::from("f"),
+                            column_qualifier: DownwardLogIndex(entry.index).bytes().to_vec(),
+                            timestamp_micros: -1,
+                            value: marshalling::to_vec(entry).expect("TODO"),
+                        })),
+                    })
+                    .collect(),
+            })
+            .await
+            .map_err(AppendError::Grpc)?
+            .into_inner();
+        if append_response.predicate_matched {
+            return Err(AppendError::LogPrecondition);
+        }
+        Ok(())
     }
 
     #[instrument(level = "trace", skip(self))]
@@ -701,7 +721,7 @@ impl LogEntriesIter {
     /// Read the next chunk of log entries from the log. The returned Log
     /// Entries are in increasing log index order. returns an empty Vec if
     /// there's nothing new in the log since the last call to next.
-    #[instrument(level = "trace", skip(self))]
+    #[instrument(level = "trace", name = "LogEntriesIter::next", skip(self))]
     pub async fn next(&mut self) -> Result<Vec<LogEntry>, tonic::Status> {
         let rows = match self.next {
             Position::LogIndex(i) => self.read_for_log_index(i).await?,
@@ -837,14 +857,12 @@ impl StoreClient {
 
 #[async_trait]
 impl TreeStoreReader<DataHash> for StoreClient {
-    #[instrument(level = "trace", skip(self))]
+    #[instrument(level = "trace", skip(self), fields(nodes))]
     async fn path_lookup(
         &self,
         realm: &RealmId,
         record_id: &RecordId,
     ) -> Result<HashMap<DataHash, Node<DataHash>>, TreeStoreError> {
-        trace!(realm = ?realm, record = ?record_id, "path_lookup starting");
-
         let rows = read_rows(
             &mut self.bigtable.clone(),
             ReadRowsRequest {
@@ -886,7 +904,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
             })
             .collect();
 
-        trace!(realm = ?realm, record = ?record_id, nodes = nodes.len(), "path_lookup completed");
+        Span::current().record("nodes", nodes.len());
         Ok(nodes)
     }
 

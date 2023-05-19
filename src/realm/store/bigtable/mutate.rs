@@ -1,5 +1,6 @@
 use crate::autogen::google;
 use google::bigtable::v2::MutateRowsRequest;
+use tracing::instrument;
 
 use super::BigtableClient;
 
@@ -9,6 +10,7 @@ pub enum MutateRowsError {
     Mutation(google::rpc::Status),
 }
 
+#[instrument(level = "trace", skip(bigtable, request), fields(num_request_mutations = request.entries.len()))]
 pub async fn mutate_rows(
     bigtable: &mut BigtableClient,
     request: MutateRowsRequest,

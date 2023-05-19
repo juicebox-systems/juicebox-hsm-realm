@@ -1116,6 +1116,7 @@ impl<T: Transport + 'static> Agent<T> {
     /// Called by `handle_app` to process [`AppRequest`]s of type Handshake
     /// that don't have a payload. Unlike other [`AppRequest`]s, these don't
     /// require dealing with the log or Merkle tree.
+    #[instrument(level = "trace", skip(self))]
     async fn handle_handshake(&self, request: AppRequest) -> Result<AppResponse, HandlerError> {
         type Response = AppResponse;
         type HsmResponse = hsm_types::HandshakeResponse;
@@ -1159,9 +1160,8 @@ impl<T: Transport + 'static> Agent<T> {
     /// delegates requests of type Handshake that don't have a payload, since
     /// those can be handled more efficiently without dealing with the log or
     /// Merkle tree.
+    #[instrument(level = "trace", skip(self, request))]
     async fn handle_app(&self, request: AppRequest) -> Result<AppResponse, HandlerError> {
-        type Response = AppResponse;
-
         match request.kind {
             ClientRequestKind::HandshakeOnly => return self.handle_handshake(request).await,
             ClientRequestKind::SecretsRequest => { /* handled here, below */ }
@@ -1170,48 +1170,54 @@ impl<T: Transport + 'static> Agent<T> {
         let realm = request.realm;
         let group = request.group;
 
-        let name = &self.0.name;
-        let hsm = &self.0.hsm;
-        let store = &self.0.store;
-
-        let result = start_app_request(request, name.clone(), hsm, store).await;
-        match result {
+        match start_app_request(request, self.0.name.clone(), &self.0.hsm, &self.0.store).await {
             Err(response) => Ok(response),
-            Ok(append_request) => {
-                let (sender, receiver) = oneshot::channel::<NoiseResponse>();
+            Ok(append_request) => self.finish_app_request(realm, group, append_request).await,
+        }
+    }
 
-                let start = Instant::now();
-                {
-                    let mut locked = self.0.state.lock().unwrap();
-                    let leader = locked.leader.get_mut(&(realm, group))
+    #[instrument(level = "trace", skip(realm, group, append_request))]
+    async fn finish_app_request(
+        &self,
+        realm: RealmId,
+        group: GroupId,
+        append_request: Append,
+    ) -> Result<AppResponse, HandlerError> {
+        type Response = AppResponse;
+
+        let (sender, receiver) = oneshot::channel::<NoiseResponse>();
+        let start = Instant::now();
+
+        {
+            let mut locked = self.0.state.lock().unwrap();
+            let leader = locked.leader.get_mut(&(realm, group))
                         .expect("The HSM thought it was leader and generated a response, but the agent has no leader state");
 
-                    leader
-                        .response_channels
-                        .insert(append_request.entry.entry_hmac.clone(), sender);
-                }
+            leader
+                .response_channels
+                .insert(append_request.entry.entry_hmac.clone(), sender);
+        }
 
-                self.append(realm, group, append_request);
-                match receiver.await {
-                    Ok(response) => {
-                        self.0
-                            .metrics
-                            .timing(
-                                "agent.commit.latency.ms",
-                                start.elapsed().as_millis() as i64,
-                                [&format!("realm:{:?}", realm), &format!("group:{:?}", group)],
-                            )
-                            .warn_err();
+        self.append(realm, group, append_request);
+        match receiver.await {
+            Ok(response) => {
+                self.0
+                    .metrics
+                    .timing(
+                        "agent.commit.latency.ms",
+                        start.elapsed().as_millis() as i64,
+                        [&format!("realm:{:?}", realm), &format!("group:{:?}", group)],
+                    )
+                    .warn_err();
 
-                        Ok(Response::Ok(response))
-                    }
-                    Err(oneshot::Canceled) => Ok(Response::NotLeader),
-                }
+                Ok(Response::Ok(response))
             }
+            Err(oneshot::Canceled) => Ok(Response::NotLeader),
         }
     }
 }
 
+#[instrument(level = "trace")]
 async fn start_app_request<T: Transport>(
     request: AppRequest,
     name: String,
