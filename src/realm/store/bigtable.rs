@@ -857,7 +857,7 @@ impl StoreClient {
 
 #[async_trait]
 impl TreeStoreReader<DataHash> for StoreClient {
-    #[instrument(level = "trace", skip(self), fields(nodes))]
+    #[instrument(level = "trace", skip(self), fields(num_result_nodes))]
     async fn path_lookup(
         &self,
         realm: &RealmId,
@@ -904,7 +904,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
             })
             .collect();
 
-        Span::current().record("nodes", nodes.len());
+        Span::current().record("num_result_nodes", nodes.len());
         Ok(nodes)
     }
 
