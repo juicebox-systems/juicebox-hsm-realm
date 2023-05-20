@@ -17,6 +17,7 @@ use loam_mvp::exec::bigtable::BigTableRunner;
 use loam_mvp::exec::certs::create_localhost_key_and_cert;
 use loam_mvp::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use loam_mvp::logging;
+use loam_mvp::metrics;
 use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
@@ -46,6 +47,7 @@ async fn main() {
     logging::configure("loam-demo-runner");
 
     let args = Args::parse();
+    let metrics = metrics::Client::new("demo_runner");
 
     let mut process_group = ProcessGroup::new();
 
@@ -81,7 +83,7 @@ async fn main() {
     store_admin.initialize_discovery().await.expect("TODO");
 
     let store = bt_args
-        .connect_data(None)
+        .connect_data(None, metrics)
         .await
         .expect("failed to connect to bigtable data service");
 

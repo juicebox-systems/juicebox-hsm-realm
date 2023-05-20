@@ -14,7 +14,6 @@ use google::bigtable::v2::{
     RowRange, RowSet,
 };
 use http::Uri;
-use loam_sdk_core::marshalling;
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Write;
@@ -30,8 +29,11 @@ use url::Url;
 
 use super::super::merkle::agent::TreeStoreReader;
 use crate::google_auth::AuthMiddleware;
+use crate::metrics;
+use crate::metrics_tag as tag;
 use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RecordId};
 use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
+use loam_sdk_core::marshalling;
 use loam_sdk_core::types::RealmId;
 
 pub mod discovery;
@@ -77,6 +79,7 @@ impl BigTableArgs {
     pub async fn connect_data(
         &self,
         auth_manager: AuthManager,
+        metrics: metrics::Client,
     ) -> Result<StoreClient, tonic::transport::Error> {
         let data_url = match &self.url {
             Some(u) => u.clone(),
@@ -92,7 +95,7 @@ impl BigTableArgs {
             project: self.project.clone(),
             instance: self.instance.clone(),
         };
-        StoreClient::new(data_url.clone(), instance, auth_manager).await
+        StoreClient::new(data_url.clone(), instance, auth_manager, metrics).await
     }
 
     pub async fn connect_admin(
@@ -304,6 +307,7 @@ pub struct StoreClient {
     bigtable: BigtableClient,
     instance: Instance,
     last_write: Mutex<Option<(RealmId, GroupId, LogIndex, EntryHmac)>>,
+    metrics: metrics::Client,
 }
 
 impl Clone for StoreClient {
@@ -313,6 +317,7 @@ impl Clone for StoreClient {
             bigtable: self.bigtable.clone(),
             instance: self.instance.clone(),
             last_write: Mutex::new(None),
+            metrics: self.metrics.clone(),
         }
     }
 }
@@ -338,6 +343,7 @@ impl StoreClient {
         url: Uri,
         instance: Instance,
         auth_manager: AuthManager,
+        metrics: metrics::Client,
     ) -> Result<Self, tonic::transport::Error> {
         let channel = Endpoint::from(url).connect().await?;
         let channel = AuthMiddleware::new(
@@ -350,6 +356,7 @@ impl StoreClient {
             bigtable,
             instance,
             last_write: Mutex::new(None),
+            metrics,
         })
     }
 
@@ -506,10 +513,16 @@ impl StoreClient {
             None
         };
 
+        let dur = start.elapsed();
+        self.metrics.timing(
+            "store_client.append_inner.time",
+            dur,
+            [tag!(?realm), tag!(?group)],
+        );
         trace!(
             realm = ?realm,
             group = ?group,
-            dur = ?start.elapsed(),
+            ?dur,
             entries = entries.len(),
             "append succeeded"
         );

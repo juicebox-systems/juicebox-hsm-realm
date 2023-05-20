@@ -30,6 +30,7 @@ use loam_mvp::clap_parsers::parse_duration;
 use loam_mvp::future_task::FutureTasks;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
+use loam_mvp::metrics;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
@@ -106,6 +107,7 @@ async fn main() {
 
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
+    let metrics = metrics::Client::new("entrust_agent");
 
     let auth_manager = if args.bigtable.needs_auth() {
         Some(
@@ -118,7 +120,7 @@ async fn main() {
     };
     let store = args
         .bigtable
-        .connect_data(auth_manager.clone())
+        .connect_data(auth_manager.clone(), metrics.clone())
         .await
         .expect("Unable to connect to Bigtable");
 
@@ -137,7 +139,7 @@ async fn main() {
     );
     let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);
 
-    let agent = Agent::new(name, hsm, store, store_admin);
+    let agent = Agent::new(name, hsm, store, store_admin, metrics);
     let agent_clone = agent.clone();
     shutdown_tasks.add(Box::pin(async move {
         agent_clone.shutdown(Duration::from_secs(10)).await;

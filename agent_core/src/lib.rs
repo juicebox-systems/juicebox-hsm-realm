@@ -112,6 +112,7 @@ impl<T: Transport + 'static> Agent<T> {
         hsm: HsmClient<T>,
         store: bigtable::StoreClient,
         store_admin: bigtable::StoreAdminClient,
+        metrics: metrics::Client,
     ) -> Self {
         Self(Arc::new(AgentInner {
             name,
@@ -124,7 +125,7 @@ impl<T: Transport + 'static> Agent<T> {
                 leader: HashMap::new(),
                 captures: Vec::new(),
             }),
-            metrics: metrics::Client::new("agent"),
+            metrics,
         }))
     }
 

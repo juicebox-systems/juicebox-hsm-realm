@@ -3,8 +3,9 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::info;
 
-use super::super::process_group::ProcessGroup;
-use super::super::realm::store::bigtable::BigTableArgs;
+use crate::metrics;
+use crate::process_group::ProcessGroup;
+use crate::realm::store::bigtable::BigTableArgs;
 
 pub struct BigTableRunner;
 
@@ -21,7 +22,7 @@ impl BigTableRunner {
                     .arg(emulator_url.port().unwrap().as_str()),
             );
             for _ in 0..100 {
-                match args.connect_data(None).await {
+                match args.connect_data(None, metrics::Client::NONE).await {
                     Ok(_) => return,
                     Err(_e) => {
                         sleep(Duration::from_millis(10)).await;

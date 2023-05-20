@@ -2,11 +2,12 @@ use clap::Parser;
 use std::{net::SocketAddr, time::Duration};
 use tracing::info;
 
-use loam_mvp::{
-    clap_parsers::{parse_duration, parse_listen},
-    google_auth, logging,
-    realm::{cluster::Manager, store::bigtable::BigTableArgs},
-};
+use loam_mvp::clap_parsers::{parse_duration, parse_listen};
+use loam_mvp::google_auth;
+use loam_mvp::logging;
+use loam_mvp::metrics;
+use loam_mvp::realm::cluster::Manager;
+use loam_mvp::realm::store::bigtable::BigTableArgs;
 
 #[derive(Debug, Parser)]
 #[command(about = "Management controller for Juicebox Clusters")]
@@ -42,6 +43,7 @@ async fn main() {
 
     let args = Args::parse();
     info!(?args, "Parsed command-line args");
+    let metrics = metrics::Client::new("cluster_manager");
 
     let auth_manager = if args.bigtable.needs_auth() {
         Some(
@@ -67,7 +69,7 @@ async fn main() {
 
     let store = args
         .bigtable
-        .connect_data(auth_manager)
+        .connect_data(auth_manager, metrics)
         .await
         .expect("Unable to connect to Bigtable data");
 

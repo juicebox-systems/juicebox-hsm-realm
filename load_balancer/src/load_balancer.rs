@@ -55,14 +55,19 @@ struct State {
 }
 
 impl LoadBalancer {
-    pub fn new(name: String, store: StoreClient, secret_manager: Box<dyn SecretManager>) -> Self {
+    pub fn new(
+        name: String,
+        store: StoreClient,
+        secret_manager: Box<dyn SecretManager>,
+        metrics: metrics::Client,
+    ) -> Self {
         Self(Arc::new(State {
             name,
             store,
             secret_manager,
             agent_client: Client::new(ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
-            metrics: metrics::Client::new("load-balancer"),
+            metrics,
         }))
     }
 

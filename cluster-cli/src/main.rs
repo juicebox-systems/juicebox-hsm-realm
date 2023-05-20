@@ -11,6 +11,7 @@ use loam_mvp::client_auth::new_google_secret_manager;
 use loam_mvp::google_auth;
 use loam_mvp::http_client::{Client, ClientOptions};
 use loam_mvp::logging;
+use loam_mvp::metrics;
 use loam_mvp::realm::agent::types::AgentService;
 use loam_mvp::realm::store::bigtable::{BigTableArgs, StoreClient};
 use loam_sdk_core::types::RealmId;
@@ -205,6 +206,8 @@ async fn main() -> ExitCode {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
+    let metrics = metrics::Client::new("cluster_cli");
+
     let auth_manager = if args.bigtable.needs_auth() || args.command.needs_secret_manager() {
         Some(
             google_auth::from_adc()
@@ -232,7 +235,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
     let store = args
         .bigtable
-        .connect_data(auth_manager)
+        .connect_data(auth_manager, metrics)
         .await
         .context("unable to connect to Bigtable")?;
 
