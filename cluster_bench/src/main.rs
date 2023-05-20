@@ -200,6 +200,10 @@ async fn benchmark(
         throughput = format!("{:0.3} op/s", count as f64 / elapsed_s),
         min = format!("{:0.3} ms", durations_ns.min() as f64 / 1e6),
         mean = format!("{:0.3} ms", durations_ns.mean() / 1e6),
+        p50 = format!(
+            "{:0.3} ms",
+            durations_ns.value_at_quantile(0.50) as f64 / 1e6
+        ),
         p95 = format!(
             "{:0.3} ms",
             durations_ns.value_at_quantile(0.95) as f64 / 1e6
