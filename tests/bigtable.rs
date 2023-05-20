@@ -391,7 +391,7 @@ async fn append_store_delta() {
         &data,
         &OwnedRange::full(),
         &starting_root,
-        &RecordId([1; 32]),
+        &RecordId([1; RecordId::NUM_BYTES]),
     )
     .await
     .unwrap();

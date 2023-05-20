@@ -177,7 +177,7 @@ async fn main() {
         groups[2],
         OwnedRange {
             start: RecordId::min_id(),
-            end: RecordId([0x80; 32]),
+            end: RecordId([0x80; RecordId::NUM_BYTES]),
         },
         &store,
     )
@@ -189,8 +189,8 @@ async fn main() {
         groups[1],
         groups[0],
         OwnedRange {
-            start: RecordId([0x80; 32]).next().unwrap(),
-            end: RecordId([0xA0; 32]),
+            start: RecordId([0x80; RecordId::NUM_BYTES]).next().unwrap(),
+            end: RecordId([0xA0; RecordId::NUM_BYTES]),
         },
         &store,
     )
@@ -202,8 +202,8 @@ async fn main() {
         groups[2],
         groups[3],
         OwnedRange {
-            start: RecordId([0x40; 32]),
-            end: RecordId([0x80; 32]),
+            start: RecordId([0x40; RecordId::NUM_BYTES]),
+            end: RecordId([0x80; RecordId::NUM_BYTES]),
         },
         &store,
     )
@@ -216,8 +216,8 @@ async fn main() {
         groups[2],
         groups[3],
         OwnedRange {
-            start: RecordId([0x30; 32]),
-            end: RecordId([0x40; 32]).prev().unwrap(),
+            start: RecordId([0x30; RecordId::NUM_BYTES]),
+            end: RecordId([0x40; RecordId::NUM_BYTES]).prev().unwrap(),
         },
         &store,
     )

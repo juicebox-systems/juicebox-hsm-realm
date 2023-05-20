@@ -46,17 +46,20 @@ impl fmt::Display for HsmId {
 }
 
 #[derive(Clone, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
-pub struct RecordId(pub [u8; 32]);
+pub struct RecordId(pub [u8; Self::NUM_BYTES]);
+
 impl RecordId {
-    pub fn num_bits() -> usize {
-        256 // TODO: There's probably some generics gymnastics that could be done here.
-    }
+    pub const NUM_BYTES: usize = 32;
+    pub const NUM_BITS: usize = Self::NUM_BYTES * 8;
+
     pub fn min_id() -> Self {
-        RecordId([0; 32])
+        RecordId([0; Self::NUM_BYTES])
     }
+
     pub fn max_id() -> Self {
-        RecordId([255; 32])
+        RecordId([255; Self::NUM_BYTES])
     }
+
     pub fn next(&self) -> Option<RecordId> {
         let mut r = RecordId(self.0);
         for i in (0..r.0.len()).rev() {
@@ -69,6 +72,7 @@ impl RecordId {
         }
         None
     }
+
     pub fn prev(&self) -> Option<RecordId> {
         let mut r = RecordId(self.0);
         for i in (0..r.0.len()).rev() {
@@ -87,8 +91,8 @@ impl RecordId {
     }
 
     pub fn from_bitvec(bits: &BitVec) -> RecordId {
-        assert_eq!(bits.len(), RecordId::num_bits());
-        let mut r = RecordId([0; 32]);
+        assert_eq!(bits.len(), RecordId::NUM_BITS);
+        let mut r = RecordId([0; Self::NUM_BYTES]);
         r.0.copy_from_slice(bits.as_bytes());
         r
     }
@@ -731,7 +735,7 @@ mod test {
 
     #[test]
     fn record_id_bitvec() {
-        let rec = RecordId([42u8; 32]);
+        let rec = RecordId([42u8; RecordId::NUM_BYTES]);
         let v = rec.to_bitvec();
         assert_eq!(256, v.len());
         assert_eq!(&rec.0, v.as_bytes());
