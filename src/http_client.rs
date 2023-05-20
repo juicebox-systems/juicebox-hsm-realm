@@ -68,7 +68,7 @@ impl<F: rpc::Service> http::Client for Client<F> {
         match request_builder.send().await {
             Err(err) => {
                 if let Some(suppressed) = HTTP_SPEW.ok() {
-                    warn!(?err, suppressed, "error sending HTTP request");
+                    warn!(%err, suppressed, "error sending HTTP request");
                 }
                 None
             }
