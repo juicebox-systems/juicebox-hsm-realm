@@ -10,6 +10,8 @@ use tracing::warn;
 use loam_sdk::http;
 use loam_sdk_networking::rpc;
 
+use super::logging::Spew;
+
 #[derive(Debug, Default, Clone)]
 pub struct ClientOptions {
     pub additional_root_certs: Vec<Certificate>,
@@ -37,6 +39,7 @@ impl<F: rpc::Service> Client<F> {
         }
     }
 }
+static HTTP_SPEW: Spew = Spew::new();
 
 #[async_trait]
 impl<F: rpc::Service> http::Client for Client<F> {
@@ -64,7 +67,9 @@ impl<F: rpc::Service> http::Client for Client<F> {
 
         match request_builder.send().await {
             Err(err) => {
-                warn!(%err, "error sending HTTP request");
+                if let Some(suppressed) = HTTP_SPEW.ok() {
+                    warn!(?err, suppressed, "error sending HTTP request");
+                }
                 None
             }
 
