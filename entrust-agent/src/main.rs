@@ -267,6 +267,7 @@ impl TransportInner {
         Ok(resp_vec)
     }
 
+    #[instrument(level = "trace", skip(self))]
     unsafe fn connect(&mut self) -> Result<(), SeeError> {
         self.conn.connect()?;
         if self.world_id.is_none() {
@@ -328,6 +329,7 @@ impl TransportInner {
         }
     }
 
+    #[instrument(level = "trace", skip(self,data), fields(data_len=data.len()))]
     fn transact_seejob(&mut self, mut data: Vec<u8>) -> Result<Vec<u8>, SeeError> {
         let mut cmd = M_Command::new(Cmd_SEEJob);
         cmd.args.seejob = M_Cmd_SEEJob_Args {
@@ -392,6 +394,7 @@ impl TransportInner {
         Ticket(ticket)
     }
 
+    #[instrument(level = "trace", skip(self))]
     unsafe fn start_seeworld(&mut self) -> Result<M_KeyID, SeeError> {
         // Load the SEEMachine image
         let data = fs::read(&self.see_machine).unwrap_or_else(|err| {
@@ -486,6 +489,7 @@ impl TransportInner {
     }
 
     /// If tracing is enabled, will collect any data from the HSM trace buffer and log it.
+    #[instrument(level = "trace", skip(self))]
     fn collect_trace_buffer(&mut self) {
         if !self.tracing || self.world_id.is_none() {
             return;
