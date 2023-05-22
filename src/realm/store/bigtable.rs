@@ -479,10 +479,21 @@ impl StoreClient {
                 MutateRowsError::Mutation(e) => AppendError::MerkleWrites(e),
             })?;
         }
+        self.metrics.timing(
+            "store_client.append.merkle.time",
+            start.elapsed(),
+            [tag!(?realm), tag!(?group)],
+        );
 
         // Append the new entries but only if no other writer has appended.
+        let append_start = Instant::now();
         self.log_append(&mut bigtable, realm, group, entries)
             .await?;
+        self.metrics.timing(
+            "store_client.append_log.time",
+            append_start.elapsed(),
+            [tag!(?realm), tag!(?group)],
+        );
 
         // append is supposed to be called sequentially, so this isn't racy.
         // Even if its not called sequentially last_write is purely a
@@ -505,9 +516,16 @@ impl StoreClient {
         let delete_handle = if !to_remove.is_empty() {
             let store = self.clone();
             let realm = *realm;
+            let group = *group;
             Some(tokio::spawn(async move {
                 delete_waiter.await;
+                let start = Instant::now();
                 store.remove(&realm, to_remove).await.expect("TODO");
+                store.metrics.timing(
+                    "store_client.delete.merkle.time",
+                    start.elapsed(),
+                    [tag!(?realm), tag!(?group)],
+                );
             }))
         } else {
             None
@@ -876,6 +894,8 @@ impl TreeStoreReader<DataHash> for StoreClient {
         realm: &RealmId,
         record_id: &RecordId,
     ) -> Result<HashMap<DataHash, Node<DataHash>>, TreeStoreError> {
+        let start = Instant::now();
+
         let rows = read_rows(
             &mut self.bigtable.clone(),
             ReadRowsRequest {
@@ -918,6 +938,11 @@ impl TreeStoreReader<DataHash> for StoreClient {
             .collect();
 
         Span::current().record("num_result_nodes", nodes.len());
+        self.metrics.timing(
+            "store_client.path_lookup.time",
+            start.elapsed(),
+            [tag!(?realm)],
+        );
         Ok(nodes)
     }
 

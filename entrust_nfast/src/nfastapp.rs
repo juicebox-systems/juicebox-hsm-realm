@@ -47878,6 +47878,31 @@ extern "C" {
     ) -> ::core::ffi::c_int;
 }
 extern "C" {
+    pub fn NFastApp_Submit(
+        conn: NFastApp_Connection,
+        cctx: *mut NFast_Call_Context,
+        command: *const M_Command,
+        reply: *mut M_Reply,
+        tctx: *mut NFast_Transaction_Context,
+    ) -> ::core::ffi::c_int;
+}
+extern "C" {
+    pub fn NFastApp_Query(
+        conn: NFastApp_Connection,
+        cctx: *mut NFast_Call_Context,
+        replyp: *mut *mut M_Reply,
+        tctx_r: *mut *mut NFast_Transaction_Context,
+    ) -> ::core::ffi::c_int;
+}
+extern "C" {
+    pub fn NFastApp_Wait(
+        conn: NFastApp_Connection,
+        cctx: *mut NFast_Call_Context,
+        replyp: *mut *mut M_Reply,
+        tctx_r: *mut *mut NFast_Transaction_Context,
+    ) -> ::core::ffi::c_int;
+}
+extern "C" {
     pub fn NFastApp_Free_Reply(
         app: *mut NFast_Application,
         cctx: *mut NFast_Call_Context,

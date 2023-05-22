@@ -122,7 +122,12 @@ async fn main() {
         .await
         .expect("Unable to connect to Bigtable admin");
 
-    let hsm = HsmClient::new(HsmHttpClient::new(hsm_url), name.clone(), args.metrics);
+    let hsm = HsmClient::new(
+        HsmHttpClient::new(hsm_url),
+        name.clone(),
+        args.metrics,
+        metrics.clone(),
+    );
     let agent = Agent::new(name, hsm, store, store_admin, metrics);
     let agent_clone = agent.clone();
     shutdown_tasks.add(Box::pin(async move {

@@ -31,7 +31,7 @@ pub struct HsmRequestContainer {
     pub metrics: MetricsAction,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct HsmResponseContainer<'a, T> {
     pub res: T,
     // Empty unless Record was specified as the metrics action in the request.

@@ -145,6 +145,13 @@ impl M_ByteBlock {
     pub unsafe fn as_slice(&self) -> &[u8] {
         slice::from_raw_parts(self.ptr, self.len as usize)
     }
+
+    pub fn from_vec(v: &mut Vec<u8>) -> M_ByteBlock {
+        M_ByteBlock {
+            len: v.len() as M_Word,
+            ptr: v.as_mut_ptr(),
+        }
+    }
 }
 
 impl M_Command {

@@ -1,19 +1,18 @@
 use async_trait::async_trait;
 use hdrhistogram::Histogram;
-use std::{
-    collections::HashMap,
-    fmt::{self, Debug},
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::collections::HashMap;
+use std::fmt::{self, Debug};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::time::Instant;
 use tracing::info;
 use tracing::{instrument, span::Span, trace, warn};
 
 use hsmcore::hsm::rpc::{HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
-
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
 use loam_sdk_networking::rpc::RpcError;
+
+use crate::{metrics, metrics_tag as tag};
 
 /// The HSM signalled that the request processing failed, likely due to
 /// serialization or deserialization issues.
@@ -34,7 +33,11 @@ pub trait Transport: fmt::Debug + Send + Sync {
         + From<HsmRpcError>
         + Send;
 
-    async fn send_rpc_msg(&self, msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, Self::Error>;
+    async fn send_rpc_msg(
+        &self,
+        msg_name: &'static str,
+        msg: Vec<u8>,
+    ) -> Result<Vec<u8>, Self::Error>;
 }
 
 pub struct HsmClient<T>(Arc<HsmClientInner<T>>);
@@ -54,6 +57,7 @@ struct HsmClientInner<T> {
     name: String,
     metrics_interval: Option<Duration>,
     metrics: Mutex<MetricsInner>,
+    dd_metrics: metrics::Client,
 }
 
 #[derive(Debug)]
@@ -69,7 +73,12 @@ impl<T> Clone for HsmClient<T> {
 }
 
 impl<T: Transport> HsmClient<T> {
-    pub fn new(t: T, name: String, metrics_reporting_interval: Option<Duration>) -> Self {
+    pub fn new(
+        t: T,
+        name: String,
+        metrics_reporting_interval: Option<Duration>,
+        dd_metrics: metrics::Client,
+    ) -> Self {
         Self(Arc::new(HsmClientInner {
             transport: t,
             name,
@@ -78,6 +87,7 @@ impl<T: Transport> HsmClient<T> {
                 last_reported: Instant::now(),
                 metrics: HashMap::new(),
             }),
+            dd_metrics,
         }))
     }
 
@@ -115,10 +125,14 @@ impl<T: Transport> HsmClient<T> {
             "received HSM RPC response"
         );
         let response: HsmResponseContainer<RPC::Response> = marshalling::from_slice(&res_bytes)?;
-
         if !response.metrics.is_empty() {
             let mut m = self.0.metrics.lock().unwrap();
             for (k, dur) in response.metrics {
+                self.0.dd_metrics.timing(
+                    format!("hsm.{k})"),
+                    Duration::from_nanos(dur.0.into()),
+                    [tag!(?req_name)],
+                );
                 let h = m
                     .metrics
                     .entry(k.into_owned())

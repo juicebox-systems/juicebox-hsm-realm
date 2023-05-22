@@ -2,7 +2,7 @@
 
 bindgen --use-core \
     --output src/nfastapp.rs \
-    --allowlist-function "NF.*(Init|Connect|Disconnect|Transact|Free_Reply|Lookup)|NFastApp_FreeACL|NFKM_(findkey|freekey|recordkey|cmd_loadblob|getinfo|.*newkey.*|loadadminkeys.*|cert.*|getusablemodule)|RQCard.*" \
+    --allowlist-function "NF.*(Init|Connect|Disconnect|Transact|Submit|Query|Wait|Free_Reply|Lookup)|NFastApp_FreeACL|NFKM_(findkey|freekey|recordkey|cmd_loadblob|getinfo|.*newkey.*|loadadminkeys.*|cert.*|getusablemodule)|RQCard.*" \
     --allowlist-var ".*CreateSEEWorld_Args.*|.*LoadBuffer.*|NFastApp_ConnectionFlags.*|Key_flags_.*|Command_flags.*|.*_(enum)?table|.*PermissionGroup.*|Act_.*_Details_.*|FileDevice.*|Cmd_GenerateKey.*_flags.*|NFKM_NKF_.*" \
     --allowlist-type "M_SEEInitStatus|NFKM_(Admin.*|LoadAdminKeysHandle)|M_KeyMgmtEntType" \
     --no-prepend-enum-name \
