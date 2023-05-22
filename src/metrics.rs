@@ -2,7 +2,7 @@ use dogstatsd::DogstatsdResult;
 use std::borrow::Cow;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::warn;
 
 /// Returns a stringified metrics [`Tag`] with a key and corresponding value.
@@ -121,7 +121,8 @@ impl Client {
         }
     }
 
-    /// See [`dogstatsd::Client::time`].
+    /// See [`dogstatsd::Client::time`]. This version sends the elapsed
+    /// time as a histogram with nanosecond precision.
     pub fn time<'a, F, O, I, S, T>(&self, stat: S, tags: I, block: F) -> O
     where
         F: FnOnce() -> O,
@@ -129,20 +130,18 @@ impl Client {
         S: Into<Cow<'a, str>>,
         T: AsRef<str>,
     {
-        if let Some(client) = &self.inner {
-            match client.time(stat, tags, block) {
-                Ok(output) => output,
-                Err((output, err)) => {
-                    warn!(?err, "failed to send metrics to Datadog agent");
-                    output
-                }
-            }
+        if self.inner.is_some() {
+            let start = Instant::now();
+            let output = block();
+            self.timing(stat, start.elapsed(), tags);
+            output
         } else {
             block()
         }
     }
 
-    /// See [`dogstatsd::Client::async_time`].
+    /// See [`dogstatsd::Client::async_time`]. This version sends the elapsed
+    /// time as a histogram with nanosecond precision.
     pub async fn async_time<'a, Fn, Fut, O, I, S, T>(&self, stat: S, tags: I, block: Fn) -> O
     where
         Fn: FnOnce() -> Fut,
@@ -151,34 +150,30 @@ impl Client {
         S: Into<Cow<'a, str>>,
         T: AsRef<str>,
     {
-        if let Some(client) = &self.inner {
-            match client.async_time(stat, tags, block).await {
-                Ok(output) => output,
-                Err((output, err)) => {
-                    warn!(?err, "failed to send metrics to Datadog agent");
-                    output
-                }
-            }
+        if self.inner.is_some() {
+            let start = Instant::now();
+            let output = block().await;
+            self.timing(stat, start.elapsed(), tags);
+            output
         } else {
             block().await
         }
     }
 
-    /// See [`dogstatsd::Client::timing`].
+    /// See [`dogstatsd::Client::timing`]. This version sends the duration as a
+    /// histogram with nanosecond precision.
     pub fn timing<'a, I, S, T>(&self, stat: S, duration: Duration, tags: I)
     where
         I: IntoIterator<Item = T>,
         S: Into<Cow<'a, str>>,
         T: AsRef<str>,
     {
-        if let Some(client) = &self.inner {
-            client
-                .timing(
-                    format!("{}.ms", stat.into()),
-                    i64::try_from(duration.as_millis()).unwrap_or(-1),
-                    tags,
-                )
-                .warn_err();
+        if self.inner.is_some() {
+            self.histogram(
+                format!("{}.ns", stat.into()),
+                duration.as_nanos().to_string(),
+                tags,
+            );
         }
     }
 
