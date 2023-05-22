@@ -57,6 +57,8 @@ pub const NO_TAGS: &[Tag] = &[];
 /// - It is cheap to clone, so it can be given to async code.
 /// - It warns on errors instead of returning them to the caller.
 /// - It uses some more specific and convenient parameter types.
+/// - It sends durations with nanosecond rather than millisecond precision.
+///   (They are sent through the `statsd` protocol as histograms.)
 #[derive(Clone, Debug)]
 pub struct Client {
     inner: Option<Arc<dogstatsd::Client>>,
