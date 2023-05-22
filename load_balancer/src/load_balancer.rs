@@ -6,7 +6,8 @@ use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use loam_mvp::metrics::{Tags, Warn};
+use loam_mvp::metrics::{self, Tag};
+use loam_mvp::metrics_tag as tag;
 use loam_sdk_core::marshalling;
 use loam_sdk_networking::rpc;
 use opentelemetry_http::HeaderExtractor;
@@ -20,7 +21,7 @@ use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time;
-use tokio_rustls::rustls::{self};
+use tokio_rustls::rustls;
 use tokio_rustls::TlsAcceptor;
 use tracing::{instrument, trace, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -50,23 +51,23 @@ struct State {
     secret_manager: Box<dyn SecretManager>,
     agent_client: Client<AgentService>,
     realms: Mutex<Arc<HashMap<RealmId, Vec<Partition>>>>,
-    metrics: dogstatsd::Client,
+    metrics: metrics::Client,
 }
 
 impl LoadBalancer {
-    pub fn new(name: String, store: StoreClient, secret_manager: Box<dyn SecretManager>) -> Self {
+    pub fn new(
+        name: String,
+        store: StoreClient,
+        secret_manager: Box<dyn SecretManager>,
+        metrics: metrics::Client,
+    ) -> Self {
         Self(Arc::new(State {
             name,
             store,
             secret_manager,
             agent_client: Client::new(ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
-            metrics: dogstatsd::Client::new(
-                dogstatsd::OptionsBuilder::default()
-                    .default_tag(String::from("service:load-balancer"))
-                    .build(),
-            )
-            .unwrap(),
+            metrics,
         }))
     }
 
@@ -290,9 +291,9 @@ async fn handle_client_request(
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
     agent_client: &Client<AgentService>,
-    metrics: &dogstatsd::Client,
+    metrics: &metrics::Client,
 ) -> ClientResponse {
-    let mut tags = Tags::with_capacity(5);
+    let mut tags = Vec::with_capacity(5);
     let start = Instant::now();
     let result = handle_client_request_inner(
         request,
@@ -305,20 +306,14 @@ async fn handle_client_request(
     .await;
 
     add_client_response(&mut tags, &result);
-    tags.push("realm", &format!("{:?}", request.realm));
+    tags.push(tag!(realm: "{:?}", request.realm));
 
-    metrics
-        .timing(
-            "load-balancer.request.time.ms",
-            start.elapsed().as_millis() as i64,
-            tags.0,
-        )
-        .warn_err();
+    metrics.timing("load-balancer.request.time", start.elapsed(), tags);
     result
 }
 
-fn add_client_response(tags: &mut Tags, response: &ClientResponse) {
-    let (code, success) = match response {
+fn add_client_response(tags: &mut Vec<Tag>, response: &ClientResponse) {
+    let (result, success) = match response {
         ClientResponse::Ok(_) => ("Ok", true),
         ClientResponse::Unavailable => ("Unavailable", false),
         ClientResponse::InvalidAuth => ("InvalidAuth", false),
@@ -327,8 +322,8 @@ fn add_client_response(tags: &mut Tags, response: &ClientResponse) {
         ClientResponse::DecodingError => ("DecodingError", false),
         ClientResponse::PayloadTooLarge => ("PayloadTooLarge", false),
     };
-    tags.push("result", code);
-    tags.push("success", if success { "true" } else { "false" });
+    tags.push(tag!(result));
+    tags.push(tag!(success));
 }
 
 #[tracing::instrument(level = "trace", skip(request, realms, agent_client, request_tags))]
@@ -338,7 +333,7 @@ async fn handle_client_request_inner(
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
     agent_client: &Client<AgentService>,
-    request_tags: &mut Tags,
+    request_tags: &mut Vec<Tag>,
 ) -> ClientResponse {
     type Response = ClientResponse;
 
@@ -365,13 +360,13 @@ async fn handle_client_request_inner(
         }
     };
     let record_id = make_record_id(&claims.issuer, &claims.subject);
-    request_tags.push("tenant", &claims.issuer);
+    request_tags.push(tag!(tenant: "{}", claims.issuer));
 
     for partition in partitions {
         if !partition.owned_range.contains(&record_id) {
             continue;
         }
-        request_tags.push("group", &format!("{:?}", partition.group));
+        request_tags.push(tag!(group: "{:?}", partition.group));
 
         match rpc::send(
             agent_client,

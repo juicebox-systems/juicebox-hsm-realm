@@ -7,7 +7,6 @@ use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use loam_mvp::metrics::Warn;
 use opentelemetry_http::HeaderExtractor;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -33,6 +32,8 @@ use hsmcore::hsm::types as hsm_types;
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
 use loam_mvp::http_client::{Client, ClientOptions};
+use loam_mvp::metrics::{self, Tag};
+use loam_mvp::metrics_tag as tag;
 use loam_mvp::realm::hsm::client::{HsmClient, Transport};
 use loam_mvp::realm::merkle;
 use loam_mvp::realm::rpc::{handle_rpc, HandlerError};
@@ -62,7 +63,7 @@ struct AgentInner<T> {
     store_admin: bigtable::StoreAdminClient,
     peer_client: Client<AgentService>,
     state: Mutex<State>,
-    metrics: dogstatsd::Client,
+    metrics: metrics::Client,
 }
 
 #[derive(Debug)]
@@ -111,6 +112,7 @@ impl<T: Transport + 'static> Agent<T> {
         hsm: HsmClient<T>,
         store: bigtable::StoreClient,
         store_admin: bigtable::StoreAdminClient,
+        metrics: metrics::Client,
     ) -> Self {
         Self(Arc::new(AgentInner {
             name,
@@ -123,12 +125,7 @@ impl<T: Transport + 'static> Agent<T> {
                 leader: HashMap::new(),
                 captures: Vec::new(),
             }),
-            metrics: dogstatsd::Client::new(
-                dogstatsd::OptionsBuilder::new()
-                    .default_tag(String::from("service:agent"))
-                    .build(),
-            )
-            .unwrap(),
+            metrics,
         }))
     }
 
@@ -1206,14 +1203,11 @@ impl<T: Transport + 'static> Agent<T> {
         self.append(realm, group, append_request);
         match receiver.await {
             Ok(response) => {
-                self.0
-                    .metrics
-                    .timing(
-                        "agent.commit.latency.ms",
-                        start.elapsed().as_millis() as i64,
-                        [&format!("realm:{:?}", realm), &format!("group:{:?}", group)],
-                    )
-                    .warn_err();
+                self.0.metrics.timing(
+                    "agent.commit.latency",
+                    start.elapsed(),
+                    [tag!(?realm), tag!(?group)],
+                );
 
                 Ok(Response::Ok(response))
             }
@@ -1343,7 +1337,7 @@ impl<T: Transport + 'static> Agent<T> {
     async fn keep_appending(&self, realm: RealmId, group: GroupId, next: LogIndex) {
         let mut next = next;
         let mut batch = Vec::new();
-        let metric_tags = &[&format!("realm:{:?}", realm), &format!("group:{:?}", group)];
+        let metric_tags = [tag!(?realm), tag!(?group)];
         let mut queue_depth: usize;
 
         loop {
@@ -1402,7 +1396,7 @@ impl<T: Transport + 'static> Agent<T> {
                         start.elapsed(),
                         batch.len(),
                         queue_depth,
-                        metric_tags,
+                        &metric_tags,
                     );
                 }
             }
@@ -1414,21 +1408,16 @@ impl<T: Transport + 'static> Agent<T> {
         elapsed: Duration,
         batch_size: usize,
         queue_depth: usize,
-        tags: &[&String],
+        tags: &[Tag],
     ) {
-        self.0
-            .metrics
-            .timing("bigtable.append.time.ms", elapsed.as_millis() as i64, tags)
-            .warn_err();
+        self.0.metrics.timing("bigtable.append.time", elapsed, tags);
 
         self.0
             .metrics
-            .histogram("bigtable.append.batch.size", batch_size.to_string(), tags)
-            .warn_err();
+            .histogram("bigtable.append.batch.size", batch_size, tags);
 
         self.0
             .metrics
-            .histogram("bigtable.append.queue.size", queue_depth.to_string(), tags)
-            .warn_err();
+            .histogram("bigtable.append.queue.size", queue_depth, tags);
     }
 }

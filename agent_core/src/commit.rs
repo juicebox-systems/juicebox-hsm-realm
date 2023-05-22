@@ -1,6 +1,5 @@
 use futures::future::join_all;
 use hsmcore::hsm::types::{Captured, EntryHmac, GroupMemberRole};
-use loam_mvp::metrics::Warn;
 use loam_sdk_core::requests::NoiseResponse;
 use loam_sdk_networking::rpc;
 use reqwest::Url;
@@ -21,6 +20,7 @@ use hsmcore::hsm::{
     },
 };
 use loam_mvp::logging::Spew;
+use loam_mvp::metrics_tag as tag;
 use loam_mvp::realm::{hsm::client::Transport, store::bigtable::StoreClient};
 use loam_sdk::RealmId;
 
@@ -189,14 +189,11 @@ impl<T: Transport + 'static> Agent<T> {
                     num_responses=?responses.len(),
                     "HSM committed entry"
                 );
-                self.0
-                    .metrics
-                    .gauge(
-                        "agent.commit.log.index",
-                        committed.0.to_string(),
-                        [&format!("realm:{:?}", realm), &format!("group:{:?}", group)],
-                    )
-                    .warn_err();
+                self.0.metrics.gauge(
+                    "agent.commit.log.index",
+                    committed.0,
+                    [tag!(?realm), tag!(?group)],
+                );
                 (committed, responses, role)
             }
             Ok(CommitResponse::AlreadyCommitted { committed: c }) => {

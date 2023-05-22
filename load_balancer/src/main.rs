@@ -11,6 +11,7 @@ use tracing::{info, warn};
 use loam_mvp::client_auth::new_google_secret_manager;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
+use loam_mvp::metrics;
 use loam_mvp::realm::store::bigtable::BigTableArgs;
 use loam_mvp::secret_manager::{Periodic, SecretManager, SecretsFile};
 
@@ -59,6 +60,7 @@ async fn main() {
 
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("lb{}", args.listen));
+    let metrics = metrics::Client::new("load_balancer");
 
     let certs = Arc::new(
         CertificateResolver::new(args.tls_key, args.tls_cert).expect("Failed to load TLS key/cert"),
@@ -106,7 +108,7 @@ async fn main() {
 
     let store = args
         .bigtable
-        .connect_data(auth_manager.clone())
+        .connect_data(auth_manager.clone(), metrics.clone())
         .await
         .expect("Unable to connect to Bigtable");
 
@@ -134,7 +136,7 @@ async fn main() {
         }
     };
 
-    let lb = LoadBalancer::new(name, store, secret_manager);
+    let lb = LoadBalancer::new(name, store, secret_manager, metrics.clone());
     let (url, join_handle) = lb
         .listen(args.listen, cert_resolver)
         .await

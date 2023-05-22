@@ -1,5 +1,4 @@
 use futures::future::join_all;
-use loam_sdk_networking::rpc::{self, LoadBalancerService};
 use reqwest::{Certificate, Url};
 use std::fs;
 use std::net::SocketAddr;
@@ -9,25 +8,24 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info};
 
-use crate::client_auth::creation::create_token;
-use crate::client_auth::Claims;
-use crate::http_client::{self, ClientOptions};
-use crate::realm::agent::types::{AgentService, StatusRequest};
-use crate::realm::cluster::{self, NewRealmError};
-use crate::realm::store::bigtable::StoreClient;
-use crate::secret_manager::SecretVersion;
+use hsmcore::hsm::types::GroupId;
+use loam_sdk::{Client, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper};
+use loam_sdk_networking::rpc::{self, LoadBalancerService};
 
-use super::super::client_auth::{new_google_secret_manager, tenant_secret_name, AuthKey};
-use super::super::google_auth;
-use super::super::secret_manager::{BulkLoad, SecretManager, SecretsFile};
-use super::super::{process_group::ProcessGroup, realm::store::bigtable::BigTableArgs};
 use super::bigtable::BigTableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use super::PortIssuer;
-
-use hsmcore::hsm::types::GroupId;
-use loam_sdk::{Client, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper};
+use crate::client_auth::creation::create_token;
+use crate::client_auth::{new_google_secret_manager, tenant_secret_name, AuthKey, Claims};
+use crate::google_auth;
+use crate::http_client::{self, ClientOptions};
+use crate::metrics;
+use crate::process_group::ProcessGroup;
+use crate::realm::agent::types::{AgentService, StatusRequest};
+use crate::realm::cluster::{self, NewRealmError};
+use crate::realm::store::bigtable::{BigTableArgs, StoreClient};
+use crate::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
 
 #[derive(Debug)]
 pub struct ClusterConfig {
@@ -142,7 +140,7 @@ pub async fn create_cluster(
 
     let store = args
         .bigtable
-        .connect_data(auth_manager.clone())
+        .connect_data(auth_manager.clone(), metrics::Client::NONE)
         .await
         .expect("failed to connect to bigtable data service");
 
