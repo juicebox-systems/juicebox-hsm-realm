@@ -15,8 +15,8 @@ use loam_sdk_core::{
         SecretsResponse,
     },
     types::{
-        MaskedTgkShare, OprfBlindedResult, OprfKey, OprfServer, Policy, Salt, UnlockTag,
-        UserSecretShare,
+        MaskedTgkShare, OprfBlindedResult, OprfSeed, OprfServer, Policy, Salt, UnlockTag,
+        UserSecretShare, OPRF_KEY_INFO,
     },
 };
 
@@ -45,7 +45,7 @@ enum RegistrationState {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct RegisteredState {
-    oprf_key: OprfKey,
+    oprf_seed: OprfSeed,
     salt: Salt,
     guess_count: u16,
     policy: Policy,
@@ -68,7 +68,7 @@ fn register2(
     trace!(hsm = ctx.hsm_name, ?record_id, "register2 request",);
 
     user_record.registration_state = RegistrationState::Registered(Box::new(RegisteredState {
-        oprf_key: request.oprf_key,
+        oprf_seed: request.oprf_seed,
         salt: request.salt,
         guess_count: 0,
         policy: request.policy,
@@ -126,7 +126,7 @@ fn recover2(
 ) -> (Recover2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
-    let (oprf_key, masked_tgk_share) = match &mut user_record.registration_state {
+    let (oprf_seed, masked_tgk_share) = match &mut user_record.registration_state {
         RegistrationState::Registered(state) if state.guess_count >= state.policy.num_guesses => {
             trace!(
                 hsm = ctx.hsm_name,
@@ -138,7 +138,7 @@ fn recover2(
         }
         RegistrationState::Registered(state) => {
             state.guess_count += 1;
-            (state.oprf_key.clone(), state.masked_tgk_share.clone())
+            (state.oprf_seed.clone(), state.masked_tgk_share.clone())
         }
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
@@ -154,8 +154,8 @@ fn recover2(
         }
     };
 
-    let server =
-        OprfServer::new_with_key(oprf_key.expose_secret()).expect("error constructing OprfServer");
+    let server = OprfServer::new_from_seed(oprf_seed.expose_secret(), OPRF_KEY_INFO)
+        .expect("error constructing OprfServer");
     let blinded_oprf_result: OprfBlindedResult = server
         .blind_evaluate(&request.blinded_oprf_input.expose_secret())
         .into();
