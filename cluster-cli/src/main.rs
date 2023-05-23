@@ -50,6 +50,9 @@ enum Command {
         tenant: String,
         /// Any user ID.
         user: String,
+        /// The ID of the realm that the token should be valid for.
+        #[arg(value_parser = parse_realm_id)]
+        realm: RealmId,
     },
 
     /// Print a configuration that uses the discoverable realm(s).
@@ -244,8 +247,13 @@ async fn run(args: Args) -> anyhow::Result<()> {
     match args.command {
         Command::Agents => commands::agents::list_agents(&agents_client, &store).await,
 
-        Command::AuthToken { tenant, user } => {
-            commands::auth_token::mint_auth_token(&secret_manager.unwrap(), tenant, user).await
+        Command::AuthToken {
+            tenant,
+            user,
+            realm,
+        } => {
+            commands::auth_token::mint_auth_token(&secret_manager.unwrap(), tenant, user, realm)
+                .await
         }
 
         Command::Configuration { load_balancer } => {

@@ -341,7 +341,7 @@ async fn handle_client_request_inner(
         return Response::Unavailable;
     };
 
-    let validator = AuthTokenValidator::new();
+    let validator = AuthTokenValidator::new(request.realm);
     let Ok((tenant, version)) = validator.parse_key_id(&request.auth_token) else {
         return Response::InvalidAuth;
     };
