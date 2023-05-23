@@ -1,17 +1,13 @@
 use crate::autogen::google;
 
-use async_trait::async_trait;
 use futures::Future;
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
 use google::bigtable::v2::column_range::{EndQualifier, StartQualifier};
-use google::bigtable::v2::row_range::{
-    EndKey::EndKeyClosed, EndKey::EndKeyOpen, StartKey::StartKeyClosed,
-};
+use google::bigtable::v2::row_range::{EndKey::EndKeyClosed, StartKey::StartKeyClosed};
 use google::bigtable::v2::{
-    mutate_rows_request, mutation, read_rows_request, row_filter, row_filter::Filter,
-    CheckAndMutateRowRequest, ColumnRange, MutateRowsRequest, Mutation, ReadRowsRequest, RowFilter,
-    RowRange, RowSet,
+    mutation, read_rows_request, row_filter::Filter, CheckAndMutateRowRequest, ColumnRange,
+    Mutation, ReadRowsRequest, RowFilter, RowRange, RowSet,
 };
 use http::Uri;
 use std::collections::HashMap;
@@ -24,22 +20,23 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tonic::transport::Endpoint;
-use tracing::{info, instrument, trace, Span};
+use tracing::{info, instrument, trace};
 use url::Url;
 
-use super::super::merkle::agent::TreeStoreReader;
 use crate::google_auth::AuthMiddleware;
 use crate::metrics;
 use crate::metrics_tag as tag;
-use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex, RecordId};
-use hsmcore::merkle::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
+use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex};
+use hsmcore::merkle::agent::StoreDelta;
 use loam_sdk_core::marshalling;
 use loam_sdk_core::types::RealmId;
 
 pub mod discovery;
+mod merkle;
 mod mutate;
 mod read;
 
+use merkle::merkle_table_brief;
 use mutate::{mutate_rows, MutateRowsError};
 use read::{read_rows, Cell, RowKey};
 
@@ -144,31 +141,6 @@ impl Instance {
             instance = self.instance,
         )
     }
-}
-
-fn merkle_table(instance: &Instance, realm: &RealmId) -> String {
-    let mut buf = String::new();
-    write!(
-        buf,
-        "projects/{project}/instances/{instance}/tables/",
-        project = instance.project,
-        instance = instance.instance
-    )
-    .unwrap();
-    for byte in realm.0 {
-        write!(buf, "{byte:02x}").unwrap();
-    }
-    write!(buf, "-merkle").unwrap();
-    buf
-}
-
-fn merkle_table_brief(realm: &RealmId) -> String {
-    let mut buf = String::new();
-    for byte in realm.0 {
-        write!(buf, "{byte:02x}").unwrap();
-    }
-    write!(buf, "-merkle").unwrap();
-    buf
 }
 
 fn log_table(instance: &Instance, realm: &RealmId) -> String {
@@ -445,48 +417,16 @@ impl StoreClient {
         }
 
         // Write new Merkle nodes.
-        let new_merkle_entries = delta
-            .add
-            .iter()
-            .map(|(key, value)| mutate_rows_request::Entry {
-                row_key: key.store_key().into_bytes(),
-                mutations: vec![Mutation {
-                    mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
-                        family_name: String::from("f"),
-                        column_qualifier: b"n".to_vec(),
-                        timestamp_micros: -1,
-                        // TODO: unnecessarily wraps the leaf node values.
-                        value: marshalling::to_vec(value).expect("TODO"),
-                    })),
-                }],
-            })
-            .collect::<Vec<_>>();
-
-        let mut bigtable = self.bigtable.clone();
-
-        if !new_merkle_entries.is_empty() {
-            mutate_rows(
-                &mut bigtable,
-                MutateRowsRequest {
-                    table_name: merkle_table(&self.instance, realm),
-                    app_profile_id: String::new(),
-                    entries: new_merkle_entries,
-                },
-            )
+        self.write_merkle_nodes(realm, group, delta.add)
             .await
             .map_err(|e| match e {
                 MutateRowsError::Tonic(e) => AppendError::Grpc(e),
                 MutateRowsError::Mutation(e) => AppendError::MerkleWrites(e),
             })?;
-        }
-        self.metrics.timing(
-            "store_client.append.merkle.time",
-            start.elapsed(),
-            [tag!(?realm), tag!(?group)],
-        );
 
         // Append the new entries but only if no other writer has appended.
         let append_start = Instant::now();
+        let mut bigtable = self.bigtable.clone();
         self.log_append(&mut bigtable, realm, group, entries)
             .await?;
         self.metrics.timing(
@@ -507,25 +447,16 @@ impl StoreClient {
 
         // Delete obsolete Merkle nodes. These deletes are deferred a bit so
         // that slow concurrent readers can still access them.
-        let to_remove = delta
-            .remove
-            .iter()
-            .map(|k| k.store_key())
-            .collect::<Vec<_>>();
-
-        let delete_handle = if !to_remove.is_empty() {
+        let delete_handle = if !delta.remove.is_empty() {
             let store = self.clone();
             let realm = *realm;
             let group = *group;
             Some(tokio::spawn(async move {
                 delete_waiter.await;
-                let start = Instant::now();
-                store.remove(&realm, to_remove).await.expect("TODO");
-                store.metrics.timing(
-                    "store_client.delete.merkle.time",
-                    start.elapsed(),
-                    [tag!(?realm), tag!(?group)],
-                );
+                store
+                    .remove_merkle_nodes(&realm, &group, delta.remove)
+                    .await
+                    .expect("TODO");
             }))
         } else {
             None
@@ -583,34 +514,6 @@ impl StoreClient {
             return Err(AppendError::LogPrecondition);
         }
         Ok(())
-    }
-
-    #[instrument(level = "trace", skip(self))]
-    async fn remove(
-        &self,
-        realm: &RealmId,
-        to_remove: Vec<StoreKey>,
-    ) -> Result<(), MutateRowsError> {
-        let mut bigtable = self.bigtable.clone();
-        mutate_rows(
-            &mut bigtable,
-            MutateRowsRequest {
-                table_name: merkle_table(&self.instance, realm),
-                app_profile_id: String::new(),
-                entries: to_remove
-                    .into_iter()
-                    .map(|key| mutate_rows_request::Entry {
-                        row_key: key.into_bytes(),
-                        mutations: vec![Mutation {
-                            mutation: Some(mutation::Mutation::DeleteFromRow(
-                                mutation::DeleteFromRow {},
-                            )),
-                        }],
-                    })
-                    .collect(),
-            },
-        )
-        .await
     }
 
     #[instrument(level = "trace", skip(self))]
@@ -886,109 +789,6 @@ impl StoreClient {
     }
 }
 
-#[async_trait]
-impl TreeStoreReader<DataHash> for StoreClient {
-    #[instrument(level = "trace", skip(self), fields(num_result_nodes))]
-    async fn path_lookup(
-        &self,
-        realm: &RealmId,
-        record_id: &RecordId,
-    ) -> Result<HashMap<DataHash, Node<DataHash>>, TreeStoreError> {
-        let start = Instant::now();
-
-        let rows = read_rows(
-            &mut self.bigtable.clone(),
-            ReadRowsRequest {
-                table_name: merkle_table(&self.instance, realm),
-                app_profile_id: String::new(),
-                rows: Some(RowSet {
-                    row_keys: Vec::new(),
-                    row_ranges: all_store_key_starts(record_id)
-                        .into_iter()
-                        .map(|prefix| RowRange {
-                            end_key: Some(EndKeyOpen(prefix.next().into_bytes())),
-                            start_key: Some(StartKeyClosed(prefix.into_bytes())),
-                        })
-                        .collect(),
-                }),
-                filter: Some(RowFilter {
-                    filter: Some(row_filter::Filter::CellsPerColumnLimitFilter(1)),
-                }),
-                rows_limit: 0,
-                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
-            },
-        )
-        .await
-        .map_err(|e| TreeStoreError::Network(e.to_string()))?;
-
-        let nodes: HashMap<DataHash, Node<DataHash>> = rows
-            .into_iter()
-            .map(|(row_key, cells)| {
-                let (_, hash) = StoreKey::parse(&row_key.0).unwrap();
-                let node: Node<DataHash> = marshalling::from_slice(
-                    &cells
-                        .into_iter()
-                        .find(|cell| cell.family == "f" && cell.qualifier == b"n")
-                        .expect("every Merkle row should contain a node value")
-                        .value,
-                )
-                .expect("TODO");
-                (hash, node)
-            })
-            .collect();
-
-        Span::current().record("num_result_nodes", nodes.len());
-        self.metrics.timing(
-            "store_client.path_lookup.time",
-            start.elapsed(),
-            [tag!(?realm)],
-        );
-        Ok(nodes)
-    }
-
-    #[instrument(level = "trace", skip(self))]
-    async fn read_node(
-        &self,
-        realm: &RealmId,
-        key: StoreKey,
-    ) -> Result<Node<DataHash>, TreeStoreError> {
-        trace!(realm = ?realm, key = ?key, "read_node starting");
-
-        let rows = read_rows(
-            &mut self.bigtable.clone(),
-            ReadRowsRequest {
-                table_name: merkle_table(&self.instance, realm),
-                app_profile_id: String::new(),
-                rows: Some(RowSet {
-                    row_keys: vec![key.clone().into_bytes()],
-                    row_ranges: Vec::new(),
-                }),
-                filter: Some(RowFilter {
-                    filter: Some(row_filter::Filter::CellsPerColumnLimitFilter(1)),
-                }),
-                rows_limit: 0,
-                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
-            },
-        )
-        .await
-        .map_err(|e| TreeStoreError::Network(e.to_string()))?;
-
-        let node = match rows.into_iter().next().and_then(|(_key, cells)| {
-            cells
-                .into_iter()
-                .find(|cell| cell.family == "f" && cell.qualifier == b"n")
-                .map(|cell| marshalling::from_slice(&cell.value).expect("TODO"))
-                .expect("every Merkle row should contain a node value")
-        }) {
-            Some(node) => Ok(node),
-            None => Err(TreeStoreError::MissingNode),
-        };
-
-        trace!(realm = ?realm, key = ?key, ok = node.is_ok(), "read_node completed");
-        node
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -997,25 +797,11 @@ mod tests {
         0x66, 0x80, 0x13, 0x4b, 0xf4, 0x5d, 0xc9, 0x3f, 0xce, 0xee, 0xcd, 0x03, 0xe5, 0x38, 0xc8,
         0x9f,
     ]);
+
     const GROUP1: GroupId = GroupId([
         0x0d, 0xbb, 0x03, 0x61, 0xb0, 0xc3, 0x23, 0xdd, 0xeb, 0xa3, 0x4f, 0x4d, 0x02, 0x3a, 0xbb,
         0x53,
     ]);
-
-    #[test]
-    fn test_merkle_table() {
-        let instance = Instance {
-            project: String::from("prj1"),
-            instance: String::from("inst2"),
-        };
-        let expected =
-            "projects/prj1/instances/inst2/tables/6680134bf45dc93fceeecd03e538c89f-merkle";
-        assert_eq!(merkle_table(&instance, &REALM1), expected);
-        assert_eq!(
-            format!("{}/tables/{}", instance.path(), merkle_table_brief(&REALM1)),
-            expected
-        );
-    }
 
     #[test]
     fn test_log_table() {
@@ -1023,11 +809,10 @@ mod tests {
             project: String::from("prj1"),
             instance: String::from("inst2"),
         };
-        let realm = RealmId([0xca; 16]);
-        let expected = "projects/prj1/instances/inst2/tables/cacacacacacacacacacacacacacacaca-log";
-        assert_eq!(log_table(&instance, &realm), expected);
+        let expected = "projects/prj1/instances/inst2/tables/6680134bf45dc93fceeecd03e538c89f-log";
+        assert_eq!(log_table(&instance, &REALM1), expected);
         assert_eq!(
-            format!("{}/tables/{}", instance.path(), log_table_brief(&realm)),
+            format!("{}/tables/{}", instance.path(), log_table_brief(&REALM1)),
             expected
         );
     }
