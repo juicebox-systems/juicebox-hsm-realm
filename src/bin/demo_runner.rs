@@ -227,7 +227,7 @@ async fn main() {
     .unwrap();
 
     info!("creating additional realms");
-    let mut realms = join_all([5100, 6000, 7000].map(|start_port| {
+    let mut realms = join_all([5100, 6000, 7100].map(|start_port| {
         let mut hsm_generator = HsmGenerator::new(Entrust(false), start_port);
         let mut process_group = process_group.clone();
         let bigtable = bt_args.clone();
