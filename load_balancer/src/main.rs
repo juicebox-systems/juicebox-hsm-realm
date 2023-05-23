@@ -9,6 +9,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use loam_mvp::client_auth::new_google_secret_manager;
+use loam_mvp::exec::panic;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::metrics;
@@ -57,6 +58,7 @@ struct Args {
 #[tokio::main]
 async fn main() {
     logging::configure("loam-load-balancer");
+    panic::set_abort_on_panic();
 
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("lb{}", args.listen));

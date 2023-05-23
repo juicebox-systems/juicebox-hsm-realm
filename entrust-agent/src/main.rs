@@ -31,6 +31,7 @@ use entrust_nfast::{
     Status_SEEWorldFailed, TicketDestination_AnySEEWorld,
 };
 use loam_mvp::clap_parsers::parse_duration;
+use loam_mvp::exec::panic;
 use loam_mvp::future_task::FutureTasks;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
@@ -94,6 +95,7 @@ struct Args {
 #[tokio::main]
 async fn main() {
     logging::configure("entrust-agent");
+    panic::set_abort_on_panic();
 
     let mut shutdown_tasks = FutureTasks::new();
     let mut shutdown_tasks_clone = shutdown_tasks.clone();
