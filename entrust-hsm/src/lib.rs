@@ -84,8 +84,8 @@ impl SEEJobs {
     fn return_job(&mut self, tag: M_Word, mut data: Vec<u8>) {
         let chunks: Vec<&[u8]> = data.chunks(8100).collect();
         if chunks.len() <= 1 {
-            let t = SEEJobResponseType::SEEJobSingleResult.as_trailer();
-            data.extend(t.serialize());
+            let trailer = SEEJobResponseType::SEEJobSingleResult.as_trailer();
+            data.extend(trailer.serialize());
             unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
             return;
         }
