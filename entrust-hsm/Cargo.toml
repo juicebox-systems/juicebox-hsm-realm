@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 entrust_api = { path = "../entrust_api" }
+hashbrown = { workspace = true  }
 hsmcore = { path = "../hsmcore" }
 loam-sdk-core = { workspace = true }
 rand_core = { workspace = true }

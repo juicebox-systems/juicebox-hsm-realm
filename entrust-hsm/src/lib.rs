@@ -11,9 +11,13 @@ extern crate alloc;
 
 use alloc::{format, string::String, vec, vec::Vec};
 use core::cmp::min;
+use hashbrown::HashMap;
 use x25519_dalek as x25519;
 
-use entrust_api::{KeyRole, StartRequest, StartResponse, Ticket};
+use entrust_api::{
+    ChunkCount, ChunkNumber, KeyRole, SEEJobRequestType, SEEJobResponseType, StartRequest,
+    StartResponse, Ticket, Trailer,
+};
 use hsmcore::hsm::{Hsm, HsmOptions, MacKey, MetricsReporting, RealmKeys, RecordEncryptionKey};
 use loam_sdk_core::marshalling;
 use platform::{transact, NCipher, SeeError};
@@ -35,16 +39,88 @@ pub extern "C" fn rust_main() -> isize {
 
     // We process start jobs until we get a successful HSM instance, then start
     // handling application requests.
-    let hsm = process_start_jobs(&mut buf);
-    process_hsm_jobs(hsm, &mut buf);
+    let mut seejobs = SEEJobs {
+        response_chunks: HashMap::new(),
+        // If there's a rollover problem find it sooner rather than later.
+        next_chunk: ChunkNumber(u32::MAX - 10),
+    };
+    let hsm = process_start_jobs(&mut seejobs, &mut buf);
+    process_hsm_jobs(hsm, &mut seejobs, &mut buf);
     unreachable!()
 }
 
-fn process_start_jobs(buf: &mut Vec<u8>) -> Hsm<NCipher> {
-    loop {
-        let (tag, job) = await_job(buf);
+// SEEJobs deals with chunked responses, and handling requests to get the chunks.
+struct SEEJobs {
+    response_chunks: HashMap<ChunkNumber, Vec<u8>>,
+    next_chunk: ChunkNumber,
+}
 
-        let req: Result<StartRequest, _> = marshalling::from_slice(job);
+impl SEEJobs {
+    fn await_job(&mut self, buf: &mut Vec<u8>) -> (M_Word, usize) {
+        loop {
+            let (tag, len) = await_job(buf);
+            if len < Trailer::LEN {
+                unsafe { SEElib_ReturnJob(tag, buf.as_ptr(), 0) };
+                continue;
+            }
+            match SEEJobRequestType::parse(&buf[len - Trailer::LEN..]) {
+                Ok(SEEJobRequestType::ExecuteSEEJob) => return (tag, len - Trailer::LEN),
+                Ok(SEEJobRequestType::ReadResponseChunk(chunk)) => unsafe {
+                    match self.response_chunks.remove(&chunk) {
+                        None => SEElib_ReturnJob(tag, buf.as_ptr(), 0),
+                        Some(data) => {
+                            // The trailer was included in data when it was put into the hashmap.
+                            SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word)
+                        }
+                    };
+                },
+                Err(_) => unsafe {
+                    SEElib_ReturnJob(tag, buf.as_ptr(), 0);
+                },
+            }
+        }
+    }
+
+    fn return_job(&mut self, tag: M_Word, mut data: Vec<u8>) {
+        let chunks: Vec<&[u8]> = data.chunks(8100).collect();
+        if chunks.len() <= 1 {
+            let trailer = SEEJobResponseType::SEEJobSingleResult.as_trailer();
+            data.extend(trailer.serialize());
+            unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
+            return;
+        }
+        assert!(chunks.len() < u16::MAX.into());
+        let first_chunk_num = self.next_chunk;
+        // next_chunk can wrap, that's okay
+        self.next_chunk += chunks.len() as u16;
+
+        let mut chunk_num = first_chunk_num;
+        for chunk in &chunks[1..] {
+            // add the trailer to each chunk.
+            let trailer = SEEJobResponseType::ResultChunk(chunk_num).as_trailer();
+            let mut chunk_data = Vec::with_capacity(chunk.len() + Trailer::LEN);
+            chunk_data.extend_from_slice(chunk);
+            chunk_data.extend(trailer.serialize());
+            self.response_chunks.insert(chunk_num, chunk_data);
+            chunk_num += 1;
+        }
+
+        let job_trailer = SEEJobResponseType::SEEJobPagedResult(
+            ChunkCount(chunks.len() as u16 - 1),
+            first_chunk_num,
+        )
+        .as_trailer();
+        data.truncate(chunks[0].len());
+        data.extend(job_trailer.serialize());
+        unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
+    }
+}
+
+fn process_start_jobs(jobs: &mut SEEJobs, buf: &mut Vec<u8>) -> Hsm<NCipher> {
+    loop {
+        let (tag, job_len) = jobs.await_job(buf);
+
+        let req: Result<StartRequest, _> = marshalling::from_slice(&buf[..job_len]);
         match req {
             Ok(req) => {
                 let (hsm, resp) = match start_hsm(req) {
@@ -52,7 +128,7 @@ fn process_start_jobs(buf: &mut Vec<u8>) -> Hsm<NCipher> {
                     Err(res) => (None, res),
                 };
                 let data = marshalling::to_vec(&resp).unwrap();
-                unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
+                jobs.return_job(tag, data);
                 if let Some(started_hsm) = hsm {
                     return started_hsm;
                 }
@@ -131,29 +207,29 @@ fn start_hsm(req: StartRequest) -> Result<Hsm<NCipher>, StartResponse> {
     .map_err(|err| StartResponse::PersistenceError(format!("{:?}", err)))
 }
 
-fn process_hsm_jobs(mut hsm: Hsm<NCipher>, buf: &mut Vec<u8>) {
+fn process_hsm_jobs(mut hsm: Hsm<NCipher>, jobs: &mut SEEJobs, buf: &mut Vec<u8>) {
     //println!("entrust-hsm init complete, ready for jobs");
     loop {
-        let (tag, job) = await_job(buf);
-        let result = hsm.handle_request(job);
+        let (tag, job_len) = jobs.await_job(buf);
+        let result = hsm.handle_request(&buf[..job_len]);
         match result {
             Ok(data) => {
                 //println!("success, returning {} bytes", data.len());
-                unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as u32) }
+                jobs.return_job(tag, data);
             }
             Err(_e) => {
                 // There are no valid responses that are empty. We use an empty response to signal
                 // a marshalling failure.
                 //println!("failed with marshalling error {:?}", _e);
-                unsafe { SEElib_ReturnJob(tag, buf.as_ptr(), 0) }
+                unsafe { SEElib_ReturnJob(tag, buf.as_ptr(), 0) };
             }
         };
     }
 }
 
-// Waits for a job and returns its tag and data. buf will be expanded if the job
+// Waits for a job and returns its tag and len. buf will be expanded if the job
 // is larger than the current capacity of buf.
-fn await_job(buf: &mut Vec<u8>) -> (M_Word, &[u8]) {
+fn await_job(buf: &mut Vec<u8>) -> (M_Word, usize) {
     let mut tag: M_Word = 0;
     loop {
         let mut len = buf.len() as M_Word;
@@ -170,7 +246,7 @@ fn await_job(buf: &mut Vec<u8>) -> (M_Word, &[u8]) {
             buf.resize(min(len as usize, MAX_JOB_SIZE_BYTES), 0);
             continue;
         }
-        return (tag, &buf[..(len as usize)]);
+        return (tag, len as usize);
     }
 }
 

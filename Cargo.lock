@@ -770,6 +770,7 @@ name = "entrust-hsm"
 version = "0.1.0"
 dependencies = [
  "entrust_api",
+ "hashbrown 0.13.2",
  "hsmcore",
  "loam-sdk-core",
  "rand_core",

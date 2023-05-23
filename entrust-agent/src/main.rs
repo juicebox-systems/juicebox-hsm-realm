@@ -7,32 +7,36 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::ptr::null_mut;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::runtime::Handle;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument, warn, Span};
 
 use agent_core::Agent;
-use entrust_api::{NvRamState, StartRequest, StartResponse, Ticket};
+use entrust_api::{
+    NvRamState, SEEJobRequestType, SEEJobResponseType, StartRequest, StartResponse, Ticket,
+    Trailer, TrailerError,
+};
 use entrust_nfast::{
     find_key, Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
-    Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_GetTicket, Cmd_LoadBuffer,
-    Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine, Cmd_TraceSEEWorld,
-    M_ByteBlock, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args, M_Cmd_CreateSEEWorld_Args,
-    M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args, M_Cmd_SEEJob_Args, M_Cmd_SetSEEMachine_Args,
-    M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID, M_Status, M_Word, ModuleMode_Default,
-    NFKM_cmd_loadblob, NFastApp_Connect, NFastApp_Connection, NFastApp_ConnectionFlags_Privileged,
-    NFastApp_Disconnect, NFastConn, NFastError, Reply, SEEInitStatus_OK, Status_OK,
-    Status_ObjectInUse, Status_SEEWorldFailed, TicketDestination_AnySEEWorld,
+    Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_ErrorReturn, Cmd_GetTicket,
+    Cmd_LoadBuffer, Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine,
+    Cmd_TraceSEEWorld, M_ByteBlock, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args,
+    M_Cmd_CreateSEEWorld_Args, M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args, M_Cmd_SEEJob_Args,
+    M_Cmd_SetSEEMachine_Args, M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID, M_Reply, M_Status,
+    M_Word, ModuleMode_Default, NFKM_cmd_loadblob, NFastApp_Connect, NFastApp_Connection,
+    NFastApp_ConnectionFlags_Privileged, NFastApp_Disconnect, NFastApp_Free_Reply, NFastApp_Submit,
+    NFastApp_Wait, NFastConn, NFastError, Reply, SEEInitStatus_OK, Status_OK, Status_ObjectInUse,
+    Status_SEEWorldFailed, TicketDestination_AnySEEWorld,
 };
 use loam_mvp::clap_parsers::parse_duration;
 use loam_mvp::future_task::FutureTasks;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
-use loam_mvp::metrics;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
 use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::{metrics, metrics_tag as tag};
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
 
 #[derive(Parser)]
@@ -136,8 +140,9 @@ async fn main() {
         args.image,
         args.userdata,
         args.reinitialize,
+        metrics.clone(),
     );
-    let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics);
+    let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics, metrics.clone());
 
     let agent = Agent::new(name, hsm, store, store_admin, metrics);
     let agent_clone = agent.clone();
@@ -209,8 +214,15 @@ impl From<NFastError> for SeeError {
     }
 }
 
+impl From<TrailerError> for SeeError {
+    fn from(_: TrailerError) -> Self {
+        Self::HsmMarshallingError
+    }
+}
+
 #[derive(Debug)]
-struct EntrustSeeTransport(Arc<Mutex<TransportInner>>);
+struct EntrustSeeTransport(mpsc::Sender<WorkerRequest>);
+
 impl EntrustSeeTransport {
     fn new(
         module: u8,
@@ -218,20 +230,50 @@ impl EntrustSeeTransport {
         see_machine: PathBuf,
         userdata: PathBuf,
         reinit_nvram: bool,
+        metrics: metrics::Client,
     ) -> Self {
-        Self(Arc::new(Mutex::new(TransportInner {
-            tracing,
-            module,
-            see_machine,
-            userdata,
-            conn: NFastConn::new(),
-            world_id: None,
-            nvram: if reinit_nvram {
-                NvRamState::Reinitialize
-            } else {
-                NvRamState::LastWritten
-            },
-        })))
+        let (sender, receiver) = mpsc::channel(16);
+
+        tokio::spawn(async move {
+            let mut t = TransportInner {
+                tracing,
+                module,
+                see_machine,
+                userdata,
+                conn: NFastConn::new(),
+                world_id: None,
+                nvram: if reinit_nvram {
+                    NvRamState::Reinitialize
+                } else {
+                    NvRamState::LastWritten
+                },
+                metrics,
+            };
+            t.run_worker(receiver).await
+        });
+        Self(sender)
+    }
+}
+
+#[derive(Debug)]
+struct WorkerRequest {
+    msg_name: &'static str,
+    msg: Vec<u8>,
+    respond_to: oneshot::Sender<WorkerResult>,
+}
+type WorkerResult = Result<Vec<u8>, SeeError>;
+
+impl WorkerRequest {
+    fn new(
+        msg_name: &'static str,
+        msg: Vec<u8>,
+        respond_to: oneshot::Sender<WorkerResult>,
+    ) -> Self {
+        Self {
+            msg_name,
+            msg,
+            respond_to,
+        }
     }
 }
 
@@ -244,6 +286,7 @@ struct TransportInner {
     conn: NFastConn,
     world_id: Option<M_KeyID>,
     nvram: NvRamState,
+    metrics: metrics::Client,
 }
 
 unsafe impl Send for TransportInner {}
@@ -252,20 +295,48 @@ unsafe impl Send for TransportInner {}
 impl Transport for EntrustSeeTransport {
     type Error = SeeError;
 
-    async fn send_rpc_msg(&self, msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, Self::Error> {
-        self.0.lock().unwrap().send_rpc_msg(msg_name, msg)
+    async fn send_rpc_msg(
+        &self,
+        msg_name: &'static str,
+        msg: Vec<u8>,
+    ) -> Result<Vec<u8>, Self::Error> {
+        let (sender, receiver) = oneshot::channel();
+        self.0
+            .send(WorkerRequest::new(msg_name, msg, sender))
+            .await
+            .expect("HSM Transport worker task appears to be gone");
+        receiver.await.unwrap()
     }
 }
 
 impl TransportInner {
-    #[instrument(level = "trace", skip(self, msg))]
-    fn send_rpc_msg(&mut self, msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, SeeError> {
+    async fn run_worker(&mut self, mut reciever: mpsc::Receiver<WorkerRequest>) {
+        while let Some(work) = reciever.recv().await {
+            let result = self.send_hsm_msg(work.msg_name, work.msg);
+            _ = work.respond_to.send(result);
+        }
+    }
+
+    #[instrument(level = "trace", skip(self, msg), fields(req_msg_len=msg.len(), resp_msg_len))]
+    fn send_hsm_msg(&mut self, msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, SeeError> {
         unsafe {
             self.connect()?;
         }
         let start = Instant::now();
+        let req_len = msg.len();
         let resp_vec = self.transact_seejob(msg)?;
-        debug!(dur=?start.elapsed(), req=msg_name, "Entrust HSM request transacted");
+        let elapsed = start.elapsed();
+        if elapsed > Duration::from_millis(20) {
+            warn!(dur=?start.elapsed(), req=msg_name, ?req_len, result_len=resp_vec.len(), "Entrust HSM SEEJob transaction was slow");
+        }
+        let tag = tag!(?msg_name);
+        self.metrics.timing("entrust.seejob.time", elapsed, [&tag]);
+        self.metrics
+            .histogram("entrust.seejob.request.bytes", req_len, [&tag]);
+        self.metrics
+            .histogram("entrust.seejob.response.bytes", resp_vec.len(), [&tag]);
+
+        Span::current().record("resp_msg_len", resp_vec.len());
         Ok(resp_vec)
     }
 
@@ -280,6 +351,7 @@ impl TransportInner {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip(self))]
     fn start_hsmcore(&mut self) {
         // Collect up all the key tickets we need.
         let comm_private_key = self.ticket_for_key("simple", "jbox-noise", KeyHalf::Private);
@@ -331,22 +403,88 @@ impl TransportInner {
         }
     }
 
-    #[instrument(level = "trace", skip(self,data), fields(data_len=data.len()))]
+    #[instrument(level = "trace", skip(self, data), fields(data_len=data.len()))]
     fn transact_seejob(&mut self, mut data: Vec<u8>) -> Result<Vec<u8>, SeeError> {
+        // SEEJob responses are potentially chunked. See the commentary on
+        // SEEJobRequestType & SEEJobResponseType for more information.
+        let trailer = SEEJobRequestType::ExecuteSEEJob.as_trailer();
+        data.extend(trailer.serialize());
+
         let mut cmd = M_Command::new(Cmd_SEEJob);
         cmd.args.seejob = M_Cmd_SEEJob_Args {
             worldid: self
                 .world_id
                 .expect("SEEWorld should have already been started"),
-            seeargs: M_ByteBlock {
-                len: data.len() as M_Word,
-                ptr: data.as_mut_ptr(),
-            },
+            seeargs: M_ByteBlock::from_vec(&mut data),
         };
-        let rep = self.transact(&mut cmd)?;
-        let resp = unsafe { rep.reply.seejob.seereply.as_slice().to_vec() };
+        let reply = self.transact(&mut cmd)?;
+        let resp = unsafe { reply.reply.seejob.seereply.as_slice() };
+        if resp.len() < Trailer::LEN {
+            return Err(SeeError::HsmMarshallingError);
+        }
+
+        let (response_body, trailer) = resp.split_at(resp.len() - Trailer::LEN);
+        let response = match SEEJobResponseType::parse(trailer)? {
+            SEEJobResponseType::ResultChunk(_) => {
+                panic!("Received unexpected ResultChunk response message from a SEEJob request")
+            }
+            SEEJobResponseType::SEEJobSingleResult => response_body.to_vec(),
+            SEEJobResponseType::SEEJobPagedResult(count, starting_chunk) => {
+                // There are additional chunks for the result of the SEEJob we just executed.
+                // Submit new jobs for each chunk needed, then wait on all the results.
+                let mut result = response_body.to_vec();
+
+                let mut replies = vec![M_Reply::default(); count.0 as usize];
+                for i in 0..count.0 {
+                    let req = SEEJobRequestType::ReadResponseChunk(starting_chunk + i);
+                    let mut req_trailer = req.as_trailer().serialize().to_vec();
+
+                    let mut cmd = M_Command::new(Cmd_SEEJob);
+                    cmd.args.seejob.worldid = self
+                        .world_id
+                        .expect("SEEWorld should have already been started");
+                    cmd.args.seejob.seeargs = M_ByteBlock::from_vec(&mut req_trailer);
+                    let rc = unsafe {
+                        NFastApp_Submit(
+                            self.conn.conn,
+                            null_mut(),
+                            &cmd,
+                            &mut replies[i as usize],
+                            null_mut(),
+                        )
+                    };
+                    assert_eq!(0, rc);
+                }
+
+                for i in 0..count.0 {
+                    let idx = i as usize;
+                    let mut rp: *mut M_Reply = &mut replies[idx];
+                    let rc =
+                        unsafe { NFastApp_Wait(self.conn.conn, null_mut(), &mut rp, null_mut()) };
+                    assert_eq!(0, rc);
+                    assert_ne!(Cmd_ErrorReturn, replies[idx].cmd);
+
+                    let resp = unsafe { replies[idx].reply.seejob.seereply.as_slice() };
+                    let (body, trailer) = resp.split_at(resp.len() - Trailer::LEN);
+                    assert_eq!(
+                        SEEJobResponseType::parse(trailer)?,
+                        SEEJobResponseType::ResultChunk(starting_chunk + i)
+                    );
+                    result.extend_from_slice(body);
+                    unsafe {
+                        NFastApp_Free_Reply(
+                            self.conn.app,
+                            null_mut(),
+                            null_mut(),
+                            &mut replies[idx],
+                        )
+                    };
+                }
+                result
+            }
+        };
         self.collect_trace_buffer();
-        Ok(resp)
+        Ok(response)
     }
 
     // If there's a problem generating a ticket for a key, then we can't start

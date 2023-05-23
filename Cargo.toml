@@ -54,6 +54,7 @@ expect-test = "1.4.1"
 futures = "0.3.25"
 gcp_auth = "0.8.0"
 generic-array = { version = "0.14.7", features = ["serde", "zeroize"] }
+hashbrown = { version = "0.13.2" }
 h2 = { version = "0.3.17" }
 hdrhistogram = { version = "7.5.2", default-features = false }
 hex = "0.4.3"
