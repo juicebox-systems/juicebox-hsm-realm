@@ -149,7 +149,6 @@ impl TreeStoreReader<DataHash> for StoreClient {
                 rows: Some(RowSet {
                     row_keys: Vec::new(),
                     row_ranges: all_store_key_starts(record_id)
-                        .into_iter()
                         .map(|prefix| RowRange {
                             end_key: Some(EndKeyOpen(prefix.next().into_bytes())),
                             start_key: Some(StartKeyClosed(prefix.into_bytes())),

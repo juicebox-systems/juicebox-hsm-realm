@@ -106,8 +106,9 @@ impl<HO: HashOutput> NodeKey<HO> {
 
 // The key value for a row in the key value store. Nodes are stored in the Store
 // using these keys. See NodeKey for a way to get one of these.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StoreKey(Vec<u8>);
+
 impl StoreKey {
     pub fn new<HO: HashOutput>(prefix: &KeyVec, hash: &HO) -> StoreKey {
         // encoded key consists of
@@ -122,6 +123,11 @@ impl StoreKey {
         out.extend(hash.as_u8());
         StoreKey(out)
     }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+
     pub fn into_bytes(self) -> Vec<u8> {
         self.0
     }
@@ -135,6 +141,13 @@ impl StoreKey {
         }
     }
 }
+
+impl From<Vec<u8>> for StoreKey {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value)
+    }
+}
+
 pub struct EncodedRecordPrefix<'a>(&'a [u8]);
 // When/If we have a need to decode this back to the prefix, we can write the base128 decoder.
 
@@ -171,14 +184,17 @@ fn encode_prefix_into(prefix: &KeyVec, dest: &mut Vec<u8>) {
 
 // Generates the encoded version of each prefix for this recordId. starts at
 // prefix[..0] and end with at prefix[..=RecordId::NUM_BITS]
-pub fn all_store_key_starts(k: &RecordId) -> Vec<StoreKeyStart> {
-    let mut out = Vec::with_capacity(RecordId::NUM_BITS + 1);
-    for i in 0..=RecordId::NUM_BITS {
+pub fn all_store_key_starts(
+    k: &RecordId,
+) -> impl Iterator<Item = StoreKeyStart> + ExactSizeIterator + '_ {
+    // `ExactSizeIterator` is not implemented for `RangeInclusive<usize>`, so
+    // awkwardly cast back and forth.
+    let range = 0..=u16::try_from(RecordId::NUM_BITS).unwrap();
+    range.map(|i| {
         let mut enc = Vec::new();
-        base128::encode(&k.0, i, &mut enc);
-        out.push(StoreKeyStart(enc));
-    }
-    out
+        base128::encode(&k.0, usize::from(i), &mut enc);
+        StoreKeyStart(enc)
+    })
 }
 
 #[cfg(test)]
@@ -364,7 +380,7 @@ pub mod tests {
             assert_eq!(257, prefixes.len());
             let k = r.to_bitvec();
             let mut buff = Vec::with_capacity(64);
-            for (i, prefix) in prefixes.iter().enumerate() {
+            for (i, prefix) in prefixes.enumerate() {
                 buff.clear();
                 encode_prefix_into(&k.slice(..i).to_bitvec(), &mut buff);
                 assert_eq!(buff, prefix.0, "with prefix len {i}");
