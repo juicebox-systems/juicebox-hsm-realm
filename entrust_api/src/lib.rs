@@ -77,16 +77,21 @@ impl From<WorldSignerError> for StartResponse {
 // Responses from the HSM larger than ~8k work but can be incredibly slow,
 // anywhere up to 2 seconds! To deal with this we chunk large responses
 // ourselves. Oddly this doesn't appear to impact messages going to the HSM,
-// only the response. We add an 8 byte trailer to the SEEJob request & responses
-// that we use to manage this.
+// only the response.
 //
-// The Trailer contains [[1]type, [1]unused, [2] number of chunks, [4] chunk
-// number] Numbers are big endian encoded.
+// We add an 8 byte trailer to the SEEJob request & responses that we use to
+// manage this. The 8 byte trailer consists of
+// * type (1 byte),
+// * unused (1 byte),
+// * number of chunks (2 bytes),
+// * chunk number (4 bytes)
+//
+// Numbers are big endian encoded.
 //
 // Number of chunks & chunk number are only used for some types.
 //
-// Entrust support say this is fixed in firmware v13.3. We have not tested that
-// yet.
+// Entrust support say this is fixed in firmware v13.3 and is Defect NSE-35968.
+// We have not tested that yet. See support ticket #163368
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SEEJobRequestType {
@@ -111,6 +116,8 @@ pub enum SEEJobResponseType {
     ResultChunk(ChunkNumber),
 }
 
+/// Chunk numbers are assigned globally. Large results are split into
+/// consecutively numbered chunks, modulo 2^32.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ChunkNumber(pub u32);
 
@@ -133,67 +140,107 @@ impl AddAssign<u16> for ChunkNumber {
     }
 }
 
-/// Size of the trailer in bytes.
-pub const TRAILER_LEN: usize = 8;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Trailer {
+    pub type_: u8,
+    pub count: ChunkCount,
+    pub chunk: ChunkNumber,
+}
 
-impl SEEJobRequestType {
-    pub fn parse(b: &[u8]) -> Result<SEEJobRequestType, TrailerError> {
-        if b.len() < TRAILER_LEN {
+impl Trailer {
+    /// Size of the trailer in bytes.
+    pub const LEN: usize = 8;
+
+    pub fn serialize(&self) -> [u8; Self::LEN] {
+        let mut r = [0; Self::LEN];
+        r[0] = self.type_;
+        r[2..4].copy_from_slice(&self.count.0.to_be_bytes());
+        r[4..8].copy_from_slice(&self.chunk.0.to_be_bytes());
+        r
+    }
+
+    pub fn deserialize(b: &[u8]) -> Result<Trailer, TrailerError> {
+        if b.len() < Self::LEN {
             return Err(TrailerError::TooSmall);
         }
-        match b[0] {
+        Ok(Trailer {
+            type_: b[0],
+            count: ChunkCount(u16::from_be_bytes(b[2..4].try_into().unwrap())),
+            chunk: ChunkNumber(u32::from_be_bytes(b[4..8].try_into().unwrap())),
+        })
+    }
+}
+
+impl TryFrom<Trailer> for SEEJobRequestType {
+    type Error = TrailerError;
+
+    fn try_from(t: Trailer) -> Result<SEEJobRequestType, TrailerError> {
+        match t.type_ {
             1 => Ok(SEEJobRequestType::ExecuteSEEJob),
-            2 => Ok(SEEJobRequestType::ReadResponseChunk(ChunkNumber(
-                u32::from_be_bytes(b[4..8].try_into().unwrap()),
-            ))),
+            2 => Ok(SEEJobRequestType::ReadResponseChunk(t.chunk)),
             t => Err(TrailerError::InvalidType(t)),
         }
     }
+}
 
-    pub fn as_trailer(&self) -> [u8; TRAILER_LEN] {
+impl SEEJobRequestType {
+    pub fn parse(bytes: &[u8]) -> Result<Self, TrailerError> {
+        let t = Trailer::deserialize(bytes)?;
+        Self::try_from(t)
+    }
+
+    pub fn as_trailer(self) -> Trailer {
         match self {
-            SEEJobRequestType::ExecuteSEEJob => [1, 0, 0, 0, 0, 0, 0, 0],
-            SEEJobRequestType::ReadResponseChunk(chunk_num) => {
-                let mut t = [2, 0, 0, 0, 0, 0, 0, 0];
-                t[4..8].copy_from_slice(&chunk_num.0.to_be_bytes());
-                t
-            }
+            SEEJobRequestType::ExecuteSEEJob => Trailer {
+                type_: 1,
+                count: ChunkCount(0),
+                chunk: ChunkNumber(0),
+            },
+            SEEJobRequestType::ReadResponseChunk(chunk_num) => Trailer {
+                type_: 2,
+                count: ChunkCount(0),
+                chunk: chunk_num,
+            },
+        }
+    }
+}
+
+impl TryFrom<Trailer> for SEEJobResponseType {
+    type Error = TrailerError;
+
+    fn try_from(t: Trailer) -> Result<SEEJobResponseType, TrailerError> {
+        match t.type_ {
+            1 => Ok(SEEJobResponseType::SEEJobSingleResult),
+            2 => Ok(SEEJobResponseType::SEEJobPagedResult(t.count, t.chunk)),
+            3 => Ok(SEEJobResponseType::ResultChunk(t.chunk)),
+            t => Err(TrailerError::InvalidType(t)),
         }
     }
 }
 
 impl SEEJobResponseType {
-    pub fn parse(b: &[u8]) -> Result<SEEJobResponseType, TrailerError> {
-        if b.len() < TRAILER_LEN {
-            return Err(TrailerError::TooSmall);
-        }
-        match b[0] {
-            1 => Ok(SEEJobResponseType::SEEJobSingleResult),
-            2 => Ok(SEEJobResponseType::SEEJobPagedResult(
-                ChunkCount(u16::from_be_bytes(b[2..4].try_into().unwrap())),
-                ChunkNumber(u32::from_be_bytes(b[4..8].try_into().unwrap())),
-            )),
-            3 => Ok(SEEJobResponseType::ResultChunk(ChunkNumber(
-                u32::from_be_bytes(b[4..8].try_into().unwrap()),
-            ))),
-            t => Err(TrailerError::InvalidType(t)),
-        }
+    pub fn parse(bytes: &[u8]) -> Result<Self, TrailerError> {
+        let t = Trailer::deserialize(bytes)?;
+        Self::try_from(t)
     }
 
-    pub fn as_trailer(&self) -> [u8; TRAILER_LEN] {
+    pub fn as_trailer(self) -> Trailer {
         match self {
-            SEEJobResponseType::SEEJobSingleResult => [1, 0, 0, 0, 0, 0, 0, 0],
-            SEEJobResponseType::SEEJobPagedResult(count, starting) => {
-                let mut t = [2, 0, 0, 0, 0, 0, 0, 0];
-                t[2..4].copy_from_slice(&count.0.to_be_bytes());
-                t[4..8].copy_from_slice(&starting.0.to_be_bytes());
-                t
-            }
-            SEEJobResponseType::ResultChunk(chunk_num) => {
-                let mut t = [3, 0, 0, 0, 0, 0, 0, 0];
-                t[4..8].copy_from_slice(&chunk_num.0.to_be_bytes());
-                t
-            }
+            SEEJobResponseType::SEEJobSingleResult => Trailer {
+                type_: 1,
+                count: ChunkCount(0),
+                chunk: ChunkNumber(0),
+            },
+            SEEJobResponseType::SEEJobPagedResult(count, starting) => Trailer {
+                type_: 2,
+                count,
+                chunk: starting,
+            },
+            SEEJobResponseType::ResultChunk(chunk_num) => Trailer {
+                type_: 3,
+                count: ChunkCount(0),
+                chunk: chunk_num,
+            },
         }
     }
 }
@@ -209,52 +256,67 @@ mod test {
     use super::*;
 
     #[test]
+    fn trailer_too_small() {
+        assert_eq!(
+            Err(TrailerError::TooSmall),
+            Trailer::deserialize(&[1, 2, 3, 4, 5, 6, 7])
+        );
+    }
+
+    #[test]
+    fn trailer_roundtrip() {
+        let start = Trailer {
+            type_: 44,
+            count: ChunkCount(13),
+            chunk: ChunkNumber(u32::MAX),
+        };
+        let rt = Trailer::deserialize(&start.serialize()).unwrap();
+        assert_eq!(start, rt);
+    }
+
+    #[test]
     fn seejob_req_type_roundtrip() {
         let start = SEEJobRequestType::ExecuteSEEJob;
-        let rt = SEEJobRequestType::parse(&start.as_trailer()).unwrap();
+        let rt = SEEJobRequestType::parse(&start.as_trailer().serialize()).unwrap();
         assert_eq!(start, rt);
 
         let start = SEEJobRequestType::ReadResponseChunk(ChunkNumber(u32::MAX - 42));
-        let rt = SEEJobRequestType::parse(&start.as_trailer()).unwrap();
+        let rt = SEEJobRequestType::parse(&start.as_trailer().serialize()).unwrap();
         assert_eq!(start, rt);
     }
 
     #[test]
     fn seejob_req_type_parse_error() {
         assert_eq!(
-            Err(TrailerError::TooSmall),
-            SEEJobRequestType::parse(&[1, 2, 3, 4, 5, 6, 7])
-        );
-        assert_eq!(
             Err(TrailerError::InvalidType(42)),
-            SEEJobRequestType::parse(&[42, 43, 44, 45, 46, 47, 48, 49])
+            SEEJobRequestType::try_from(
+                Trailer::deserialize(&[42, 43, 44, 45, 46, 47, 48, 49]).unwrap()
+            )
         );
     }
 
     #[test]
     fn seejob_res_type_roundtrip() {
         let start = SEEJobResponseType::SEEJobSingleResult;
-        let rt = SEEJobResponseType::parse(&start.as_trailer()).unwrap();
+        let rt = SEEJobResponseType::parse(&start.as_trailer().serialize()).unwrap();
         assert_eq!(start, rt);
 
         let start = SEEJobResponseType::SEEJobPagedResult(ChunkCount(100), ChunkNumber(12343));
-        let rt = SEEJobResponseType::parse(&start.as_trailer()).unwrap();
+        let rt = SEEJobResponseType::parse(&start.as_trailer().serialize()).unwrap();
         assert_eq!(start, rt);
 
         let start = SEEJobResponseType::ResultChunk(ChunkNumber(432));
-        let rt = SEEJobResponseType::parse(&start.as_trailer()).unwrap();
+        let rt = SEEJobResponseType::parse(&start.as_trailer().serialize()).unwrap();
         assert_eq!(start, rt);
     }
 
     #[test]
     fn seejob_res_type_parse_error() {
         assert_eq!(
-            Err(TrailerError::TooSmall),
-            SEEJobResponseType::parse(&[1, 2, 3, 4, 5, 6, 7])
-        );
-        assert_eq!(
             Err(TrailerError::InvalidType(255)),
-            SEEJobResponseType::parse(&[255, 0, 0, 0, 0, 0, 0, 0])
+            SEEJobResponseType::try_from(
+                Trailer::deserialize(&[255, 0, 0, 0, 0, 0, 0, 0]).unwrap()
+            )
         );
     }
 

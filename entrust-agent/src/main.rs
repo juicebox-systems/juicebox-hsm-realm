@@ -16,7 +16,7 @@ use tracing::{debug, info, instrument, warn, Span};
 use agent_core::Agent;
 use entrust_api::{
     NvRamState, SEEJobRequestType, SEEJobResponseType, StartRequest, StartResponse, Ticket,
-    TrailerError, TRAILER_LEN,
+    Trailer, TrailerError,
 };
 use entrust_nfast::{
     find_key, Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
@@ -407,8 +407,8 @@ impl TransportInner {
     fn transact_seejob(&mut self, mut data: Vec<u8>) -> Result<Vec<u8>, SeeError> {
         // SEEJob responses are potentially chunked. See the commentary on
         // SEEJobRequestType & SEEJobResponseType for more information.
-        let req_job = SEEJobRequestType::ExecuteSEEJob.as_trailer();
-        data.extend_from_slice(&req_job);
+        let trailer = SEEJobRequestType::ExecuteSEEJob.as_trailer();
+        data.extend(trailer.serialize());
 
         let mut cmd = M_Command::new(Cmd_SEEJob);
         cmd.args.seejob = M_Cmd_SEEJob_Args {
@@ -419,11 +419,11 @@ impl TransportInner {
         };
         let reply = self.transact(&mut cmd)?;
         let resp = unsafe { reply.reply.seejob.seereply.as_slice() };
-        if resp.len() < TRAILER_LEN {
+        if resp.len() < Trailer::LEN {
             return Err(SeeError::HsmMarshallingError);
         }
 
-        let (response_body, trailer) = resp.split_at(resp.len() - TRAILER_LEN);
+        let (response_body, trailer) = resp.split_at(resp.len() - Trailer::LEN);
         let response = match SEEJobResponseType::parse(trailer)? {
             SEEJobResponseType::ResultChunk(_) => {
                 panic!("Received unexpected ResultChunk response message from a SEEJob request")
@@ -437,7 +437,7 @@ impl TransportInner {
                 let mut replies = vec![M_Reply::default(); count.0 as usize];
                 for i in 0..count.0 {
                     let req = SEEJobRequestType::ReadResponseChunk(starting_chunk + i);
-                    let mut req_trailer = req.as_trailer().to_vec();
+                    let mut req_trailer = req.as_trailer().serialize().to_vec();
 
                     let mut cmd = M_Command::new(Cmd_SEEJob);
                     cmd.args.seejob.worldid = self
@@ -465,9 +465,9 @@ impl TransportInner {
                     assert_ne!(Cmd_ErrorReturn, replies[idx].cmd);
 
                     let resp = unsafe { replies[idx].reply.seejob.seereply.as_slice() };
-                    let (body, trailer) = resp.split_at(resp.len() - TRAILER_LEN);
+                    let (body, trailer) = resp.split_at(resp.len() - Trailer::LEN);
                     assert_eq!(
-                        SEEJobResponseType::parse(trailer).unwrap(),
+                        SEEJobResponseType::parse(trailer)?,
                         SEEJobResponseType::ResultChunk(starting_chunk + i)
                     );
                     result.extend_from_slice(body);

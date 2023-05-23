@@ -16,7 +16,7 @@ use x25519_dalek as x25519;
 
 use entrust_api::{
     ChunkCount, ChunkNumber, KeyRole, SEEJobRequestType, SEEJobResponseType, StartRequest,
-    StartResponse, Ticket, TRAILER_LEN,
+    StartResponse, Ticket, Trailer,
 };
 use hsmcore::hsm::{Hsm, HsmOptions, MacKey, MetricsReporting, RealmKeys, RecordEncryptionKey};
 use loam_sdk_core::marshalling;
@@ -59,12 +59,12 @@ impl SEEJobs {
     fn await_job(&mut self, buf: &mut Vec<u8>) -> (M_Word, usize) {
         loop {
             let (tag, len) = await_job(buf);
-            if len < TRAILER_LEN {
+            if len < Trailer::LEN {
                 unsafe { SEElib_ReturnJob(tag, buf.as_ptr(), 0) };
                 continue;
             }
-            match SEEJobRequestType::parse(&buf[len - TRAILER_LEN..]) {
-                Ok(SEEJobRequestType::ExecuteSEEJob) => return (tag, len - TRAILER_LEN),
+            match SEEJobRequestType::parse(&buf[len - Trailer::LEN..]) {
+                Ok(SEEJobRequestType::ExecuteSEEJob) => return (tag, len - Trailer::LEN),
                 Ok(SEEJobRequestType::ReadResponseChunk(chunk)) => unsafe {
                     match self.response_chunks.remove(&chunk) {
                         None => SEElib_ReturnJob(tag, buf.as_ptr(), 0),
@@ -83,9 +83,9 @@ impl SEEJobs {
 
     fn return_job(&mut self, tag: M_Word, mut data: Vec<u8>) {
         let chunks: Vec<&[u8]> = data.chunks(8100).collect();
-        if chunks.len() == 1 {
+        if chunks.len() <= 1 {
             let t = SEEJobResponseType::SEEJobSingleResult.as_trailer();
-            data.extend_from_slice(&t);
+            data.extend(t.serialize());
             unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
             return;
         }
@@ -98,9 +98,9 @@ impl SEEJobs {
         for chunk in &chunks[1..] {
             // add the trailer to each chunk.
             let trailer = SEEJobResponseType::ResultChunk(chunk_num).as_trailer();
-            let mut chunk_data = Vec::with_capacity(chunk.len() + TRAILER_LEN);
+            let mut chunk_data = Vec::with_capacity(chunk.len() + Trailer::LEN);
             chunk_data.extend_from_slice(chunk);
-            chunk_data.extend_from_slice(&trailer);
+            chunk_data.extend(trailer.serialize());
             self.response_chunks.insert(chunk_num, chunk_data);
             chunk_num += 1;
         }
@@ -111,7 +111,7 @@ impl SEEJobs {
         )
         .as_trailer();
         data.truncate(chunks[0].len());
-        data.extend_from_slice(&job_trailer);
+        data.extend(job_trailer.serialize());
         unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
     }
 }
