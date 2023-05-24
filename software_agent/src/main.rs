@@ -6,8 +6,6 @@ use hkdf::Hkdf;
 use hmac::SimpleHmac;
 use hsmcore::hsm::RealmKeys;
 use hsmcore::hsm::RecordEncryptionKey;
-use loam_mvp::clap_parsers::parse_listen;
-use loam_mvp::future_task::FutureTasks;
 use rand::{rngs::OsRng, RngCore};
 use std::fmt::Write;
 use std::fs;
@@ -19,7 +17,9 @@ use tracing::info;
 
 use agent_core::Agent;
 use hsmcore::hsm::MacKey;
-use loam_mvp::clap_parsers::parse_duration;
+use loam_mvp::clap_parsers::{parse_duration, parse_listen};
+use loam_mvp::exec::panic;
+use loam_mvp::future_task::FutureTasks;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::metrics;
@@ -66,6 +66,7 @@ struct Args {
 #[tokio::main]
 async fn main() {
     logging::configure("loam-agent");
+    panic::set_abort_on_panic();
 
     let mut shutdown_tasks = FutureTasks::new();
     let mut shutdown_tasks_clone = shutdown_tasks.clone();

@@ -3,6 +3,7 @@ use std::{net::SocketAddr, time::Duration};
 use tracing::info;
 
 use loam_mvp::clap_parsers::{parse_duration, parse_listen};
+use loam_mvp::exec::panic;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::metrics;
@@ -32,6 +33,7 @@ struct Args {
 #[tokio::main]
 async fn main() {
     logging::configure("cluster-manager");
+    panic::set_abort_on_panic();
 
     ctrlc::set_handler(move || {
         info!(pid = std::process::id(), "received termination signal");
