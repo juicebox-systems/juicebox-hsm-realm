@@ -82,6 +82,7 @@ pub fn merkle_table_brief(realm: &RealmId) -> String {
 }
 
 impl StoreClient {
+    #[instrument(level = "trace", skip(self, add))]
     pub(super) async fn write_merkle_nodes(
         &self,
         realm: &RealmId,
@@ -139,7 +140,7 @@ impl StoreClient {
         Ok(())
     }
 
-    #[instrument(level = "trace", skip(self))]
+    #[instrument(level = "trace", skip(self, remove))]
     pub(super) async fn remove_merkle_nodes(
         &self,
         realm: &RealmId,
