@@ -1,33 +1,76 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
+use core::fmt::Debug;
 use core::hash::Hash;
 use hashbrown::HashMap; // TODO: randomize hasher
 
-/// A logical timestamp generated from a counter.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct Timestamp(u64);
+/// Reports the current time so that the cache can determine relative age.
+///
+/// HSMs use [`LogicalClock`] below, which is just a counter. Agents use a
+/// clock based on `std::time::Instant` so that they can report stats based on
+/// elapsed time.
+pub trait Clock {
+    type Time: Clone + Copy + Debug + Eq + Ord + PartialEq + PartialOrd;
+    fn time(&mut self) -> Self::Time;
+}
+
+/// Counter-based implementation of [`Clock`].
+///
+/// This allows for cheaply comparing relative ages of items.
+#[derive(Debug, Default)]
+pub struct LogicalClock {
+    now: u64,
+}
+
+impl Clock for LogicalClock {
+    type Time = u64;
+
+    fn time(&mut self) -> Self::Time {
+        self.now += 1;
+        self.now
+    }
+}
+
+/// Statistics returned by [`Cache::stats`].
+#[derive(Debug, Eq, PartialEq)]
+pub struct Stats<Time = <LogicalClock as Clock>::Time>
+where
+    Time: Clone + Copy + Debug + Eq + Ord + PartialEq + PartialOrd,
+{
+    /// The number of items in the cache.
+    pub entries: usize,
+    /// The maximum number of items allowed in the cache.
+    pub limit: usize,
+    /// When the least recently accessed entry, if any, was inserted or
+    /// accessed.
+    pub lru_time: Option<Time>,
+}
 
 /// A simple LRU cache.
 ///
 /// It's `O(log(N))` but not particularly efficient.
-pub struct Cache<K, V> {
-    map: HashMap<K, (Timestamp, V)>,
-    lru: BTreeMap<Timestamp, K>,
-    now: Timestamp,
+pub struct Cache<K, V, C: Clock = LogicalClock> {
+    map: HashMap<K, (C::Time, V)>,
+    lru: BTreeMap<C::Time, K>,
+    clock: C,
     limit: usize,
 }
 
-impl<K, V> Cache<K, V>
+impl<K, V, C> Cache<K, V, C>
 where
     K: Clone + Eq + Hash,
+    C: Clock,
 {
-    pub fn new(limit: usize) -> Self {
+    pub fn new(limit: usize) -> Self
+    where
+        C: Default,
+    {
         assert!(limit > 0);
         Self {
             map: HashMap::new(),
             lru: BTreeMap::new(),
-            now: Timestamp(0),
+            clock: C::default(),
             limit,
         }
     }
@@ -45,8 +88,8 @@ where
         // If the cache is already at its size limit, which path affects
         // whether another entry should be evicted. It's simplest to cheat and
         // go over `self.limit` temporarily, then evict afterwards if needed.
-        self.now = Timestamp(self.now.0.checked_add(1).unwrap());
-        match self.map.insert(k.clone(), (self.now, v)) {
+        let now = self.clock.time();
+        match self.map.insert(k.clone(), (now, v)) {
             Some((prev_mtime, _)) => {
                 // replaced an entry
                 self.lru.remove(&prev_mtime);
@@ -60,7 +103,7 @@ where
                 }
             }
         }
-        self.lru.insert(self.now, k);
+        self.lru.insert(now, k);
         if cfg!(debug_assert) {
             self.check_invariants();
         }
@@ -77,27 +120,76 @@ where
             None
         }
     }
+
+    pub fn get(&mut self, k: &K) -> Option<&V> {
+        // Remove and reinsert so that the timestamp gets updated.
+        match self.remove(k) {
+            Some(v) => {
+                self.insert(k.clone(), v);
+                let (_, v) = self.map.get(k).unwrap();
+                Some(v)
+            }
+            None => None,
+        }
+    }
+
+    pub fn stats(&self) -> Stats<C::Time> {
+        Stats {
+            entries: self.map.len(),
+            limit: self.limit,
+            lru_time: self.lru.first_key_value().map(|(mtime, _)| *mtime),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Cache;
+    use super::*;
 
     #[test]
     fn test_basic() {
         let mut cache: Cache<char, f64> = Cache::new(3);
-        cache.insert('4', 4.0);
-        cache.insert('1', 1.0);
-        cache.insert('3', 3.0);
-        cache.insert('3', 3.5);
-        cache.insert('2', 2.0);
-        cache.insert('2', 2.5);
+        cache.insert('4', 4.0); // t=1
+        cache.insert('1', 1.0); // t=2
+        cache.insert('3', 3.0); // t=3
+        cache.insert('3', 3.5); // t=4
+        cache.insert('2', 2.0); // t=5
+        cache.insert('2', 2.5); // t=6
+
+        assert_eq!(
+            cache.stats(),
+            Stats {
+                entries: 3,
+                limit: 3,
+                lru_time: Some(2),
+            }
+        );
+
         assert_eq!(cache.remove(&'4'), None);
         assert_eq!(cache.remove(&'1'), Some(1.0));
         assert_eq!(cache.remove(&'3'), Some(3.5));
+
+        assert_eq!(
+            cache.stats(),
+            Stats {
+                entries: 1,
+                limit: 3,
+                lru_time: Some(6),
+            }
+        );
+
         assert_eq!(cache.remove(&'2'), Some(2.5));
         assert_eq!(cache.remove(&'2'), None);
         assert_eq!(cache.map.len(), 0);
+
+        assert_eq!(
+            cache.stats(),
+            Stats {
+                entries: 0,
+                limit: 3,
+                lru_time: None,
+            }
+        );
     }
 
     #[test]
@@ -109,5 +201,16 @@ mod tests {
         assert_eq!(cache.remove(&'3'), Some(3.0));
         assert_eq!(cache.remove(&'3'), None);
         assert_eq!(cache.map.len(), 0);
+    }
+
+    #[test]
+    fn test_get() {
+        let mut cache: Cache<char, f64> = Cache::new(2);
+        cache.insert('1', 1.0);
+        cache.insert('3', 3.0);
+        assert_eq!(cache.get(&'1'), Some(&1.0));
+        cache.insert('2', 2.0);
+        assert_eq!(cache.get(&'3'), None);
+        assert_eq!(cache.get(&'1'), Some(&1.0));
     }
 }

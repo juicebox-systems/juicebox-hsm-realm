@@ -1,36 +1,53 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 
+use crate::metrics;
 use hsmcore::bitvec::Bits;
 use hsmcore::hsm::types::{OwnedRange, RecordId};
-use hsmcore::merkle::{
-    agent::Node, agent::StoreKey, agent::TreeStoreError, proof::ReadProof, Dir, HashOutput, KeyVec,
-};
+use hsmcore::merkle::agent::{Node, StoreKey, TreeStoreError};
+use hsmcore::merkle::proof::ReadProof;
+use hsmcore::merkle::{Dir, HashOutput, KeyVec};
 use loam_sdk_core::types::RealmId;
 
+/// Interface to read Merkle nodes, primarily used by the functions below. The
+/// only implementation is [`crate::realm::store::bigtable::StoreClient`].
 #[async_trait]
 pub trait TreeStoreReader<HO: HashOutput>: Sync {
+    /// Reads and returns all the nodes on the path from the root to
+    /// `RecordId`.
+    ///
+    /// This may return extraneous nodes, including stale versions of nodes.
     async fn path_lookup(
         &self,
         realm_id: &RealmId,
         record_id: &RecordId,
+        root_hash: &HO,
+        tags: &[metrics::Tag],
     ) -> Result<HashMap<HO, Node<HO>>, TreeStoreError>;
 
+    /// Reads and returns a specific version of a single node.
+    ///
+    /// This is used for infrequent Merkle tree operations like merge and
+    /// split.
     async fn read_node(
         &self,
         realm_id: &RealmId,
         key: StoreKey,
+        tags: &[metrics::Tag],
     ) -> Result<Node<HO>, TreeStoreError>;
 }
 
+/// Looks up a path to a record in a Merkle tree and returns its proof.
 pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
     realm_id: &RealmId,
     store: &R,
     range: &OwnedRange,
     root_hash: &HO,
     k: &RecordId,
+    metrics: &metrics::Client,
+    tags: &[metrics::Tag],
 ) -> Result<ReadProof<HO>, TreeStoreError> {
-    let mut nodes = store.path_lookup(realm_id, k).await?;
+    let mut nodes = store.path_lookup(realm_id, k, root_hash, tags).await?;
     let root = match nodes.remove(root_hash) {
         None => return Err(TreeStoreError::MissingNode),
         Some(Node::Leaf(_)) => panic!("found unexpected leaf node"),
@@ -43,10 +60,10 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
         let n = res.path.last().unwrap();
         let d = Dir::from(key[0]);
         match n.branch(d) {
-            None => return Ok(res),
+            None => break,
             Some(b) => {
                 if !key.starts_with(&b.prefix) {
-                    return Ok(res);
+                    break;
                 }
                 key = key.slice(b.prefix.len()..);
                 match nodes.remove(&b.hash) {
@@ -58,12 +75,22 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
                     Some(Node::Leaf(v)) => {
                         assert!(key.is_empty());
                         res.leaf = Some(v);
-                        return Ok(res);
+                        break;
                     }
                 }
             }
         }
     }
+
+    metrics.histogram("agent.merkle_read.proof_nodes", res.path.len(), tags);
+    metrics.histogram("agent.merkle_read.extraneous_nodes", nodes.len(), tags);
+    metrics.histogram(
+        "agent.merkle_read.has_leaf",
+        res.leaf.is_some() as i64,
+        tags,
+    );
+
+    Ok(res)
 }
 
 // Reads down the tree from the root always following one side until a leaf is reached.
@@ -74,13 +101,14 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     range: &OwnedRange,
     root_hash: &HO,
     side: Dir,
+    tags: &[metrics::Tag],
 ) -> Result<ReadProof<HO>, TreeStoreError> {
     let mut path = Vec::new();
     let mut key = KeyVec::new();
     let mut current = *root_hash;
     loop {
         match store
-            .read_node(realm_id, StoreKey::new(&key, &current))
+            .read_node(realm_id, StoreKey::new(&key, &current), tags)
             .await?
         {
             Node::Interior(int) => match int.branch(side) {
@@ -117,6 +145,7 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
                     continue;
                 }
             },
+
             Node::Leaf(l) => {
                 return Ok(ReadProof {
                     key: RecordId::from_bitvec(&key),

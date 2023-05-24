@@ -6,6 +6,7 @@ Options:
       --bigtable-project <PROJECT>    The name of the GCP project that contains the bigtable instance [default: prj]
       --bigtable-instance <INSTANCE>  The name of the bigtable instance to connect to [default: instance]
       --bigtable-url <URL>            The url to the big table emulator [default uses GCP endpoints]
+      --merkle-cache-size <NODES>     The maximum size of the agent's LRU Merkle tree cache, in number of nodes [default: 25000]
   -k, --key <KEY>                     Derive realm keys from this input (insecure)
   -l, --listen <LISTEN>               The IP/port to listen on [default: 127.0.0.1:8082]
   -m, --metrics <METRICS>             HSM Metrics reporting interval in milliseconds [default: no reporting]

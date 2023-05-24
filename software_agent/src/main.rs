@@ -24,7 +24,7 @@ use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::metrics;
 use loam_mvp::realm::hsm::client::HsmClient;
-use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::realm::store::bigtable;
 
 mod http_hsm;
 
@@ -35,7 +35,10 @@ use http_hsm::host::HttpHsm;
 #[derive(Parser)]
 struct Args {
     #[command(flatten)]
-    bigtable: BigTableArgs,
+    bigtable: bigtable::Args,
+
+    #[command(flatten)]
+    agent_bigtable: bigtable::AgentArgs,
 
     /// Derive realm keys from this input (insecure).
     #[arg(short, long)]
@@ -113,7 +116,13 @@ async fn main() {
 
     let store = args
         .bigtable
-        .connect_data(auth_manager.clone(), metrics.clone())
+        .connect_data(
+            auth_manager.clone(),
+            bigtable::Options {
+                metrics: metrics.clone(),
+                ..args.agent_bigtable.to_options()
+            },
+        )
         .await
         .expect("Unable to connect to Bigtable");
 

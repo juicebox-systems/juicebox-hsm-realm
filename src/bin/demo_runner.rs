@@ -13,14 +13,14 @@ use tracing::{info, warn};
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::client_auth::{creation::create_token, tenant_secret_name, AuthKey, Claims};
-use loam_mvp::exec::bigtable::BigTableRunner;
+use loam_mvp::exec::bigtable::BigtableRunner;
 use loam_mvp::exec::certs::create_localhost_key_and_cert;
 use loam_mvp::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use loam_mvp::logging;
 use loam_mvp::metrics;
 use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
-use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::realm::store::bigtable;
 use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretsFile};
 use loam_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
 
@@ -59,7 +59,7 @@ async fn main() {
     })
     .expect("error setting signal handler");
 
-    let bt_args = BigTableArgs {
+    let bt_args = bigtable::Args {
         instance: String::from("inst"),
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),
@@ -73,7 +73,7 @@ async fn main() {
             .expect("failed to load secrets from JSON file"),
     );
 
-    BigTableRunner::run(&mut process_group, &bt_args).await;
+    BigtableRunner::run(&mut process_group, &bt_args).await;
     let store_admin = bt_args
         .connect_admin(None)
         .await
@@ -83,7 +83,13 @@ async fn main() {
     store_admin.initialize_discovery().await.expect("TODO");
 
     let store = bt_args
-        .connect_data(None, metrics)
+        .connect_data(
+            None,
+            bigtable::Options {
+                metrics,
+                ..bigtable::Options::default()
+            },
+        )
         .await
         .expect("failed to connect to bigtable data service");
 
@@ -263,15 +269,15 @@ async fn main() {
         pin_hashing_mode: PinHashingMode::FastInsecure,
     };
 
-    let tenant = "test";
+    let tenant = "test-acme";
     let (auth_key_version, auth_key) = secret_manager
         .get_secrets(&tenant_secret_name(tenant))
         .await
-        .expect("failed to get test tenant auth key")
+        .unwrap_or_else(|e| panic!("failed to get tenant {tenant:?} auth key: {e}"))
         .into_iter()
         .map(|(version, key)| (version, AuthKey::from(key)))
         .next()
-        .expect("test tenant has no secrets");
+        .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 
     let auth_tokens: HashMap<RealmId, AuthToken> = configuration
         .realms
@@ -318,7 +324,7 @@ async fn main() {
         warn!(
             configuration = serde_json::to_string(&configuration).unwrap(),
             auth_tokens = serde_json::to_string(&jsonable_auth_tokens).unwrap(),
-            tls_certificate = ?certificates.cert_file_der.clone(),
+            tls_certificate = ?certificates.cert_file_der,
             "runner: stack is active, press ctrl-c to shutdown"
         );
 

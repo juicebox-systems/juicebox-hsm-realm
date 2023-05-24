@@ -8,13 +8,13 @@ use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::metrics;
 use loam_mvp::realm::cluster::Manager;
-use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::realm::store::bigtable;
 
 #[derive(Debug, Parser)]
 #[command(about = "Management controller for Juicebox Clusters")]
 struct Args {
     #[command(flatten)]
-    bigtable: BigTableArgs,
+    bigtable: bigtable::Args,
 
     /// The IP/port to listen on.
     #[arg(
@@ -71,7 +71,13 @@ async fn main() {
 
     let store = args
         .bigtable
-        .connect_data(auth_manager, metrics)
+        .connect_data(
+            auth_manager,
+            bigtable::Options {
+                metrics,
+                ..bigtable::Options::default()
+            },
+        )
         .await
         .expect("Unable to connect to Bigtable data");
 

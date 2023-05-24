@@ -36,15 +36,18 @@ use loam_mvp::future_task::FutureTasks;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
-use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::realm::store::bigtable;
 use loam_mvp::{metrics, metrics_tag as tag};
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
 
+/// A host agent for use with an Entrust nCipherXC HSM.
 #[derive(Parser)]
-#[command(about = "A host agent for use with an Entrust nCipherXC HSM")]
 struct Args {
     #[command(flatten)]
-    bigtable: BigTableArgs,
+    bigtable: bigtable::Args,
+
+    #[command(flatten)]
+    agent_bigtable: bigtable::AgentArgs,
 
     /// The IP/port to listen on.
     #[arg(
@@ -126,7 +129,13 @@ async fn main() {
     };
     let store = args
         .bigtable
-        .connect_data(auth_manager.clone(), metrics.clone())
+        .connect_data(
+            auth_manager.clone(),
+            bigtable::Options {
+                metrics: metrics.clone(),
+                ..args.agent_bigtable.to_options()
+            },
+        )
         .await
         .expect("Unable to connect to Bigtable");
 
@@ -762,4 +771,21 @@ impl TransportInner {
 enum KeyHalf {
     Public,
     Private,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use expect_test::expect_file;
+
+    #[test]
+    fn test_usage() {
+        expect_file!["../usage.txt"].assert_eq(
+            &Args::command()
+                .try_get_matches_from(["agent", "--help"])
+                .unwrap_err()
+                .to_string(),
+        );
+    }
 }

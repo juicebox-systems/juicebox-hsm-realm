@@ -1,5 +1,6 @@
 use clap::Parser;
 use futures::StreamExt;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -12,7 +13,7 @@ use loam_mvp::exec::hsm_gen::{Entrust, MetricsParticipants};
 use loam_mvp::http_client::{self};
 use loam_mvp::logging;
 use loam_mvp::process_group::ProcessGroup;
-use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::realm::store::bigtable;
 use loam_sdk::{Client, Pin, UserSecret};
 use loam_sdk_core::types::Policy;
 use loam_sdk_networking::rpc::LoadBalancerService;
@@ -21,7 +22,7 @@ use loam_sdk_networking::rpc::LoadBalancerService;
 #[derive(Debug, Parser)]
 struct Args {
     #[command(flatten)]
-    bigtable: BigTableArgs,
+    bigtable: bigtable::Args,
 
     /// Number of secret registrations to do at a time.
     #[arg(long, value_name = "N", default_value_t = 3)]
@@ -157,6 +158,14 @@ async fn main() {
         warn!(errors, "There were errors reported by the client");
     }
     if args.keep_alive {
+        let path = "target/configuration.json";
+        fs::write(
+            path,
+            serde_json::to_string(&cluster.configuration()).unwrap(),
+        )
+        .unwrap_or_else(|e| panic!("failed to write to {path:?}: {e}"));
+        info!("wrote configuration to {path:?}");
+        info!("sleeping forever due to --keep-alive");
         sleep(Duration::MAX).await;
     }
     info!("main: done");

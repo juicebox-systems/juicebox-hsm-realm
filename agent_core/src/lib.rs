@@ -874,6 +874,8 @@ impl<T: Transport + 'static> Agent<T> {
                 &partition.range,
                 &partition.root_hash,
                 &rec_id,
+                &self.0.metrics,
+                &[tag!(?realm), tag!(group: "{source:?}")],
             )
             .await
             {
@@ -987,6 +989,10 @@ impl<T: Transport + 'static> Agent<T> {
 
         let hsm = &self.0.hsm;
         let store = &self.0.store;
+        let tags = [
+            tag!(realm: "{:?}", request.realm),
+            tag!(group: "{:?}", request.destination),
+        ];
 
         // This loop handles retries if the read from the store is stale. It's
         // expected to run just once.
@@ -1020,6 +1026,7 @@ impl<T: Transport + 'static> Agent<T> {
                         &request.transferring.range,
                         &request.transferring.root_hash,
                         proof_dir,
+                        &tags,
                     );
                     let owned_range_proof_req = merkle::agent::read_tree_side(
                         &request.realm,
@@ -1027,6 +1034,7 @@ impl<T: Transport + 'static> Agent<T> {
                         &partition.range,
                         &partition.root_hash,
                         proof_dir.opposite(),
+                        &tags,
                     );
                     let transferring_in_proof = match transferring_in_proof_req.await {
                         Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
@@ -1172,7 +1180,15 @@ impl<T: Transport + 'static> Agent<T> {
         let realm = request.realm;
         let group = request.group;
 
-        match start_app_request(request, self.0.name.clone(), &self.0.hsm, &self.0.store).await {
+        match start_app_request(
+            request,
+            self.0.name.clone(),
+            &self.0.hsm,
+            &self.0.store,
+            &self.0.metrics,
+        )
+        .await
+        {
             Err(response) => Ok(response),
             Ok(append_request) => self.finish_app_request(realm, group, append_request).await,
         }
@@ -1222,6 +1238,7 @@ async fn start_app_request<T: Transport>(
     name: String,
     hsm: &HsmClient<T>,
     store: &bigtable::StoreClient,
+    metrics: &metrics::Client,
 ) -> Result<Append, AppResponse> {
     type HsmResponse = hsm_types::AppResponse;
     type Response = AppResponse;
@@ -1246,6 +1263,11 @@ async fn start_app_request<T: Transport>(
             &partition.range,
             &partition.root_hash,
             &request.record_id,
+            metrics,
+            &[
+                tag!(realm: "{:?}", request.realm),
+                tag!(group: "{:?}", request.group),
+            ],
         )
         .await
         {

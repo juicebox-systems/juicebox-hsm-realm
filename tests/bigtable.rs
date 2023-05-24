@@ -14,14 +14,12 @@ use hsmcore::{
     },
 };
 use loam_mvp::{
-    exec::{bigtable::BigTableRunner, PortIssuer},
+    exec::{bigtable::BigtableRunner, PortIssuer},
     metrics,
     process_group::ProcessGroup,
     realm::{
         merkle::agent::{self, TreeStoreReader},
-        store::bigtable::{
-            self, AppendError::LogPrecondition, BigTableArgs, StoreAdminClient, StoreClient,
-        },
+        store::bigtable::{self, AppendError::LogPrecondition, StoreAdminClient, StoreClient},
     },
 };
 use loam_sdk_core::types::RealmId;
@@ -34,17 +32,17 @@ const GROUP_3: GroupId = GroupId([15; 16]);
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8222));
 
-fn emulator() -> BigTableArgs {
+fn emulator() -> bigtable::Args {
     let u = format!("http://localhost:{}", PORT.next()).parse().unwrap();
-    BigTableArgs {
+    bigtable::Args {
         project: String::from("prj"),
         instance: String::from("inst"),
         url: Some(u),
     }
 }
 
-async fn init_bt(pg: &mut ProcessGroup, args: BigTableArgs) -> (StoreAdminClient, StoreClient) {
-    BigTableRunner::run(pg, &args).await;
+async fn init_bt(pg: &mut ProcessGroup, args: bigtable::Args) -> (StoreAdminClient, StoreClient) {
+    BigtableRunner::run(pg, &args).await;
 
     let store_admin = args
         .connect_admin(None)
@@ -57,7 +55,7 @@ async fn init_bt(pg: &mut ProcessGroup, args: BigTableArgs) -> (StoreAdminClient
         .expect("failed to initialize realm tables");
 
     let store = args
-        .connect_data(None, metrics::Client::NONE)
+        .connect_data(None, bigtable::Options::default())
         .await
         .expect("failed to connect to bigtable data service");
 
@@ -393,6 +391,8 @@ async fn append_store_delta() {
         &OwnedRange::full(),
         &starting_root,
         &RecordId([1; RecordId::NUM_BYTES]),
+        &metrics::Client::NONE,
+        &[],
     )
     .await
     .unwrap();
@@ -406,9 +406,13 @@ async fn append_store_delta() {
         1,
     );
     // Verify the original root is readable.
-    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
-        .await
-        .unwrap();
+    data.read_node(
+        &REALM,
+        StoreKey::new(&BitVec::new(), &starting_root),
+        metrics::NO_TAGS,
+    )
+    .await
+    .unwrap();
 
     // Apply the delta, the original root, and the new root should both be
     // readable until the deferred delete kicks in.
@@ -419,23 +423,39 @@ async fn append_store_delta() {
         .await
         .unwrap();
 
-    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
-        .await
-        .unwrap();
-    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &new_root))
-        .await
-        .unwrap();
+    data.read_node(
+        &REALM,
+        StoreKey::new(&BitVec::new(), &starting_root),
+        metrics::NO_TAGS,
+    )
+    .await
+    .unwrap();
+    data.read_node(
+        &REALM,
+        StoreKey::new(&BitVec::new(), &new_root),
+        metrics::NO_TAGS,
+    )
+    .await
+    .unwrap();
 
     tx.send(()).unwrap();
     delete_handle.unwrap().await.unwrap();
 
     // The deferred delete should have executed and the original root be deleted.
-    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
-        .await
-        .expect_err("should have failed to find node");
-    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &new_root))
-        .await
-        .unwrap();
+    data.read_node(
+        &REALM,
+        StoreKey::new(&BitVec::new(), &starting_root),
+        metrics::NO_TAGS,
+    )
+    .await
+    .expect_err("should have failed to find node");
+    data.read_node(
+        &REALM,
+        StoreKey::new(&BitVec::new(), &new_root),
+        metrics::NO_TAGS,
+    )
+    .await
+    .unwrap();
 }
 
 fn create_log_batch(first_idx: LogIndex, prev_hmac: EntryHmac, count: usize) -> Vec<LogEntry> {

@@ -13,7 +13,7 @@ use loam_mvp::http_client::{Client, ClientOptions};
 use loam_mvp::logging;
 use loam_mvp::metrics;
 use loam_mvp::realm::agent::types::AgentService;
-use loam_mvp::realm::store::bigtable::{BigTableArgs, StoreClient};
+use loam_mvp::realm::store::bigtable::{self, StoreClient};
 use loam_sdk_core::types::RealmId;
 
 mod commands;
@@ -25,7 +25,7 @@ use statuses::get_hsm_statuses;
 #[derive(Parser)]
 struct Args {
     #[command(flatten)]
-    bigtable: BigTableArgs,
+    bigtable: bigtable::Args,
 
     #[command(subcommand)]
     command: Command,
@@ -238,7 +238,13 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
     let store = args
         .bigtable
-        .connect_data(auth_manager, metrics)
+        .connect_data(
+            auth_manager,
+            bigtable::Options {
+                metrics,
+                ..bigtable::Options::default()
+            },
+        )
         .await
         .context("unable to connect to Bigtable")?;
 

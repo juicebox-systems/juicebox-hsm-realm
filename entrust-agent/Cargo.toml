@@ -16,3 +16,6 @@ loam-mvp = { path = ".." }
 tokio = { workspace = true }
 tracing = { workspace = true }
 loam-sdk-core = { workspace = true }
+
+[dev-dependencies]
+expect-test = { workspace = true }

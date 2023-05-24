@@ -3,14 +3,13 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::info;
 
-use crate::metrics;
 use crate::process_group::ProcessGroup;
-use crate::realm::store::bigtable::BigTableArgs;
+use crate::realm::store::bigtable::{Args, Options};
 
-pub struct BigTableRunner;
+pub struct BigtableRunner;
 
-impl BigTableRunner {
-    pub async fn run(pg: &mut ProcessGroup, args: &BigTableArgs) {
+impl BigtableRunner {
+    pub async fn run(pg: &mut ProcessGroup, args: &Args) {
         if let Some(emulator_url) = &args.url {
             info!(
                 port = %emulator_url.port().unwrap(),
@@ -22,7 +21,7 @@ impl BigTableRunner {
                     .arg(emulator_url.port().unwrap().as_str()),
             );
             for _ in 0..100 {
-                match args.connect_data(None, metrics::Client::NONE).await {
+                match args.connect_data(None, Options::default()).await {
                     Ok(_) => return,
                     Err(_e) => {
                         sleep(Duration::from_millis(10)).await;

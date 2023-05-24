@@ -13,7 +13,7 @@ use hsmcore::hsm::types::GroupId;
 use loam_sdk::{AuthToken, Client, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper};
 use loam_sdk_networking::rpc::{self, LoadBalancerService};
 
-use super::bigtable::BigTableRunner;
+use super::bigtable::BigtableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use super::PortIssuer;
@@ -21,18 +21,17 @@ use crate::client_auth::creation::create_token;
 use crate::client_auth::{new_google_secret_manager, tenant_secret_name, AuthKey, Claims};
 use crate::google_auth;
 use crate::http_client::{self, ClientOptions};
-use crate::metrics;
 use crate::process_group::ProcessGroup;
 use crate::realm::agent::types::{AgentService, StatusRequest};
 use crate::realm::cluster::{self, NewRealmError};
-use crate::realm::store::bigtable::{BigTableArgs, StoreClient};
+use crate::realm::store::bigtable::{self, StoreClient};
 use crate::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
 
 #[derive(Debug)]
 pub struct ClusterConfig {
     pub load_balancers: u8,
     pub realms: Vec<RealmConfig>,
-    pub bigtable: BigTableArgs,
+    pub bigtable: bigtable::Args,
     pub secrets_file: Option<PathBuf>,
     pub entrust: Entrust,
 }
@@ -50,6 +49,7 @@ pub struct ClusterResult {
     pub certs: Certificates,
     pub realms: Vec<RealmResult>,
 
+    pub tenant: String,
     pub auth_key_version: SecretVersion,
     pub auth_key: AuthKey,
 
@@ -65,6 +65,23 @@ impl ClusterResult {
         .expect("failed to decode certificate file")
     }
 
+    pub fn configuration(&self) -> Configuration {
+        Configuration {
+            realms: self
+                .realms
+                .iter()
+                .map(|r| Realm {
+                    address: self.load_balancers[0].clone(),
+                    public_key: Some(r.communication_public_key.clone()),
+                    id: r.realm,
+                })
+                .collect(),
+            register_threshold: self.realms.len().try_into().unwrap(),
+            recover_threshold: self.realms.len().try_into().unwrap(),
+            pin_hashing_mode: PinHashingMode::FastInsecure,
+        }
+    }
+
     pub fn client_for_user(
         &self,
         user_id: String,
@@ -78,7 +95,7 @@ impl ClusterResult {
                     realm.realm,
                     create_token(
                         &Claims {
-                            issuer: "test".to_string(),
+                            issuer: self.tenant.clone(),
                             subject: user_id.clone(),
                             audience: realm.realm,
                         },
@@ -90,20 +107,7 @@ impl ClusterResult {
             .collect();
 
         Client::with_tokio(
-            Configuration {
-                realms: self
-                    .realms
-                    .iter()
-                    .map(|r| Realm {
-                        address: self.load_balancers[0].clone(),
-                        public_key: Some(r.communication_public_key.clone()),
-                        id: r.realm,
-                    })
-                    .collect(),
-                register_threshold: self.realms.len().try_into().unwrap(),
-                recover_threshold: self.realms.len().try_into().unwrap(),
-                pin_hashing_mode: PinHashingMode::FastInsecure,
-            },
+            self.configuration(),
             Vec::new(),
             auth_tokens,
             http_client::Client::<LoadBalancerService>::new(http_client::ClientOptions {
@@ -138,7 +142,7 @@ pub async fn create_cluster(
     };
 
     if args.bigtable.url.is_some() {
-        BigTableRunner::run(process_group, &args.bigtable).await;
+        BigtableRunner::run(process_group, &args.bigtable).await;
     }
     let store_admin = args
         .bigtable
@@ -154,7 +158,7 @@ pub async fn create_cluster(
 
     let store = args
         .bigtable
-        .connect_data(auth_manager.clone(), metrics::Client::NONE)
+        .connect_data(auth_manager.clone(), bigtable::Options::default())
         .await
         .expect("failed to connect to bigtable data service");
 
@@ -183,15 +187,15 @@ pub async fn create_cluster(
         }
     };
 
-    let tenant = "test";
+    let tenant = "test-acme";
     let (auth_key_version, auth_key) = secret_manager
         .get_secrets(&tenant_secret_name(tenant))
         .await
-        .expect("failed to get test tenant auth key")
+        .unwrap_or_else(|e| panic!("failed to get tenant {tenant:?} auth key: {e}"))
         .into_iter()
         .map(|(version, key)| (version, AuthKey::from(key)))
         .next()
-        .expect("test tenant has no secrets");
+        .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 
     let (lb_urls, certificates) = create_load_balancers(&args, process_group, &ports);
     let cluster_manager = start_cluster_manager(&args.bigtable, process_group, &ports);
@@ -207,6 +211,7 @@ pub async fn create_cluster(
         load_balancers: lb_urls,
         certs: certificates,
         realms,
+        tenant: tenant.to_owned(),
         auth_key_version,
         auth_key,
         store,
@@ -254,7 +259,7 @@ fn create_load_balancers(
 }
 
 fn start_cluster_manager(
-    args: &BigTableArgs,
+    args: &bigtable::Args,
     process_group: &mut ProcessGroup,
     ports: &PortIssuer,
 ) -> Url {
@@ -278,7 +283,7 @@ async fn create_realm(
     hsm_gen: &mut HsmGenerator,
     process_group: &mut ProcessGroup,
     r: &RealmConfig,
-    bigtable: &BigTableArgs,
+    bigtable: &bigtable::Args,
 ) -> RealmResult {
     let (agents, key) = hsm_gen
         .create_hsms(

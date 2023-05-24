@@ -54,6 +54,10 @@ struct State {
     metrics: metrics::Client,
 }
 
+static TCP_ACCEPT_SPEW: Spew = Spew::new();
+static TLS_ACCEPT_SPEW: Spew = Spew::new();
+static SERVING_CONNECTION_SPEW: Spew = Spew::new();
+
 impl LoadBalancer {
     pub fn new(
         name: String,
@@ -93,20 +97,31 @@ impl LoadBalancer {
             tokio::spawn(async move {
                 loop {
                     match listener.accept().await {
-                        Err(e) => warn!("error accepting connection: {e:?}"),
+                        Err(error) => {
+                            if let Some(suppressed) = TCP_ACCEPT_SPEW.ok() {
+                                warn!(%error, suppressed, "error accepting connection")
+                            }
+                        }
                         Ok((stream, _)) => {
                             let acceptor = acceptor.clone();
                             let lb = self.clone();
                             tokio::spawn(async move {
                                 match acceptor.accept(stream).await {
-                                    Err(e) => {
-                                        warn!("error terminating TLS connection: {e:?}");
+                                    Err(error) => {
+                                        if let Some(suppressed) = TLS_ACCEPT_SPEW.ok() {
+                                            warn!(
+                                                %error,
+                                                suppressed, "error terminating TLS connection"
+                                            );
+                                        }
                                     }
                                     Ok(stream) => {
-                                        if let Err(e) =
+                                        if let Err(error) =
                                             http1::Builder::new().serve_connection(stream, lb).await
                                         {
-                                            warn!("error serving connection: {e:?}");
+                                            if let Some(suppressed) = SERVING_CONNECTION_SPEW.ok() {
+                                                warn!(%error, suppressed, "error serving connection");
+                                            }
                                         }
                                     }
                                 }
