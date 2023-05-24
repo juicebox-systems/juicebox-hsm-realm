@@ -48,11 +48,7 @@ type BigtableTableAdminClient =
 type BigtableClient = google::bigtable::v2::bigtable_client::BigtableClient<AuthMiddleware>;
 
 #[derive(clap::Args, Clone, Debug)]
-// This skip is here to avoid an ID collision in clap::ArgGroup registration,
-// where multiple groups try to use the ID "Args".
-//
-// TODO: use `group(id = "BigtableArgs")` instead with newer clap
-#[group(skip)]
+#[group(id = "BigtableArgs")]
 pub struct Args {
     /// The name of the GCP project that contains the bigtable instance.
     #[arg(long = "bigtable-project", default_value = "prj")]
@@ -68,6 +64,7 @@ pub struct Args {
 }
 
 #[derive(clap::Args, Clone, Debug)]
+#[group(id = "BigtableAgentArgs")]
 pub struct AgentArgs {
     /// The maximum size of the agent's LRU Merkle tree cache, in number of
     /// nodes.
