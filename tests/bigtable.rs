@@ -40,7 +40,6 @@ fn emulator() -> BigTableArgs {
         project: String::from("prj"),
         instance: String::from("inst"),
         url: Some(u),
-        agent_args: None,
     }
 }
 
@@ -58,7 +57,7 @@ async fn init_bt(pg: &mut ProcessGroup, args: BigTableArgs) -> (StoreAdminClient
         .expect("failed to initialize realm tables");
 
     let store = args
-        .connect_data(None, metrics::Client::NONE)
+        .connect_data(None, bigtable::Options::default())
         .await
         .expect("failed to connect to bigtable data service");
 

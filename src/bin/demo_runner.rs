@@ -20,7 +20,7 @@ use loam_mvp::logging;
 use loam_mvp::metrics;
 use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
-use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::realm::store::bigtable::{self, BigTableArgs};
 use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretsFile};
 use loam_sdk::{Configuration, PinHashingMode, Realm};
 
@@ -63,7 +63,6 @@ async fn main() {
         instance: String::from("inst"),
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),
-        agent_args: None,
     };
 
     info!(path = ?args.secrets_file, "loading secrets from JSON file");
@@ -84,7 +83,13 @@ async fn main() {
     store_admin.initialize_discovery().await.expect("TODO");
 
     let store = bt_args
-        .connect_data(None, metrics)
+        .connect_data(
+            None,
+            bigtable::Options {
+                metrics,
+                ..bigtable::Options::default()
+            },
+        )
         .await
         .expect("failed to connect to bigtable data service");
 

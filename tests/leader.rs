@@ -27,7 +27,6 @@ fn emulator() -> BigTableArgs {
         project: String::from("prj"),
         instance: String::from("inst"),
         url: Some(u),
-        agent_args: None,
     }
 }
 

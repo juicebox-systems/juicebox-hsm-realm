@@ -60,10 +60,6 @@ pub struct BigTableArgs {
     /// The url to the big table emulator [default uses GCP endpoints].
     #[arg(long = "bigtable-url")]
     pub url: Option<Uri>,
-
-    // Used on agents only
-    #[clap(skip)]
-    pub agent_args: Option<AgentBigTableArgs>,
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -76,6 +72,15 @@ pub struct AgentBigTableArgs {
         default_value_t = 25_000
     )]
     pub merkle_cache_nodes_limit: usize,
+}
+
+impl AgentBigTableArgs {
+    pub fn to_options(&self) -> Options {
+        Options {
+            merkle_cache_nodes_limit: Some(self.merkle_cache_nodes_limit),
+            ..Options::default()
+        }
+    }
 }
 
 impl BigTableArgs {
@@ -92,7 +97,7 @@ impl BigTableArgs {
     pub async fn connect_data(
         &self,
         auth_manager: AuthManager,
-        metrics: metrics::Client,
+        options: Options,
     ) -> Result<StoreClient, tonic::transport::Error> {
         let data_url = match &self.url {
             Some(u) => u.clone(),
@@ -108,19 +113,7 @@ impl BigTableArgs {
             project: self.project.clone(),
             instance: self.instance.clone(),
         };
-        StoreClient::new(
-            data_url.clone(),
-            instance,
-            auth_manager,
-            Options {
-                metrics,
-                merkle_cache_nodes_limit: self
-                    .agent_args
-                    .as_ref()
-                    .map(|a| a.merkle_cache_nodes_limit),
-            },
-        )
-        .await
+        StoreClient::new(data_url.clone(), instance, auth_manager, options).await
     }
 
     pub async fn connect_admin(

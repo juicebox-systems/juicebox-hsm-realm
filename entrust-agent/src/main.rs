@@ -35,7 +35,7 @@ use loam_mvp::future_task::FutureTasks;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
-use loam_mvp::realm::store::bigtable::{AgentBigTableArgs, BigTableArgs};
+use loam_mvp::realm::store::bigtable::{self, AgentBigTableArgs, BigTableArgs};
 use loam_mvp::{metrics, metrics_tag as tag};
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
 
@@ -112,9 +112,7 @@ async fn main() {
     })
     .expect("error setting signal handler");
 
-    let mut args = Args::parse();
-    args.bigtable.agent_args = Some(args.agent_bigtable);
-
+    let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
     let metrics = metrics::Client::new("entrust_agent");
 
@@ -129,7 +127,13 @@ async fn main() {
     };
     let store = args
         .bigtable
-        .connect_data(auth_manager.clone(), metrics.clone())
+        .connect_data(
+            auth_manager.clone(),
+            bigtable::Options {
+                metrics: metrics.clone(),
+                ..args.agent_bigtable.to_options()
+            },
+        )
         .await
         .expect("Unable to connect to Bigtable");
 

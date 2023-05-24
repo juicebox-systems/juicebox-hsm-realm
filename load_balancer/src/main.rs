@@ -12,7 +12,7 @@ use loam_mvp::client_auth::new_google_secret_manager;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::metrics;
-use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::realm::store::bigtable::{self, BigTableArgs};
 use loam_mvp::secret_manager::{Periodic, SecretManager, SecretsFile};
 
 mod cert;
@@ -108,7 +108,13 @@ async fn main() {
 
     let store = args
         .bigtable
-        .connect_data(auth_manager.clone(), metrics.clone())
+        .connect_data(
+            auth_manager.clone(),
+            bigtable::Options {
+                metrics: metrics.clone(),
+                ..bigtable::Options::default()
+            },
+        )
         .await
         .expect("Unable to connect to Bigtable");
 

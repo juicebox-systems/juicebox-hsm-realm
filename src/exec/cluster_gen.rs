@@ -20,11 +20,10 @@ use crate::client_auth::creation::create_token;
 use crate::client_auth::{new_google_secret_manager, tenant_secret_name, AuthKey, Claims};
 use crate::google_auth;
 use crate::http_client::{self, ClientOptions};
-use crate::metrics;
 use crate::process_group::ProcessGroup;
 use crate::realm::agent::types::{AgentService, StatusRequest};
 use crate::realm::cluster::{self, NewRealmError};
-use crate::realm::store::bigtable::{BigTableArgs, StoreClient};
+use crate::realm::store::bigtable::{self, BigTableArgs, StoreClient};
 use crate::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
 
 #[derive(Debug)]
@@ -145,7 +144,7 @@ pub async fn create_cluster(
 
     let store = args
         .bigtable
-        .connect_data(auth_manager.clone(), metrics::Client::NONE)
+        .connect_data(auth_manager.clone(), bigtable::Options::default())
         .await
         .expect("failed to connect to bigtable data service");
 
