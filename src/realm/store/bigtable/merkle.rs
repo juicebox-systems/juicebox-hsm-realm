@@ -51,8 +51,8 @@ type NodeCache = cache::Cache<StoreKey, Vec<u8>, MonotonicClock>;
 pub struct Cache(Arc<Mutex<NodeCache>>);
 
 impl Cache {
-    pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(NodeCache::new(2000))))
+    pub fn new(limit: usize) -> Self {
+        Self(Arc::new(Mutex::new(NodeCache::new(limit))))
     }
 }
 

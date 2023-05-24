@@ -24,7 +24,7 @@ use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::metrics;
 use loam_mvp::realm::hsm::client::HsmClient;
-use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::realm::store::bigtable::{AgentBigTableArgs, BigTableArgs};
 
 mod http_hsm;
 
@@ -36,6 +36,9 @@ use http_hsm::host::HttpHsm;
 struct Args {
     #[command(flatten)]
     bigtable: BigTableArgs,
+
+    #[command(flatten)]
+    agent_bigtable: AgentBigTableArgs,
 
     /// Derive realm keys from this input (insecure).
     #[arg(short, long)]
@@ -81,7 +84,9 @@ async fn main() {
     })
     .expect("error setting signal handler");
 
-    let args = Args::parse();
+    let mut args = Args::parse();
+    args.bigtable.agent_args = Some(args.agent_bigtable);
+
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
     let metrics = metrics::Client::new("software_agent");
 

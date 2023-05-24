@@ -35,15 +35,18 @@ use loam_mvp::future_task::FutureTasks;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
-use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::realm::store::bigtable::{AgentBigTableArgs, BigTableArgs};
 use loam_mvp::{metrics, metrics_tag as tag};
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
 
+/// A host agent for use with an Entrust nCipherXC HSM.
 #[derive(Parser)]
-#[command(about = "A host agent for use with an Entrust nCipherXC HSM")]
 struct Args {
     #[command(flatten)]
     bigtable: BigTableArgs,
+
+    #[command(flatten)]
+    agent_bigtable: AgentBigTableArgs,
 
     /// The IP/port to listen on.
     #[arg(
@@ -109,7 +112,9 @@ async fn main() {
     })
     .expect("error setting signal handler");
 
-    let args = Args::parse();
+    let mut args = Args::parse();
+    args.bigtable.agent_args = Some(args.agent_bigtable);
+
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
     let metrics = metrics::Client::new("entrust_agent");
 

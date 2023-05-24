@@ -63,6 +63,7 @@ async fn main() {
         instance: String::from("inst"),
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),
+        agent_args: None,
     };
 
     info!(path = ?args.secrets_file, "loading secrets from JSON file");

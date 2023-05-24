@@ -60,6 +60,22 @@ pub struct BigTableArgs {
     /// The url to the big table emulator [default uses GCP endpoints].
     #[arg(long = "bigtable-url")]
     pub url: Option<Uri>,
+
+    // Used on agents only
+    #[clap(skip)]
+    pub agent_args: Option<AgentBigTableArgs>,
+}
+
+#[derive(clap::Args, Clone, Debug)]
+pub struct AgentBigTableArgs {
+    /// The maximum size of the agent's LRU Merkle tree cache, in number of
+    /// nodes.
+    #[arg(
+        long = "merkle-cache-size",
+        value_name = "NODES",
+        default_value_t = 25_000
+    )]
+    pub merkle_cache_nodes_limit: usize,
 }
 
 impl BigTableArgs {
@@ -92,7 +108,19 @@ impl BigTableArgs {
             project: self.project.clone(),
             instance: self.instance.clone(),
         };
-        StoreClient::new(data_url.clone(), instance, auth_manager, metrics).await
+        StoreClient::new(
+            data_url.clone(),
+            instance,
+            auth_manager,
+            Options {
+                metrics,
+                merkle_cache_nodes_limit: self
+                    .agent_args
+                    .as_ref()
+                    .map(|a| a.merkle_cache_nodes_limit),
+            },
+        )
+        .await
     }
 
     pub async fn connect_admin(
@@ -312,12 +340,39 @@ pub enum AppendError {
     MerkleDeletes(google::rpc::Status),
 }
 
+pub struct Options {
+    pub metrics: metrics::Client,
+
+    /// The maximum size of the agent's LRU Merkle tree cache, in number of
+    /// nodes. This is unused for non-agents, since only agents access Merkle
+    /// trees.
+    ///
+    /// Set this to at least the expected number of concurrent requests times
+    /// the depth of the Merkle tree(s). For example, if you have a Merkle tree
+    /// with 1 million records, its depth (base-2 logarithm) is about 20. If
+    /// you expect 1000 concurrent requests, you should set this limit to be
+    /// greater than 20,000.
+    ///
+    /// If unset, this will basically disable the cache (but the cache
+    /// implementation insists on a limit of at least 1 entry).
+    pub merkle_cache_nodes_limit: Option<usize>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            metrics: metrics::Client::NONE,
+            merkle_cache_nodes_limit: None,
+        }
+    }
+}
+
 impl StoreClient {
     pub async fn new(
         url: Uri,
         instance: Instance,
         auth_manager: AuthManager,
-        metrics: metrics::Client,
+        options: Options,
     ) -> Result<Self, tonic::transport::Error> {
         let channel = Endpoint::from(url).connect().await?;
         let channel = AuthMiddleware::new(
@@ -330,8 +385,8 @@ impl StoreClient {
             bigtable,
             instance,
             last_write: Mutex::new(None),
-            metrics,
-            merkle_cache: merkle::Cache::new(),
+            metrics: options.metrics,
+            merkle_cache: merkle::Cache::new(options.merkle_cache_nodes_limit.unwrap_or(1)),
         })
     }
 
