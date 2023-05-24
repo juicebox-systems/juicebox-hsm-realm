@@ -12,7 +12,7 @@ use loam_mvp::client_auth::new_google_secret_manager;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::metrics;
-use loam_mvp::realm::store::bigtable::{self, BigTableArgs};
+use loam_mvp::realm::store::bigtable;
 use loam_mvp::secret_manager::{Periodic, SecretManager, SecretsFile};
 
 mod cert;
@@ -25,7 +25,7 @@ use load_balancer::LoadBalancer;
 #[command(about = "An HTTP load balancer for one or more realms")]
 struct Args {
     #[command(flatten)]
-    bigtable: BigTableArgs,
+    bigtable: bigtable::Args,
 
     /// The IP/port to listen on.
     #[arg(

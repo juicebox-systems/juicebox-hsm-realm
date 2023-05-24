@@ -24,7 +24,7 @@ use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::metrics;
 use loam_mvp::realm::hsm::client::HsmClient;
-use loam_mvp::realm::store::bigtable::{self, AgentBigTableArgs, BigTableArgs};
+use loam_mvp::realm::store::bigtable;
 
 mod http_hsm;
 
@@ -35,10 +35,10 @@ use http_hsm::host::HttpHsm;
 #[derive(Parser)]
 struct Args {
     #[command(flatten)]
-    bigtable: BigTableArgs,
+    bigtable: bigtable::Args,
 
     #[command(flatten)]
-    agent_bigtable: AgentBigTableArgs,
+    agent_bigtable: bigtable::AgentArgs,
 
     /// Derive realm keys from this input (insecure).
     #[arg(short, long)]

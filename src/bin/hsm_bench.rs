@@ -13,7 +13,7 @@ use loam_mvp::exec::hsm_gen::{Entrust, MetricsParticipants};
 use loam_mvp::http_client::{self};
 use loam_mvp::logging;
 use loam_mvp::process_group::ProcessGroup;
-use loam_mvp::realm::store::bigtable::BigTableArgs;
+use loam_mvp::realm::store::bigtable;
 use loam_sdk::{Client, Pin, UserSecret};
 use loam_sdk_core::types::Policy;
 use loam_sdk_networking::rpc::LoadBalancerService;
@@ -22,7 +22,7 @@ use loam_sdk_networking::rpc::LoadBalancerService;
 #[derive(Debug, Parser)]
 struct Args {
     #[command(flatten)]
-    bigtable: BigTableArgs,
+    bigtable: bigtable::Args,
 
     /// Number of secret registrations to do at a time.
     #[arg(long, value_name = "N", default_value_t = 3)]

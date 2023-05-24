@@ -14,14 +14,12 @@ use hsmcore::{
     },
 };
 use loam_mvp::{
-    exec::{bigtable::BigTableRunner, PortIssuer},
+    exec::{bigtable::BigtableRunner, PortIssuer},
     metrics,
     process_group::ProcessGroup,
     realm::{
         merkle::agent::{self, TreeStoreReader},
-        store::bigtable::{
-            self, AppendError::LogPrecondition, BigTableArgs, StoreAdminClient, StoreClient,
-        },
+        store::bigtable::{self, AppendError::LogPrecondition, StoreAdminClient, StoreClient},
     },
 };
 use loam_sdk_core::types::RealmId;
@@ -34,17 +32,17 @@ const GROUP_3: GroupId = GroupId([15; 16]);
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8222));
 
-fn emulator() -> BigTableArgs {
+fn emulator() -> bigtable::Args {
     let u = format!("http://localhost:{}", PORT.next()).parse().unwrap();
-    BigTableArgs {
+    bigtable::Args {
         project: String::from("prj"),
         instance: String::from("inst"),
         url: Some(u),
     }
 }
 
-async fn init_bt(pg: &mut ProcessGroup, args: BigTableArgs) -> (StoreAdminClient, StoreClient) {
-    BigTableRunner::run(pg, &args).await;
+async fn init_bt(pg: &mut ProcessGroup, args: bigtable::Args) -> (StoreAdminClient, StoreClient) {
+    BigtableRunner::run(pg, &args).await;
 
     let store_admin = args
         .connect_admin(None)

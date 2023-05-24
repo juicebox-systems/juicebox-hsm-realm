@@ -7,13 +7,13 @@ use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::metrics;
 use loam_mvp::realm::cluster::Manager;
-use loam_mvp::realm::store::bigtable::{self, BigTableArgs};
+use loam_mvp::realm::store::bigtable;
 
 #[derive(Debug, Parser)]
 #[command(about = "Management controller for Juicebox Clusters")]
 struct Args {
     #[command(flatten)]
-    bigtable: BigTableArgs,
+    bigtable: bigtable::Args,
 
     /// The IP/port to listen on.
     #[arg(

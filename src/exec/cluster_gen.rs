@@ -12,7 +12,7 @@ use hsmcore::hsm::types::GroupId;
 use loam_sdk::{Client, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper};
 use loam_sdk_networking::rpc::{self, LoadBalancerService};
 
-use super::bigtable::BigTableRunner;
+use super::bigtable::BigtableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use super::PortIssuer;
@@ -23,14 +23,14 @@ use crate::http_client::{self, ClientOptions};
 use crate::process_group::ProcessGroup;
 use crate::realm::agent::types::{AgentService, StatusRequest};
 use crate::realm::cluster::{self, NewRealmError};
-use crate::realm::store::bigtable::{self, BigTableArgs, StoreClient};
+use crate::realm::store::bigtable::{self, StoreClient};
 use crate::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
 
 #[derive(Debug)]
 pub struct ClusterConfig {
     pub load_balancers: u8,
     pub realms: Vec<RealmConfig>,
-    pub bigtable: BigTableArgs,
+    pub bigtable: bigtable::Args,
     pub secrets_file: Option<PathBuf>,
     pub entrust: Entrust,
 }
@@ -128,7 +128,7 @@ pub async fn create_cluster(
     };
 
     if args.bigtable.url.is_some() {
-        BigTableRunner::run(process_group, &args.bigtable).await;
+        BigtableRunner::run(process_group, &args.bigtable).await;
     }
     let store_admin = args
         .bigtable
@@ -245,7 +245,7 @@ fn create_load_balancers(
 }
 
 fn start_cluster_manager(
-    args: &BigTableArgs,
+    args: &bigtable::Args,
     process_group: &mut ProcessGroup,
     ports: &PortIssuer,
 ) -> Url {
@@ -269,7 +269,7 @@ async fn create_realm(
     hsm_gen: &mut HsmGenerator,
     process_group: &mut ProcessGroup,
     r: &RealmConfig,
-    bigtable: &BigTableArgs,
+    bigtable: &bigtable::Args,
 ) -> RealmResult {
     let (agents, key) = hsm_gen
         .create_hsms(

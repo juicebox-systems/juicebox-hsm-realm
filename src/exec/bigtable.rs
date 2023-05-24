@@ -4,12 +4,12 @@ use tokio::time::sleep;
 use tracing::info;
 
 use crate::process_group::ProcessGroup;
-use crate::realm::store::bigtable::{BigTableArgs, Options};
+use crate::realm::store::bigtable::{Args, Options};
 
-pub struct BigTableRunner;
+pub struct BigtableRunner;
 
-impl BigTableRunner {
-    pub async fn run(pg: &mut ProcessGroup, args: &BigTableArgs) {
+impl BigtableRunner {
+    pub async fn run(pg: &mut ProcessGroup, args: &Args) {
         if let Some(emulator_url) = &args.url {
             info!(
                 port = %emulator_url.port().unwrap(),

@@ -19,7 +19,7 @@ use super::super::{
     http_client::{self, ClientOptions},
     process_group::ProcessGroup,
     realm::agent::types::{AgentService, StatusRequest},
-    realm::store::bigtable::BigTableArgs,
+    realm::store::bigtable,
 };
 use super::PortIssuer;
 
@@ -60,7 +60,7 @@ impl HsmGenerator {
         mut count: usize,
         metrics: MetricsParticipants,
         process_group: &mut ProcessGroup,
-        bigtable: &BigTableArgs,
+        bigtable: &bigtable::Args,
         hsm_dir: Option<PathBuf>,
     ) -> (Vec<Url>, Vec<u8>) {
         let mut agent_urls = Vec::with_capacity(count);

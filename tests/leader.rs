@@ -10,7 +10,7 @@ use loam_mvp::{
     process_group::ProcessGroup,
     realm::{
         cluster::{self, types::StepDownRequest},
-        store::bigtable::BigTableArgs,
+        store::bigtable,
     },
 };
 use loam_sdk::Policy;
@@ -21,9 +21,9 @@ use tokio::task::JoinSet;
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8333));
 
-fn emulator() -> BigTableArgs {
+fn emulator() -> bigtable::Args {
     let u = format!("http://localhost:{}", PORT.next()).parse().unwrap();
-    BigTableArgs {
+    bigtable::Args {
         project: String::from("prj"),
         instance: String::from("inst"),
         url: Some(u),

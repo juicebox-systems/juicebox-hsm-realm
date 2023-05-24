@@ -13,14 +13,14 @@ use tracing::{info, warn};
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
 use loam_mvp::client_auth::{creation::create_token, tenant_secret_name, AuthKey, Claims};
-use loam_mvp::exec::bigtable::BigTableRunner;
+use loam_mvp::exec::bigtable::BigtableRunner;
 use loam_mvp::exec::certs::create_localhost_key_and_cert;
 use loam_mvp::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use loam_mvp::logging;
 use loam_mvp::metrics;
 use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
-use loam_mvp::realm::store::bigtable::{self, BigTableArgs};
+use loam_mvp::realm::store::bigtable;
 use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretsFile};
 use loam_sdk::{Configuration, PinHashingMode, Realm};
 
@@ -59,7 +59,7 @@ async fn main() {
     })
     .expect("error setting signal handler");
 
-    let bt_args = BigTableArgs {
+    let bt_args = bigtable::Args {
         instance: String::from("inst"),
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),
@@ -73,7 +73,7 @@ async fn main() {
             .expect("failed to load secrets from JSON file"),
     );
 
-    BigTableRunner::run(&mut process_group, &bt_args).await;
+    BigtableRunner::run(&mut process_group, &bt_args).await;
     let store_admin = bt_args
         .connect_admin(None)
         .await

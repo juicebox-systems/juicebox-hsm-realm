@@ -35,7 +35,7 @@ use loam_mvp::future_task::FutureTasks;
 use loam_mvp::google_auth;
 use loam_mvp::logging;
 use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
-use loam_mvp::realm::store::bigtable::{self, AgentBigTableArgs, BigTableArgs};
+use loam_mvp::realm::store::bigtable;
 use loam_mvp::{metrics, metrics_tag as tag};
 use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
 
@@ -43,10 +43,10 @@ use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError}
 #[derive(Parser)]
 struct Args {
     #[command(flatten)]
-    bigtable: BigTableArgs,
+    bigtable: bigtable::Args,
 
     #[command(flatten)]
-    agent_bigtable: AgentBigTableArgs,
+    agent_bigtable: bigtable::AgentArgs,
 
     /// The IP/port to listen on.
     #[arg(
