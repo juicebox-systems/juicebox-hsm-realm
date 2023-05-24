@@ -16,7 +16,7 @@ use tracing::{info, trace, warn};
 use x25519_dalek as x25519;
 
 mod app;
-mod cache;
+pub mod cache;
 pub mod commit;
 pub mod rpc;
 pub mod types;
