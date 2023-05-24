@@ -8,16 +8,53 @@ use google::bigtable::v2::{
 };
 use std::collections::HashMap;
 use std::fmt::Write;
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tracing::{instrument, trace, Span};
 
 use super::{mutate_rows, read_rows, Instance, MutateRowsError, StoreClient};
+use crate::metrics;
 use crate::metrics_tag as tag;
 use crate::realm::merkle::agent::TreeStoreReader;
+use hsmcore::bitvec::Bits;
+use hsmcore::hsm::cache;
 use hsmcore::hsm::types::{DataHash, GroupId, RecordId};
 use hsmcore::merkle::agent::{all_store_key_starts, Node, NodeKey, StoreKey, TreeStoreError};
+use hsmcore::merkle::Dir;
 use loam_sdk_core::marshalling;
 use loam_sdk_core::types::RealmId;
+
+/// Wrapper for [`Instant`] used in the Merkle node cache.
+///
+/// The cache can operate using a simple counter as a clock, but using a real
+/// clock is useful for metrics. It gives the cache entries ages that are
+/// meaningful to humans.
+#[derive(Default)]
+struct MonotonicClock;
+
+impl cache::Clock for MonotonicClock {
+    type Time = Instant;
+
+    fn time(&mut self) -> Self::Time {
+        Instant::now()
+    }
+}
+
+/// Statistics for [`NodeCache`].
+type CacheStats = cache::Stats<Instant>;
+
+/// Non-threadsafe Merkle node cache.
+type NodeCache = cache::Cache<StoreKey, Vec<u8>, MonotonicClock>;
+
+/// Sharable and cheaply cloneable Merkle node cache.
+#[derive(Clone)]
+pub struct Cache(Arc<Mutex<NodeCache>>);
+
+impl Cache {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(NodeCache::new(2000))))
+    }
+}
 
 fn merkle_table(instance: &Instance, realm: &RealmId) -> String {
     let mut buf = String::new();
@@ -84,10 +121,20 @@ impl StoreClient {
         )
         .await?;
 
+        let cache_stats = {
+            let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+            for (key, value) in add {
+                locked_cache.insert(key.store_key(), marshalling::to_vec(&value).expect("TODO"))
+            }
+            locked_cache.stats()
+        };
+
+        let tags = [tag!(?realm), tag!(?group)];
+        report_cache_stats(&self.metrics, &tags, cache_stats);
         self.metrics.timing(
             "store_client.write_merkle_nodes.time",
             start.elapsed(),
-            [tag!(?realm), tag!(?group)],
+            &tags,
         );
         Ok(())
     }
@@ -99,6 +146,10 @@ impl StoreClient {
         group: &GroupId,
         remove: hashbrown::HashSet<NodeKey<DataHash>>,
     ) -> Result<(), MutateRowsError> {
+        if remove.is_empty() {
+            return Ok(());
+        }
+
         let start = Instant::now();
 
         let mut bigtable = self.bigtable.clone();
@@ -122,12 +173,82 @@ impl StoreClient {
         )
         .await;
 
+        let cache_stats = {
+            let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+            for key in &remove {
+                locked_cache.remove(&key.store_key());
+            }
+            locked_cache.stats()
+        };
+
+        let tags = [tag!(?realm), tag!(?group)];
+        report_cache_stats(&self.metrics, &tags, cache_stats);
         self.metrics.timing(
             "store_client.remove_merkle_nodes.time",
             start.elapsed(),
-            [tag!(?realm), tag!(?group)],
+            &tags,
         );
         result
+    }
+}
+
+struct CachedPathLookupResult {
+    /// Cached nodes read along the path.
+    nodes: Vec<(NodeKey<DataHash>, Node<DataHash>)>,
+    /// - If None, the entire path was found in the cache. The returned `nodes`
+    /// either prove the existence of the record and contain the leaf record,
+    /// or they prove the non-existence of the record.
+    /// - If Some, a necessary node was not found in the cache. The record may
+    /// or may not exist in Bigtable.
+    next: Option<NodeKey<DataHash>>,
+}
+
+/// Read from a given root towards a record in a Merkle node cache.
+fn cached_path_lookup(
+    record_id: &RecordId,
+    root_hash: &DataHash,
+    cache: &mut NodeCache,
+) -> CachedPathLookupResult {
+    let mut nodes = Vec::new();
+
+    let full_key = record_id.to_bitvec();
+    let mut key_pos = 0;
+
+    let mut next_hash = root_hash.to_owned();
+
+    loop {
+        let key = NodeKey::new(full_key.slice(..key_pos).to_bitvec(), next_hash);
+
+        match cache.get(&key.store_key()) {
+            None => {
+                // Reached a cache miss.
+                return CachedPathLookupResult {
+                    nodes,
+                    next: Some(key),
+                };
+            }
+
+            Some(value) => {
+                let node: Node<DataHash> = marshalling::from_slice(value).expect("TODO");
+
+                if let Node::Interior(int) = &node {
+                    if let Some(branch) = int.branch(Dir::from(full_key[key_pos])) {
+                        if full_key.slice(key_pos..).starts_with(&branch.prefix) {
+                            // Found an interior node and can continue down
+                            // this path.
+                            key_pos += branch.prefix.len();
+                            next_hash = branch.hash;
+                            nodes.push((key, node));
+                            continue;
+                        }
+                    }
+                }
+
+                // Reached a leaf or proved non-existence.
+                nodes.push((key, node));
+                return CachedPathLookupResult { nodes, next: None };
+            }
+        }
     }
 }
 
@@ -138,9 +259,42 @@ impl TreeStoreReader<DataHash> for StoreClient {
         &self,
         realm: &RealmId,
         record_id: &RecordId,
+        root_hash: &DataHash,
+        tags: &[metrics::Tag],
     ) -> Result<HashMap<DataHash, Node<DataHash>>, TreeStoreError> {
         let start = Instant::now();
 
+        // Read as much as possible from the cache.
+        let (cached_nodes, next) = {
+            let result = {
+                let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+                cached_path_lookup(record_id, root_hash, &mut locked_cache)
+            };
+            self.metrics.histogram(
+                "store_client.path_lookup.cached_nodes_read",
+                result.nodes.len() as i64,
+                tags,
+            );
+            self.metrics.histogram(
+                "store_client.path_lookup.full_path_cache_hits",
+                result.next.is_none() as i64,
+                tags,
+            );
+            let cached_nodes = result.nodes.into_iter().map(|(k, v)| (k.hash, v));
+            match result.next {
+                None => {
+                    // This was a full path cache hit. For `bigtable_nodes_read`
+                    // to be comparable with `cached_nodes_read`, it seems more
+                    // fair to record a zero value here.
+                    self.metrics
+                        .histogram("store_client.path_lookup.bigtable_nodes_read", 0, tags);
+                    return Ok(cached_nodes.collect());
+                }
+                Some(next) => (cached_nodes, next),
+            }
+        };
+
+        // Read the rest from Bigtable.
         let rows = read_rows(
             &mut self.bigtable.clone(),
             ReadRowsRequest {
@@ -149,6 +303,11 @@ impl TreeStoreReader<DataHash> for StoreClient {
                 rows: Some(RowSet {
                     row_keys: Vec::new(),
                     row_ranges: all_store_key_starts(record_id)
+                        // The first "key start" is 0 bits long, the second is
+                        // 1 bit long, etc. By skipping `next.prefix.len()`,
+                        // the Bigtable reads will return keys with at least
+                        // `next.prefix.len()` bits.
+                        .skip(next.prefix.len())
                         .map(|prefix| RowRange {
                             end_key: Some(EndKeyOpen(prefix.next().into_bytes())),
                             start_key: Some(StartKeyClosed(prefix.into_bytes())),
@@ -165,28 +324,61 @@ impl TreeStoreReader<DataHash> for StoreClient {
         .await
         .map_err(|e| TreeStoreError::Network(e.to_string()))?;
 
-        let nodes: HashMap<DataHash, Node<DataHash>> = rows
+        // Extract the serialized key-value pairs from the rows.
+        let read_values: Vec<(StoreKey, Vec<u8>)> = rows
             .into_iter()
             .map(|(row_key, cells)| {
-                let (_, hash) = StoreKey::parse(&row_key.0).unwrap();
-                let node: Node<DataHash> = marshalling::from_slice(
-                    &cells
+                (
+                    StoreKey::from(row_key.0),
+                    cells
                         .into_iter()
                         .find(|cell| cell.family == "f" && cell.qualifier == b"n")
                         .expect("every Merkle row should contain a node value")
                         .value,
                 )
-                .expect("TODO");
-                (hash, node)
             })
             .collect();
 
-        Span::current().record("num_result_nodes", nodes.len());
-        self.metrics.timing(
-            "store_client.path_lookup.time",
-            start.elapsed(),
-            [tag!(?realm)],
+        self.metrics.histogram(
+            "store_client.path_lookup.bigtable_nodes_read",
+            read_values.len() as i64,
+            tags,
         );
+
+        // This is heavy-weight but useful for understanding how deep into the
+        // tree extraneous reads are occurring.
+        for (key, _) in &read_values {
+            self.metrics.histogram(
+                "store_client.path_lookup.bigtable_node.key_len",
+                key.as_slice().len(),
+                tags,
+            );
+        }
+
+        // Collect up the combined superset of nodes to return.
+        let nodes: HashMap<DataHash, Node<DataHash>> = cached_nodes
+            .chain(read_values.iter().map(|(key, value)| {
+                let (_, hash) = StoreKey::parse(key.as_slice()).expect("TODO");
+                let node: Node<DataHash> = marshalling::from_slice(value).expect("TODO");
+                (hash, node)
+            }))
+            .collect();
+
+        // Update the cache with newly read values.
+        if !read_values.is_empty() {
+            let cache_stats = {
+                let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+                for (key, value) in read_values {
+                    locked_cache.insert(key, value);
+                }
+                locked_cache.stats()
+            };
+            report_cache_stats(&self.metrics, tags, cache_stats);
+        }
+
+        Span::current().record("num_result_nodes", nodes.len());
+        self.metrics
+            .timing("store_client.path_lookup.time", start.elapsed(), tags);
         Ok(nodes)
     }
 
@@ -195,9 +387,20 @@ impl TreeStoreReader<DataHash> for StoreClient {
         &self,
         realm: &RealmId,
         key: StoreKey,
+        tags: &[metrics::Tag],
     ) -> Result<Node<DataHash>, TreeStoreError> {
         trace!(realm = ?realm, key = ?key, "read_node starting");
 
+        // Check the Merkle node cache first.
+        {
+            let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+            if let Some(value) = locked_cache.get(&key) {
+                let node: Node<DataHash> = marshalling::from_slice(value).expect("TODO");
+                return Ok(node);
+            }
+        }
+
+        // Read from Bigtable.
         let rows = read_rows(
             &mut self.bigtable.clone(),
             ReadRowsRequest {
@@ -217,20 +420,46 @@ impl TreeStoreReader<DataHash> for StoreClient {
         .await
         .map_err(|e| TreeStoreError::Network(e.to_string()))?;
 
-        let node = match rows.into_iter().next().and_then(|(_key, cells)| {
+        match rows.into_iter().next().map(|(_key, cells)| {
             cells
                 .into_iter()
                 .find(|cell| cell.family == "f" && cell.qualifier == b"n")
-                .map(|cell| marshalling::from_slice(&cell.value).expect("TODO"))
                 .expect("every Merkle row should contain a node value")
         }) {
-            Some(node) => Ok(node),
-            None => Err(TreeStoreError::MissingNode),
-        };
+            Some(cell) => {
+                let node: Node<DataHash> = marshalling::from_slice(&cell.value).expect("TODO");
+                trace!(?realm, ?key, "read_node completed");
+                let cache_stats = {
+                    let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+                    locked_cache.insert(key, cell.value);
+                    locked_cache.stats()
+                };
+                report_cache_stats(&self.metrics, tags, cache_stats);
+                Ok(node)
+            }
 
-        trace!(realm = ?realm, key = ?key, ok = node.is_ok(), "read_node completed");
-        node
+            None => {
+                let err = Err(TreeStoreError::MissingNode);
+                trace!(?realm, ?key, ?err, "read_node failed");
+                err
+            }
+        }
     }
+}
+
+/// Call this to report metrics after inserting or deleting from the Merkle
+/// node cache.
+fn report_cache_stats(metrics: &metrics::Client, tags: &[metrics::Tag], stats: CacheStats) {
+    metrics.gauge("store_client.merkle_cache.nodes", stats.entries, tags);
+    metrics.gauge("store_client.merkle_cache.limit", stats.limit, tags);
+    metrics.timing(
+        "store_client.merkle_cache.lru_age",
+        match stats.lru_time {
+            Some(instant) => instant.elapsed(),
+            None => Duration::MAX,
+        },
+        tags,
+    );
 }
 
 #[cfg(test)]

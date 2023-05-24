@@ -280,6 +280,7 @@ pub struct StoreClient {
     instance: Instance,
     last_write: Mutex<Option<(RealmId, GroupId, LogIndex, EntryHmac)>>,
     metrics: metrics::Client,
+    merkle_cache: merkle::Cache,
 }
 
 impl Clone for StoreClient {
@@ -290,6 +291,7 @@ impl Clone for StoreClient {
             instance: self.instance.clone(),
             last_write: Mutex::new(None),
             metrics: self.metrics.clone(),
+            merkle_cache: self.merkle_cache.clone(),
         }
     }
 }
@@ -329,6 +331,7 @@ impl StoreClient {
             instance,
             last_write: Mutex::new(None),
             metrics,
+            merkle_cache: merkle::Cache::new(),
         })
     }
 

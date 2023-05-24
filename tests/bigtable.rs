@@ -393,6 +393,8 @@ async fn append_store_delta() {
         &OwnedRange::full(),
         &starting_root,
         &RecordId([1; RecordId::NUM_BYTES]),
+        &metrics::Client::NONE,
+        &[],
     )
     .await
     .unwrap();
@@ -406,9 +408,13 @@ async fn append_store_delta() {
         1,
     );
     // Verify the original root is readable.
-    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
-        .await
-        .unwrap();
+    data.read_node(
+        &REALM,
+        StoreKey::new(&BitVec::new(), &starting_root),
+        metrics::NO_TAGS,
+    )
+    .await
+    .unwrap();
 
     // Apply the delta, the original root, and the new root should both be
     // readable until the deferred delete kicks in.
@@ -419,23 +425,39 @@ async fn append_store_delta() {
         .await
         .unwrap();
 
-    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
-        .await
-        .unwrap();
-    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &new_root))
-        .await
-        .unwrap();
+    data.read_node(
+        &REALM,
+        StoreKey::new(&BitVec::new(), &starting_root),
+        metrics::NO_TAGS,
+    )
+    .await
+    .unwrap();
+    data.read_node(
+        &REALM,
+        StoreKey::new(&BitVec::new(), &new_root),
+        metrics::NO_TAGS,
+    )
+    .await
+    .unwrap();
 
     tx.send(()).unwrap();
     delete_handle.unwrap().await.unwrap();
 
     // The deferred delete should have executed and the original root be deleted.
-    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &starting_root))
-        .await
-        .expect_err("should have failed to find node");
-    data.read_node(&REALM, StoreKey::new(&BitVec::new(), &new_root))
-        .await
-        .unwrap();
+    data.read_node(
+        &REALM,
+        StoreKey::new(&BitVec::new(), &starting_root),
+        metrics::NO_TAGS,
+    )
+    .await
+    .expect_err("should have failed to find node");
+    data.read_node(
+        &REALM,
+        StoreKey::new(&BitVec::new(), &new_root),
+        metrics::NO_TAGS,
+    )
+    .await
+    .unwrap();
 }
 
 fn create_log_batch(first_idx: LogIndex, prev_hmac: EntryHmac, count: usize) -> Vec<LogEntry> {
