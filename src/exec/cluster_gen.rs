@@ -49,6 +49,7 @@ pub struct ClusterResult {
     pub certs: Certificates,
     pub realms: Vec<RealmResult>,
 
+    pub tenant: String,
     pub auth_key_version: SecretVersion,
     pub auth_key: AuthKey,
 
@@ -64,29 +65,33 @@ impl ClusterResult {
         .expect("failed to decode certificate file")
     }
 
+    pub fn configuration(&self) -> Configuration {
+        Configuration {
+            realms: self
+                .realms
+                .iter()
+                .map(|r| Realm {
+                    address: self.load_balancers[0].clone(),
+                    public_key: Some(r.communication_public_key.clone()),
+                    id: r.realm,
+                })
+                .collect(),
+            register_threshold: self.realms.len().try_into().unwrap(),
+            recover_threshold: self.realms.len().try_into().unwrap(),
+            pin_hashing_mode: PinHashingMode::FastInsecure,
+        }
+    }
+
     pub fn client_for_user(
         &self,
         user_id: String,
     ) -> Client<TokioSleeper, http_client::Client<LoadBalancerService>> {
         Client::with_tokio(
-            Configuration {
-                realms: self
-                    .realms
-                    .iter()
-                    .map(|r| Realm {
-                        address: self.load_balancers[0].clone(),
-                        public_key: Some(r.communication_public_key.clone()),
-                        id: r.realm,
-                    })
-                    .collect(),
-                register_threshold: self.realms.len().try_into().unwrap(),
-                recover_threshold: self.realms.len().try_into().unwrap(),
-                pin_hashing_mode: PinHashingMode::FastInsecure,
-            },
+            self.configuration(),
             Vec::new(),
             create_token(
                 &Claims {
-                    issuer: "test".to_string(),
+                    issuer: self.tenant.clone(),
                     subject: user_id,
                 },
                 &self.auth_key,
@@ -169,15 +174,15 @@ pub async fn create_cluster(
         }
     };
 
-    let tenant = "test";
+    let tenant = "test-acme";
     let (auth_key_version, auth_key) = secret_manager
         .get_secrets(&tenant_secret_name(tenant))
         .await
-        .expect("failed to get test tenant auth key")
+        .unwrap_or_else(|e| panic!("failed to get tenant {tenant:?} auth key: {e}"))
         .into_iter()
         .map(|(version, key)| (version, AuthKey::from(key)))
         .next()
-        .expect("test tenant has no secrets");
+        .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 
     let (lb_urls, certificates) = create_load_balancers(&args, process_group, &ports);
     let cluster_manager = start_cluster_manager(&args.bigtable, process_group, &ports);
@@ -193,6 +198,7 @@ pub async fn create_cluster(
         load_balancers: lb_urls,
         certs: certificates,
         realms,
+        tenant: tenant.to_owned(),
         auth_key_version,
         auth_key,
         store,

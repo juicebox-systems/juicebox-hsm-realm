@@ -1,5 +1,6 @@
 use clap::Parser;
 use futures::StreamExt;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -157,6 +158,14 @@ async fn main() {
         warn!(errors, "There were errors reported by the client");
     }
     if args.keep_alive {
+        let path = "target/configuration.json";
+        fs::write(
+            path,
+            serde_json::to_string(&cluster.configuration()).unwrap(),
+        )
+        .unwrap_or_else(|e| panic!("failed to write to {path:?}: {e}"));
+        info!("wrote configuration to {path:?}");
+        info!("sleeping forever due to --keep-alive");
         sleep(Duration::MAX).await;
     }
     info!("main: done");

@@ -53,7 +53,7 @@ struct Args {
     secrets_file: Option<PathBuf>,
 
     /// Name of tenant to generate auth tokens for. Must start with "test-".
-    #[arg(long, value_name = "NAME", default_value = "test-tenant")]
+    #[arg(long, value_name = "NAME", default_value = "test-acme")]
     tenant: String,
 
     /// DER file containing self-signed certificate for connecting to the load
@@ -93,7 +93,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let (auth_key, auth_key_version) =
         get_auth_key(&args.tenant, &args.secrets_file, &args.gcp_project)
             .await
-            .context("failed to get tenant's auth key")?;
+            .with_context(|| format!("failed to get auth key for tenant {:?}", args.tenant))?;
 
     let certs: Vec<Certificate> = args
         .tls_certificates

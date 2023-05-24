@@ -263,15 +263,15 @@ async fn main() {
         pin_hashing_mode: PinHashingMode::FastInsecure,
     };
 
-    let tenant = "test";
+    let tenant = "test-acme";
     let (auth_key_version, auth_key) = secret_manager
         .get_secrets(&tenant_secret_name(tenant))
         .await
-        .expect("failed to get test tenant auth key")
+        .unwrap_or_else(|e| panic!("failed to get tenant {tenant:?} auth key: {e}"))
         .into_iter()
         .map(|(version, key)| (version, AuthKey::from(key)))
         .next()
-        .expect("test tenant has no secrets");
+        .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 
     let auth_token = create_token(
         &Claims {
@@ -303,7 +303,7 @@ async fn main() {
         warn!(
             configuration = serde_json::to_string(&configuration).unwrap(),
             auth_token = auth_token.0.expose_secret(),
-            tls_certificate = ?certificates.cert_file_der.clone(),
+            tls_certificate = ?certificates.cert_file_der,
             "runner: stack is active, press ctrl-c to shutdown"
         );
 
