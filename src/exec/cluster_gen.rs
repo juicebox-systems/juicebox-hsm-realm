@@ -1,5 +1,6 @@
 use futures::future::join_all;
 use reqwest::{Certificate, Url};
+use std::collections::HashMap;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -9,7 +10,7 @@ use tokio::time::sleep;
 use tracing::{debug, info};
 
 use hsmcore::hsm::types::GroupId;
-use loam_sdk::{Client, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper};
+use loam_sdk::{AuthToken, Client, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper};
 use loam_sdk_networking::rpc::{self, LoadBalancerService};
 
 use super::bigtable::BigtableRunner;
@@ -84,18 +85,31 @@ impl ClusterResult {
     pub fn client_for_user(
         &self,
         user_id: String,
-    ) -> Client<TokioSleeper, http_client::Client<LoadBalancerService>> {
+    ) -> Client<TokioSleeper, http_client::Client<LoadBalancerService>, HashMap<RealmId, AuthToken>>
+    {
+        let auth_tokens: HashMap<RealmId, AuthToken> = self
+            .realms
+            .iter()
+            .map(|realm| {
+                (
+                    realm.realm,
+                    create_token(
+                        &Claims {
+                            issuer: self.tenant.clone(),
+                            subject: user_id.clone(),
+                            audience: realm.realm,
+                        },
+                        &self.auth_key,
+                        self.auth_key_version,
+                    ),
+                )
+            })
+            .collect();
+
         Client::with_tokio(
             self.configuration(),
             Vec::new(),
-            create_token(
-                &Claims {
-                    issuer: self.tenant.clone(),
-                    subject: user_id,
-                },
-                &self.auth_key,
-                self.auth_key_version,
-            ),
+            auth_tokens,
             http_client::Client::<LoadBalancerService>::new(http_client::ClientOptions {
                 additional_root_certs: vec![self.lb_cert()],
             }),

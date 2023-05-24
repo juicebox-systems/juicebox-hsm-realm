@@ -7,6 +7,7 @@ pub mod bigtable;
 pub mod certs;
 pub mod cluster_gen;
 pub mod hsm_gen;
+pub mod panic;
 
 /// Used to sequentially assign network ports.
 #[derive(Clone)]

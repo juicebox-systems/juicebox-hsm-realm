@@ -1,4 +1,5 @@
 use jsonwebtoken::{self, Algorithm, DecodingKey, TokenData, Validation};
+use loam_sdk::RealmId;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 
@@ -8,6 +9,7 @@ use super::{AuthKey, AuthToken, Claims, SecretVersion};
 struct InternalClaims {
     iss: String,
     sub: String,
+    aud: String,
     exp: u64, // seconds since Unix epoch
     nbf: u64, // seconds since Unix epoch
 }
@@ -17,6 +19,7 @@ pub enum Error {
     Jwt(jsonwebtoken::errors::Error),
     LifetimeTooLong,
     BadKeyId,
+    BadAudience,
 }
 
 pub struct Validator {
@@ -26,9 +29,9 @@ pub struct Validator {
 }
 
 impl Validator {
-    pub fn new() -> Self {
+    pub fn new(realm_id: RealmId) -> Self {
         let mut validation = Validation::new(Algorithm::HS256);
-        validation.set_audience(&["loam.me"]);
+        validation.set_audience(&[hex::encode(realm_id.0)]);
         validation.set_required_spec_claims(&["exp", "nbf", "aud", "iss", "sub"]);
         Self {
             validation,
@@ -67,17 +70,17 @@ impl Validator {
             }
         }
 
+        let Some(audience) = hex::decode(claims.aud).ok() else {
+            return Err(Error::BadAudience);
+        };
+
+        let realm_id = RealmId(audience.try_into().map_err(|_| Error::BadAudience)?);
+
         Ok(Claims {
             issuer: claims.iss,
             subject: claims.sub,
+            audience: realm_id,
         })
-    }
-}
-
-// clippy wanted this
-impl Default for Validator {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

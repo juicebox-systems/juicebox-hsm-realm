@@ -8,7 +8,7 @@ use super::{AuthKey, AuthToken, Claims, SecretVersion};
 pub(super) struct InternalClaims<'a> {
     pub iss: &'a str,
     pub sub: &'a str,
-    pub aud: &'static str,
+    pub aud: &'a str,
     pub exp: u64, // seconds since Unix epoch
     pub nbf: u64, // seconds since Unix epoch
 }
@@ -37,7 +37,7 @@ pub(super) fn create_token_at(
             &InternalClaims {
                 iss: &claims.issuer,
                 sub: &claims.subject,
-                aud: "loam.me",
+                aud: &hex::encode(claims.audience.0),
                 exp: now + 60 * 10,
                 nbf: now - 10,
             },

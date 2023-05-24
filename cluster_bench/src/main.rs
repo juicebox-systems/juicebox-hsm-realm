@@ -2,9 +2,10 @@ use anyhow::{anyhow, Context};
 use clap::Parser;
 use futures::StreamExt;
 use hdrhistogram::Histogram;
-use loam_sdk::{Policy, TokioSleeper};
+use loam_sdk::{AuthToken, Policy, RealmId, TokioSleeper};
 use loam_sdk_networking::rpc::LoadBalancerService;
 use reqwest::Certificate;
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -21,7 +22,11 @@ use loam_mvp::logging;
 use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
 use loam_sdk::{Configuration, Pin, PinHashingMode, UserSecret};
 
-type Client = loam_sdk::Client<TokioSleeper, http_client::Client<LoadBalancerService>>;
+type Client = loam_sdk::Client<
+    TokioSleeper,
+    http_client::Client<LoadBalancerService>,
+    HashMap<RealmId, AuthToken>,
+>;
 
 /// Run many concurrent clients in a single process to benchmark the
 /// performance of a Juicebox cluster.
@@ -276,19 +281,30 @@ struct ClientBuilder {
 
 impl ClientBuilder {
     fn build(&self, user_id: String) -> Client {
-        let auth_token = create_token(
-            &Claims {
-                issuer: self.tenant.clone(),
-                subject: user_id,
-            },
-            &self.auth_key,
-            self.auth_key_version,
-        );
+        let auth_tokens: HashMap<RealmId, AuthToken> = self
+            .configuration
+            .realms
+            .iter()
+            .map(|realm| {
+                (
+                    realm.id,
+                    create_token(
+                        &Claims {
+                            issuer: self.tenant.clone(),
+                            subject: user_id.clone(),
+                            audience: realm.id,
+                        },
+                        &self.auth_key,
+                        self.auth_key_version,
+                    ),
+                )
+            })
+            .collect();
 
         Client::with_tokio(
             self.configuration.clone(),
             vec![],
-            auth_token,
+            auth_tokens,
             http_client::Client::new(http_client::ClientOptions {
                 additional_root_certs: self.certs.clone(),
             }),

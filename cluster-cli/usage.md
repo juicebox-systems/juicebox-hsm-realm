@@ -47,7 +47,7 @@ Create an auth token for a test tenant.
 
 The token is printed to stdout.
 
-Usage: cluster auth-token <TENANT> <USER>
+Usage: cluster auth-token <TENANT> <USER> <REALM>
 
 Arguments:
   <TENANT>
@@ -57,6 +57,9 @@ Arguments:
 
   <USER>
           Any user ID
+
+  <REALM>
+          The ID of the realm that the token should be valid for
 
 Options:
   -h, --help

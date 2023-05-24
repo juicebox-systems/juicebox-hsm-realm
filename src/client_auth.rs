@@ -1,3 +1,4 @@
+use loam_sdk::RealmId;
 pub use loam_sdk_core::types::AuthToken;
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,6 +33,8 @@ pub struct Claims {
     pub issuer: String,
     /// User ID.
     pub subject: String,
+    /// Realm ID.
+    pub audience: RealmId,
 }
 
 /// Constructs a new Google Cloud Secret Manager client that's limited to
@@ -60,13 +63,15 @@ mod tests {
 
     #[test]
     fn test_token_basic() {
+        let realm_id = RealmId([5; 16]);
         let claims = Claims {
             issuer: String::from("tenant"),
             subject: String::from("mario"),
+            audience: realm_id,
         };
         let key = AuthKey::from(b"it's-a-me!".to_vec());
         let token = creation::create_token(&claims, &key, SecretVersion(32));
-        let validator = validation::Validator::new();
+        let validator = validation::Validator::new(realm_id);
         assert_eq!(
             validator.parse_key_id(&token).unwrap(),
             (String::from("tenant"), SecretVersion(32))
@@ -76,12 +81,13 @@ mod tests {
 
     #[test]
     fn test_token_bogus() {
+        let realm_id = RealmId([5; 16]);
         let key = AuthKey::from(b"it's-a-me!".to_vec());
         let token = AuthToken(SecretString::from(String::from("bogus")));
         assert_eq!(
             format!(
                 "{:?}",
-                validation::Validator::new()
+                validation::Validator::new(realm_id)
                     .validate(&token, &key)
                     .unwrap_err()
             ),
@@ -91,27 +97,34 @@ mod tests {
 
     #[test]
     fn test_token_expired() {
+        let realm_id = RealmId([5; 16]);
         let claims = Claims {
             issuer: String::from("tenant"),
             subject: String::from("mario"),
+            audience: realm_id,
         };
         let key = AuthKey::from(b"it's-a-me!".to_vec());
         let token = creation::create_token_at(&claims, &key, SecretVersion(32), 1400);
         assert_eq!(
-            format!("{:?}", validation::Validator::new().validate(&token, &key)),
+            format!(
+                "{:?}",
+                validation::Validator::new(realm_id).validate(&token, &key)
+            ),
             "Err(Jwt(Error(ExpiredSignature)))"
         );
     }
 
     #[test]
     fn test_token_lifetime_too_long() {
+        let realm_id = RealmId([5; 16]);
         let claims = Claims {
             issuer: String::from("tenant"),
             subject: String::from("mario"),
+            audience: realm_id,
         };
         let key = AuthKey::from(b"it's-a-me!".to_vec());
         let token = creation::create_token(&claims, &key, SecretVersion(32));
-        let mut validator = validation::Validator::new();
+        let mut validator = validation::Validator::new(realm_id);
         validator.max_lifetime_seconds = Some(5);
         assert_eq!(
             format!("{:?}", validator.validate(&token, &key)),
@@ -122,9 +135,28 @@ mod tests {
     }
 
     #[test]
+    fn test_token_wrong_audience() {
+        let realm_id_token = RealmId([5; 16]);
+        let realm_id_validator = RealmId([1; 16]);
+        let claims = Claims {
+            issuer: String::from("tenant"),
+            subject: String::from("mario"),
+            audience: realm_id_token,
+        };
+        let key = AuthKey::from(b"it's-a-me!".to_vec());
+        let token = creation::create_token(&claims, &key, SecretVersion(32));
+        let validator = validation::Validator::new(realm_id_validator);
+        assert_eq!(
+            format!("{:?}", validator.validate(&token, &key)),
+            "Err(Jwt(Error(InvalidAudience)))"
+        );
+    }
+
+    #[test]
     fn test_token_bad_key_id() {
         use jsonwebtoken::{encode, get_current_timestamp, Algorithm, EncodingKey, Header};
 
+        let realm_id = RealmId([5; 16]);
         let key = AuthKey::from(b"it's-a-me!".to_vec());
         let mint = |key_id| {
             let mut header = Header::new(Algorithm::HS256);
@@ -135,7 +167,7 @@ mod tests {
                     &creation::InternalClaims {
                         iss: "tenant",
                         sub: "mario",
-                        aud: "loam.me",
+                        aud: &hex::encode(realm_id.0),
                         exp: get_current_timestamp() + 60 * 10,
                         nbf: get_current_timestamp() - 10,
                     },
@@ -145,7 +177,7 @@ mod tests {
             ))
         };
 
-        let validator = validation::Validator::new();
+        let validator = validation::Validator::new(realm_id);
         validator.validate(&mint("tenant:32"), &key).unwrap();
         assert_eq!(
             format!("{:?}", validator.validate(&mint("ten:ant:32"), &key)),

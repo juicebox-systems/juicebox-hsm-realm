@@ -15,13 +15,13 @@ use loam_sdk_core::{
         SecretsResponse,
     },
     types::{
-        MaskedTgkShare, OprfBlindedResult, OprfKey, OprfServer, Policy, Salt, UnlockTag,
-        UserSecretShare,
+        MaskedTgkShare, OprfBlindedResult, OprfSeed, OprfServer, Policy, Salt, UnlockTag,
+        UserSecretShare, OPRF_KEY_INFO,
     },
 };
 
 /// Persistent state for a particular user.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct UserRecord {
     registration_state: RegistrationState,
     // TODO: audit log
@@ -36,16 +36,16 @@ impl UserRecord {
 }
 
 /// Persistent state for a particular registration of a particular user.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 enum RegistrationState {
     NotRegistered,
     Registered(Box<RegisteredState>),
     NoGuesses,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct RegisteredState {
-    oprf_key: OprfKey,
+    oprf_seed: OprfSeed,
     salt: Salt,
     guess_count: u16,
     policy: Policy,
@@ -68,7 +68,7 @@ fn register2(
     trace!(hsm = ctx.hsm_name, ?record_id, "register2 request",);
 
     user_record.registration_state = RegistrationState::Registered(Box::new(RegisteredState {
-        oprf_key: request.oprf_key,
+        oprf_seed: request.oprf_seed,
         salt: request.salt,
         guess_count: 0,
         policy: request.policy,
@@ -101,7 +101,7 @@ fn recover1(
             Recover1Response::Ok {
                 salt: state.salt.clone(),
             },
-            Some(user_record),
+            None,
         ),
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
@@ -126,7 +126,7 @@ fn recover2(
 ) -> (Recover2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
-    let (oprf_key, masked_tgk_share) = match &mut user_record.registration_state {
+    let (oprf_seed, masked_tgk_share) = match &mut user_record.registration_state {
         RegistrationState::Registered(state) if state.guess_count >= state.policy.num_guesses => {
             trace!(
                 hsm = ctx.hsm_name,
@@ -138,7 +138,7 @@ fn recover2(
         }
         RegistrationState::Registered(state) => {
             state.guess_count += 1;
-            (state.oprf_key.clone(), state.masked_tgk_share.clone())
+            (state.oprf_seed.clone(), state.masked_tgk_share.clone())
         }
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
@@ -154,8 +154,8 @@ fn recover2(
         }
     };
 
-    let server =
-        OprfServer::new_with_key(oprf_key.expose_secret()).expect("error constructing OprfServer");
+    let server = OprfServer::new_from_seed(oprf_seed.expose_secret(), OPRF_KEY_INFO)
+        .expect("error constructing OprfServer");
     let blinded_oprf_result: OprfBlindedResult = server
         .blind_evaluate(&request.blinded_oprf_input.expose_secret())
         .into();
@@ -284,4 +284,317 @@ pub fn process(
     };
     let rc = user_record_out.map(|u| RecordChange::Update(marshalling::to_vec(&u).expect("TODO")));
     (result, rc)
+}
+
+#[cfg(test)]
+mod test {
+    use loam_sdk_core::{
+        requests::{
+            DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
+            Recover3Response, Register1Response, Register2Request, Register2Response,
+        },
+        types::{
+            MaskedTgkShare, OprfBlindedInput, OprfBlindedResult, OprfSeed, Policy, Salt, UnlockTag,
+            UserSecretShare,
+        },
+    };
+
+    use crate::hsm::{
+        app::{RegisteredState, RegistrationState, UserRecord},
+        types::RecordId,
+    };
+
+    use super::{delete, recover1, recover2, recover3, register1, register2, AppContext};
+
+    #[test]
+    fn test_register1() {
+        let response = register1(&AppContext { hsm_name: "test" }, &RecordId([0; 32]));
+        assert_eq!(response, Register1Response::Ok)
+    }
+
+    #[test]
+    fn test_register2() {
+        let request = Register2Request {
+            salt: salt(),
+            oprf_seed: oprf_seed(),
+            tag: unlock_tag(),
+            masked_tgk_share: masked_tgk_share(),
+            secret_share: user_secret_share(),
+            policy: policy(),
+        };
+        let user_record_in = UserRecord::new();
+        let expected_user_record_out = registered_record(0);
+        let (response, user_record_out) = register2(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            request,
+            user_record_in,
+        );
+        assert_eq!(response, Register2Response::Ok);
+        assert_eq!(user_record_out, Some(expected_user_record_out));
+    }
+
+    #[test]
+    fn test_recover1_registered() {
+        let user_record_in = registered_record(0);
+        let (response, user_record_out) = recover1(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            user_record_in,
+        );
+        assert_eq!(response, Recover1Response::Ok { salt: salt() });
+        assert!(user_record_out.is_none());
+    }
+
+    #[test]
+    fn test_recover1_no_guesses() {
+        let user_record_in = UserRecord {
+            registration_state: RegistrationState::NoGuesses,
+        };
+        let (response, user_record_out) = recover1(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            user_record_in,
+        );
+        assert_eq!(response, Recover1Response::NoGuesses);
+        assert!(user_record_out.is_none());
+    }
+
+    #[test]
+    fn test_recover1_not_registered() {
+        let user_record_in = UserRecord {
+            registration_state: RegistrationState::NotRegistered,
+        };
+        let (response, user_record_out) = recover1(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            user_record_in,
+        );
+        assert_eq!(response, Recover1Response::NotRegistered);
+        assert!(user_record_out.is_none());
+    }
+
+    #[test]
+    fn test_recover2_registered() {
+        let request = Recover2Request {
+            blinded_oprf_input: oprf_blinded_input(),
+        };
+        let user_record_in = registered_record(0);
+        let expected_user_record_out = registered_record(1);
+        let (response, user_record_out) = recover2(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            request,
+            user_record_in,
+        );
+        assert_eq!(
+            response,
+            Recover2Response::Ok {
+                blinded_oprf_result: oprf_blinded_result(),
+                masked_tgk_share: masked_tgk_share()
+            }
+        );
+        assert_eq!(user_record_out, Some(expected_user_record_out));
+    }
+
+    #[test]
+    fn test_recover2_no_guesses() {
+        let request = Recover2Request {
+            blinded_oprf_input: oprf_blinded_input(),
+        };
+        let user_record_in = UserRecord {
+            registration_state: RegistrationState::NoGuesses,
+        };
+        let (response, user_record_out) = recover2(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            request,
+            user_record_in,
+        );
+        assert_eq!(response, Recover2Response::NoGuesses);
+        assert!(user_record_out.is_none());
+    }
+
+    #[test]
+    fn test_recover2_not_registered() {
+        let request = Recover2Request {
+            blinded_oprf_input: oprf_blinded_input(),
+        };
+        let user_record_in = UserRecord {
+            registration_state: RegistrationState::NotRegistered,
+        };
+        let (response, user_record_out) = recover2(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            request,
+            user_record_in,
+        );
+        assert_eq!(response, Recover2Response::NotRegistered);
+        assert!(user_record_out.is_none());
+    }
+
+    #[test]
+    fn test_recover3_correct_unlock_tag() {
+        let request = Recover3Request { tag: unlock_tag() };
+        let user_record_in = registered_record(1);
+        let expected_user_record_out = registered_record(0);
+        let (response, user_record_out) = recover3(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            request,
+            user_record_in,
+        );
+        assert_eq!(
+            response,
+            Recover3Response::Ok {
+                secret_share: user_secret_share()
+            }
+        );
+        assert_eq!(user_record_out, Some(expected_user_record_out));
+    }
+
+    #[test]
+    fn test_recover3_wrong_unlock_tag_guesses_remaining() {
+        let request = Recover3Request {
+            tag: UnlockTag::from([5; 32]),
+        };
+        let user_record_in = registered_record(1);
+        let (response, user_record_out) = recover3(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            request,
+            user_record_in,
+        );
+        assert_eq!(
+            response,
+            Recover3Response::BadUnlockTag {
+                guesses_remaining: 1
+            }
+        );
+        assert!(user_record_out.is_none());
+    }
+
+    #[test]
+    fn test_recover3_wrong_unlock_tag_no_guesses_remaining() {
+        let request = Recover3Request {
+            tag: UnlockTag::from([5; 32]),
+        };
+        let user_record_in = registered_record(2);
+        let expected_user_record_out = UserRecord {
+            registration_state: RegistrationState::NoGuesses,
+        };
+        let (response, user_record_out) = recover3(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            request,
+            user_record_in,
+        );
+        assert_eq!(
+            response,
+            Recover3Response::BadUnlockTag {
+                guesses_remaining: 0
+            }
+        );
+        assert_eq!(user_record_out, Some(expected_user_record_out));
+    }
+
+    #[test]
+    fn test_recover3_no_guesses() {
+        let request = Recover3Request { tag: unlock_tag() };
+        let user_record_in = UserRecord {
+            registration_state: RegistrationState::NoGuesses,
+        };
+        let (response, user_record_out) = recover3(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            request,
+            user_record_in,
+        );
+        assert_eq!(response, Recover3Response::NoGuesses);
+        assert!(user_record_out.is_none());
+    }
+
+    #[test]
+    fn test_recover3_not_registered() {
+        let request = Recover3Request { tag: unlock_tag() };
+        let user_record_in = UserRecord {
+            registration_state: RegistrationState::NotRegistered,
+        };
+        let (response, user_record_out) = recover3(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            request,
+            user_record_in,
+        );
+        assert_eq!(response, Recover3Response::NotRegistered);
+        assert!(user_record_out.is_none());
+    }
+
+    #[test]
+    fn test_delete() {
+        let user_record_in = registered_record(0);
+        let expected_user_record_out = UserRecord {
+            registration_state: RegistrationState::NotRegistered,
+        };
+        let (response, user_record_out) = delete(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            user_record_in,
+        );
+        assert_eq!(response, DeleteResponse::Ok);
+        assert_eq!(user_record_out, Some(expected_user_record_out));
+    }
+
+    fn registered_record(guess_count: u16) -> UserRecord {
+        UserRecord {
+            registration_state: RegistrationState::Registered(Box::new(RegisteredState {
+                oprf_seed: oprf_seed(),
+                salt: salt(),
+                guess_count,
+                policy: policy(),
+                masked_tgk_share: masked_tgk_share(),
+                tag: unlock_tag(),
+                secret_share: user_secret_share(),
+            })),
+        }
+    }
+
+    fn oprf_seed() -> OprfSeed {
+        OprfSeed::from([2; 32])
+    }
+
+    fn oprf_blinded_input() -> OprfBlindedInput {
+        OprfBlindedInput::from([
+            0xe6, 0x92, 0xd0, 0xf3, 0x22, 0x96, 0xe9, 0x01, 0x97, 0xf4, 0x55, 0x7c, 0x74, 0x42,
+            0x99, 0xd2, 0x3e, 0x1d, 0xc2, 0x6c, 0xda, 0x1a, 0xea, 0x5a, 0xa7, 0x54, 0xb4, 0x6c,
+            0xee, 0x59, 0x55, 0x7c,
+        ])
+    }
+
+    fn oprf_blinded_result() -> OprfBlindedResult {
+        OprfBlindedResult::from([
+            0xee, 0x8d, 0x91, 0x39, 0xf7, 0x3e, 0xe8, 0x5, 0x99, 0xb7, 0x19, 0x4a, 0x15, 0x57,
+            0x2d, 0x88, 0x38, 0xb9, 0x31, 0x41, 0x13, 0x29, 0x99, 0x57, 0xa7, 0x48, 0x25, 0x1a,
+            0xf9, 0x6a, 0x76, 0x27,
+        ])
+    }
+
+    fn salt() -> Salt {
+        Salt::from([1; 32])
+    }
+
+    fn masked_tgk_share() -> MaskedTgkShare {
+        MaskedTgkShare::try_from(vec![1; 33]).unwrap()
+    }
+    fn unlock_tag() -> UnlockTag {
+        UnlockTag::from([3; 32])
+    }
+
+    fn user_secret_share() -> UserSecretShare {
+        UserSecretShare::try_from(vec![1; 146]).unwrap()
+    }
+
+    fn policy() -> Policy {
+        Policy { num_guesses: 2 }
+    }
 }

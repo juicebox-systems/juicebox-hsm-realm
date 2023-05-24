@@ -1,14 +1,16 @@
 use clap::Parser;
+use loam_sdk::{AuthToken, RealmId};
 use loam_sdk::{Policy, TokioSleeper};
 use loam_sdk_networking::rpc::LoadBalancerService;
 use reqwest::Certificate;
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tracing::info;
 
 use loam_mvp::http_client;
 use loam_mvp::logging;
-use loam_sdk::{AuthToken, Client, Pin, RecoverError, UserSecret};
+use loam_sdk::{Client, Pin, RecoverError, UserSecret};
 
 /// A Rust demo of the SDK.
 #[derive(Parser)]
@@ -17,9 +19,9 @@ struct Args {
     #[arg(short, long)]
     configuration: String,
 
-    /// The SDK client auth token, as a base64-encoded JWT.
+    /// The SDK client auth tokens, as a JSON string mapping realm ID to base64-encoded JWT.
     #[arg(short, long)]
-    auth_token: AuthToken,
+    auth_tokens: String,
 
     /// DER file containing self-signed certificate for connecting to the load
     /// balancers over TLS. May be given more than once.
@@ -36,6 +38,14 @@ async fn main() {
     let configuration =
         serde_json::from_str(&args.configuration).expect("failed to parse configuration");
 
+    let json_auth_tokens: HashMap<String, AuthToken> =
+        serde_json::from_str(&args.auth_tokens).expect("failed to parse auth tokens");
+
+    let auth_tokens = json_auth_tokens
+        .into_iter()
+        .map(|(id, token)| (RealmId(hex::decode(id).unwrap().try_into().unwrap()), token))
+        .collect();
+
     let lb_certs = args
         .tls_certificates
         .iter()
@@ -45,10 +55,14 @@ async fn main() {
         })
         .collect();
 
-    let client: Client<TokioSleeper, http_client::Client<LoadBalancerService>> = Client::with_tokio(
+    let client: Client<
+        TokioSleeper,
+        http_client::Client<LoadBalancerService>,
+        HashMap<RealmId, AuthToken>,
+    > = Client::with_tokio(
         configuration,
         vec![],
-        args.auth_token,
+        auth_tokens,
         http_client::Client::new(http_client::ClientOptions {
             additional_root_certs: lb_certs,
         }),

@@ -2,7 +2,7 @@ use clap::Parser;
 use futures::future::{join_all, try_join_all};
 use http::Uri;
 use reqwest::Url;
-use secrecy::ExposeSecret;
+use std::collections::HashMap;
 use std::env::current_dir;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -22,7 +22,7 @@ use loam_mvp::process_group::ProcessGroup;
 use loam_mvp::realm::cluster;
 use loam_mvp::realm::store::bigtable;
 use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretsFile};
-use loam_sdk::{Configuration, PinHashingMode, Realm};
+use loam_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
 
 #[derive(Parser)]
 #[command(
@@ -233,7 +233,7 @@ async fn main() {
     .unwrap();
 
     info!("creating additional realms");
-    let mut realms = join_all([5100, 6000, 7000].map(|start_port| {
+    let mut realms = join_all([5100, 6000, 7100].map(|start_port| {
         let mut hsm_generator = HsmGenerator::new(Entrust(false), start_port);
         let mut process_group = process_group.clone();
         let bigtable = bt_args.clone();
@@ -279,14 +279,29 @@ async fn main() {
         .next()
         .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 
-    let auth_token = create_token(
-        &Claims {
-            issuer: tenant.to_owned(),
-            subject: String::from("mario"),
-        },
-        &auth_key,
-        auth_key_version,
-    );
+    let auth_tokens: HashMap<RealmId, AuthToken> = configuration
+        .realms
+        .iter()
+        .map(|realm| {
+            (
+                realm.id,
+                create_token(
+                    &Claims {
+                        issuer: tenant.to_owned(),
+                        subject: String::from("mario"),
+                        audience: realm.id,
+                    },
+                    &auth_key,
+                    auth_key_version,
+                ),
+            )
+        })
+        .collect();
+
+    let jsonable_auth_tokens: HashMap<String, String> = auth_tokens
+        .iter()
+        .map(|(id, token)| (hex::encode(id.0), token.expose_secret().to_string()))
+        .collect();
 
     let mut demo_status: Option<ExitStatus> = None;
 
@@ -298,8 +313,8 @@ async fn main() {
                 .arg(certificates.cert_file_der.clone())
                 .arg("--configuration")
                 .arg(serde_json::to_string(&configuration).unwrap())
-                .arg("--auth-token")
-                .arg(auth_token.0.expose_secret())
+                .arg("--auth-tokens")
+                .arg(serde_json::to_string(&jsonable_auth_tokens).unwrap())
                 .status()
                 .expect("Couldn't run demo executable"),
         );
@@ -308,7 +323,7 @@ async fn main() {
     if args.keep_alive {
         warn!(
             configuration = serde_json::to_string(&configuration).unwrap(),
-            auth_token = auth_token.0.expose_secret(),
+            auth_tokens = serde_json::to_string(&jsonable_auth_tokens).unwrap(),
             tls_certificate = ?certificates.cert_file_der,
             "runner: stack is active, press ctrl-c to shutdown"
         );
