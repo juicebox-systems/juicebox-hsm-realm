@@ -338,7 +338,15 @@ pub enum AppResponse {
 
 pub fn make_record_id(tenant: &str, user: &str) -> RecordId {
     let mut h = Blake2s256::new();
-    // TODO: deal with possibility of b'|' occurring in `tenant` and `user`.
+    // TODO: deal with possibility of b'|' and other special characters
+    // occurring in `tenant` and `user`.
+    //
+    // TODO: maybe this should be a MAC with a per-realm key so that tenants
+    // can't cause unbalanced Merkle trees (the same way hash tables are
+    // randomized).
+    //
+    // TODO: we may need a way to enumerate all the users for a given tenant if
+    // that tenant wanted to delete all their data.
     h.update(tenant);
     h.update(b"|");
     h.update(user);
