@@ -7,7 +7,7 @@ use hsmcore::hsm::types::{OwnedRange, RecordId};
 use hsmcore::merkle::agent::{Node, StoreKey, TreeStoreError};
 use hsmcore::merkle::proof::ReadProof;
 use hsmcore::merkle::{Dir, HashOutput, KeyVec};
-use loam_sdk_core::types::RealmId;
+use juicebox_sdk_core::types::RealmId;
 
 /// Interface to read Merkle nodes, primarily used by the functions below. The
 /// only implementation is [`crate::realm::store::bigtable::StoreClient`].

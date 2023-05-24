@@ -2,13 +2,13 @@ use clap::Parser;
 use std::{net::SocketAddr, time::Duration};
 use tracing::info;
 
-use loam_mvp::clap_parsers::{parse_duration, parse_listen};
-use loam_mvp::exec::panic;
-use loam_mvp::google_auth;
-use loam_mvp::logging;
-use loam_mvp::metrics;
-use loam_mvp::realm::cluster::Manager;
-use loam_mvp::realm::store::bigtable;
+use juicebox_hsm::clap_parsers::{parse_duration, parse_listen};
+use juicebox_hsm::exec::panic;
+use juicebox_hsm::google_auth;
+use juicebox_hsm::logging;
+use juicebox_hsm::metrics;
+use juicebox_hsm::realm::cluster::Manager;
+use juicebox_hsm::realm::store::bigtable;
 
 #[derive(Debug, Parser)]
 #[command(about = "Management controller for Juicebox Clusters")]

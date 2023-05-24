@@ -7,11 +7,11 @@ use hsm_types::{
     RecordId, TransferNonce, TransferStatement,
 };
 use hsmcore::hsm::types as hsm_types;
-use loam_sdk_core::{
+use juicebox_sdk_core::{
     requests::{ClientRequestKind, NoiseRequest, NoiseResponse},
     types::{RealmId, SessionId},
 };
-use loam_sdk_networking::rpc::{Rpc, Service};
+use juicebox_sdk_networking::rpc::{Rpc, Service};
 
 #[derive(Clone, Debug)]
 pub struct AgentService();

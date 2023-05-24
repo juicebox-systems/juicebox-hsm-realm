@@ -2,13 +2,13 @@ use anyhow::anyhow;
 use reqwest::Url;
 use std::collections::HashMap;
 
-use loam_mvp::http_client::Client;
-use loam_mvp::realm::agent::types::AgentService;
-use loam_mvp::realm::store::bigtable::StoreClient;
-use loam_sdk::Configuration;
-use loam_sdk::PinHashingMode;
-use loam_sdk::Realm;
-use loam_sdk_core::types::RealmId;
+use juicebox_hsm::http_client::Client;
+use juicebox_hsm::realm::agent::types::AgentService;
+use juicebox_hsm::realm::store::bigtable::StoreClient;
+use juicebox_sdk::Configuration;
+use juicebox_sdk::PinHashingMode;
+use juicebox_sdk::Realm;
+use juicebox_sdk_core::types::RealmId;
 
 use crate::get_hsm_statuses;
 

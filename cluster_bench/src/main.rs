@@ -2,8 +2,8 @@ use anyhow::{anyhow, Context};
 use clap::Parser;
 use futures::StreamExt;
 use hdrhistogram::Histogram;
-use loam_sdk::{AuthToken, Policy, RealmId, TokioSleeper};
-use loam_sdk_networking::rpc::LoadBalancerService;
+use juicebox_sdk::{AuthToken, Policy, RealmId, TokioSleeper};
+use juicebox_sdk_networking::rpc::LoadBalancerService;
 use reqwest::Certificate;
 use std::collections::HashMap;
 use std::fs;
@@ -13,16 +13,16 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn, Level};
 
-use loam_mvp::client_auth::{
+use juicebox_hsm::client_auth::{
     creation::create_token, new_google_secret_manager, tenant_secret_name, AuthKey, Claims,
 };
-use loam_mvp::google_auth;
-use loam_mvp::http_client;
-use loam_mvp::logging;
-use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
-use loam_sdk::{Configuration, Pin, PinHashingMode, UserSecret};
+use juicebox_hsm::google_auth;
+use juicebox_hsm::http_client;
+use juicebox_hsm::logging;
+use juicebox_hsm::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
+use juicebox_sdk::{Configuration, Pin, PinHashingMode, UserSecret};
 
-type Client = loam_sdk::Client<
+type Client = juicebox_sdk::Client<
     TokioSleeper,
     http_client::Client<LoadBalancerService>,
     HashMap<RealmId, AuthToken>,

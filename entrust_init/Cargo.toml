@@ -11,7 +11,7 @@ clap = { workspace = true }
 entrust_api = { path = "../entrust_api" }
 entrust_nfast = { path = "../entrust_nfast" }
 hex = { workspace = true }
-loam-sdk-core = { workspace = true }
+juicebox-sdk-core = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

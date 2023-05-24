@@ -23,7 +23,7 @@ pub fn create_localhost_key_and_cert(dir: PathBuf) -> io::Result<Certificates> {
             "rsa:4096",
             "-nodes",
             "-subj",
-            "/C=US/ST=CA/L=SanFrancisco/O=Loam,Inc./OU=test/CN=localhost",
+            "/C=US/ST=CA/L=SanFrancisco/O=Juicebox Systems,Inc./OU=test/CN=localhost",
             "-x509",
             "-extensions",
             "ext",

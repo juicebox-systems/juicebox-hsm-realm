@@ -1,16 +1,16 @@
 use clap::Parser;
-use loam_sdk::{AuthToken, RealmId};
-use loam_sdk::{Policy, TokioSleeper};
-use loam_sdk_networking::rpc::LoadBalancerService;
+use juicebox_sdk::{AuthToken, RealmId};
+use juicebox_sdk::{Policy, TokioSleeper};
+use juicebox_sdk_networking::rpc::LoadBalancerService;
 use reqwest::Certificate;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tracing::info;
 
-use loam_mvp::http_client;
-use loam_mvp::logging;
-use loam_sdk::{Client, Pin, RecoverError, UserSecret};
+use juicebox_hsm::http_client;
+use juicebox_hsm::logging;
+use juicebox_sdk::{Client, Pin, RecoverError, UserSecret};
 
 /// A Rust demo of the SDK.
 #[derive(Parser)]
@@ -31,7 +31,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("loam-demo");
+    logging::configure("juicebox-demo");
 
     let args = Args::parse();
 

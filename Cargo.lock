@@ -25,10 +25,10 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "loam-mvp",
- "loam-sdk",
- "loam-sdk-core",
- "loam-sdk-networking",
+ "juicebox-sdk",
+ "juicebox-sdk-core",
+ "juicebox-sdk-networking",
+ "juicebox_hsm",
  "opentelemetry",
  "opentelemetry-http",
  "reqwest",
@@ -485,10 +485,10 @@ dependencies = [
  "futures",
  "hex",
  "hsmcore",
- "loam-mvp",
- "loam-sdk",
- "loam-sdk-core",
- "loam-sdk-networking",
+ "juicebox-sdk",
+ "juicebox-sdk-core",
+ "juicebox-sdk-networking",
+ "juicebox_hsm",
  "reqwest",
  "serde_json",
  "thiserror",
@@ -504,9 +504,9 @@ dependencies = [
  "clap 4.3.0",
  "futures",
  "hdrhistogram",
- "loam-mvp",
- "loam-sdk",
- "loam-sdk-networking",
+ "juicebox-sdk",
+ "juicebox-sdk-networking",
+ "juicebox_hsm",
  "reqwest",
  "serde_json",
  "tokio",
@@ -820,8 +820,8 @@ dependencies = [
  "entrust_api",
  "entrust_nfast",
  "expect-test",
- "loam-mvp",
- "loam-sdk-core",
+ "juicebox-sdk-core",
+ "juicebox_hsm",
  "tokio",
  "tracing 0.2.0",
 ]
@@ -833,7 +833,7 @@ dependencies = [
  "entrust_api",
  "hashbrown 0.13.2",
  "hsmcore",
- "loam-sdk-core",
+ "juicebox-sdk-core",
  "rand_core",
  "x25519-dalek",
 ]
@@ -855,7 +855,7 @@ dependencies = [
  "entrust_nfast",
  "expect-test",
  "hex",
- "loam-sdk-core",
+ "juicebox-sdk-core",
  "tracing 0.2.0",
 ]
 
@@ -1037,7 +1037,7 @@ dependencies = [
 [[package]]
 name = "gcp_auth"
 version = "0.8.0"
-source = "git+ssh://git@github.com/Loam-Security/gcp_auth.git?branch=loam-main#579fae9ef2767a239fd6ac79454aa7f468cfc7ef"
+source = "git+ssh://git@github.com/juicebox-systems/gcp_auth.git?branch=loam-main#579fae9ef2767a239fd6ac79454aa7f468cfc7ef"
 dependencies = [
  "async-trait",
  "base64 0.21.0",
@@ -1225,8 +1225,8 @@ dependencies = [
  "generic-array",
  "hashbrown 0.13.2",
  "hmac",
- "loam-sdk-core",
- "loam-sdk-noise",
+ "juicebox-sdk-core",
+ "juicebox-sdk-noise",
  "rand",
  "rand_core",
  "serde",
@@ -1510,6 +1510,133 @@ dependencies = [
 ]
 
 [[package]]
+name = "juicebox-sdk"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "async-trait",
+ "blake2",
+ "chacha20poly1305",
+ "digest",
+ "futures",
+ "hmac",
+ "instant",
+ "juicebox-sdk-core",
+ "juicebox-sdk-networking",
+ "juicebox-sdk-noise",
+ "rand",
+ "secrecy",
+ "serde",
+ "serde_repr",
+ "sharks",
+ "tokio",
+ "tracing 0.2.0",
+ "url",
+ "voprf",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "juicebox-sdk-core"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "digest",
+ "juicebox-sdk-noise",
+ "rand_core",
+ "secrecy",
+ "serde",
+ "subtle",
+ "voprf",
+]
+
+[[package]]
+name = "juicebox-sdk-networking"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "http",
+ "juicebox-sdk-core",
+ "opentelemetry",
+ "serde",
+ "thiserror",
+ "tracing 0.2.0",
+ "tracing-opentelemetry",
+ "url",
+]
+
+[[package]]
+name = "juicebox-sdk-noise"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "chacha20poly1305",
+ "digest",
+ "hkdf",
+ "hmac",
+ "rand_core",
+ "serde",
+ "tracing 0.2.0",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "juicebox_hsm"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-recursion",
+ "async-trait",
+ "blake2",
+ "bytes",
+ "clap 4.3.0",
+ "criterion",
+ "ctrlc",
+ "digest",
+ "dogstatsd",
+ "expect-test",
+ "futures",
+ "gcp_auth",
+ "hashbrown 0.13.2",
+ "hdrhistogram",
+ "hex",
+ "hex-literal",
+ "hsmcore",
+ "http",
+ "http-body-util",
+ "hyper 1.0.0-rc.3",
+ "is-terminal",
+ "jsonwebtoken",
+ "juicebox-sdk",
+ "juicebox-sdk-core",
+ "juicebox-sdk-networking",
+ "libc",
+ "nix",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry-http",
+ "opentelemetry-otlp",
+ "prost",
+ "prost-types",
+ "rand",
+ "rand_chacha",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tonic",
+ "tower",
+ "tracing 0.2.0",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "url",
+ "voprf",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1546,9 +1673,9 @@ dependencies = [
  "hsmcore",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "loam-mvp",
- "loam-sdk-core",
- "loam-sdk-networking",
+ "juicebox-sdk-core",
+ "juicebox-sdk-networking",
+ "juicebox_hsm",
  "opentelemetry",
  "opentelemetry-http",
  "rustls 0.20.8",
@@ -1559,133 +1686,6 @@ dependencies = [
  "tracing 0.2.0",
  "tracing-opentelemetry",
  "url",
-]
-
-[[package]]
-name = "loam-mvp"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "async-recursion",
- "async-trait",
- "blake2",
- "bytes",
- "clap 4.3.0",
- "criterion",
- "ctrlc",
- "digest",
- "dogstatsd",
- "expect-test",
- "futures",
- "gcp_auth",
- "hashbrown 0.13.2",
- "hdrhistogram",
- "hex",
- "hex-literal",
- "hsmcore",
- "http",
- "http-body-util",
- "hyper 1.0.0-rc.3",
- "is-terminal",
- "jsonwebtoken",
- "libc",
- "loam-sdk",
- "loam-sdk-core",
- "loam-sdk-networking",
- "nix",
- "once_cell",
- "opentelemetry",
- "opentelemetry-http",
- "opentelemetry-otlp",
- "prost",
- "prost-types",
- "rand",
- "rand_chacha",
- "reqwest",
- "secrecy",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
- "tonic",
- "tower",
- "tracing 0.2.0",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "url",
- "voprf",
-]
-
-[[package]]
-name = "loam-sdk"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "async-trait",
- "blake2",
- "chacha20poly1305",
- "digest",
- "futures",
- "hmac",
- "instant",
- "loam-sdk-core",
- "loam-sdk-networking",
- "loam-sdk-noise",
- "rand",
- "secrecy",
- "serde",
- "serde_repr",
- "sharks",
- "tokio",
- "tracing 0.2.0",
- "url",
- "voprf",
- "x25519-dalek",
-]
-
-[[package]]
-name = "loam-sdk-core"
-version = "0.1.0"
-dependencies = [
- "ciborium",
- "digest",
- "loam-sdk-noise",
- "rand_core",
- "secrecy",
- "serde",
- "subtle",
- "voprf",
-]
-
-[[package]]
-name = "loam-sdk-networking"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "http",
- "loam-sdk-core",
- "opentelemetry",
- "serde",
- "thiserror",
- "tracing 0.2.0",
- "tracing-opentelemetry",
- "url",
-]
-
-[[package]]
-name = "loam-sdk-noise"
-version = "0.1.0"
-dependencies = [
- "blake2",
- "chacha20poly1305",
- "digest",
- "hkdf",
- "hmac",
- "rand_core",
- "serde",
- "tracing 0.2.0",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -2427,7 +2427,7 @@ dependencies = [
 [[package]]
 name = "secrecy"
 version = "0.8.0"
-source = "git+ssh://git@github.com/Loam-Security/secrecy.git?branch=loam-main#b50e54817d6c4b919a8062e024bebe34aa3165c5"
+source = "git+ssh://git@github.com/juicebox-systems/secrecy.git?branch=loam-main#b50e54817d6c4b919a8062e024bebe34aa3165c5"
 dependencies = [
  "serde",
  "zeroize",
@@ -2605,8 +2605,8 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "loam-mvp",
- "loam-sdk-core",
+ "juicebox-sdk-core",
+ "juicebox_hsm",
  "rand",
  "reqwest",
  "tokio",

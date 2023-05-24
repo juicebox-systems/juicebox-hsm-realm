@@ -12,21 +12,21 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
-use loam_mvp::client_auth::{creation::create_token, tenant_secret_name, AuthKey, Claims};
-use loam_mvp::exec::bigtable::BigtableRunner;
-use loam_mvp::exec::certs::create_localhost_key_and_cert;
-use loam_mvp::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
-use loam_mvp::logging;
-use loam_mvp::metrics;
-use loam_mvp::process_group::ProcessGroup;
-use loam_mvp::realm::cluster;
-use loam_mvp::realm::store::bigtable;
-use loam_mvp::secret_manager::{BulkLoad, SecretManager, SecretsFile};
-use loam_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
+use juicebox_hsm::client_auth::{creation::create_token, tenant_secret_name, AuthKey, Claims};
+use juicebox_hsm::exec::bigtable::BigtableRunner;
+use juicebox_hsm::exec::certs::create_localhost_key_and_cert;
+use juicebox_hsm::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
+use juicebox_hsm::logging;
+use juicebox_hsm::metrics;
+use juicebox_hsm::process_group::ProcessGroup;
+use juicebox_hsm::realm::cluster;
+use juicebox_hsm::realm::store::bigtable;
+use juicebox_hsm::secret_manager::{BulkLoad, SecretManager, SecretsFile};
+use juicebox_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
 
 #[derive(Parser)]
 #[command(
-    about = "A tool to launch all the loam services and execute a demo binary configured to access them"
+    about = "A tool to launch all the juicebox services and execute a demo binary configured to access them"
 )]
 struct Args {
     /// Path to the demo binary to execute
@@ -44,7 +44,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("loam-demo-runner");
+    logging::configure("juicebox-demo-runner");
 
     let args = Args::parse();
     let metrics = metrics::Client::new("demo_runner");

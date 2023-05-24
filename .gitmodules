@@ -3,4 +3,4 @@
 	url = https://github.com/googleapis/googleapis
 [submodule "sdk"]
 	path = sdk
-	url = git@github.com:loam-security/loam-sdk
+	url = git@github.com:juicebox-systems/juicebox-sdk

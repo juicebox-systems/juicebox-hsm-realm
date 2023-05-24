@@ -10,8 +10,10 @@ use tokio::time::sleep;
 use tracing::{debug, info};
 
 use hsmcore::hsm::types::GroupId;
-use loam_sdk::{AuthToken, Client, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper};
-use loam_sdk_networking::rpc::{self, LoadBalancerService};
+use juicebox_sdk::{
+    AuthToken, Client, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper,
+};
+use juicebox_sdk_networking::rpc::{self, LoadBalancerService};
 
 use super::bigtable::BigtableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};

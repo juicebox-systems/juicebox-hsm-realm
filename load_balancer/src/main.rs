@@ -8,13 +8,13 @@ use std::thread;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use loam_mvp::client_auth::new_google_secret_manager;
-use loam_mvp::exec::panic;
-use loam_mvp::google_auth;
-use loam_mvp::logging;
-use loam_mvp::metrics;
-use loam_mvp::realm::store::bigtable;
-use loam_mvp::secret_manager::{Periodic, SecretManager, SecretsFile};
+use juicebox_hsm::client_auth::new_google_secret_manager;
+use juicebox_hsm::exec::panic;
+use juicebox_hsm::google_auth;
+use juicebox_hsm::logging;
+use juicebox_hsm::metrics;
+use juicebox_hsm::realm::store::bigtable;
+use juicebox_hsm::secret_manager::{Periodic, SecretManager, SecretsFile};
 
 mod cert;
 mod load_balancer;
@@ -57,7 +57,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("loam-load-balancer");
+    logging::configure("juicebox-load-balancer");
     panic::set_abort_on_panic();
 
     let args = Args::parse();

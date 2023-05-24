@@ -13,7 +13,7 @@ use hsmcore::{
         Tree,
     },
 };
-use loam_mvp::{
+use juicebox_hsm::{
     exec::{bigtable::BigtableRunner, PortIssuer},
     metrics,
     process_group::ProcessGroup,
@@ -22,7 +22,7 @@ use loam_mvp::{
         store::bigtable::{self, AppendError::LogPrecondition, StoreAdminClient, StoreClient},
     },
 };
-use loam_sdk_core::types::RealmId;
+use juicebox_sdk_core::types::RealmId;
 
 const REALM: RealmId = RealmId([200; 16]);
 const GROUP_1: GroupId = GroupId([1; 16]);

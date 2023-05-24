@@ -16,10 +16,10 @@ cli-table = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 hsmcore = { workspace = true }
-loam-mvp = { path = ".." }
-loam-sdk = { workspace = true }
-loam-sdk-core = { workspace = true }
-loam-sdk-networking = { workspace = true }
+juicebox_hsm = { path = ".." }
+juicebox-sdk = { workspace = true }
+juicebox-sdk-core = { workspace = true }
+juicebox-sdk-networking = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

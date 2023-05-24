@@ -13,8 +13,8 @@ use super::super::store::bigtable::StoreClient;
 use super::{Error, ManagementGrant, Manager};
 use hsm_types::{Configuration, GroupId, HsmId, LogIndex};
 use hsmcore::hsm::types as hsm_types;
-use loam_sdk_core::types::RealmId;
-use loam_sdk_networking::rpc::{self, RpcError};
+use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::rpc::{self, RpcError};
 
 impl Manager {
     pub(super) async fn ensure_groups_have_leader(&self) -> Result<(), Error> {

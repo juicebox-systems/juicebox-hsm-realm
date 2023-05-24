@@ -7,7 +7,7 @@ use subtle::ConstantTimeEq;
 use tracing::trace;
 
 use super::types::RecordId;
-use loam_sdk_core::{
+use juicebox_sdk_core::{
     marshalling,
     requests::{
         DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
@@ -288,7 +288,7 @@ pub fn process(
 
 #[cfg(test)]
 mod test {
-    use loam_sdk_core::{
+    use juicebox_sdk_core::{
         requests::{
             DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
             Recover3Response, Register1Response, Register2Request, Register2Response,

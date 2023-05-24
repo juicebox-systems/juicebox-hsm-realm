@@ -12,8 +12,8 @@ use super::super::agent::types::{
 use super::super::store::bigtable::StoreClient;
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
-use loam_sdk_core::types::RealmId;
-use loam_sdk_networking::rpc;
+use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::rpc;
 
 #[derive(Debug, Error)]
 pub enum TransferError {

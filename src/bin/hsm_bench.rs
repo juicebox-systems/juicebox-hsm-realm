@@ -8,15 +8,15 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
-use loam_mvp::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
-use loam_mvp::exec::hsm_gen::{Entrust, MetricsParticipants};
-use loam_mvp::http_client::{self};
-use loam_mvp::logging;
-use loam_mvp::process_group::ProcessGroup;
-use loam_mvp::realm::store::bigtable;
-use loam_sdk::{Client, Pin, UserSecret};
-use loam_sdk_core::types::Policy;
-use loam_sdk_networking::rpc::LoadBalancerService;
+use juicebox_hsm::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
+use juicebox_hsm::exec::hsm_gen::{Entrust, MetricsParticipants};
+use juicebox_hsm::http_client::{self};
+use juicebox_hsm::logging;
+use juicebox_hsm::process_group::ProcessGroup;
+use juicebox_hsm::realm::store::bigtable;
+use juicebox_sdk::{Client, Pin, UserSecret};
+use juicebox_sdk_core::types::Policy;
+use juicebox_sdk_networking::rpc::LoadBalancerService;
 
 /// An end-to-end benchmark to stress an HSM.
 #[derive(Debug, Parser)]
@@ -58,7 +58,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("loam-hsm-bench");
+    logging::configure("juicebox-hsm-bench");
 
     let mut process_group = ProcessGroup::new();
 

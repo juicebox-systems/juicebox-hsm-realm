@@ -1,5 +1,5 @@
 use jsonwebtoken::{self, Algorithm, DecodingKey, TokenData, Validation};
-use loam_sdk::RealmId;
+use juicebox_sdk::RealmId;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 

@@ -14,9 +14,9 @@ futures = { workspace = true }
 hsmcore = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-loam-mvp = { path = ".." }
-loam-sdk-core = { workspace = true }
-loam-sdk-networking = { workspace = true }
+juicebox_hsm = { path = ".." }
+juicebox-sdk-core = { workspace = true }
+juicebox-sdk-networking = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 rustls = { workspace = true }

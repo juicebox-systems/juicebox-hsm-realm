@@ -7,8 +7,8 @@ use std::str::FromStr;
 use std::time::Duration;
 use tracing::warn;
 
-use loam_sdk::http;
-use loam_sdk_networking::rpc;
+use juicebox_sdk::http;
+use juicebox_sdk_networking::rpc;
 
 use super::logging::Spew;
 

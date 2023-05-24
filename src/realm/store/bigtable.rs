@@ -28,8 +28,8 @@ use crate::metrics;
 use crate::metrics_tag as tag;
 use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex};
 use hsmcore::merkle::agent::StoreDelta;
-use loam_sdk_core::marshalling;
-use loam_sdk_core::types::RealmId;
+use juicebox_sdk_core::marshalling;
+use juicebox_sdk_core::types::RealmId;
 
 pub mod discovery;
 mod merkle;

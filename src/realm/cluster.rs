@@ -25,8 +25,8 @@ use super::rpc::handle_rpc;
 use super::store::bigtable::StoreClient;
 use hsm_types::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex};
 use hsmcore::hsm::types as hsm_types;
-use loam_sdk_core::types::RealmId;
-use loam_sdk_networking::rpc::{self, Rpc, RpcError};
+use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::rpc::{self, Rpc, RpcError};
 
 mod leader;
 mod realm;

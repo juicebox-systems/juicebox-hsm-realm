@@ -9,7 +9,7 @@ edition = "2021"
 entrust_api = { path = "../entrust_api" }
 hashbrown = { workspace = true  }
 hsmcore = { path = "../hsmcore" }
-loam-sdk-core = { workspace = true }
+juicebox-sdk-core = { workspace = true }
 rand_core = { workspace = true }
 x25519-dalek = { workspace = true }
 

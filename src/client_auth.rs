@@ -1,5 +1,5 @@
-use loam_sdk::RealmId;
-pub use loam_sdk_core::types::AuthToken;
+use juicebox_sdk::RealmId;
+pub use juicebox_sdk_core::types::AuthToken;
 use std::sync::Arc;
 use std::time::Duration;
 

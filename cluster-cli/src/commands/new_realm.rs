@@ -1,6 +1,6 @@
 use reqwest::Url;
 
-use loam_mvp::realm::cluster;
+use juicebox_hsm::realm::cluster;
 
 pub async fn new_realm(agent_addresses: &[Url]) -> anyhow::Result<()> {
     println!("Creating new realm");

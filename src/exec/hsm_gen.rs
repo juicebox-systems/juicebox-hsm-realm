@@ -3,7 +3,7 @@
 //! This module exists in part to encapsulate the secret shared between the HSMs.
 
 use futures::future::join_all;
-use loam_sdk_networking::rpc;
+use juicebox_sdk_networking::rpc;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::fmt::{Display, Write};

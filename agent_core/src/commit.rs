@@ -1,7 +1,7 @@
 use futures::future::join_all;
 use hsmcore::hsm::types::{Captured, EntryHmac, GroupMemberRole};
-use loam_sdk_core::requests::NoiseResponse;
-use loam_sdk_networking::rpc;
+use juicebox_sdk_core::requests::NoiseResponse;
+use juicebox_sdk_networking::rpc;
 use reqwest::Url;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -19,10 +19,10 @@ use hsmcore::hsm::{
         PersistStateRequest, PersistStateResponse,
     },
 };
-use loam_mvp::logging::Spew;
-use loam_mvp::metrics_tag as tag;
-use loam_mvp::realm::{hsm::client::Transport, store::bigtable::StoreClient};
-use loam_sdk::RealmId;
+use juicebox_hsm::logging::Spew;
+use juicebox_hsm::metrics_tag as tag;
+use juicebox_hsm::realm::{hsm::client::Transport, store::bigtable::StoreClient};
+use juicebox_sdk::RealmId;
 
 #[derive(Debug, Eq, PartialEq)]
 enum CommitterStatus {

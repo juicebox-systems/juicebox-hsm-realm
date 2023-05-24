@@ -17,14 +17,14 @@ use tracing::info;
 
 use agent_core::Agent;
 use hsmcore::hsm::MacKey;
-use loam_mvp::clap_parsers::{parse_duration, parse_listen};
-use loam_mvp::exec::panic;
-use loam_mvp::future_task::FutureTasks;
-use loam_mvp::google_auth;
-use loam_mvp::logging;
-use loam_mvp::metrics;
-use loam_mvp::realm::hsm::client::HsmClient;
-use loam_mvp::realm::store::bigtable;
+use juicebox_hsm::clap_parsers::{parse_duration, parse_listen};
+use juicebox_hsm::exec::panic;
+use juicebox_hsm::future_task::FutureTasks;
+use juicebox_hsm::google_auth;
+use juicebox_hsm::logging;
+use juicebox_hsm::metrics;
+use juicebox_hsm::realm::hsm::client::HsmClient;
+use juicebox_hsm::realm::store::bigtable;
 
 mod http_hsm;
 
@@ -68,7 +68,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("loam-agent");
+    logging::configure("juicebox-agent");
     panic::set_abort_on_panic();
 
     let mut shutdown_tasks = FutureTasks::new();

@@ -10,8 +10,8 @@ use super::super::agent::types::{
 };
 use hsm_types::{Configuration, GroupId, HsmId};
 use hsmcore::hsm::types as hsm_types;
-use loam_sdk_core::types::RealmId;
-use loam_sdk_networking::rpc::{self, RpcError};
+use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::rpc::{self, RpcError};
 
 #[derive(Debug, Error)]
 pub enum NewRealmError {

@@ -4,8 +4,8 @@ use http_body_util::{BodyExt, Full};
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use tracing::{trace, warn};
 
-use loam_sdk_core::marshalling;
-use loam_sdk_networking::rpc::{Rpc, Service};
+use juicebox_sdk_core::marshalling;
+use juicebox_sdk_networking::rpc::{Rpc, Service};
 
 #[derive(Debug)]
 pub enum HandlerError {

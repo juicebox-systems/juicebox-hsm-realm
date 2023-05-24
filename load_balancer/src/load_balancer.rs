@@ -6,10 +6,10 @@ use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use loam_mvp::metrics::{self, Tag};
-use loam_mvp::metrics_tag as tag;
-use loam_sdk_core::marshalling;
-use loam_sdk_networking::rpc;
+use juicebox_hsm::metrics::{self, Tag};
+use juicebox_hsm::metrics_tag as tag;
+use juicebox_sdk_core::marshalling;
+use juicebox_sdk_networking::rpc;
 use opentelemetry_http::HeaderExtractor;
 use rustls::server::ResolvesServerCert;
 use std::collections::HashMap;
@@ -29,18 +29,18 @@ use url::Url;
 
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
-use loam_mvp::client_auth::{
+use juicebox_hsm::client_auth::{
     tenant_secret_name, validation::Validator as AuthTokenValidator, AuthKey,
 };
-use loam_mvp::http_client::{Client, ClientOptions};
-use loam_mvp::logging::Spew;
-use loam_mvp::realm::agent::types::{
+use juicebox_hsm::http_client::{Client, ClientOptions};
+use juicebox_hsm::logging::Spew;
+use juicebox_hsm::realm::agent::types::{
     make_record_id, AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse,
 };
-use loam_mvp::realm::store::bigtable::StoreClient;
-use loam_mvp::secret_manager::SecretManager;
-use loam_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
-use loam_sdk_core::types::RealmId;
+use juicebox_hsm::realm::store::bigtable::StoreClient;
+use juicebox_hsm::secret_manager::SecretManager;
+use juicebox_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
+use juicebox_sdk_core::types::RealmId;
 
 #[derive(Clone)]
 pub struct LoadBalancer(Arc<State>);

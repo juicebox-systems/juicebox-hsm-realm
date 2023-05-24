@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::mpsc::channel};
 
-use loam_mvp::{
+use juicebox_hsm::{
     exec::{
         cluster_gen::{create_cluster, ClusterConfig, RealmConfig},
         hsm_gen::{Entrust, MetricsParticipants},
@@ -13,8 +13,8 @@ use loam_mvp::{
         store::bigtable,
     },
 };
-use loam_sdk::Policy;
-use loam_sdk_networking::rpc::{self};
+use juicebox_sdk::Policy;
+use juicebox_sdk_networking::rpc::{self};
 use once_cell::sync::Lazy;
 use tokio::task::JoinSet;
 

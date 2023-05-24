@@ -4,9 +4,9 @@ use reqwest::Url;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use hsmcore::hsm::types::{GroupId, GroupStatus, HsmId, LeaderStatus, OwnedRange};
-use loam_mvp::http_client::Client;
-use loam_mvp::realm::{agent::types::AgentService, store::bigtable::StoreClient};
-use loam_sdk_core::types::RealmId;
+use juicebox_hsm::http_client::Client;
+use juicebox_hsm::realm::{agent::types::AgentService, store::bigtable::StoreClient};
+use juicebox_sdk_core::types::RealmId;
 
 use crate::get_hsm_statuses;
 

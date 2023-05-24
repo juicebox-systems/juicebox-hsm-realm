@@ -30,15 +30,15 @@ use entrust_nfast::{
     NFastApp_Wait, NFastConn, NFastError, Reply, SEEInitStatus_OK, Status_OK, Status_ObjectInUse,
     Status_SEEWorldFailed, TicketDestination_AnySEEWorld,
 };
-use loam_mvp::clap_parsers::parse_duration;
-use loam_mvp::exec::panic;
-use loam_mvp::future_task::FutureTasks;
-use loam_mvp::google_auth;
-use loam_mvp::logging;
-use loam_mvp::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
-use loam_mvp::realm::store::bigtable;
-use loam_mvp::{metrics, metrics_tag as tag};
-use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
+use juicebox_hsm::clap_parsers::parse_duration;
+use juicebox_hsm::exec::panic;
+use juicebox_hsm::future_task::FutureTasks;
+use juicebox_hsm::google_auth;
+use juicebox_hsm::logging;
+use juicebox_hsm::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
+use juicebox_hsm::realm::store::bigtable;
+use juicebox_hsm::{metrics, metrics_tag as tag};
+use juicebox_sdk_core::marshalling::{self, DeserializationError, SerializationError};
 
 /// A host agent for use with an Entrust nCipherXC HSM.
 #[derive(Parser)]

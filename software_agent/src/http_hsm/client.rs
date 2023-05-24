@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
+use juicebox_sdk_core::marshalling::{self, DeserializationError, SerializationError};
 use std::fmt::Debug;
 use url::Url;
 
-use loam_mvp::realm::hsm::client::{HsmRpcError, Transport};
+use juicebox_hsm::realm::hsm::client::{HsmRpcError, Transport};
 
 #[derive(Clone)]
 pub struct HsmHttpClient {

@@ -7,14 +7,14 @@ use thiserror::Error;
 use tracing::{info, Level};
 
 use hsmcore::hsm::types::{GroupId, HsmId, OwnedRange, RecordId};
-use loam_mvp::client_auth::new_google_secret_manager;
-use loam_mvp::google_auth;
-use loam_mvp::http_client::{Client, ClientOptions};
-use loam_mvp::logging;
-use loam_mvp::metrics;
-use loam_mvp::realm::agent::types::AgentService;
-use loam_mvp::realm::store::bigtable::{self, StoreClient};
-use loam_sdk_core::types::RealmId;
+use juicebox_hsm::client_auth::new_google_secret_manager;
+use juicebox_hsm::google_auth;
+use juicebox_hsm::http_client::{Client, ClientOptions};
+use juicebox_hsm::logging;
+use juicebox_hsm::metrics;
+use juicebox_hsm::realm::agent::types::AgentService;
+use juicebox_hsm::realm::store::bigtable::{self, StoreClient};
+use juicebox_sdk_core::types::RealmId;
 
 mod commands;
 mod statuses;

@@ -9,8 +9,8 @@ use tracing::info;
 use tracing::{instrument, span::Span, trace, warn};
 
 use hsmcore::hsm::rpc::{HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
-use loam_sdk_core::marshalling::{self, DeserializationError, SerializationError};
-use loam_sdk_networking::rpc::RpcError;
+use juicebox_sdk_core::marshalling::{self, DeserializationError, SerializationError};
+use juicebox_sdk_networking::rpc::RpcError;
 
 use crate::{metrics, metrics_tag as tag};
 

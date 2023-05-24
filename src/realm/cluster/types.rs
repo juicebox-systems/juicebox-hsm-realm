@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use hsmcore::hsm::types::{GroupId, HsmId};
-use loam_sdk::RealmId;
-use loam_sdk_networking::rpc::{Rpc, RpcError, Service};
+use juicebox_sdk::RealmId;
+use juicebox_sdk_networking::rpc::{Rpc, RpcError, Service};
 
 #[derive(Clone, Debug)]
 pub struct ClusterService();

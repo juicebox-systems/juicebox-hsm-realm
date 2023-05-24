@@ -30,12 +30,12 @@ use super::merkle::{
 use super::mutation::{MutationTracker, OnMutationFinished};
 use app::RecordChange;
 use cache::Cache;
-use loam_sdk_core::{
+use juicebox_sdk_core::{
     requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
     types::{RealmId, SessionId},
     {marshalling, marshalling::DeserializationError},
 };
-use loam_sdk_noise::server as noise;
+use juicebox_sdk_noise::server as noise;
 use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use types::{
     AppError, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
@@ -2050,7 +2050,7 @@ fn make_next_log_entry(
 #[cfg(test)]
 mod test {
     use hashbrown::HashMap;
-    use loam_sdk_core::{marshalling, types::RealmId};
+    use juicebox_sdk_core::{marshalling, types::RealmId};
 
     use super::{
         super::bitvec,

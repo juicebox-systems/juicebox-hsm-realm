@@ -356,7 +356,7 @@ jobs:
     - uses: jetli/wasm-pack-action@v0.4.0
 
     - name: Build WASM
-      run: wasm-pack build sdk/rust/bridge/wasm --out-dir ../../../javascript/loam-sdk --out-name loam-sdk --target nodejs
+      run: wasm-pack build sdk/rust/bridge/wasm --out-dir ../../../javascript/juicebox-sdk --out-name juicebox-sdk --target nodejs
 
     - name: NPM Install
       run: |

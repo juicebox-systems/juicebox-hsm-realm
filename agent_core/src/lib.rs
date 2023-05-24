@@ -22,7 +22,7 @@ use url::Url;
 
 mod commit;
 
-pub use loam_mvp::realm::agent::types;
+pub use juicebox_hsm::realm::agent::types;
 
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, Captured, Configuration, EntryHmac, GroupId, HsmId,
@@ -31,16 +31,16 @@ use hsm_types::{
 use hsmcore::hsm::types as hsm_types;
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
-use loam_mvp::http_client::{Client, ClientOptions};
-use loam_mvp::metrics::{self, Tag};
-use loam_mvp::metrics_tag as tag;
-use loam_mvp::realm::hsm::client::{HsmClient, Transport};
-use loam_mvp::realm::merkle;
-use loam_mvp::realm::rpc::{handle_rpc, HandlerError};
-use loam_mvp::realm::store::bigtable;
-use loam_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
-use loam_sdk_core::types::RealmId;
-use loam_sdk_networking::rpc::Rpc;
+use juicebox_hsm::http_client::{Client, ClientOptions};
+use juicebox_hsm::metrics::{self, Tag};
+use juicebox_hsm::metrics_tag as tag;
+use juicebox_hsm::realm::hsm::client::{HsmClient, Transport};
+use juicebox_hsm::realm::merkle;
+use juicebox_hsm::realm::rpc::{handle_rpc, HandlerError};
+use juicebox_hsm::realm::store::bigtable;
+use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
+use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::rpc::Rpc;
 use types::{
     AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,

@@ -19,7 +19,7 @@ echo "Building version $GIT in $MODE mode"
 cargo build "--$MODE" \
   --package cluster-cli \
   --package load_balancer \
-  --package loam-mvp \
+  --package juicebox_hsm \
   --package software_agent \
   --bin cluster \
   --bin cluster_manager \

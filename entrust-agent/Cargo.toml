@@ -12,10 +12,10 @@ clap = { workspace = true }
 ctrlc = { workspace = true }
 entrust_api = { path = "../entrust_api" }
 entrust_nfast = { path = "../entrust_nfast" }
-loam-mvp = { path = ".." }
+juicebox_hsm = { path = ".." }
 tokio = { workspace = true }
 tracing = { workspace = true }
-loam-sdk-core = { workspace = true }
+juicebox-sdk-core = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }

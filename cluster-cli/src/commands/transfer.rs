@@ -1,6 +1,6 @@
 use hsmcore::hsm::types::{GroupId, OwnedRange};
-use loam_mvp::realm::store::bigtable::StoreClient;
-use loam_sdk_core::types::RealmId;
+use juicebox_hsm::realm::store::bigtable::StoreClient;
+use juicebox_sdk_core::types::RealmId;
 
 pub async fn transfer(
     realm: RealmId,
@@ -10,6 +10,6 @@ pub async fn transfer(
     store: &StoreClient,
 ) -> anyhow::Result<()> {
     println!("Transferring range {range:?} from group {source:?} to {destination:?}");
-    loam_mvp::realm::cluster::transfer(realm, source, destination, range, store).await?;
+    juicebox_hsm::realm::cluster::transfer(realm, source, destination, range, store).await?;
     Ok(())
 }

@@ -9,11 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use super::super::bitvec::{BitVec, Bits};
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
-use loam_sdk_core::{
+use juicebox_sdk_core::{
     requests::{NoiseRequest, NoiseResponse},
     types::{RealmId, SessionId},
 };
-use loam_sdk_noise::server as noise;
+use juicebox_sdk_noise::server as noise;
 
 #[derive(Copy, Clone, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct GroupId(pub [u8; 16]);

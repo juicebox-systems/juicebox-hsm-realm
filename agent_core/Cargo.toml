@@ -14,10 +14,10 @@ hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-loam-mvp = { path = ".." }
-loam-sdk = { workspace = true }
-loam-sdk-core = { workspace = true }
-loam-sdk-networking = { workspace = true }
+juicebox_hsm = { path = ".." }
+juicebox-sdk = { workspace = true }
+juicebox-sdk-core = { workspace = true }
+juicebox-sdk-networking = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 reqwest = { workspace = true }

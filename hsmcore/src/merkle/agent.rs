@@ -212,7 +212,7 @@ pub mod tests {
         all_store_key_starts, encode_prefix_into, Node, NodeKey, StoreKey, TreeStoreError,
     };
     use async_trait::async_trait;
-    use loam_sdk_core::types::RealmId;
+    use juicebox_sdk_core::types::RealmId;
 
     #[async_trait]
     pub trait TreeStoreReader<HO: HashOutput>: Sync {
