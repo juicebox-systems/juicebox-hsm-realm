@@ -766,3 +766,20 @@ enum KeyHalf {
     Public,
     Private,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use expect_test::expect_file;
+
+    #[test]
+    fn test_usage() {
+        expect_file!["../usage.txt"].assert_eq(
+            &Args::command()
+                .try_get_matches_from(["agent", "--help"])
+                .unwrap_err()
+                .to_string(),
+        );
+    }
+}

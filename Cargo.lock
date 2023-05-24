@@ -759,6 +759,7 @@ dependencies = [
  "ctrlc",
  "entrust_api",
  "entrust_nfast",
+ "expect-test",
  "loam-mvp",
  "loam-sdk-core",
  "tokio",
