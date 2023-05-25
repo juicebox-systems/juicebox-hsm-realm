@@ -1,17 +1,14 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use core::{
-    fmt::{self, Debug, Display},
-    hash::Hash,
-};
+use core::fmt::{self, Debug, Display};
+use core::hash::Hash;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, Bytes};
 
-use self::{
-    agent::{DeltaBuilder, Node, NodeKey, StoreDelta},
-    overlay::TreeOverlay,
-    proof::{ProofError, ReadProof, VerifiedProof},
-};
+use self::agent::{DeltaBuilder, Node, NodeKey, StoreDelta};
+use self::overlay::TreeOverlay;
+use self::proof::{ProofError, ReadProof, VerifiedProof};
 use super::bitvec::{BitSlice, BitVec, Bits};
 use super::hsm::types::{OwnedRange, RecordId};
 
@@ -27,7 +24,6 @@ pub type KeyVec = BitVec;
 pub type KeySlice<'a> = BitSlice<'a>;
 
 // TODO
-//  blake hasher
 //  docs
 //  more tests
 
@@ -177,8 +173,10 @@ impl<HO: HashOutput> InteriorNode<HO> {
     }
 }
 
+#[serde_as]
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct LeafNode {
+    #[serde_as(as = "Bytes")]
     pub value: Vec<u8>,
 }
 
@@ -310,13 +308,84 @@ mod tests {
         *,
     };
     use crate::bitvec;
-    use juicebox_sdk_core::types::RealmId;
+    use juicebox_sdk_core::{marshalling, types::RealmId};
     use std::{
         collections::{BTreeMap, HashMap},
         hash::Hasher,
     };
 
     pub const TEST_REALM: RealmId = RealmId([42u8; 16]);
+
+    #[test]
+    fn test_leaf_serialization() {
+        let rt = |v: Vec<u8>| {
+            let v_len = v.len();
+            let node = Node::<TestHash>::Leaf(LeafNode { value: v });
+            let marshalled = marshalling::to_vec(&node).unwrap();
+            // there's ~15 bytes of overhead currently (mostly field names)
+            assert!(
+                marshalled.len() < v_len + 20,
+                "expecting marshalled length of {} to be less than {}",
+                marshalled.len(),
+                v_len + 20
+            );
+            let node2 = marshalling::from_slice(&marshalled).unwrap();
+            assert_eq!(node, node2);
+        };
+        rt(Vec::new());
+        rt(vec![42; 124]);
+        rt(vec![255, 32]);
+        rt(vec![0; 1]);
+        let mut v = vec![0u8; 300];
+        for i in 0..v.len() {
+            v[i] = (i % 255).try_into().unwrap();
+        }
+        rt(v);
+    }
+
+    #[test]
+    fn test_interior_node_serialization() {
+        let rt = |n: InteriorNode<TestHash>| {
+            let node = Node::Interior(n);
+            let marshalled = marshalling::to_vec(&node).unwrap();
+            let node2 = marshalling::from_slice(&marshalled).unwrap();
+            assert_eq!(node, node2);
+            // (prefix is 32, testhash is 8)*2 = 80 + ~80 overhead (types, fieldnames)
+            assert!(
+                marshalled.len() < 160,
+                "expecting marshalled length of {} to be less than 160",
+                marshalled.len(),
+            );
+        };
+        rt(InteriorNode {
+            left: None,
+            right: None,
+        });
+        rt(InteriorNode {
+            left: Some(Branch {
+                prefix: BitVec::from_bytes(&[128; 32]),
+                hash: TestHash([43; 8]),
+            }),
+            right: Some(Branch {
+                prefix: BitVec::new(),
+                hash: TestHash([255; 8]),
+            }),
+        });
+        rt(InteriorNode {
+            left: None,
+            right: Some(Branch {
+                prefix: BitVec::from_bytes(&[42; 32]),
+                hash: TestHash([243; 8]),
+            }),
+        });
+        rt(InteriorNode {
+            left: Some(Branch {
+                prefix: BitVec::new(),
+                hash: TestHash([43; 8]),
+            }),
+            right: None,
+        });
+    }
 
     #[tokio::test]
     async fn get_nothing() {
@@ -643,8 +712,9 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct TestHash(pub [u8; 8]);
+    #[serde_as]
+    #[derive(Clone, Copy, PartialEq, Deserialize, Eq, Hash, Serialize)]
+    pub struct TestHash(#[serde_as(as = "Bytes")] pub [u8; 8]);
     impl HashOutput for TestHash {
         fn from_slice(bytes: &[u8]) -> Option<TestHash> {
             if bytes.len() == 8 {

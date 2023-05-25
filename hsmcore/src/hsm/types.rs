@@ -5,6 +5,7 @@ use blake2::Blake2s256;
 use core::fmt::{self, Display};
 use core::time::Duration;
 use hmac::SimpleHmac;
+use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 
 use super::super::bitvec::{BitVec, Bits};
@@ -226,7 +227,7 @@ impl OwnedRange {
     }
 }
 
-#[derive(Clone, Copy, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct DataHash(pub digest::Output<Blake2s256>);
 
 impl fmt::Debug for DataHash {
@@ -249,6 +250,38 @@ impl HashOutput for DataHash {
     }
     fn as_u8(&self) -> &[u8] {
         &self.0
+    }
+}
+
+impl Serialize for DataHash {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+impl<'de> Deserialize<'de> for DataHash {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_bytes(DataHashVisitor)
+    }
+}
+struct DataHashVisitor;
+impl<'de> Visitor<'de> for DataHashVisitor {
+    type Value = DataHash;
+
+    fn expecting(&self, formatter: &mut alloc::fmt::Formatter) -> alloc::fmt::Result {
+        write!(formatter, "expecting byte array")
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        DataHash::from_slice(v).ok_or(serde::de::Error::invalid_length(v.len(), &self))
     }
 }
 
@@ -730,8 +763,12 @@ impl From<AppError> for AppResponse {
 
 #[cfg(test)]
 mod test {
+    use juicebox_sdk_core::marshalling;
+
+    use crate::merkle::HashOutput;
+
     use super::super::super::bitvec::Bits;
-    use super::RecordId;
+    use super::{DataHash, RecordId};
 
     #[test]
     fn record_id_bitvec() {
@@ -741,5 +778,14 @@ mod test {
         assert_eq!(&rec.0, v.as_bytes());
         let rec2 = RecordId::from_bitvec(&v);
         assert_eq!(rec, rec2);
+    }
+
+    #[test]
+    fn data_hash() {
+        let h = DataHash::from_slice(&[200u8; 32]).unwrap();
+        let m = marshalling::to_vec(&h).unwrap();
+        assert_eq!(34, m.len()); // 32 bytes + 2 bytes to say its 32 bytes.
+        let h2 = marshalling::from_slice(&m).unwrap();
+        assert_eq!(h, h2);
     }
 }
