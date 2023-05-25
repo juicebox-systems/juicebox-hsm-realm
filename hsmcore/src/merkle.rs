@@ -337,8 +337,8 @@ mod tests {
         rt(vec![255, 32]);
         rt(vec![0; 1]);
         let mut v = vec![0u8; 300];
-        for i in 0..v.len() {
-            v[i] = (i % 255).try_into().unwrap();
+        for (i, val) in v.iter_mut().enumerate() {
+            *val = (i % 255).try_into().unwrap();
         }
         rt(v);
     }
