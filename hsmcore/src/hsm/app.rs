@@ -15,8 +15,8 @@ use juicebox_sdk_core::{
         SecretsResponse,
     },
     types::{
-        MaskedTgkShare, OprfBlindedResult, OprfSeed, OprfServer, Policy, Salt, UnlockTag,
-        UserSecretShare, OPRF_KEY_INFO,
+        MaskedTgkShare, OprfBlindedResult, OprfSeed, OprfServer, Policy, RegistrationVersion,
+        SaltShare, UnlockTag, UserSecretShare, OPRF_KEY_INFO,
     },
 };
 
@@ -46,7 +46,8 @@ enum RegistrationState {
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct RegisteredState {
     oprf_seed: OprfSeed,
-    salt: Salt,
+    version: RegistrationVersion,
+    salt_share: SaltShare,
     guess_count: u16,
     policy: Policy,
     masked_tgk_share: MaskedTgkShare,
@@ -69,7 +70,8 @@ fn register2(
 
     user_record.registration_state = RegistrationState::Registered(Box::new(RegisteredState {
         oprf_seed: request.oprf_seed,
-        salt: request.salt,
+        version: request.version,
+        salt_share: request.salt_share,
         guess_count: 0,
         policy: request.policy,
         masked_tgk_share: request.masked_tgk_share,
@@ -99,7 +101,8 @@ fn recover1(
         }
         RegistrationState::Registered(state) => (
             Recover1Response::Ok {
-                salt: state.salt.clone(),
+                version: state.version.clone(),
+                salt_share: state.salt_share.clone(),
             },
             None,
         ),
@@ -127,6 +130,14 @@ fn recover2(
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
     let (oprf_seed, masked_tgk_share) = match &mut user_record.registration_state {
+        RegistrationState::Registered(state) if state.version != request.version => {
+            trace!(
+                hsm = ctx.hsm_name,
+                ?record_id,
+                "can't recover: wrong version"
+            );
+            return (Recover2Response::VersionMismatch, None);
+        }
         RegistrationState::Registered(state) if state.guess_count >= state.policy.num_guesses => {
             trace!(
                 hsm = ctx.hsm_name,
@@ -186,6 +197,14 @@ fn recover3(
                 "can't recover: not registered"
             );
             (Recover3Response::NotRegistered, None)
+        }
+        RegistrationState::Registered(state) if state.version != request.version => {
+            trace!(
+                hsm = ctx.hsm_name,
+                ?record_id,
+                "can't recover: wrong version"
+            );
+            (Recover3Response::VersionMismatch, None)
         }
         RegistrationState::Registered(state) if !bool::from(request.tag.ct_eq(&state.tag)) => {
             trace!(
@@ -294,8 +313,8 @@ mod test {
             Recover3Response, Register1Response, Register2Request, Register2Response,
         },
         types::{
-            MaskedTgkShare, OprfBlindedInput, OprfBlindedResult, OprfSeed, Policy, Salt, UnlockTag,
-            UserSecretShare,
+            MaskedTgkShare, OprfBlindedInput, OprfBlindedResult, OprfSeed, Policy,
+            RegistrationVersion, SaltShare, UnlockTag, UserSecretShare,
         },
     };
 
@@ -315,7 +334,8 @@ mod test {
     #[test]
     fn test_register2() {
         let request = Register2Request {
-            salt: salt(),
+            version: version(),
+            salt_share: salt_share(),
             oprf_seed: oprf_seed(),
             tag: unlock_tag(),
             masked_tgk_share: masked_tgk_share(),
@@ -342,7 +362,13 @@ mod test {
             &RecordId([0; 32]),
             user_record_in,
         );
-        assert_eq!(response, Recover1Response::Ok { salt: salt() });
+        assert_eq!(
+            response,
+            Recover1Response::Ok {
+                version: version(),
+                salt_share: salt_share()
+            }
+        );
         assert!(user_record_out.is_none());
     }
 
@@ -377,6 +403,7 @@ mod test {
     #[test]
     fn test_recover2_registered() {
         let request = Recover2Request {
+            version: version(),
             blinded_oprf_input: oprf_blinded_input(),
         };
         let user_record_in = registered_record(0);
@@ -398,8 +425,26 @@ mod test {
     }
 
     #[test]
+    fn test_recover2_wrong_version() {
+        let request = Recover2Request {
+            version: RegistrationVersion::from([1; 16]),
+            blinded_oprf_input: oprf_blinded_input(),
+        };
+        let user_record_in = registered_record(0);
+        let (response, user_record_out) = recover2(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            request,
+            user_record_in,
+        );
+        assert_eq!(response, Recover2Response::VersionMismatch,);
+        assert!(user_record_out.is_none());
+    }
+
+    #[test]
     fn test_recover2_no_guesses() {
         let request = Recover2Request {
+            version: version(),
             blinded_oprf_input: oprf_blinded_input(),
         };
         let user_record_in = UserRecord {
@@ -418,6 +463,7 @@ mod test {
     #[test]
     fn test_recover2_not_registered() {
         let request = Recover2Request {
+            version: version(),
             blinded_oprf_input: oprf_blinded_input(),
         };
         let user_record_in = UserRecord {
@@ -435,7 +481,10 @@ mod test {
 
     #[test]
     fn test_recover3_correct_unlock_tag() {
-        let request = Recover3Request { tag: unlock_tag() };
+        let request = Recover3Request {
+            version: version(),
+            tag: unlock_tag(),
+        };
         let user_record_in = registered_record(1);
         let expected_user_record_out = registered_record(0);
         let (response, user_record_out) = recover3(
@@ -454,8 +503,26 @@ mod test {
     }
 
     #[test]
+    fn test_recover3_wrong_version() {
+        let request = Recover3Request {
+            version: RegistrationVersion::from([1; 16]),
+            tag: unlock_tag(),
+        };
+        let user_record_in = registered_record(0);
+        let (response, user_record_out) = recover3(
+            &AppContext { hsm_name: "test" },
+            &RecordId([0; 32]),
+            request,
+            user_record_in,
+        );
+        assert_eq!(response, Recover3Response::VersionMismatch,);
+        assert!(user_record_out.is_none());
+    }
+
+    #[test]
     fn test_recover3_wrong_unlock_tag_guesses_remaining() {
         let request = Recover3Request {
+            version: version(),
             tag: UnlockTag::from([5; 32]),
         };
         let user_record_in = registered_record(1);
@@ -477,6 +544,7 @@ mod test {
     #[test]
     fn test_recover3_wrong_unlock_tag_no_guesses_remaining() {
         let request = Recover3Request {
+            version: version(),
             tag: UnlockTag::from([5; 32]),
         };
         let user_record_in = registered_record(2);
@@ -500,7 +568,10 @@ mod test {
 
     #[test]
     fn test_recover3_no_guesses() {
-        let request = Recover3Request { tag: unlock_tag() };
+        let request = Recover3Request {
+            version: version(),
+            tag: unlock_tag(),
+        };
         let user_record_in = UserRecord {
             registration_state: RegistrationState::NoGuesses,
         };
@@ -516,7 +587,10 @@ mod test {
 
     #[test]
     fn test_recover3_not_registered() {
-        let request = Recover3Request { tag: unlock_tag() };
+        let request = Recover3Request {
+            version: version(),
+            tag: unlock_tag(),
+        };
         let user_record_in = UserRecord {
             registration_state: RegistrationState::NotRegistered,
         };
@@ -549,7 +623,8 @@ mod test {
         UserRecord {
             registration_state: RegistrationState::Registered(Box::new(RegisteredState {
                 oprf_seed: oprf_seed(),
-                salt: salt(),
+                version: version(),
+                salt_share: salt_share(),
                 guess_count,
                 policy: policy(),
                 masked_tgk_share: masked_tgk_share(),
@@ -579,13 +654,18 @@ mod test {
         ])
     }
 
-    fn salt() -> Salt {
-        Salt::from([1; 32])
+    fn version() -> RegistrationVersion {
+        RegistrationVersion::from([0; 16])
+    }
+
+    fn salt_share() -> SaltShare {
+        SaltShare::from([1; 17])
     }
 
     fn masked_tgk_share() -> MaskedTgkShare {
         MaskedTgkShare::try_from(vec![1; 33]).unwrap()
     }
+
     fn unlock_tag() -> UnlockTag {
         UnlockTag::from([3; 32])
     }
