@@ -1468,7 +1468,6 @@ checksum = "1885e79c1fc4b10f0e172c475f458b7f7b93061064d98c3293e98c5ba0c8b399"
 dependencies = [
  "autocfg",
  "hashbrown 0.12.3",
- "serde",
 ]
 
 [[package]]
@@ -2563,7 +2562,6 @@ dependencies = [
  "base64 0.21.0",
  "chrono",
  "hex",
- "indexmap",
  "serde",
  "serde_json",
  "serde_with_macros",
@@ -2815,7 +2813,6 @@ version = "0.3.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd0cbfecb4d19b5ea75bb31ad904eb5b9fa13f21079c3b92017ebdf4999a5890"
 dependencies = [
- "itoa",
  "serde",
  "time-core",
  "time-macros",
