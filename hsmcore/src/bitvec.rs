@@ -9,6 +9,7 @@ use core::{
     ops::{Bound, Index, RangeBounds},
 };
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, Bytes};
 
 /// The bitvec! macro is used to easily create new bitvecs. Its very similar to vec!
 /// let bits = bitvec![0,0,1]
@@ -68,6 +69,7 @@ pub trait Bits<'a>: Sized {
 ///
 /// TODO: Serialize writes out the full 256 bits even if only 3 are used. That
 /// can be made more efficient
+#[serde_as]
 #[derive(Clone, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct BitVec {
     len: usize,
@@ -76,6 +78,7 @@ pub struct BitVec {
     // Invariants:
     // * Unused bits are set to 0.
     // * 0 <= len <= 256
+    #[serde_as(as = "Bytes")]
     bits: [u8; 32],
 }
 
