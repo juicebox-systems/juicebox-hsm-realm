@@ -61,6 +61,7 @@ struct Args {
         long,
         value_enum,
         value_delimiter(','),
+        value_name = "OP",
         default_value = "register,recover,delete"
     )]
     plan: Vec<Operation>,
@@ -84,7 +85,7 @@ struct Args {
     /// The string that all generated usernames begin with.
     ///
     /// A number is concatenated to the end of this to form the username.
-    #[arg(long, value_name = "N", default_value = "mario")]
+    #[arg(long, value_name = "NAME", default_value = "mario")]
     user_prefix: String,
 
     /// The starting number after the prefix in the generated usernames.
