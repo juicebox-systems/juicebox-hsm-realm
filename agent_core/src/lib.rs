@@ -78,10 +78,21 @@ struct LeaderState {
     /// Log entries may be received out of order from the HSM. They are buffered
     /// here until they can be appended to the log in order.
     append_queue: HashMap<LogIndex, Append>,
+
     /// This serves as a mutex to prevent multiple concurrent appends to the
     /// store.
     appending: AppendingState,
+
+    /// A copy of the last log entry that was acknowledged by the store.
+    ///
+    /// This is used in the read path to avoid reading the last log entry in
+    /// the common case.
+    last_appended: Option<LogEntry>,
+
+    /// Used to route responses back to the right client after the HSM commits
+    /// a batch of log entries and releases the responses.
     response_channels: HashMap<EntryHmac, oneshot::Sender<NoiseResponse>>,
+
     /// When set the leader is stepping down, and should stop processing once
     /// this log entry is complete.
     stepdown_at: Option<LogIndex>,
@@ -563,6 +574,7 @@ impl<T: Transport + 'static> Agent<T> {
                 appending: NotAppending {
                     next: starting_index.next(),
                 },
+                last_appended: None,
                 response_channels: HashMap::new(),
                 stepdown_at: None,
             },
@@ -1179,10 +1191,26 @@ impl<T: Transport + 'static> Agent<T> {
 
         let realm = request.realm;
         let group = request.group;
+        let tags = [tag!(?realm), tag!(?group)];
 
-        match self.start_app_request(request).await {
+        let start_result = self
+            .0
+            .metrics
+            .async_time("agent.start_app_request.time", &tags, || {
+                self.start_app_request(request, &tags)
+            })
+            .await;
+
+        match start_result {
             Err(response) => Ok(response),
-            Ok(append_request) => self.finish_app_request(realm, group, append_request).await,
+            Ok(append_request) => {
+                self.0
+                    .metrics
+                    .async_time("agent.commit.latency", &tags, || {
+                        self.finish_app_request(realm, group, append_request)
+                    })
+                    .await
+            }
         }
     }
 
@@ -1196,7 +1224,6 @@ impl<T: Transport + 'static> Agent<T> {
         type Response = AppResponse;
 
         let (sender, receiver) = oneshot::channel::<NoiseResponse>();
-        let start = Instant::now();
 
         {
             let mut locked = self.0.state.lock().unwrap();
@@ -1210,34 +1237,41 @@ impl<T: Transport + 'static> Agent<T> {
 
         self.append(realm, group, append_request);
         match receiver.await {
-            Ok(response) => {
-                self.0.metrics.timing(
-                    "agent.commit.latency",
-                    start.elapsed(),
-                    [tag!(?realm), tag!(?group)],
-                );
-
-                Ok(Response::Ok(response))
-            }
+            Ok(response) => Ok(Response::Ok(response)),
             Err(oneshot::Canceled) => Ok(Response::NotLeader),
         }
     }
 
     #[instrument(level = "trace")]
-    async fn start_app_request(&self, request: AppRequest) -> Result<Append, AppResponse> {
+    async fn start_app_request(
+        &self,
+        request: AppRequest,
+        tags: &[metrics::Tag],
+    ) -> Result<Append, AppResponse> {
         type HsmResponse = hsm_types::AppResponse;
         type Response = AppResponse;
 
         for attempt in 0..100 {
-            let entry = match self
-                .0
-                .store
-                .read_last_log_entry(&request.realm, &request.group)
-                .await
-            {
-                Err(_) => return Err(Response::NoStore),
-                Ok(Some(entry)) => entry,
-                Ok(None) => return Err(Response::InvalidGroup),
+            let cached_entry: Option<LogEntry> = {
+                let mut locked = self.0.state.lock().unwrap();
+                let Some(leader) = locked.leader.get_mut(&(request.realm, request.group)) else {
+                    return Err(Response::NotLeader);
+                };
+                leader.last_appended.clone()
+            };
+
+            let entry: LogEntry = match cached_entry {
+                Some(entry) => entry,
+                None => match self
+                    .0
+                    .store
+                    .read_last_log_entry(&request.realm, &request.group)
+                    .await
+                {
+                    Err(_) => return Err(Response::NoStore),
+                    Ok(Some(entry)) => entry,
+                    Ok(None) => return Err(Response::InvalidGroup),
+                },
             };
 
             let Some(partition) = entry.partition else {
@@ -1251,10 +1285,7 @@ impl<T: Transport + 'static> Agent<T> {
                 &partition.root_hash,
                 &request.record_id,
                 &self.0.metrics,
-                &[
-                    tag!(realm: "{:?}", request.realm),
-                    tag!(group: "{:?}", request.group),
-                ],
+                tags,
             )
             .await
             {
@@ -1392,9 +1423,9 @@ impl<T: Transport + 'static> Agent<T> {
                     {
                         let mut locked = self.0.state.lock().unwrap();
                         // Empty the queue so we don't try and append anything else.
-                        if let Some(ls) = locked.leader.get_mut(&(realm, group)) {
-                            ls.append_queue.clear();
-                            ls.appending = NotAppending {
+                        if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
+                            leader.append_queue.clear();
+                            leader.appending = NotAppending {
                                 next: LogIndex(u64::MAX),
                             };
                         }
@@ -1404,11 +1435,20 @@ impl<T: Transport + 'static> Agent<T> {
                         .expect("error during leader stepdown");
                     return;
                 }
+
                 Err(err) => todo!("{err:?}"),
+
                 Ok(()) => {
+                    let batch_size = batch.len();
+                    {
+                        let mut locked = self.0.state.lock().unwrap();
+                        if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
+                            leader.last_appended = batch.pop();
+                        }
+                    }
                     self.record_append_metrics(
                         start.elapsed(),
-                        batch.len(),
+                        batch_size,
                         queue_depth,
                         &metric_tags,
                     );

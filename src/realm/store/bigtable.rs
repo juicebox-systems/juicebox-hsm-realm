@@ -631,6 +631,7 @@ impl StoreClient {
         group: &GroupId,
     ) -> Result<Option<LogEntry>, tonic::Status> {
         trace!(?realm, ?group, "read_last_log_entry starting");
+        let start = Instant::now();
 
         let rows = read_rows(
             &mut self.bigtable.clone(),
@@ -660,6 +661,11 @@ impl StoreClient {
                 .map(|cell| marshalling::from_slice(&cell.value).expect("TODO"))
         });
 
+        self.metrics.timing(
+            "store_client.read_last_log_entry.time",
+            start.elapsed(),
+            [tag!(?realm), tag!(?group)],
+        );
         trace!(?realm, ?group, ?entry, "read_last_log_entry completed");
         Ok(entry)
     }
