@@ -50,6 +50,10 @@ struct Args {
     #[arg(long, value_name = "NAME", required_unless_present("secrets_file"))]
     gcp_project: Option<String>,
 
+    /// Share an HTTP(S) connection pool across all concurrent clients.
+    #[arg(long = "conn-pool")]
+    share_http_connections: bool,
+
     /// List of operations to benchmark. Pass multiple times or use a
     /// comma-separated list.
     #[arg(
@@ -121,7 +125,16 @@ async fn run(args: Args) -> anyhow::Result<()> {
         })
         .collect::<anyhow::Result<_>>()?;
 
+    let shared_http_client = if args.share_http_connections {
+        Some(http_client::Client::new(http_client::ClientOptions {
+            additional_root_certs: certs.clone(),
+        }))
+    } else {
+        None
+    };
+
     let client_builder = Arc::new(ClientBuilder {
+        shared_http_client,
         certs,
         configuration,
         tenant: args.tenant,
@@ -225,8 +238,10 @@ async fn run_op(
 ) -> Result<Duration, ()> {
     let start = Instant::now();
 
-    // Each operation creates a fresh client so that it cannot reuse TCP, HTTP,
-    // TLS, or Noise connections, which would be cheating.
+    // Each operation creates a fresh client so that it cannot reuse Noise
+    // connections, which would be cheating. If `args.share_http_connections`
+    // is set, the clients will share TCP, HTTP, and TLS connections, which is
+    // also cheating with respect to network behavior and load balancer load.
     let client = if op == Operation::AuthError {
         client_builder.build_with_auth_key(
             format!("mario{i}"),
@@ -287,6 +302,7 @@ async fn run_op(
 }
 
 struct ClientBuilder {
+    shared_http_client: Option<http_client::Client<LoadBalancerService>>,
     certs: Vec<Certificate>,
     configuration: Configuration,
     tenant: String,
@@ -329,9 +345,12 @@ impl ClientBuilder {
             self.configuration.clone(),
             vec![],
             auth_tokens,
-            http_client::Client::new(http_client::ClientOptions {
-                additional_root_certs: self.certs.clone(),
-            }),
+            match &self.shared_http_client {
+                Some(client) => client.clone(),
+                None => http_client::Client::new(http_client::ClientOptions {
+                    additional_root_certs: self.certs.clone(),
+                }),
+            },
         )
     }
 }
