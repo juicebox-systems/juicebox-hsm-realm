@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context};
 use clap::{Parser, ValueEnum};
+use dogstatsd::{ServiceCheckOptions, ServiceStatus};
 use futures::StreamExt;
 use hdrhistogram::Histogram;
 use juicebox_sdk::{AuthToken, Policy, RealmId, TokioSleeper};
@@ -17,10 +18,11 @@ use tracing::{debug, error, info, warn, Level};
 use juicebox_hsm::client_auth::{
     creation::create_token, new_google_secret_manager, tenant_secret_name, AuthKey, Claims,
 };
-use juicebox_hsm::google_auth;
 use juicebox_hsm::http_client;
 use juicebox_hsm::logging;
+use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
+use juicebox_hsm::{google_auth, metrics};
 use juicebox_sdk::{Configuration, Pin, PinHashingMode, RecoverError, UserSecret};
 
 type Client = juicebox_sdk::Client<
@@ -93,6 +95,10 @@ struct Args {
     /// The numbers will go from `start` up to `start + count`.
     #[arg(long, value_name = "N", default_value_t = 0)]
     user_start: u64,
+
+    /// Emit a service check event to datadog on completion.
+    #[arg(long, default_value_t = false)]
+    service_check: bool,
 }
 
 #[tokio::main]
@@ -103,8 +109,14 @@ async fn main() -> ExitCode {
     });
 
     let args = Args::parse();
-    match run(args).await {
-        Ok(()) => ExitCode::SUCCESS,
+    let service_check = args.service_check;
+
+    let res = run(args).await;
+    if service_check {
+        report_service_check(&res);
+    }
+    match res {
+        Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("error: {err:?}");
             ExitCode::FAILURE
@@ -112,7 +124,8 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(args: Args) -> anyhow::Result<()> {
+// returns the number of benchmark operation errors encountered
+async fn run(args: Args) -> anyhow::Result<usize> {
     let mut configuration: Configuration =
         serde_json::from_str(&args.configuration).context("failed to parse configuration")?;
     if configuration.pin_hashing_mode != PinHashingMode::FastInsecure {
@@ -168,8 +181,9 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .await
         .unwrap();
 
+    let mut total_errors = 0;
     for op in args.plan {
-        benchmark(
+        total_errors += benchmark(
             op,
             args.concurrency,
             Range {
@@ -187,7 +201,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     logging::flush();
     info!(pid = std::process::id(), "exiting");
 
-    Ok(())
+    Ok(total_errors)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -200,12 +214,13 @@ enum Operation {
     AuthError,
 }
 
+// returns the number of errors encountered
 async fn benchmark(
     op: Operation,
     concurrency: usize,
     ids: Range<u64>,
     client_builder: &Arc<ClientBuilder>,
-) {
+) -> usize {
     info!(?op, concurrency, ?ids, "benchmarking concurrent clients");
     let start = Instant::now();
 
@@ -257,6 +272,7 @@ async fn benchmark(
     if errors > 0 {
         error!(errors, "client(s) reported errors");
     }
+    errors
 }
 
 async fn run_op(op: Operation, i: u64, client_builder: Arc<ClientBuilder>) -> Result<Duration, ()> {
@@ -421,4 +437,26 @@ async fn get_auth_key(
         .next()
         .ok_or_else(|| anyhow!("could not find any secret versions for tenant"))?;
     Ok((AuthKey::from(secret), version))
+}
+
+fn report_service_check(r: &anyhow::Result<usize>) {
+    let c = metrics::Client::new("cluster_bench");
+    const STAT: &str = "healthcheck.register_recover";
+    match r {
+        Ok(0) => c.service_check(STAT, ServiceStatus::OK, metrics::NO_TAGS, None),
+        Ok(err_count) => c.service_check(STAT, ServiceStatus::Critical, [tag!(err_count)], None),
+        Err(err) => {
+            // this is dumb, thanks dogstatsd
+            let msg: &'static str = Box::leak(format!("{:?}", err).into_boxed_str());
+            c.service_check(
+                STAT,
+                ServiceStatus::Warning,
+                metrics::NO_TAGS,
+                Some(ServiceCheckOptions {
+                    message: Some(msg),
+                    ..ServiceCheckOptions::default()
+                }),
+            )
+        }
+    };
 }

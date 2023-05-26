@@ -503,6 +503,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap 4.3.0",
+ "dogstatsd",
  "futures",
  "hdrhistogram",
  "juicebox-sdk",
