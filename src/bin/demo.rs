@@ -1,7 +1,5 @@
 use clap::Parser;
-use juicebox_sdk::{AuthToken, RealmId};
-use juicebox_sdk::{Policy, TokioSleeper};
-use juicebox_sdk_networking::rpc::LoadBalancerService;
+
 use reqwest::Certificate;
 use std::collections::HashMap;
 use std::fs;
@@ -10,7 +8,10 @@ use tracing::info;
 
 use juicebox_hsm::http_client;
 use juicebox_hsm::logging;
-use juicebox_sdk::{Client, Pin, RecoverError, UserSecret};
+use juicebox_sdk::{
+    AuthToken, Client, Configuration, Pin, Policy, RealmId, RecoverError, TokioSleeper, UserSecret,
+};
+use juicebox_sdk_networking::rpc::LoadBalancerService;
 
 /// A Rust demo of the SDK.
 #[derive(Parser)]
@@ -36,7 +37,7 @@ async fn main() {
     let args = Args::parse();
 
     let configuration =
-        serde_json::from_str(&args.configuration).expect("failed to parse configuration");
+        Configuration::from_json(&args.configuration).expect("failed to parse configuration");
 
     let json_auth_tokens: HashMap<String, AuthToken> =
         serde_json::from_str(&args.auth_tokens).expect("failed to parse auth tokens");

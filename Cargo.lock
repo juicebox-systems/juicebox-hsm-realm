@@ -1563,6 +1563,7 @@ dependencies = [
  "chacha20poly1305",
  "digest",
  "futures",
+ "hex",
  "hmac",
  "instant",
  "juicebox-sdk-core",
@@ -1571,6 +1572,7 @@ dependencies = [
  "rand",
  "secrecy",
  "serde",
+ "serde_json",
  "serde_repr",
  "sharks",
  "tokio",
@@ -1586,6 +1588,7 @@ version = "0.1.0"
 dependencies = [
  "ciborium",
  "digest",
+ "hex",
  "juicebox-sdk-noise",
  "rand_core",
  "secrecy",

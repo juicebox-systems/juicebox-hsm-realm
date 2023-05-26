@@ -312,7 +312,7 @@ async fn main() {
                 .arg("--tls-certificate")
                 .arg(certificates.cert_file_der.clone())
                 .arg("--configuration")
-                .arg(serde_json::to_string(&configuration).unwrap())
+                .arg(configuration.to_json())
                 .arg("--auth-tokens")
                 .arg(serde_json::to_string(&jsonable_auth_tokens).unwrap())
                 .status()
@@ -322,7 +322,7 @@ async fn main() {
 
     if args.keep_alive {
         warn!(
-            configuration = serde_json::to_string(&configuration).unwrap(),
+            configuration = configuration.to_json(),
             auth_tokens = serde_json::to_string(&jsonable_auth_tokens).unwrap(),
             tls_certificate = ?certificates.cert_file_der,
             "runner: stack is active, press ctrl-c to shutdown"
