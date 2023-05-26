@@ -7,6 +7,7 @@ use juicebox_sdk_networking::rpc::LoadBalancerService;
 use reqwest::Certificate;
 use std::collections::HashMap;
 use std::fs;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -42,7 +43,7 @@ struct Args {
 
     /// Number of each operation to do.
     #[arg(long, value_name = "N", default_value_t = 100)]
-    count: usize,
+    count: u64,
 
     /// Name of a Google Cloud project.
     ///
@@ -79,6 +80,18 @@ struct Args {
     /// balancers over TLS. May be given more than once.
     #[arg(long = "tls-certificate", value_name = "PATH")]
     tls_certificates: Vec<PathBuf>,
+
+    /// The string that all generated usernames begin with.
+    ///
+    /// A number is concatenated to the end of this to form the username.
+    #[arg(long, value_name = "N", default_value = "mario")]
+    user_prefix: String,
+
+    /// The starting number after the prefix in the generated usernames.
+    ///
+    /// The numbers will go from `start` up to `start + count`.
+    #[arg(long, value_name = "N", default_value_t = 0)]
+    user_start: u64,
 }
 
 #[tokio::main]
@@ -140,11 +153,12 @@ async fn run(args: Args) -> anyhow::Result<()> {
         tenant: args.tenant,
         auth_key,
         auth_key_version,
+        user_prefix: args.user_prefix,
     });
 
     info!("running test register");
     client_builder
-        .build(String::from("mario0"))
+        .build(args.user_start)
         .register(
             &Pin::from(b"pin0".to_vec()),
             &UserSecret::from(b"secret0".to_vec()),
@@ -154,7 +168,19 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .unwrap();
 
     for op in args.plan {
-        benchmark(op, args.concurrency, args.count, &client_builder).await;
+        benchmark(
+            op,
+            args.concurrency,
+            Range {
+                start: args.user_start,
+                end: args
+                    .user_start
+                    .checked_add(args.count)
+                    .expect("user ID overflow"),
+            },
+            &client_builder,
+        )
+        .await;
     }
 
     logging::flush();
@@ -176,14 +202,14 @@ enum Operation {
 async fn benchmark(
     op: Operation,
     concurrency: usize,
-    count: usize,
+    ids: Range<u64>,
     client_builder: &Arc<ClientBuilder>,
 ) {
-    info!(?op, concurrency, count, "benchmarking concurrent clients");
+    info!(?op, concurrency, ?ids, "benchmarking concurrent clients");
     let start = Instant::now();
 
     let mut stream =
-        futures::stream::iter((0..count).map(|i| run_op(op, i, client_builder.clone())))
+        futures::stream::iter(ids.clone().map(|i| run_op(op, i, client_builder.clone())))
             .buffer_unordered(concurrency);
 
     let mut durations_ns: Histogram<u64> = Histogram::new(1).unwrap();
@@ -203,6 +229,7 @@ async fn benchmark(
 
     let elapsed_s = start.elapsed().as_secs_f64();
 
+    let count = ids.end.saturating_sub(ids.start);
     info!(
         ?op,
         count,
@@ -231,11 +258,7 @@ async fn benchmark(
     }
 }
 
-async fn run_op(
-    op: Operation,
-    i: usize,
-    client_builder: Arc<ClientBuilder>,
-) -> Result<Duration, ()> {
+async fn run_op(op: Operation, i: u64, client_builder: Arc<ClientBuilder>) -> Result<Duration, ()> {
     let start = Instant::now();
 
     // Each operation creates a fresh client so that it cannot reuse Noise
@@ -243,13 +266,9 @@ async fn run_op(
     // is set, the clients will share TCP, HTTP, and TLS connections, which is
     // also cheating with respect to network behavior and load balancer load.
     let client = if op == Operation::AuthError {
-        client_builder.build_with_auth_key(
-            format!("mario{i}"),
-            &AuthKey::from(b"invalid".to_vec()),
-            SecretVersion(1),
-        )
+        client_builder.build_with_auth_key(i, &AuthKey::from(b"invalid".to_vec()), SecretVersion(1))
     } else {
-        client_builder.build(format!("mario{i}"))
+        client_builder.build(i)
     };
 
     match op {
@@ -308,16 +327,17 @@ struct ClientBuilder {
     tenant: String,
     auth_key_version: SecretVersion,
     auth_key: AuthKey,
+    user_prefix: String,
 }
 
 impl ClientBuilder {
-    fn build(&self, user_id: String) -> Client {
-        self.build_with_auth_key(user_id, &self.auth_key, self.auth_key_version)
+    fn build(&self, user_num: u64) -> Client {
+        self.build_with_auth_key(user_num, &self.auth_key, self.auth_key_version)
     }
 
     fn build_with_auth_key(
         &self,
-        user_id: String,
+        user_num: u64,
         auth_key: &AuthKey,
         auth_key_version: SecretVersion,
     ) -> Client {
@@ -331,7 +351,7 @@ impl ClientBuilder {
                     create_token(
                         &Claims {
                             issuer: self.tenant.clone(),
-                            subject: user_id.clone(),
+                            subject: format!("{}{}", self.user_prefix, user_num),
                             audience: realm.id,
                         },
                         auth_key,
