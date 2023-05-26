@@ -1180,15 +1180,7 @@ impl<T: Transport + 'static> Agent<T> {
         let realm = request.realm;
         let group = request.group;
 
-        match start_app_request(
-            request,
-            self.0.name.clone(),
-            &self.0.hsm,
-            &self.0.store,
-            &self.0.metrics,
-        )
-        .await
-        {
+        match self.start_app_request(request).await {
             Err(response) => Ok(response),
             Ok(append_request) => self.finish_app_request(realm, group, append_request).await,
         }
@@ -1230,106 +1222,106 @@ impl<T: Transport + 'static> Agent<T> {
             Err(oneshot::Canceled) => Ok(Response::NotLeader),
         }
     }
-}
 
-#[instrument(level = "trace")]
-async fn start_app_request<T: Transport>(
-    request: AppRequest,
-    name: String,
-    hsm: &HsmClient<T>,
-    store: &bigtable::StoreClient,
-    metrics: &metrics::Client,
-) -> Result<Append, AppResponse> {
-    type HsmResponse = hsm_types::AppResponse;
-    type Response = AppResponse;
+    #[instrument(level = "trace")]
+    async fn start_app_request(&self, request: AppRequest) -> Result<Append, AppResponse> {
+        type HsmResponse = hsm_types::AppResponse;
+        type Response = AppResponse;
 
-    for attempt in 0..100 {
-        let entry = match store
-            .read_last_log_entry(&request.realm, &request.group)
+        for attempt in 0..100 {
+            let entry = match self
+                .0
+                .store
+                .read_last_log_entry(&request.realm, &request.group)
+                .await
+            {
+                Err(_) => return Err(Response::NoStore),
+                Ok(Some(entry)) => entry,
+                Ok(None) => return Err(Response::InvalidGroup),
+            };
+
+            let Some(partition) = entry.partition else {
+                return Err(Response::NotLeader); // TODO: is that the right error?
+            };
+
+            let proof = match merkle::agent::read(
+                &request.realm,
+                &self.0.store,
+                &partition.range,
+                &partition.root_hash,
+                &request.record_id,
+                &self.0.metrics,
+                &[
+                    tag!(realm: "{:?}", request.realm),
+                    tag!(group: "{:?}", request.group),
+                ],
+            )
             .await
-        {
-            Err(_) => return Err(Response::NoStore),
-            Ok(Some(entry)) => entry,
-            Ok(None) => return Err(Response::InvalidGroup),
-        };
+            {
+                Ok(proof) => proof,
+                Err(TreeStoreError::MissingNode) => {
+                    warn!(
+                        agent = self.0.name,
+                        attempt,
+                        index = ?entry.index,
+                        "missing node, retrying"
+                    );
+                    continue;
+                }
+                Err(TreeStoreError::Network(e)) => {
+                    warn!(error = ?e, "start_app_request: error reading proof");
+                    return Err(Response::NoStore);
+                }
+            };
 
-        let Some(partition) = entry.partition else {
-            return Err(Response::NotLeader); // TODO: is that the right error?
-        };
+            match self
+                .0
+                .hsm
+                .send(hsm_types::AppRequest {
+                    realm: request.realm,
+                    group: request.group,
+                    record_id: request.record_id.clone(),
+                    session_id: request.session_id,
+                    encrypted: request.encrypted.clone(),
+                    index: entry.index,
+                    proof,
+                })
+                .await
+            {
+                Err(_) => return Err(Response::NoHsm),
+                Ok(HsmResponse::InvalidRealm) => return Err(Response::InvalidRealm),
+                Ok(HsmResponse::InvalidGroup) => return Err(Response::InvalidGroup),
+                Ok(HsmResponse::StaleProof) => {
+                    warn!(
+                        agent = self.0.name,
+                        attempt, index = ?entry.index,
+                        "stale proof, retrying"
+                    );
+                    continue;
+                }
+                Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => {
+                    return Err(Response::NotLeader)
+                }
+                Ok(HsmResponse::InvalidProof) => return Err(Response::InvalidProof),
+                // TODO, is this right? if we can't decrypt the leaf, then the proof is likely bogus.
+                Ok(HsmResponse::InvalidRecordData) => return Err(Response::InvalidProof),
+                Ok(HsmResponse::MissingSession) => return Err(Response::MissingSession),
+                Ok(HsmResponse::SessionError) => return Err(Response::SessionError),
+                Ok(HsmResponse::DecodingError) => return Err(Response::DecodingError),
 
-        let proof = match merkle::agent::read(
-            &request.realm,
-            store,
-            &partition.range,
-            &partition.root_hash,
-            &request.record_id,
-            metrics,
-            &[
-                tag!(realm: "{:?}", request.realm),
-                tag!(group: "{:?}", request.group),
-            ],
-        )
-        .await
-        {
-            Ok(proof) => proof,
-            Err(TreeStoreError::MissingNode) => {
-                warn!(
-                    agent = name,
-                    attempt,
-                    index = ?entry.index,
-                    "missing node, retrying"
-                );
-                continue;
-            }
-            Err(TreeStoreError::Network(e)) => {
-                warn!(error = ?e, "start_app_request: error reading proof");
-                return Err(Response::NoStore);
-            }
-        };
-
-        match hsm
-            .send(hsm_types::AppRequest {
-                realm: request.realm,
-                group: request.group,
-                record_id: request.record_id.clone(),
-                session_id: request.session_id,
-                encrypted: request.encrypted.clone(),
-                index: entry.index,
-                proof,
-            })
-            .await
-        {
-            Err(_) => return Err(Response::NoHsm),
-            Ok(HsmResponse::InvalidRealm) => return Err(Response::InvalidRealm),
-            Ok(HsmResponse::InvalidGroup) => return Err(Response::InvalidGroup),
-            Ok(HsmResponse::StaleProof) => {
-                warn!(
-                    agent = name,
-                    attempt, index = ?entry.index,
-                    "stale proof, retrying"
-                );
-                continue;
-            }
-            Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => return Err(Response::NotLeader),
-            Ok(HsmResponse::InvalidProof) => return Err(Response::InvalidProof),
-            // TODO, is this right? if we can't decrypt the leaf, then the proof is likely bogus.
-            Ok(HsmResponse::InvalidRecordData) => return Err(Response::InvalidProof),
-            Ok(HsmResponse::MissingSession) => return Err(Response::MissingSession),
-            Ok(HsmResponse::SessionError) => return Err(Response::SessionError),
-            Ok(HsmResponse::DecodingError) => return Err(Response::DecodingError),
-
-            Ok(HsmResponse::Ok { entry, delta }) => {
-                trace!(
-                    agent = name,
-                    ?entry,
-                    ?delta,
-                    "got new log entry and data updates from HSM"
-                );
-                return Ok(Append { entry, delta });
-            }
-        };
+                Ok(HsmResponse::Ok { entry, delta }) => {
+                    trace!(
+                        agent = self.0.name,
+                        ?entry,
+                        ?delta,
+                        "got new log entry and data updates from HSM"
+                    );
+                    return Ok(Append { entry, delta });
+                }
+            };
+        }
+        panic!("too slow to make progress");
     }
-    panic!("too slow to make progress");
 }
 
 impl<T: Transport + 'static> Agent<T> {
