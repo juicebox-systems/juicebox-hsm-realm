@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use futures::StreamExt;
 use hdrhistogram::Histogram;
 use juicebox_sdk::{AuthToken, Policy, RealmId, TokioSleeper};
@@ -20,7 +20,7 @@ use juicebox_hsm::google_auth;
 use juicebox_hsm::http_client;
 use juicebox_hsm::logging;
 use juicebox_hsm::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
-use juicebox_sdk::{Configuration, Pin, PinHashingMode, UserSecret};
+use juicebox_sdk::{Configuration, Pin, PinHashingMode, RecoverError, UserSecret};
 
 type Client = juicebox_sdk::Client<
     TokioSleeper,
@@ -49,6 +49,16 @@ struct Args {
     /// Used for accessing Secret Manager if `--secrets-file` is not given.
     #[arg(long, value_name = "NAME", required_unless_present("secrets_file"))]
     gcp_project: Option<String>,
+
+    /// List of operations to benchmark. Pass multiple times or use a
+    /// comma-separated list.
+    #[arg(
+        long,
+        value_enum,
+        value_delimiter(','),
+        default_value = "register,recover,delete"
+    )]
+    plan: Vec<Operation>,
 
     /// Name of JSON file containing per-tenant keys for authentication.
     ///
@@ -130,29 +140,9 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .await
         .unwrap();
 
-    benchmark(
-        Operation::Register,
-        args.concurrency,
-        args.count,
-        &client_builder,
-    )
-    .await;
-
-    benchmark(
-        Operation::Recover,
-        args.concurrency,
-        args.count,
-        &client_builder,
-    )
-    .await;
-
-    benchmark(
-        Operation::Delete,
-        args.concurrency,
-        args.count,
-        &client_builder,
-    )
-    .await;
+    for op in args.plan {
+        benchmark(op, args.concurrency, args.count, &client_builder).await;
+    }
 
     logging::flush();
     info!(pid = std::process::id(), "exiting");
@@ -160,11 +150,14 @@ async fn run(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum Operation {
     Register,
+    /// Must follow register to succeed.
     Recover,
     Delete,
+    /// Recover with an invalid auth token. Hits the load balancer only.
+    AuthError,
 }
 
 async fn benchmark(
@@ -231,9 +224,19 @@ async fn run_op(
     client_builder: Arc<ClientBuilder>,
 ) -> Result<Duration, ()> {
     let start = Instant::now();
+
     // Each operation creates a fresh client so that it cannot reuse TCP, HTTP,
     // TLS, or Noise connections, which would be cheating.
-    let client = client_builder.build(format!("mario{i}"));
+    let client = if op == Operation::AuthError {
+        client_builder.build_with_auth_key(
+            format!("mario{i}"),
+            &AuthKey::from(b"invalid".to_vec()),
+            SecretVersion(1),
+        )
+    } else {
+        client_builder.build(format!("mario{i}"))
+    };
+
     match op {
         Operation::Register => match client
             .register(
@@ -268,6 +271,18 @@ async fn run_op(
                 Err(())
             }
         },
+
+        Operation::AuthError => match client.recover(&Pin::from(b"bogus".to_vec())).await {
+            Err(RecoverError::InvalidAuth) => Ok(start.elapsed()),
+            Ok(_) => {
+                debug!(?op, i, "client got unexpected success");
+                Err(())
+            }
+            Err(err) => {
+                debug!(?op, ?err, i, "client got error");
+                Err(())
+            }
+        },
     }
 }
 
@@ -281,6 +296,15 @@ struct ClientBuilder {
 
 impl ClientBuilder {
     fn build(&self, user_id: String) -> Client {
+        self.build_with_auth_key(user_id, &self.auth_key, self.auth_key_version)
+    }
+
+    fn build_with_auth_key(
+        &self,
+        user_id: String,
+        auth_key: &AuthKey,
+        auth_key_version: SecretVersion,
+    ) -> Client {
         let auth_tokens: HashMap<RealmId, AuthToken> = self
             .configuration
             .realms
@@ -294,8 +318,8 @@ impl ClientBuilder {
                             subject: user_id.clone(),
                             audience: realm.id,
                         },
-                        &self.auth_key,
-                        self.auth_key_version,
+                        auth_key,
+                        auth_key_version,
                     ),
                 )
             })
