@@ -238,8 +238,10 @@ async fn run_op(
 ) -> Result<Duration, ()> {
     let start = Instant::now();
 
-    // Each operation creates a fresh client so that it cannot reuse TCP, HTTP,
-    // TLS, or Noise connections, which would be cheating.
+    // Each operation creates a fresh client so that it cannot reuse Noise
+    // connections, which would be cheating. If `args.share_http_connections`
+    // is set, the clients will share TCP, HTTP, and TLS connections, which is
+    // also cheating with respect to network behavior and load balancer load.
     let client = if op == Operation::AuthError {
         client_builder.build_with_auth_key(
             format!("mario{i}"),
