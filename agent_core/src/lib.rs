@@ -78,10 +78,21 @@ struct LeaderState {
     /// Log entries may be received out of order from the HSM. They are buffered
     /// here until they can be appended to the log in order.
     append_queue: HashMap<LogIndex, Append>,
+
     /// This serves as a mutex to prevent multiple concurrent appends to the
     /// store.
     appending: AppendingState,
+
+    /// A copy of the last log entry that was acknowledged by the store.
+    ///
+    /// This is used in the read path to avoid reading the last log entry in
+    /// the common case.
+    last_appended: Option<LogEntry>,
+
+    /// Used to route responses back to the right client after the HSM commits
+    /// a batch of log entries and releases the responses.
     response_channels: HashMap<EntryHmac, oneshot::Sender<NoiseResponse>>,
+
     /// When set the leader is stepping down, and should stop processing once
     /// this log entry is complete.
     stepdown_at: Option<LogIndex>,
@@ -563,6 +574,7 @@ impl<T: Transport + 'static> Agent<T> {
                 appending: NotAppending {
                     next: starting_index.next(),
                 },
+                last_appended: None,
                 response_channels: HashMap::new(),
                 stepdown_at: None,
             },
@@ -1179,18 +1191,26 @@ impl<T: Transport + 'static> Agent<T> {
 
         let realm = request.realm;
         let group = request.group;
+        let tags = [tag!(?realm), tag!(?group)];
 
-        match start_app_request(
-            request,
-            self.0.name.clone(),
-            &self.0.hsm,
-            &self.0.store,
-            &self.0.metrics,
-        )
-        .await
-        {
+        let start_result = self
+            .0
+            .metrics
+            .async_time("agent.start_app_request.time", &tags, || {
+                self.start_app_request(request, &tags)
+            })
+            .await;
+
+        match start_result {
             Err(response) => Ok(response),
-            Ok(append_request) => self.finish_app_request(realm, group, append_request).await,
+            Ok(append_request) => {
+                self.0
+                    .metrics
+                    .async_time("agent.commit.latency", &tags, || {
+                        self.finish_app_request(realm, group, append_request)
+                    })
+                    .await
+            }
         }
     }
 
@@ -1204,7 +1224,6 @@ impl<T: Transport + 'static> Agent<T> {
         type Response = AppResponse;
 
         let (sender, receiver) = oneshot::channel::<NoiseResponse>();
-        let start = Instant::now();
 
         {
             let mut locked = self.0.state.lock().unwrap();
@@ -1218,118 +1237,122 @@ impl<T: Transport + 'static> Agent<T> {
 
         self.append(realm, group, append_request);
         match receiver.await {
-            Ok(response) => {
-                self.0.metrics.timing(
-                    "agent.commit.latency",
-                    start.elapsed(),
-                    [tag!(?realm), tag!(?group)],
-                );
-
-                Ok(Response::Ok(response))
-            }
+            Ok(response) => Ok(Response::Ok(response)),
             Err(oneshot::Canceled) => Ok(Response::NotLeader),
         }
     }
-}
 
-#[instrument(level = "trace")]
-async fn start_app_request<T: Transport>(
-    request: AppRequest,
-    name: String,
-    hsm: &HsmClient<T>,
-    store: &bigtable::StoreClient,
-    metrics: &metrics::Client,
-) -> Result<Append, AppResponse> {
-    type HsmResponse = hsm_types::AppResponse;
-    type Response = AppResponse;
+    #[instrument(level = "trace")]
+    async fn start_app_request(
+        &self,
+        request: AppRequest,
+        tags: &[metrics::Tag],
+    ) -> Result<Append, AppResponse> {
+        type HsmResponse = hsm_types::AppResponse;
+        type Response = AppResponse;
 
-    for attempt in 0..100 {
-        let entry = match store
-            .read_last_log_entry(&request.realm, &request.group)
+        for attempt in 0..100 {
+            let cached_entry: Option<LogEntry> = {
+                let mut locked = self.0.state.lock().unwrap();
+                let Some(leader) = locked.leader.get_mut(&(request.realm, request.group)) else {
+                    return Err(Response::NotLeader);
+                };
+                leader.last_appended.clone()
+            };
+
+            let entry: LogEntry = match cached_entry {
+                Some(entry) => entry,
+                None => match self
+                    .0
+                    .store
+                    .read_last_log_entry(&request.realm, &request.group)
+                    .await
+                {
+                    Err(_) => return Err(Response::NoStore),
+                    Ok(Some(entry)) => entry,
+                    Ok(None) => return Err(Response::InvalidGroup),
+                },
+            };
+
+            let Some(partition) = entry.partition else {
+                return Err(Response::NotLeader); // TODO: is that the right error?
+            };
+
+            let proof = match merkle::agent::read(
+                &request.realm,
+                &self.0.store,
+                &partition.range,
+                &partition.root_hash,
+                &request.record_id,
+                &self.0.metrics,
+                tags,
+            )
             .await
-        {
-            Err(_) => return Err(Response::NoStore),
-            Ok(Some(entry)) => entry,
-            Ok(None) => return Err(Response::InvalidGroup),
-        };
+            {
+                Ok(proof) => proof,
+                Err(TreeStoreError::MissingNode) => {
+                    warn!(
+                        agent = self.0.name,
+                        attempt,
+                        index = ?entry.index,
+                        "missing node, retrying"
+                    );
+                    continue;
+                }
+                Err(TreeStoreError::Network(e)) => {
+                    warn!(error = ?e, "start_app_request: error reading proof");
+                    return Err(Response::NoStore);
+                }
+            };
 
-        let Some(partition) = entry.partition else {
-            return Err(Response::NotLeader); // TODO: is that the right error?
-        };
+            match self
+                .0
+                .hsm
+                .send(hsm_types::AppRequest {
+                    realm: request.realm,
+                    group: request.group,
+                    record_id: request.record_id.clone(),
+                    session_id: request.session_id,
+                    encrypted: request.encrypted.clone(),
+                    index: entry.index,
+                    proof,
+                })
+                .await
+            {
+                Err(_) => return Err(Response::NoHsm),
+                Ok(HsmResponse::InvalidRealm) => return Err(Response::InvalidRealm),
+                Ok(HsmResponse::InvalidGroup) => return Err(Response::InvalidGroup),
+                Ok(HsmResponse::StaleProof) => {
+                    warn!(
+                        agent = self.0.name,
+                        attempt, index = ?entry.index,
+                        "stale proof, retrying"
+                    );
+                    continue;
+                }
+                Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => {
+                    return Err(Response::NotLeader)
+                }
+                Ok(HsmResponse::InvalidProof) => return Err(Response::InvalidProof),
+                // TODO, is this right? if we can't decrypt the leaf, then the proof is likely bogus.
+                Ok(HsmResponse::InvalidRecordData) => return Err(Response::InvalidProof),
+                Ok(HsmResponse::MissingSession) => return Err(Response::MissingSession),
+                Ok(HsmResponse::SessionError) => return Err(Response::SessionError),
+                Ok(HsmResponse::DecodingError) => return Err(Response::DecodingError),
 
-        let proof = match merkle::agent::read(
-            &request.realm,
-            store,
-            &partition.range,
-            &partition.root_hash,
-            &request.record_id,
-            metrics,
-            &[
-                tag!(realm: "{:?}", request.realm),
-                tag!(group: "{:?}", request.group),
-            ],
-        )
-        .await
-        {
-            Ok(proof) => proof,
-            Err(TreeStoreError::MissingNode) => {
-                warn!(
-                    agent = name,
-                    attempt,
-                    index = ?entry.index,
-                    "missing node, retrying"
-                );
-                continue;
-            }
-            Err(TreeStoreError::Network(e)) => {
-                warn!(error = ?e, "start_app_request: error reading proof");
-                return Err(Response::NoStore);
-            }
-        };
-
-        match hsm
-            .send(hsm_types::AppRequest {
-                realm: request.realm,
-                group: request.group,
-                record_id: request.record_id.clone(),
-                session_id: request.session_id,
-                encrypted: request.encrypted.clone(),
-                index: entry.index,
-                proof,
-            })
-            .await
-        {
-            Err(_) => return Err(Response::NoHsm),
-            Ok(HsmResponse::InvalidRealm) => return Err(Response::InvalidRealm),
-            Ok(HsmResponse::InvalidGroup) => return Err(Response::InvalidGroup),
-            Ok(HsmResponse::StaleProof) => {
-                warn!(
-                    agent = name,
-                    attempt, index = ?entry.index,
-                    "stale proof, retrying"
-                );
-                continue;
-            }
-            Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => return Err(Response::NotLeader),
-            Ok(HsmResponse::InvalidProof) => return Err(Response::InvalidProof),
-            // TODO, is this right? if we can't decrypt the leaf, then the proof is likely bogus.
-            Ok(HsmResponse::InvalidRecordData) => return Err(Response::InvalidProof),
-            Ok(HsmResponse::MissingSession) => return Err(Response::MissingSession),
-            Ok(HsmResponse::SessionError) => return Err(Response::SessionError),
-            Ok(HsmResponse::DecodingError) => return Err(Response::DecodingError),
-
-            Ok(HsmResponse::Ok { entry, delta }) => {
-                trace!(
-                    agent = name,
-                    ?entry,
-                    ?delta,
-                    "got new log entry and data updates from HSM"
-                );
-                return Ok(Append { entry, delta });
-            }
-        };
+                Ok(HsmResponse::Ok { entry, delta }) => {
+                    trace!(
+                        agent = self.0.name,
+                        ?entry,
+                        ?delta,
+                        "got new log entry and data updates from HSM"
+                    );
+                    return Ok(Append { entry, delta });
+                }
+            };
+        }
+        panic!("too slow to make progress");
     }
-    panic!("too slow to make progress");
 }
 
 impl<T: Transport + 'static> Agent<T> {
@@ -1400,9 +1423,9 @@ impl<T: Transport + 'static> Agent<T> {
                     {
                         let mut locked = self.0.state.lock().unwrap();
                         // Empty the queue so we don't try and append anything else.
-                        if let Some(ls) = locked.leader.get_mut(&(realm, group)) {
-                            ls.append_queue.clear();
-                            ls.appending = NotAppending {
+                        if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
+                            leader.append_queue.clear();
+                            leader.appending = NotAppending {
                                 next: LogIndex(u64::MAX),
                             };
                         }
@@ -1412,11 +1435,20 @@ impl<T: Transport + 'static> Agent<T> {
                         .expect("error during leader stepdown");
                     return;
                 }
+
                 Err(err) => todo!("{err:?}"),
+
                 Ok(()) => {
+                    let batch_size = batch.len();
+                    {
+                        let mut locked = self.0.state.lock().unwrap();
+                        if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
+                            leader.last_appended = batch.pop();
+                        }
+                    }
                     self.record_append_metrics(
                         start.elapsed(),
-                        batch.len(),
+                        batch_size,
                         queue_depth,
                         &metric_tags,
                     );
