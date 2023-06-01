@@ -1,4 +1,4 @@
-///! General-purpose mechanisms to access databases of secrets at runtime.
+//! General-purpose mechanisms to access databases of secrets at runtime.
 use async_trait::async_trait;
 use secrecy;
 use serde::Deserialize;
