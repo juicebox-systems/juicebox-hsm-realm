@@ -1893,6 +1893,12 @@ impl<'a> MerkleHelper<'a> {
         match change {
             Some(change) => match change {
                 RecordChange::Update(mut record) => {
+                    // TODO: Pad the record? Especially with the addition of
+                    // `RegistrationState::NoGuesses`, the length of the
+                    // encrypted record may reveal information to an adversary
+                    // about whether a guess succeeded. (The adversary could
+                    // then choose not to commit the log entry and restart the
+                    // HSM to roll back.)
                     let cipher = XChaCha20Poly1305::new_from_slice(&self.leaf_key.0)
                         .expect("couldn't create cipher");
 
@@ -1902,10 +1908,10 @@ impl<'a> MerkleHelper<'a> {
                         .extend_from_slice(&self.update_num.checked_add(1).unwrap().to_be_bytes());
                     let plain_text: &[u8] = &record;
 
-                    // TODO: An optimization we could do is to use the authentication tag as the leaf's hash. Right now this is checking
-                    // the integrity of the record twice: once in the Merkle tree hash and once in the AEAD tag.
-                    // We may also want to use the AD part of AEAD. For example, the generation number in the user's record isn't necessarily
-                    // private and could allow the agent to reply to some queries without the HSM getting involved.
+                    // An optimization we could do is to use the authentication
+                    // tag as the leaf's hash. Right now this is checking the
+                    // integrity of the record twice: once in the Merkle tree
+                    // hash and once in the AEAD tag.
                     let mut cipher_text = cipher
                         .encrypt(&nonce, plain_text)
                         .expect("couldn't encrypt record");
@@ -1916,6 +1922,8 @@ impl<'a> MerkleHelper<'a> {
                         .expect("proof should be valid and current")
                 }
             },
+
+            // TODO: does a non-update leak useful information to an adversary?
             None => (*self.latest_proof.root_hash(), StoreDelta::default()),
         }
     }
@@ -1986,6 +1994,10 @@ impl NoiseHelper {
         response: SecretsResponse,
         sessions: &mut Cache<(RecordId, SessionId), noise::Transport>,
     ) -> NoiseResponse {
+        // TODO: The SecretsResponse should probably be padded so that the
+        // agent doesn't learn from its encrypted length whether the client was
+        // successful.
+
         // It might not be safe to back out at this point, since some Merkle
         // state has already been modified. Since we don't expect to see
         // encoding and encryption errors, it's probably OK to panic here.
