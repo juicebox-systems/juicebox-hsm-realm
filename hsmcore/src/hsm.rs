@@ -51,8 +51,8 @@ use types::{
     TransferStatementRequest, TransferStatementResponse, TransferringOut,
 };
 
-/// Returned in Noise handshake requests as a hint to the client of how long
-/// they should reuse an inactive session.
+/// Returned in Noise handshake requests as a hint to the client of how long it
+/// should reuse an inactive session.
 ///
 /// The agent or load balancer could override this default with a more
 /// sophisticated estimate, so it's OK for this to be a constant here.
@@ -999,9 +999,7 @@ impl<P: Platform> Hsm<P> {
                         }
                         e.insert((entry.index, entry.entry_hmac));
                     }
-                    Response::Ok {
-                        hsm_id: self.persistent.id,
-                    }
+                    Response::Ok
                 }
             }
         })();
@@ -1209,7 +1207,7 @@ impl<P: Platform> Hsm<P> {
             if realm.groups.get(&request.source).is_none() || request.source == request.destination
             {
                 return Response::InvalidGroup;
-            };
+            }
 
             let Some(leader) = self.volatile.leader.get_mut(&request.source) else {
                 return Response::NotLeader;
@@ -1225,9 +1223,14 @@ impl<P: Platform> Hsm<P> {
                 return Response::NotOwner;
             };
 
+            if last_entry.transferring_out.is_some() {
+                // TODO: should return an error, not panic
+                panic!("can't transfer because already transferring");
+            }
+
             // TODO: This will always return StaleIndex if we're pipelining
             // changes while transferring ownership. We need to bring
-            // `request.data` forward by applying recent changes to it.
+            // `request.proof` forward by applying recent changes to it.
             if request.index != last_entry.index {
                 return Response::StaleIndex;
             }
@@ -1248,11 +1251,12 @@ impl<P: Platform> Hsm<P> {
                     None => return Response::NotOwner,
                     Some(key) => {
                         if key != request.proof.key {
-                            return Response::NotOwner;
+                            return Response::MissingProof;
                         }
                     }
                 }
                 let Some(tree) = leader.tree.take() else {
+                    // TODO: panic here? seems like this was already checked
                     return Response::NotLeader;
                 };
                 let (keeping, transferring, split_delta) = match tree.range_split(request.proof) {
@@ -1345,7 +1349,7 @@ impl<P: Platform> Hsm<P> {
 
             if realm.groups.get(&request.destination).is_none() {
                 return Response::InvalidGroup;
-            };
+            }
 
             let Some(leader) = self.volatile.leader.get_mut(&request.destination) else {
                 return Response::NotLeader;
@@ -1378,7 +1382,7 @@ impl<P: Platform> Hsm<P> {
             if realm.groups.get(&request.source).is_none() || request.source == request.destination
             {
                 return Response::InvalidGroup;
-            };
+            }
 
             let Some(leader) = self.volatile.leader.get_mut(&request.source) else {
                 return Response::NotLeader;
@@ -1431,7 +1435,7 @@ impl<P: Platform> Hsm<P> {
 
             if realm.groups.get(&request.destination).is_none() {
                 return Response::InvalidGroup;
-            };
+            }
 
             let Some(leader) = self.volatile.leader.get_mut(&request.destination) else {
                 return Response::NotLeader;
@@ -1556,7 +1560,7 @@ impl<P: Platform> Hsm<P> {
             if realm.groups.get(&request.source).is_none() || request.source == request.destination
             {
                 return Response::InvalidGroup;
-            };
+            }
 
             let Some(leader) = self.volatile.leader.get_mut(&request.source) else {
                 return Response::NotLeader;
@@ -1571,7 +1575,7 @@ impl<P: Platform> Hsm<P> {
                 }
             } else {
                 return Response::NotTransferring;
-            };
+            }
 
             let index = last_entry.index.next();
             let owned_partition = last_entry.partition.clone();
@@ -1852,6 +1856,8 @@ impl<'a> MerkleHelper<'a> {
 
         // The last 8 bytes of the value are a sequential update number to stop
         // leaf hashes repeating.
+        //
+        // TODO: do we need this anymore with the random nonces?
         let (update_num, latest_value) = match latest_value {
             Some(mut v) => {
                 let split_at = v

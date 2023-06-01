@@ -63,9 +63,9 @@ pub async fn transfer(
     // the source group commits the log entry that the prefix is transferring
     // out, the prefix must then move to the destination group. However, we
     // don't have any guarantee that the destination group will accept the
-    // prefix. This is an issue with splitting in half: the only group that can
-    // accept a prefix is one that owns no prefix or one that owns the
-    // complementary prefix (the one with its least significant bit flipped).
+    // prefix. This is an issue with each group owning 0 or 1 ranges: the only
+    // group that can accept a range is one that owns no range or one that owns
+    // an adjacent range.
 
     let transferring_partition = match rpc::send(
         &agent_client,

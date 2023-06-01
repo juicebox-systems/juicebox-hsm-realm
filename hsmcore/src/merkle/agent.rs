@@ -21,12 +21,18 @@ pub enum TreeStoreError {
     Network(String),
 }
 
+/// A collection of changes to be made to a Merkle tree.
+///
+/// Correct values of this struct have no overlap between nodes that are added
+/// and nodes that are removed.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 // TODO: `non_exhaustive` doesn't prevent others in the same crate from
 // constructing these, which I think was the intent.
 #[non_exhaustive]
 pub struct StoreDelta<HO: HashOutput> {
+    /// New nodes to be added.
     pub add: HashMap<NodeKey<HO>, Node<HO>>,
+    /// Existing nodes to be removed.
     pub remove: HashSet<NodeKey<HO>>,
 }
 

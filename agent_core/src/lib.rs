@@ -199,9 +199,14 @@ impl<T: Transport + 'static> Agent<T> {
                             .await
                         {
                             Err(_) => todo!(),
-                            Ok(CaptureNextResponse::Ok { hsm_id, .. }) => {
-                                trace!(agent = state.name, ?realm, ?group, hsm=?hsm_id, ?index,
-                                    "HSM captured entries");
+                            Ok(CaptureNextResponse::Ok) => {
+                                trace!(
+                                    agent = state.name,
+                                    ?realm,
+                                    ?group,
+                                    ?index,
+                                    "HSM captured entries"
+                                );
                             }
                             Ok(r) => todo!("{r:#?}"),
                         }
@@ -856,6 +861,8 @@ impl<T: Transport + 'static> Agent<T> {
 
         // This loop handles retries if the read from the store is stale. It's
         // expected to run just once.
+        //
+        // TODO: put some retry limit on this
         loop {
             let entry = match store
                 .read_last_log_entry(&request.realm, &request.source)
@@ -916,6 +923,7 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
                 Ok(HsmResponse::NotOwner) => Ok(Response::NotOwner),
                 Ok(HsmResponse::StaleIndex) => todo!(),
+                Ok(HsmResponse::MissingProof) => todo!(),
                 Ok(HsmResponse::InvalidProof) => Ok(Response::InvalidProof),
                 Ok(HsmResponse::StaleProof) => {
                     trace!("hsm said stale proof, will retry");
@@ -1087,6 +1095,7 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(HsmResponse::MissingProofs) => todo!(),
                 Ok(HsmResponse::StaleProof) => {
                     trace!(?hsm, "hsm said stale proof, will retry");
+                    // TODO: slow down and/or limit attempts
                     continue;
                 }
                 Ok(HsmResponse::Ok { entry, delta }) => {
@@ -1164,9 +1173,7 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
             Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
             Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => Ok(Response::NotLeader),
-            Ok(HsmResponse::MissingSession) => Ok(Response::MissingSession),
             Ok(HsmResponse::SessionError) => Ok(Response::SessionError),
-            Ok(HsmResponse::DecodingError) => Ok(Response::DecodingError),
             Ok(HsmResponse::Ok {
                 noise,
                 session_lifetime,
@@ -1314,7 +1321,6 @@ impl<T: Transport + 'static> Agent<T> {
                     record_id: request.record_id.clone(),
                     session_id: request.session_id,
                     encrypted: request.encrypted.clone(),
-                    index: entry.index,
                     proof,
                 })
                 .await
