@@ -22,7 +22,7 @@ use hsmcore::hsm::{
 use juicebox_hsm::logging::Spew;
 use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::{hsm::client::Transport, store::bigtable::StoreClient};
-use juicebox_sdk::RealmId;
+use juicebox_sdk_core::types::RealmId;
 
 #[derive(Debug, Eq, PartialEq)]
 enum CommitterStatus {
