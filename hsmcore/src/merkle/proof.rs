@@ -19,18 +19,26 @@ pub enum ProofError {
     Stale,
 }
 
+/// A proof that a record exists or doesn't exist in a Merkle tree.
+///
+/// This includes the record itself, if it exists.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ReadProof<HO> {
+    /// The lookup key in the Merkle tree.
     pub key: RecordId,
-    // The key_range for the tree that the proof was read from.
+    /// The range of record IDs stored in the tree that the proof was read
+    /// from.
     pub range: OwnedRange,
+    /// The leaf containing the record, if it exists.
     pub leaf: Option<LeafNode>,
-    // The path in root -> leaf order of the nodes traversed to get to the leaf. Or if the leaf
-    // doesn't exist the furthest existing node in the path of the key.
+    /// The path in root-to-leaf order of the nodes traversed to get to the
+    /// leaf. If the leaf doesn't exist, this includes the furthest existing
+    /// node in the path of the key.
     pub path: Vec<InteriorNode<HO>>,
-    // The hash of the root node
+    /// The hash of the root node.
     pub root_hash: HO,
 }
+
 impl<HO: HashOutput> ReadProof<HO> {
     pub fn new(key: RecordId, range: OwnedRange, root_hash: HO, root: InteriorNode<HO>) -> Self {
         ReadProof {

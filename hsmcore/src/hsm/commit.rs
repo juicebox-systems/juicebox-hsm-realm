@@ -91,7 +91,14 @@ impl<P: Platform> Hsm<P> {
                 }
             }
 
-            trace!(hsm = self.options.name, group=?request.group, index = ?commit_index, prev_index=?committed, "leader committed entries");
+            trace!(
+                hsm = self.options.name,
+                group=?request.group,
+                index = ?commit_index,
+                prev_index=?committed,
+                "leader committed entries",
+            );
+
             // trim the prefix of leader.log and collect up the responses
             let mut responses = Vec::new();
             loop {

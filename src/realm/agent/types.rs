@@ -189,10 +189,12 @@ pub struct TransferOutRequest {
     pub realm: RealmId,
     pub source: GroupId,
     pub destination: GroupId,
-    // The range to transfer out of source. It may be exactly its current
-    // partition to transfer everything, or a subset of the range that is
-    // connected to one side. (i.e. you can't transfer out something from
-    // the middle of the existing range)
+    /// The range to transfer out of the `source` group.
+    ///
+    /// The range may be exactly the source group's current partition to
+    /// transfer everything, or a subset of the range that is connected to one
+    /// side. (i.e. you can't transfer out something from the middle of the
+    /// existing range)
     pub range: OwnedRange,
 }
 

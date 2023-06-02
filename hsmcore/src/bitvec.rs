@@ -1,5 +1,6 @@
-//! BitVec and BitSlice are types that have Vec<bool> and &[bool] like operations
-//! but have a more efficient representation.
+//! [`BitVec`] and [`BitSlice`] are types that have `Vec<bool>` and
+//! `&[bool]`-like operations but have a more efficient representation.
+
 extern crate alloc;
 
 use core::{
