@@ -15,7 +15,6 @@ http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 juicebox_hsm = { path = ".." }
-juicebox-sdk = { workspace = true }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
 opentelemetry = { workspace = true }
