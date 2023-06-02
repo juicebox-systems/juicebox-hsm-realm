@@ -25,7 +25,6 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "juicebox-sdk",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
  "juicebox_hsm",
@@ -1573,7 +1572,6 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
- "serde_repr",
  "sharks",
  "tokio",
  "tracing 0.2.0",
@@ -2532,17 +2530,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "serde_repr"
-version = "0.1.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcec881020c684085e55a25f7fd888954d56609ef363479dc5a1305eb0d40cab"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.16",
 ]
 
 [[package]]
