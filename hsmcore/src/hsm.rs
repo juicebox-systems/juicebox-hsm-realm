@@ -67,11 +67,9 @@ impl fmt::Debug for MacKey {
     }
 }
 
-impl MacKey {
-    pub fn from(v: [u8; 64]) -> Self {
-        let mut key = digest::Key::<SimpleHmac<Blake2s256>>::default();
-        key.copy_from_slice(&v);
-        Self(key.into())
+impl From<[u8; 64]> for MacKey {
+    fn from(key: [u8; 64]) -> Self {
+        Self(key)
     }
 }
 
