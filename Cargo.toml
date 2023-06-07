@@ -26,6 +26,7 @@ default-members = [
 # This allows the sdk packages to reference their workspace (for dependencies
 # and such), rather than this one.
 exclude = ["sdk"]
+resolver = "2"
 
 [package]
 name = "juicebox_hsm"
