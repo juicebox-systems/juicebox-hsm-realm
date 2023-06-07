@@ -1,10 +1,8 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use blake2::Blake2s256;
 use core::fmt::{self, Display};
 use core::time::Duration;
-use hmac::SimpleHmac;
 use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 
@@ -222,11 +220,11 @@ pub struct TransferringOut {
 ///
 /// See [super::EntryHmacBuilder].
 #[derive(Clone, Eq, Deserialize, Hash, PartialEq, Serialize)]
-pub struct EntryHmac(pub digest::Output<SimpleHmac<Blake2s256>>);
+pub struct EntryHmac(pub [u8; 32]);
 
 impl EntryHmac {
     pub fn zero() -> Self {
-        Self(digest::Output::<SimpleHmac<Blake2s256>>::default())
+        Self([0; 32])
     }
 }
 
@@ -310,7 +308,7 @@ impl OwnedRange {
 ///
 /// The hash of the root node serves as the hash of the tree.
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub struct DataHash(pub digest::Output<Blake2s256>);
+pub struct DataHash(pub [u8; 32]);
 
 impl fmt::Debug for DataHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -388,7 +386,7 @@ pub struct Configuration(pub Vec<HsmId>);
 ///
 /// See [super::GroupConfigurationStatementBuilder].
 #[derive(Clone, Deserialize, Serialize)]
-pub struct GroupConfigurationStatement(pub digest::Output<SimpleHmac<Blake2s256>>);
+pub struct GroupConfigurationStatement(pub [u8; 32]);
 
 impl fmt::Debug for GroupConfigurationStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -411,7 +409,7 @@ impl fmt::Debug for GroupConfigurationStatement {
 ///
 /// See [super::CapturedStatementBuilder].
 #[derive(Clone, Deserialize, Serialize)]
-pub struct CapturedStatement(pub digest::Output<SimpleHmac<Blake2s256>>);
+pub struct CapturedStatement(pub [u8; 32]);
 
 impl fmt::Debug for CapturedStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -450,7 +448,7 @@ impl fmt::Debug for TransferNonce {
 ///
 /// See [super::TransferStatementBuilder].
 #[derive(Clone, Deserialize, Serialize)]
-pub struct TransferStatement(pub digest::Output<SimpleHmac<Blake2s256>>);
+pub struct TransferStatement(pub [u8; 32]);
 
 impl fmt::Debug for TransferStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
