@@ -1601,7 +1601,7 @@ impl From<AppError> for AppResponse {
 
 #[cfg(test)]
 mod test {
-    use juicebox_sdk_core::marshalling;
+    use juicebox_sdk_marshalling as marshalling;
 
     use crate::merkle::HashOutput;
 

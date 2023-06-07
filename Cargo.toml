@@ -70,6 +70,7 @@ jsonwebtoken = { version = "8.3.0", default-features = false }
 libc = { version = "0.2.139", default-features = false }
 juicebox-sdk = { path = "sdk/rust/sdk/client", features = ["tokio"] }
 juicebox-sdk-core = { path = "sdk/rust/sdk/core" }
+juicebox-sdk-marshalling = { path = "sdk/rust/sdk/marshalling" }
 juicebox-sdk-networking = { path = "sdk/rust/sdk/networking", features = [
     "threadsafe-futures",
     "distributed-tracing",
@@ -156,6 +157,7 @@ jsonwebtoken = { workspace = true }
 libc = { workspace = true }
 juicebox-sdk = { workspace = true }
 juicebox-sdk-core = { workspace = true }
+juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
 nix = { workspace = true }
 opentelemetry = { workspace = true }

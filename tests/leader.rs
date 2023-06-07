@@ -1,4 +1,6 @@
+use once_cell::sync::Lazy;
 use std::{path::PathBuf, sync::mpsc::channel};
+use tokio::task::JoinSet;
 
 use juicebox_hsm::{
     exec::{
@@ -14,9 +16,7 @@ use juicebox_hsm::{
     },
 };
 use juicebox_sdk::Policy;
-use juicebox_sdk_networking::rpc::{self};
-use once_cell::sync::Lazy;
-use tokio::task::JoinSet;
+use juicebox_sdk_networking::rpc;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8333));

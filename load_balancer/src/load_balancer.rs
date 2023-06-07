@@ -6,10 +6,6 @@ use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use juicebox_hsm::metrics::{self, Tag};
-use juicebox_hsm::metrics_tag as tag;
-use juicebox_sdk_core::marshalling;
-use juicebox_sdk_networking::rpc;
 use opentelemetry_http::HeaderExtractor;
 use rustls::server::ResolvesServerCert;
 use std::collections::HashMap;
@@ -34,6 +30,8 @@ use juicebox_hsm::client_auth::{
 };
 use juicebox_hsm::http_client::{Client, ClientOptions};
 use juicebox_hsm::logging::Spew;
+use juicebox_hsm::metrics::{self, Tag};
+use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::agent::types::{
     make_record_id, AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse,
 };
@@ -41,6 +39,8 @@ use juicebox_hsm::realm::store::bigtable::StoreClient;
 use juicebox_hsm::secret_manager::SecretManager;
 use juicebox_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_marshalling as marshalling;
+use juicebox_sdk_networking::rpc;
 
 #[derive(Clone)]
 pub struct LoadBalancer(Arc<State>);

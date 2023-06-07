@@ -856,7 +856,7 @@ dependencies = [
  "entrust_api",
  "entrust_nfast",
  "expect-test",
- "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
  "juicebox_hsm",
  "tokio",
  "tracing 0.2.0",
@@ -869,7 +869,7 @@ dependencies = [
  "entrust_api",
  "hashbrown 0.13.2",
  "hsmcore",
- "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
  "rand_core",
  "x25519-dalek",
 ]
@@ -1262,6 +1262,7 @@ dependencies = [
  "hashbrown 0.13.2",
  "hmac",
  "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
  "juicebox-sdk-noise",
  "rand",
  "rand_core",
@@ -1566,6 +1567,7 @@ dependencies = [
  "hmac",
  "instant",
  "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
  "juicebox-sdk-noise",
  "rand",
@@ -1584,9 +1586,9 @@ dependencies = [
 name = "juicebox-sdk-core"
 version = "0.1.0"
 dependencies = [
- "ciborium",
  "digest",
  "hex",
+ "juicebox-sdk-marshalling",
  "juicebox-sdk-noise",
  "rand_core",
  "secrecy",
@@ -1596,12 +1598,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "juicebox-sdk-marshalling"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "secrecy",
+ "serde",
+]
+
+[[package]]
 name = "juicebox-sdk-networking"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "http",
  "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
  "opentelemetry",
  "serde",
  "thiserror",
@@ -1619,6 +1631,7 @@ dependencies = [
  "digest",
  "hkdf",
  "hmac",
+ "juicebox-sdk-marshalling",
  "rand_core",
  "serde",
  "tracing 0.2.0",
@@ -1654,6 +1667,7 @@ dependencies = [
  "jsonwebtoken",
  "juicebox-sdk",
  "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
  "libc",
  "nix",
@@ -1719,6 +1733,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
  "juicebox_hsm",
  "opentelemetry",
@@ -2666,7 +2681,7 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
  "juicebox_hsm",
  "rand",
  "reqwest",

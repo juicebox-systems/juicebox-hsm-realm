@@ -308,7 +308,8 @@ mod tests {
         *,
     };
     use crate::bitvec;
-    use juicebox_sdk_core::{marshalling, types::RealmId};
+    use juicebox_sdk_core::types::RealmId;
+    use juicebox_sdk_marshalling as marshalling;
     use std::{
         collections::{BTreeMap, HashMap},
         hash::Hasher,

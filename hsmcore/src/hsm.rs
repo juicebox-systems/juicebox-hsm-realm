@@ -33,8 +33,8 @@ use cache::Cache;
 use juicebox_sdk_core::{
     requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
     types::{RealmId, SessionId},
-    {marshalling, marshalling::DeserializationError},
 };
+use juicebox_sdk_marshalling::{self as marshalling, DeserializationError};
 use juicebox_sdk_noise::server as noise;
 use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use types::{
@@ -2068,7 +2068,8 @@ fn make_next_log_entry(
 #[cfg(test)]
 mod test {
     use hashbrown::HashMap;
-    use juicebox_sdk_core::{marshalling, types::RealmId};
+    use juicebox_sdk_core::types::RealmId;
+    use juicebox_sdk_marshalling as marshalling;
 
     use super::{
         super::bitvec,

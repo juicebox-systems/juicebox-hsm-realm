@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use juicebox_sdk_core::marshalling::{self, DeserializationError, SerializationError};
+use juicebox_sdk_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use std::fmt::Debug;
 use url::Url;
 
