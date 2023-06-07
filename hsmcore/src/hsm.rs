@@ -2093,31 +2093,29 @@ mod test {
         }
     }
 
+    fn array_big<const N: usize>(i: u8) -> [u8; N] {
+        let mut r = [0xff; N];
+        r[N - 1] = 0xff - i;
+        r
+    }
+
     #[test]
     fn persistent_data_size() {
         // Verify that a PersistentState with 16 groups with 8 HSMs each fits in the NVRAM limit.
-
         let group = PersistentGroupState {
-            configuration: Configuration(vec![
-                HsmId([10; 16]),
-                HsmId([11; 16]),
-                HsmId([12; 16]),
-                HsmId([13; 16]),
-                HsmId([14; 16]),
-                HsmId([15; 16]),
-                HsmId([16; 16]),
-                HsmId([17; 16]),
-            ]),
-            captured: Some((LogIndex(u64::MAX - 1), EntryHmac([3; 32].into()))),
+            configuration: Configuration(
+                (0..8).map(|i| HsmId(array_big(i))).collect::<Vec<HsmId>>(),
+            ),
+            captured: Some((LogIndex(u64::MAX - 1), EntryHmac([0xff; 32].into()))),
         };
         let mut groups = HashMap::new();
         for id in 0..16 {
-            groups.insert(GroupId([id; 16]), group.clone());
+            groups.insert(GroupId(array_big(id)), group.clone());
         }
         let p = PersistentState {
-            id: HsmId([1; 16]),
+            id: HsmId([0xff; 16]),
             realm: Some(PersistentRealmState {
-                id: RealmId([2; 16]),
+                id: RealmId([0xff; 16]),
                 groups,
             }),
         };
