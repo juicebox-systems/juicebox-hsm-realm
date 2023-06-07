@@ -34,7 +34,7 @@ use juicebox_sdk_core::{
     requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
     types::{RealmId, SessionId},
 };
-use juicebox_sdk_marshalling::{self as marshalling, DeserializationError};
+use juicebox_sdk_marshalling::{self as marshalling, bytes, DeserializationError};
 use juicebox_sdk_noise::server as noise;
 use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use types::{
@@ -59,7 +59,7 @@ use types::{
 const SESSION_LIFETIME: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Deserialize, Serialize)]
-pub struct MacKey([u8; 64]);
+pub struct MacKey(#[serde(with = "bytes")] [u8; 64]);
 
 impl fmt::Debug for MacKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -17,7 +17,6 @@ juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-noise = { workspace = true }
 rand_core = { workspace = true }
 serde = { workspace = true }
-serde_with = { workspace = true }
 subtle = { workspace = true }
 tracing = { workspace = true }
 x25519-dalek = { workspace = true }
