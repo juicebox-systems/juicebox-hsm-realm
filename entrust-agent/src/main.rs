@@ -38,7 +38,7 @@ use juicebox_hsm::logging;
 use juicebox_hsm::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
 use juicebox_hsm::realm::store::bigtable;
 use juicebox_hsm::{metrics, metrics_tag as tag};
-use juicebox_sdk_core::marshalling::{self, DeserializationError, SerializationError};
+use juicebox_sdk_marshalling::{self as marshalling, DeserializationError, SerializationError};
 
 /// A host agent for use with an Entrust nCipherXC HSM.
 #[derive(Parser)]

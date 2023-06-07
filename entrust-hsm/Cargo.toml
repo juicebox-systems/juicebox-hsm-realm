@@ -7,9 +7,9 @@ edition = "2021"
 
 [dependencies]
 entrust_api = { path = "../entrust_api" }
-hashbrown = { workspace = true  }
+hashbrown = { workspace = true }
 hsmcore = { path = "../hsmcore" }
-juicebox-sdk-core = { workspace = true }
+juicebox-sdk-marshalling = { workspace = true }
 rand_core = { workspace = true }
 x25519-dalek = { workspace = true }
 

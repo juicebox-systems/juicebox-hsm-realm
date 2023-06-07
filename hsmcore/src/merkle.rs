@@ -3,8 +3,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 use core::fmt::{self, Debug, Display};
 use core::hash::Hash;
+use juicebox_sdk_marshalling::bytes;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, Bytes};
 
 use self::agent::{DeltaBuilder, Node, NodeKey, StoreDelta};
 use self::overlay::TreeOverlay;
@@ -173,10 +173,9 @@ impl<HO: HashOutput> InteriorNode<HO> {
     }
 }
 
-#[serde_as]
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct LeafNode {
-    #[serde_as(as = "Bytes")]
+    #[serde(with = "bytes")]
     pub value: Vec<u8>,
 }
 
@@ -308,7 +307,8 @@ mod tests {
         *,
     };
     use crate::bitvec;
-    use juicebox_sdk_core::{marshalling, types::RealmId};
+    use juicebox_sdk_core::types::RealmId;
+    use juicebox_sdk_marshalling as marshalling;
     use std::{
         collections::{BTreeMap, HashMap},
         hash::Hasher,
@@ -712,9 +712,9 @@ mod tests {
         }
     }
 
-    #[serde_as]
     #[derive(Clone, Copy, PartialEq, Deserialize, Eq, Hash, Serialize)]
-    pub struct TestHash(#[serde_as(as = "Bytes")] pub [u8; 8]);
+    pub struct TestHash(#[serde(with = "bytes")] pub [u8; 8]);
+
     impl HashOutput for TestHash {
         fn from_slice(bytes: &[u8]) -> Option<TestHash> {
             if bytes.len() == 8 {

@@ -19,7 +19,7 @@ use entrust_api::{
     StartResponse, Ticket, Trailer,
 };
 use hsmcore::hsm::{Hsm, HsmOptions, MacKey, MetricsReporting, RealmKeys, RecordEncryptionKey};
-use juicebox_sdk_core::marshalling;
+use juicebox_sdk_marshalling as marshalling;
 use platform::{transact, NCipher, SeeError};
 use seelib::{
     Cmd_Export, Cmd_RedeemTicket, M_ByteBlock, M_Command, M_Hash, M_Status, M_Word,

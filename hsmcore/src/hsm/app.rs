@@ -8,7 +8,6 @@ use tracing::trace;
 
 use super::types::RecordId;
 use juicebox_sdk_core::{
-    marshalling,
     requests::{
         DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
         Recover3Response, Register1Response, Register2Request, Register2Response, SecretsRequest,
@@ -19,6 +18,7 @@ use juicebox_sdk_core::{
         SaltShare, UnlockTag, UserSecretShare, OPRF_KEY_INFO,
     },
 };
+use juicebox_sdk_marshalling as marshalling;
 
 /// Persistent state for a particular user.
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]

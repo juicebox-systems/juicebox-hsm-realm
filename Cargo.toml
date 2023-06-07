@@ -26,6 +26,7 @@ default-members = [
 # This allows the sdk packages to reference their workspace (for dependencies
 # and such), rather than this one.
 exclude = ["sdk"]
+resolver = "2"
 
 [package]
 name = "juicebox_hsm"
@@ -70,6 +71,7 @@ jsonwebtoken = { version = "8.3.0", default-features = false }
 libc = { version = "0.2.139", default-features = false }
 juicebox-sdk = { path = "sdk/rust/sdk/client", features = ["tokio"] }
 juicebox-sdk-core = { path = "sdk/rust/sdk/core" }
+juicebox-sdk-marshalling = { path = "sdk/rust/sdk/marshalling" }
 juicebox-sdk-networking = { path = "sdk/rust/sdk/networking", features = [
     "threadsafe-futures",
     "distributed-tracing",
@@ -96,7 +98,6 @@ serde = { version = "1.0.152", default-features = false, features = [
     "derive",
 ] }
 serde_json = "1.0.94"
-serde_with = { version = "3.0.0", default-features = false, features = ["alloc", "macros"] }
 signal-hook = "0.3.15"
 subtle = { version = "2.4.1", default-features = false }
 tempfile = "3.5.0"
@@ -156,6 +157,7 @@ jsonwebtoken = { workspace = true }
 libc = { workspace = true }
 juicebox-sdk = { workspace = true }
 juicebox-sdk-core = { workspace = true }
+juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
 nix = { workspace = true }
 opentelemetry = { workspace = true }

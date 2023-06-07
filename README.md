@@ -109,6 +109,7 @@ local dependencies:
 graph TD
   subgraph sdk
     juicebox-sdk
+    juicebox-sdk-marshalling
     juicebox-sdk-noise
     juicebox-sdk-core
     juicebox-sdk-networking
@@ -117,8 +118,10 @@ graph TD
   juicebox-sdk --> juicebox-sdk-core
   juicebox-sdk --> juicebox-sdk-networking
   juicebox-sdk --> juicebox-sdk-noise
+  juicebox-sdk-core --> juicebox-sdk-marshalling
   juicebox-sdk-core --> juicebox-sdk-noise
   juicebox-sdk-networking --> juicebox-sdk-core
+  juicebox-sdk-noise --> juicebox-sdk-marshalling
 
   subgraph hsm
     entrust-hsm[\entrust-hsm/]

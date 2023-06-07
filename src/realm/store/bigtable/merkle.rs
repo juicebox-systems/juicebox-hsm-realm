@@ -21,8 +21,8 @@ use hsmcore::hsm::cache;
 use hsmcore::hsm::types::{DataHash, GroupId, RecordId};
 use hsmcore::merkle::agent::{all_store_key_starts, Node, NodeKey, StoreKey, TreeStoreError};
 use hsmcore::merkle::Dir;
-use juicebox_sdk_core::marshalling;
 use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_marshalling as marshalling;
 
 /// Wrapper for [`Instant`] used in the Merkle node cache.
 ///

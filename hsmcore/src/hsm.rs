@@ -33,8 +33,8 @@ use cache::Cache;
 use juicebox_sdk_core::{
     requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
     types::{RealmId, SessionId},
-    {marshalling, marshalling::DeserializationError},
 };
+use juicebox_sdk_marshalling::{self as marshalling, bytes, DeserializationError};
 use juicebox_sdk_noise::server as noise;
 use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use types::{
@@ -59,7 +59,7 @@ use types::{
 const SESSION_LIFETIME: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Deserialize, Serialize)]
-pub struct MacKey(digest::Key<SimpleHmac<Blake2s256>>);
+pub struct MacKey(#[serde(with = "bytes")] [u8; 64]);
 
 impl fmt::Debug for MacKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -67,10 +67,8 @@ impl fmt::Debug for MacKey {
     }
 }
 
-impl MacKey {
-    pub fn from(v: [u8; 64]) -> Self {
-        let mut key = digest::Key::<SimpleHmac<Blake2s256>>::default();
-        key.copy_from_slice(&v);
+impl From<[u8; 64]> for MacKey {
+    fn from(key: [u8; 64]) -> Self {
         Self(key)
     }
 }
@@ -117,7 +115,7 @@ struct GroupConfigurationStatementBuilder<'a> {
 
 impl<'a> GroupConfigurationStatementBuilder<'a> {
     fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
-        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
+        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0.into());
         mac.update(b"group configuration|");
         mac.update(&self.realm.0);
         mac.update(b"|");
@@ -130,7 +128,7 @@ impl<'a> GroupConfigurationStatementBuilder<'a> {
     }
 
     fn build(&self, key: &MacKey) -> GroupConfigurationStatement {
-        GroupConfigurationStatement(self.calculate(key).finalize().into_bytes())
+        GroupConfigurationStatement(self.calculate(key).finalize().into_bytes().into())
     }
 
     fn verify(
@@ -138,7 +136,7 @@ impl<'a> GroupConfigurationStatementBuilder<'a> {
         key: &MacKey,
         statement: &GroupConfigurationStatement,
     ) -> Result<(), digest::MacError> {
-        self.calculate(key).verify(&statement.0)
+        self.calculate(key).verify(&statement.0.into())
     }
 }
 
@@ -152,7 +150,7 @@ struct CapturedStatementBuilder<'a> {
 
 impl<'a> CapturedStatementBuilder<'a> {
     fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
-        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
+        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0.into());
         mac.update(b"captured|");
         mac.update(&self.hsm.0);
         mac.update(b"|");
@@ -167,11 +165,11 @@ impl<'a> CapturedStatementBuilder<'a> {
     }
 
     fn build(&self, key: &MacKey) -> CapturedStatement {
-        CapturedStatement(self.calculate(key).finalize().into_bytes())
+        CapturedStatement(self.calculate(key).finalize().into_bytes().into())
     }
 
     fn verify(&self, key: &MacKey, statement: &CapturedStatement) -> Result<(), digest::MacError> {
-        self.calculate(key).verify(&statement.0)
+        self.calculate(key).verify(&statement.0.into())
     }
 }
 
@@ -186,7 +184,7 @@ struct EntryHmacBuilder<'a> {
 
 impl<'a> EntryHmacBuilder<'a> {
     fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
-        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
+        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0.into());
         mac.update(b"entry|");
         mac.update(&self.realm.0);
         mac.update(b"|");
@@ -235,11 +233,11 @@ impl<'a> EntryHmacBuilder<'a> {
     }
 
     fn build(&self, key: &MacKey) -> EntryHmac {
-        EntryHmac(self.calculate(key).finalize().into_bytes())
+        EntryHmac(self.calculate(key).finalize().into_bytes().into())
     }
 
     fn verify(&self, key: &MacKey, hmac: &EntryHmac) -> Result<(), digest::MacError> {
-        self.calculate(key).verify(&hmac.0)
+        self.calculate(key).verify(&hmac.0.into())
     }
 
     fn verify_entry(
@@ -277,7 +275,7 @@ struct TransferStatementBuilder<'a> {
 
 impl<'a> TransferStatementBuilder<'a> {
     fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
-        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0);
+        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0.into());
         mac.update(b"transfer|");
         mac.update(&self.realm.0);
         mac.update(b"|");
@@ -294,11 +292,11 @@ impl<'a> TransferStatementBuilder<'a> {
     }
 
     fn build(&self, key: &MacKey) -> TransferStatement {
-        TransferStatement(self.calculate(key).finalize().into_bytes())
+        TransferStatement(self.calculate(key).finalize().into_bytes().into())
     }
 
     fn verify(&self, key: &MacKey, statement: &TransferStatement) -> Result<(), digest::MacError> {
-        self.calculate(key).verify(&statement.0)
+        self.calculate(key).verify(&statement.0.into())
     }
 }
 
@@ -310,7 +308,7 @@ impl NodeHasher<DataHash> for MerkleHasher {
             h.update([b'|']); //delim all the parts
             h.update(p);
         }
-        DataHash(h.finalize())
+        DataHash(h.finalize().into())
     }
 }
 
@@ -2068,7 +2066,8 @@ fn make_next_log_entry(
 #[cfg(test)]
 mod test {
     use hashbrown::HashMap;
-    use juicebox_sdk_core::{marshalling, types::RealmId};
+    use juicebox_sdk_core::types::RealmId;
+    use juicebox_sdk_marshalling as marshalling;
 
     use super::{
         super::bitvec,
@@ -2093,31 +2092,29 @@ mod test {
         }
     }
 
+    fn array_big<const N: usize>(i: u8) -> [u8; N] {
+        let mut r = [0xff; N];
+        r[N - 1] = 0xff - i;
+        r
+    }
+
     #[test]
     fn persistent_data_size() {
         // Verify that a PersistentState with 16 groups with 8 HSMs each fits in the NVRAM limit.
-
         let group = PersistentGroupState {
-            configuration: Configuration(vec![
-                HsmId([10; 16]),
-                HsmId([11; 16]),
-                HsmId([12; 16]),
-                HsmId([13; 16]),
-                HsmId([14; 16]),
-                HsmId([15; 16]),
-                HsmId([16; 16]),
-                HsmId([17; 16]),
-            ]),
-            captured: Some((LogIndex(u64::MAX - 1), EntryHmac([3; 32].into()))),
+            configuration: Configuration(
+                (0..8).map(|i| HsmId(array_big(i))).collect::<Vec<HsmId>>(),
+            ),
+            captured: Some((LogIndex(u64::MAX - 1), EntryHmac([0xff; 32]))),
         };
         let mut groups = HashMap::new();
         for id in 0..16 {
-            groups.insert(GroupId([id; 16]), group.clone());
+            groups.insert(GroupId(array_big(id)), group.clone());
         }
         let p = PersistentState {
-            id: HsmId([1; 16]),
+            id: HsmId([0xff; 16]),
             realm: Some(PersistentRealmState {
-                id: RealmId([2; 16]),
+                id: RealmId([0xff; 16]),
                 groups,
             }),
         };
