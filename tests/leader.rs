@@ -114,31 +114,37 @@ async fn leader_handover() {
     }
 
     let agents = http_client::Client::new(ClientOptions::default());
+    let cluster_realm = cluster.realms[0].realm;
+    let cluster_group = cluster.realms[0].groups[1]; // first non-trivial group
+
     for _ in 1..10 {
         // Find out the current leader HSM and ask the cluster manager it have it stepdown.
-        let leaders1 = cluster::find_leaders(&cluster.store, &agents)
+        let leader1 = cluster::find_leaders(&cluster.store, &agents)
             .await
-            .unwrap();
-
-        assert_eq!(1, leaders1.len());
-        let (hsm_id1, _) = leaders1.values().next().unwrap();
+            .unwrap()
+            .remove(&(cluster_realm, cluster_group));
+        let Some((hsm_id1, _)) = leader1 else {
+            panic!("leader1 was None");
+        };
 
         rpc::send(
             &agents,
             &cluster.cluster_manager,
-            StepDownRequest::Hsm(*hsm_id1),
+            StepDownRequest::Hsm(hsm_id1),
         )
         .await
         .unwrap();
 
         // See who the new leader is and make sure its a different HSM.
-        let leaders2 = cluster::find_leaders(&cluster.store, &agents)
+        let leader2 = cluster::find_leaders(&cluster.store, &agents)
             .await
-            .unwrap();
+            .unwrap()
+            .remove(&(cluster_realm, cluster_group));
+        let Some((hsm_id2, _)) = leader2 else {
+            panic!("leader2 was None");
+        };
 
-        assert_eq!(1, leaders2.len());
-        let (hsm_id2, _) = leaders2.values().next().unwrap();
-        assert_ne!(hsm_id1, hsm_id2);
+        assert_ne!(hsm_id1, hsm_id2, "leader should have changed (1 to 2)");
 
         // make sure the background worker made some progress.
         let count_before_leader_change = success_count;
@@ -152,26 +158,27 @@ async fn leader_handover() {
         }
 
         // Now ask for a stepdown based on the realm/group Id.
-        let (realm, group) = leaders2.keys().next().unwrap();
         rpc::send(
             &agents,
             &cluster.cluster_manager,
             StepDownRequest::Group {
-                realm: *realm,
-                group: *group,
+                realm: cluster_realm,
+                group: cluster_group,
             },
         )
         .await
         .unwrap();
 
         // check that the leadership moved.
-        let leaders3 = cluster::find_leaders(&cluster.store, &agents)
+        let leader3 = cluster::find_leaders(&cluster.store, &agents)
             .await
-            .unwrap();
+            .unwrap()
+            .remove(&(cluster_realm, cluster_group));
+        let Some((hsm_id3, _)) = leader3 else {
+            panic!("leader3 was None");
+        };
 
-        assert_eq!(1, leaders3.len());
-        let (hsm_id3, _) = leaders3.values().next().unwrap();
-        assert_ne!(hsm_id2, hsm_id3);
+        assert_ne!(hsm_id2, hsm_id3, "leader should have changed (2 to 3)");
 
         // check in on our background register/recover progress.
         let count_before_leader_change = success_count;

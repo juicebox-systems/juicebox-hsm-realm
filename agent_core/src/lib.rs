@@ -25,8 +25,8 @@ mod commit;
 pub use juicebox_hsm::realm::agent::types;
 
 use hsm_types::{
-    CaptureNextRequest, CaptureNextResponse, Captured, Configuration, EntryHmac, GroupId, HsmId,
-    LogIndex, TransferInProofs,
+    CaptureNextRequest, CaptureNextResponse, Captured, EntryHmac, GroupId, HsmId, LogIndex,
+    TransferInProofs,
 };
 use hsmcore::hsm::types as hsm_types;
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
@@ -214,62 +214,6 @@ impl<T: Transport + 'static> Agent<T> {
                 }
             }
         });
-    }
-
-    #[instrument(level = "trace", skip(self))]
-    async fn find_peers(
-        &self,
-        realm_id: RealmId,
-        group_id: GroupId,
-    ) -> Result<(Configuration, HashMap<HsmId, Option<Url>>), ()> {
-        let name = &self.0.name;
-        let hsm = &self.0.hsm;
-        let store = &self.0.store;
-
-        let (configuration, mut peers): (_, HashMap<HsmId, Option<Url>>) =
-            match hsm.send(hsm_types::StatusRequest {}).await {
-                Err(_) => todo!(),
-                Ok(hsm_types::StatusResponse {
-                    id: hsm_id,
-                    realm: Some(realm),
-                    public_key: _,
-                }) => {
-                    if realm.id != realm_id {
-                        todo!();
-                    }
-                    match realm.groups.into_iter().find(|group| group.id == group_id) {
-                        None => todo!(),
-                        Some(group) => {
-                            let peers = HashMap::from_iter(
-                                group
-                                    .configuration
-                                    .0
-                                    .iter()
-                                    .filter(|id| **id != hsm_id)
-                                    .map(|id| (*id, None)),
-                            );
-                            (group.configuration, peers)
-                        }
-                    }
-                }
-                _ => todo!(),
-            };
-        trace!(agent = name, peer_hsms = ?peers.keys(), "found peer HSMs from configuration");
-
-        match store.get_addresses().await {
-            Err(_) => todo!(),
-            Ok(addresses) => {
-                for (hsm, address) in addresses {
-                    peers.entry(hsm).and_modify(|e| *e = Some(address));
-                }
-            }
-        };
-        trace!(
-            agent = name,
-            ?peers,
-            "looked up peer agent addresses from store"
-        );
-        Ok((configuration, peers))
     }
 
     pub async fn listen(self, address: SocketAddr) -> Result<(Url, JoinHandle<()>), anyhow::Error> {
@@ -487,71 +431,57 @@ impl<T: Transport + 'static> Agent<T> {
 
     async fn handle_new_realm(
         &self,
-        request: NewRealmRequest,
+        _request: NewRealmRequest,
     ) -> Result<NewRealmResponse, HandlerError> {
         type Response = NewRealmResponse;
-
-        let hsm = &self.0.hsm;
-        let store = &self.0.store;
         let name = &self.0.name;
 
-        let new_realm_response = match hsm
-            .send(hsm_types::NewRealmRequest {
-                configuration: request.configuration.clone(),
-            })
-            .await
-        {
+        // Get the HSM ID (which is used as the new group's Configuration
+        // below). This also checks if a realm already exists, because it might
+        // as well.
+        let hsm_id = match self.0.hsm.send(hsm_types::StatusRequest {}).await {
             Err(_) => return Ok(Response::NoHsm),
-
-            Ok(hsm_types::NewRealmResponse::HaveRealm) => return Ok(Response::HaveRealm),
-
-            Ok(hsm_types::NewRealmResponse::InvalidConfiguration) => {
-                return Ok(Response::InvalidConfiguration)
-            }
-
-            Ok(hsm_types::NewRealmResponse::Ok(response)) => response,
+            Ok(hsm_types::StatusResponse { realm: Some(_), .. }) => return Ok(Response::HaveRealm),
+            Ok(hsm_types::StatusResponse { id, .. }) => id,
         };
+
+        info!(agent = name, ?hsm_id, "creating new realm");
+        let (realm, group, entry, delta) =
+            match self.0.hsm.send(hsm_types::NewRealmRequest {}).await {
+                Err(_) => return Ok(Response::NoHsm),
+                Ok(hsm_types::NewRealmResponse::HaveRealm) => return Ok(Response::HaveRealm),
+                Ok(hsm_types::NewRealmResponse::Ok {
+                    realm,
+                    group,
+                    entry,
+                    delta,
+                }) => (realm, group, entry, delta),
+            };
 
         info!(
             agent = name,
-            realm = ?new_realm_response.realm,
-            group = ?new_realm_response.group,
+            realm = ?realm,
+            group = ?group,
             "creating tables for new realm"
         );
         self.0
             .store_admin
-            .initialize_realm(&new_realm_response.realm)
+            .initialize_realm(&realm)
             .await
             .expect("TODO");
 
         info!(
             agent = name,
-            realm = ?new_realm_response.realm,
-            group = ?new_realm_response.group,
+            realm = ?realm,
+            group = ?group,
             "appending log entry for new realm"
         );
-        assert_eq!(new_realm_response.entry.index, LogIndex::FIRST);
+        assert_eq!(entry.index, LogIndex::FIRST);
 
-        match store
-            .append(
-                &new_realm_response.realm,
-                &new_realm_response.group,
-                &[new_realm_response.entry],
-                new_realm_response.delta,
-            )
-            .await
-        {
+        match self.0.store.append(&realm, &group, &[entry], delta).await {
             Ok(()) => {
-                self.finish_new_group(
-                    new_realm_response.realm,
-                    new_realm_response.group,
-                    request.configuration,
-                );
-                Ok(Response::Ok {
-                    realm: new_realm_response.realm,
-                    group: new_realm_response.group,
-                    statement: new_realm_response.statement,
-                })
+                self.finish_new_group(realm, group, vec![hsm_id]);
+                Ok(Response::Ok { realm, group })
             }
             Err(bigtable::AppendError::Grpc(_)) => Ok(Response::NoStore),
             Err(bigtable::AppendError::MerkleWrites(_)) => todo!(),
@@ -560,7 +490,7 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
-    fn finish_new_group(&self, realm: RealmId, group: GroupId, config: Configuration) {
+    fn finish_new_group(&self, realm: RealmId, group: GroupId, config: Vec<HsmId>) {
         self.start_watching(realm, group, LogIndex::FIRST);
         self.start_leading(realm, group, config, LogIndex::FIRST);
     }
@@ -569,7 +499,7 @@ impl<T: Transport + 'static> Agent<T> {
         &self,
         realm: RealmId,
         group: GroupId,
-        config: Configuration,
+        config: Vec<HsmId>,
         starting_index: LogIndex,
     ) {
         let existing = self.0.state.lock().unwrap().leader.insert(
@@ -600,11 +530,14 @@ impl<T: Transport + 'static> Agent<T> {
             .hsm
             .send(hsm_types::JoinRealmRequest {
                 realm: request.realm,
+                peer: request.peer,
+                statement: request.statement,
             })
             .await
         {
             Err(_) => Ok(Response::NoHsm),
             Ok(HsmResponse::HaveOtherRealm) => Ok(Response::HaveOtherRealm),
+            Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
             Ok(HsmResponse::Ok { hsm }) => Ok(Response::Ok { hsm }),
         }
     }
@@ -614,53 +547,50 @@ impl<T: Transport + 'static> Agent<T> {
         request: NewGroupRequest,
     ) -> Result<NewGroupResponse, HandlerError> {
         type Response = NewGroupResponse;
+        type HsmResponse = hsm_types::NewGroupResponse;
+
         let name = &self.0.name;
         let hsm = &self.0.hsm;
         let store = &self.0.store;
 
         let realm = request.realm;
 
-        let new_group_response = match hsm
+        let configuration: Vec<HsmId> = request.members.iter().map(|(id, _)| *id).collect();
+
+        let (group, statement, entry) = match hsm
             .send(hsm_types::NewGroupRequest {
                 realm,
-                configuration: request.configuration.clone(),
+                members: request.members,
             })
             .await
         {
             Err(_) => return Ok(Response::NoHsm),
-
-            Ok(hsm_types::NewGroupResponse::InvalidRealm) => return Ok(Response::InvalidRealm),
-
-            Ok(hsm_types::NewGroupResponse::InvalidConfiguration) => {
-                return Ok(Response::InvalidConfiguration)
-            }
-
-            Ok(hsm_types::NewGroupResponse::Ok(response)) => response,
+            Ok(HsmResponse::InvalidRealm) => return Ok(Response::InvalidRealm),
+            Ok(HsmResponse::InvalidConfiguration) => return Ok(Response::InvalidConfiguration),
+            Ok(HsmResponse::InvalidStatement) => return Ok(Response::InvalidStatement),
+            Ok(HsmResponse::TooManyGroups) => return Ok(Response::TooManyGroups),
+            Ok(HsmResponse::Ok {
+                group,
+                statement,
+                entry,
+            }) => (group, statement, entry),
         };
 
         info!(
             agent = name,
             ?realm,
-            group = ?new_group_response.group,
+            ?group,
             "appending log entry for new group"
         );
-        assert_eq!(new_group_response.entry.index, LogIndex::FIRST);
+        assert_eq!(entry.index, LogIndex::FIRST);
 
         match store
-            .append(
-                &realm,
-                &new_group_response.group,
-                &[new_group_response.entry],
-                new_group_response.delta,
-            )
+            .append(&realm, &group, &[entry], StoreDelta::default())
             .await
         {
             Ok(()) => {
-                self.finish_new_group(realm, new_group_response.group, request.configuration);
-                Ok(Response::Ok {
-                    group: new_group_response.group,
-                    statement: new_group_response.statement,
-                })
+                self.finish_new_group(realm, group, configuration);
+                Ok(Response::Ok { group, statement })
             }
             Err(bigtable::AppendError::Grpc(_)) => Ok(Response::NoStore),
             Err(bigtable::AppendError::MerkleWrites(_)) => todo!(),
@@ -692,6 +622,7 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
             Ok(HsmResponse::InvalidConfiguration) => Ok(Response::InvalidConfiguration),
             Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
+            Ok(HsmResponse::TooManyGroups) => Ok(Response::TooManyGroups),
             Ok(HsmResponse::Ok) => {
                 self.start_watching(request.realm, request.group, LogIndex::FIRST);
                 Ok(Response::Ok)
@@ -755,8 +686,13 @@ impl<T: Transport + 'static> Agent<T> {
             .await
         {
             Err(_) => Ok(Response::NoHsm),
-            Ok(HsmResponse::Ok { config }) => {
-                self.start_leading(request.realm, request.group, config, last_entry_index);
+            Ok(HsmResponse::Ok { configuration }) => {
+                self.start_leading(
+                    request.realm,
+                    request.group,
+                    configuration,
+                    last_entry_index,
+                );
                 Ok(Response::Ok)
             }
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),

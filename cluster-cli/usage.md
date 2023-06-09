@@ -11,8 +11,9 @@ Commands:
   configuration  Print a configuration that uses the discoverable realm(s)
   experimental   Subcommands that are not yet stable and may be dangerous
   groups         Print information about every discoverable realm and group
+  join-realm     Request HSMs to irreversibly adopt an existing realm
   new-group      Create a new group on a set of agents' HSMs
-  new-realm      Create a new realm and group on a set of agents' HSMs
+  new-realm      Create a new realm and group on a single agent's HSM
   stepdown       Ask an HSM to step down as leader for any groups that it's leading
   transfer       Transfer ownership of user records from one group to another
   help           Print this message or the help of the given subcommand(s)
@@ -146,6 +147,28 @@ Options:
 
 ```
 
+## `cluster join-realm --help`
+
+```
+Request HSMs to irreversibly adopt an existing realm.
+
+At least one HSM that is already in the realm must be online for this to complete.
+
+Usage: cluster join-realm --realm <REALM> <AGENTS>...
+
+Arguments:
+  <AGENTS>...
+          URLs of agents whose HSMs will join the realm
+
+Options:
+      --realm <REALM>
+          The ID of the realm to join
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+```
+
 ## `cluster new-group --help`
 
 ```
@@ -157,13 +180,13 @@ Usage: cluster new-group --realm <REALM> <AGENTS>...
 
 Arguments:
   <AGENTS>...
-          URLs of agents whose HSMs will form the new group
+          URLs of agents whose HSMs will form the new group.
+          
+          All of the HSMs should have already joined the realm.
 
 Options:
       --realm <REALM>
-          The ID of the realm in which to create the new group.
-          
-          If any of the HSMs have not joined the realm, this will irreversibly assign them to the realm.
+          The ID of the realm in which to create the new group
 
   -h, --help
           Print help (see a summary with '-h')
@@ -173,15 +196,15 @@ Options:
 ## `cluster new-realm --help`
 
 ```
-Create a new realm and group on a set of agents' HSMs.
+Create a new realm and group on a single agent's HSM.
 
 The new group will own all of the user record space. Use 'new-group' and 'transfer' to repartition across additional groups.
 
-Usage: cluster new-realm <AGENTS>...
+Usage: cluster new-realm <AGENT>
 
 Arguments:
-  <AGENTS>...
-          URLs of agents whose HSMs will form the new realm and group
+  <AGENT>
+          URL of agent whose HSM will form the new realm and group
 
 Options:
   -h, --help

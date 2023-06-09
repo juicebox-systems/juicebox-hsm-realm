@@ -18,6 +18,7 @@ use x25519_dalek as x25519;
 mod app;
 pub mod cache;
 pub mod commit;
+mod configuration;
 pub mod rpc;
 pub mod types;
 
@@ -30,6 +31,7 @@ use super::merkle::{
 use super::mutation::{MutationTracker, OnMutationFinished};
 use app::RecordChange;
 use cache::Cache;
+use configuration::GroupConfiguration;
 use juicebox_sdk_core::{
     requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
     types::{RealmId, SessionId},
@@ -40,15 +42,15 @@ use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, Metrics
 use types::{
     AppError, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CaptureNextRequest, CaptureNextResponse, Captured, CapturedStatement, CompleteTransferRequest,
-    CompleteTransferResponse, Configuration, DataHash, EntryHmac, GroupConfigurationStatement,
-    GroupId, GroupMemberRole, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId,
+    CompleteTransferResponse, DataHash, EntryHmac, GroupConfigurationStatement, GroupId,
+    GroupMemberRole, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId, HsmRealmStatement,
     JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus,
-    LogEntry, LogIndex, NewGroupInfo, NewGroupRequest, NewGroupResponse, NewRealmRequest,
-    NewRealmResponse, OwnedRange, Partition, PersistStateRequest, PersistStateResponse,
-    RealmStatus, RecordId, StatusRequest, StatusResponse, StepDownRequest, StepDownResponse,
-    TransferInRequest, TransferInResponse, TransferNonce, TransferNonceRequest,
-    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatement,
-    TransferStatementRequest, TransferStatementResponse, TransferringOut,
+    LogEntry, LogIndex, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
+    OwnedRange, Partition, PersistStateRequest, PersistStateResponse, PublicKey, RealmStatus,
+    RecordId, StatusRequest, StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest,
+    TransferInResponse, TransferNonce, TransferNonceRequest, TransferNonceResponse,
+    TransferOutRequest, TransferOutResponse, TransferStatement, TransferStatementRequest,
+    TransferStatementResponse, TransferringOut, CONFIGURATION_LIMIT, GROUPS_LIMIT,
 };
 
 /// Returned in Noise handshake requests as a hint to the client of how long it
@@ -95,22 +97,10 @@ fn create_random_realm_id(rng: &mut impl CryptoRng) -> RealmId {
     RealmId(id)
 }
 
-impl Configuration {
-    /// Checks that the configuration is non-empty and that the HSM IDs are
-    /// sorted and unique.
-    fn is_ok(&self) -> bool {
-        if self.0.is_empty() {
-            return false;
-        }
-        let mut pairwise = self.0.iter().zip(self.0.iter().skip(1));
-        pairwise.all(|(a, b)| a < b)
-    }
-}
-
 struct GroupConfigurationStatementBuilder<'a> {
     realm: RealmId,
     group: GroupId,
-    configuration: &'a Configuration,
+    configuration: &'a GroupConfiguration,
 }
 
 impl<'a> GroupConfigurationStatementBuilder<'a> {
@@ -120,7 +110,7 @@ impl<'a> GroupConfigurationStatementBuilder<'a> {
         mac.update(&self.realm.0);
         mac.update(b"|");
         mac.update(&self.group.0);
-        for hsm_id in &self.configuration.0 {
+        for hsm_id in self.configuration {
             mac.update(b"|");
             mac.update(&hsm_id.0);
         }
@@ -136,6 +126,39 @@ impl<'a> GroupConfigurationStatementBuilder<'a> {
         key: &MacKey,
         statement: &GroupConfigurationStatement,
     ) -> Result<(), digest::MacError> {
+        self.calculate(key).verify(&statement.0.into())
+    }
+}
+
+struct HsmRealmStatementBuilder<'a> {
+    realm: RealmId,
+    hsm: HsmId,
+    keys: &'a RealmKeys,
+}
+
+impl<'a> HsmRealmStatementBuilder<'a> {
+    fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
+        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0.into());
+        mac.update(b"hsm realm|");
+        mac.update(&self.realm.0);
+        mac.update(b"|");
+        mac.update(&self.hsm.0);
+        mac.update(b"|");
+        mac.update(self.keys.communication.0.as_bytes());
+        mac.update(b"|");
+        mac.update(self.keys.communication.1.as_bytes());
+        mac.update(b"|");
+        mac.update(&self.keys.record.0);
+        // There's no need to include `self.keys.mac` explicitly, since it's
+        // used as the key to this MAC.
+        mac
+    }
+
+    fn build(&self, key: &MacKey) -> HsmRealmStatement {
+        HsmRealmStatement(self.calculate(key).finalize().into_bytes().into())
+    }
+
+    fn verify(&self, key: &MacKey, statement: &HsmRealmStatement) -> Result<(), digest::MacError> {
         self.calculate(key).verify(&statement.0.into())
     }
 }
@@ -170,6 +193,37 @@ impl<'a> CapturedStatementBuilder<'a> {
 
     fn verify(&self, key: &MacKey, statement: &CapturedStatement) -> Result<(), digest::MacError> {
         self.calculate(key).verify(&statement.0.into())
+    }
+}
+
+struct LogEntryBuilder {
+    pub realm: RealmId,
+    pub group: GroupId,
+    pub index: LogIndex,
+    pub partition: Option<Partition>,
+    pub transferring_out: Option<TransferringOut>,
+    pub prev_hmac: EntryHmac,
+}
+
+impl LogEntryBuilder {
+    fn build(self, key: &MacKey) -> LogEntry {
+        let entry_hmac = EntryHmacBuilder {
+            realm: self.realm,
+            group: self.group,
+            index: self.index,
+            partition: &self.partition,
+            transferring_out: &self.transferring_out,
+            prev_hmac: &self.prev_hmac,
+        }
+        .build(key);
+
+        LogEntry {
+            index: self.index,
+            partition: self.partition,
+            transferring_out: self.transferring_out,
+            prev_hmac: self.prev_hmac,
+            entry_hmac,
+        }
     }
 }
 
@@ -359,12 +413,13 @@ struct PersistentState {
 #[derive(Deserialize, Serialize)]
 struct PersistentRealmState {
     id: RealmId,
+    statement: HsmRealmStatement,
     groups: HashMap<GroupId, PersistentGroupState>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
 struct PersistentGroupState {
-    configuration: Configuration,
+    configuration: GroupConfiguration,
     captured: Option<(LogIndex, EntryHmac)>,
 }
 
@@ -382,6 +437,24 @@ struct LeaderVolatileGroupState {
     /// This is `Some` if and only if the last entry in `log` owns a partition.
     tree: Option<Tree<MerkleHasher, DataHash>>,
     sessions: Cache<(RecordId, SessionId), noise::Transport>,
+}
+
+impl LeaderVolatileGroupState {
+    fn new(last_entry: LogEntry, options: &HsmOptions) -> Self {
+        let tree = last_entry.partition.as_ref().map(|p| {
+            Tree::with_existing_root(MerkleHasher(), p.root_hash, options.tree_overlay_size)
+        });
+        Self {
+            log: VecDeque::from([LeaderLogEntry {
+                entry: last_entry,
+                response: None,
+            }]),
+            committed: None,
+            incoming: None,
+            tree,
+            sessions: Cache::new(usize::from(options.max_sessions)),
+        }
+    }
 }
 
 struct SteppingDownVolatileGroupState {
@@ -513,6 +586,16 @@ impl<P: Platform> Hsm<P> {
             }
         };
 
+        if let Some(realm) = &persistent.realm {
+            HsmRealmStatementBuilder {
+                realm: realm.id,
+                hsm: persistent.id,
+                keys: &realm_keys,
+            }
+            .verify(&realm_keys.mac, &realm.statement)
+            .expect("failed to verify HSM-realm statement on keys and persistent state");
+        }
+
         let captured: HashMap<GroupId, (LogIndex, EntryHmac)> = persistent
             .realm
             .iter()
@@ -637,144 +720,51 @@ impl<P: Platform> Hsm<P> {
         }
     }
 
-    fn create_new_group(
-        &mut self,
-        realm: RealmId,
-        configuration: Configuration,
-        owned_range: Option<OwnedRange>,
-    ) -> NewGroupInfo {
-        let group = GroupId::random(&mut self.platform);
-        let statement = GroupConfigurationStatementBuilder {
-            realm,
-            group,
-            configuration: &configuration,
-        }
-        .build(&self.realm_keys.mac);
-
-        {
-            let mut persistent = self.persistent.mutate();
-            let existing = persistent.realm.as_mut().unwrap().groups.insert(
-                group,
-                PersistentGroupState {
-                    configuration,
-                    captured: None,
-                },
-            );
-            assert!(existing.is_none());
-        }
-
-        let index = LogIndex::FIRST;
-        let (partition, data) = match &owned_range {
-            None => (None, StoreDelta::default()),
-            Some(key_range) => {
-                let h = MerkleHasher();
-                let (root_hash, delta) = Tree::new_tree(&h, key_range);
-                (
-                    Some(Partition {
-                        range: key_range.clone(),
-                        root_hash,
-                    }),
-                    delta,
-                )
-            }
-        };
-        let transferring_out = None;
-        let prev_hmac = EntryHmac::zero();
-
-        let entry_hmac = EntryHmacBuilder {
-            realm,
-            group,
-            index,
-            partition: &partition,
-            transferring_out: &transferring_out,
-            prev_hmac: &prev_hmac,
-        }
-        .build(&self.realm_keys.mac);
-
-        let entry = LogEntry {
-            index,
-            partition: partition.clone(),
-            transferring_out,
-            prev_hmac,
-            entry_hmac,
-        };
-
-        self.volatile.leader.insert(
-            group,
-            LeaderVolatileGroupState {
-                log: VecDeque::from([LeaderLogEntry {
-                    entry: entry.clone(),
-                    response: None,
-                }]),
-                committed: None,
-                incoming: None,
-                tree: partition.as_ref().map(|p| {
-                    Tree::with_existing_root(
-                        MerkleHasher(),
-                        p.root_hash,
-                        self.options.tree_overlay_size,
-                    )
-                }),
-                sessions: Cache::new(usize::from(self.options.max_sessions)),
-            },
-        );
-
-        NewGroupInfo {
-            realm,
-            group,
-            statement,
-            entry,
-            delta: data,
-        }
-    }
-
     fn handle_status_request(
         &mut self,
         _metrics: &mut Metrics<P>,
         request: StatusRequest,
     ) -> StatusResponse {
         trace!(hsm = self.options.name, ?request);
-        let response =
-            StatusResponse {
-                id: self.persistent.id,
-                public_key: self.realm_keys.communication.1.as_bytes().to_vec(),
-                realm: self.persistent.realm.as_ref().map(|realm| RealmStatus {
-                    id: realm.id,
-                    groups: realm
-                        .groups
-                        .iter()
-                        .map(|(group_id, group)| {
-                            let configuration = group.configuration.clone();
-                            let captured = group.captured.clone();
-                            GroupStatus {
-                                id: *group_id,
-                                configuration,
-                                captured,
-                                leader: self.volatile.leader.get(group_id).map(|leader| {
-                                    LeaderStatus {
-                                        committed: leader.committed,
-                                        owned_range: leader
-                                            .log
-                                            .back()
-                                            .expect("leader's log is never empty")
-                                            .entry
-                                            .partition
-                                            .as_ref()
-                                            .map(|p| p.range.clone()),
-                                    }
-                                }),
-                                role: match self.volatile.leader.get(group_id) {
-                                    Some(_) => GroupMemberRole::Leader,
-                                    None => match self.volatile.stepping_down.get(group_id) {
-                                        Some(_) => GroupMemberRole::SteppingDown,
-                                        None => GroupMemberRole::Witness,
-                                    },
-                                },
-                            }
-                        })
-                        .collect(),
-                }),
-            };
+        let response = StatusResponse {
+            id: self.persistent.id,
+            public_key: PublicKey(self.realm_keys.communication.1.as_bytes().to_vec()),
+            realm: self.persistent.realm.as_ref().map(|realm| RealmStatus {
+                id: realm.id,
+                statement: realm.statement.clone(),
+                groups: realm
+                    .groups
+                    .iter()
+                    .map(|(group_id, group)| GroupStatus {
+                        id: *group_id,
+                        configuration: group.configuration.to_vec(),
+                        captured: group.captured.clone(),
+                        leader: self
+                            .volatile
+                            .leader
+                            .get(group_id)
+                            .map(|leader| LeaderStatus {
+                                committed: leader.committed,
+                                owned_range: leader
+                                    .log
+                                    .back()
+                                    .expect("leader's log is never empty")
+                                    .entry
+                                    .partition
+                                    .as_ref()
+                                    .map(|p| p.range.clone()),
+                            }),
+                        role: match self.volatile.leader.get(group_id) {
+                            Some(_) => GroupMemberRole::Leader,
+                            None => match self.volatile.stepping_down.get(group_id) {
+                                Some(_) => GroupMemberRole::SteppingDown,
+                                None => GroupMemberRole::Witness,
+                            },
+                        },
+                    })
+                    .collect(),
+            }),
+        };
         trace!(hsm = self.options.name, ?response);
         response
     }
@@ -788,19 +778,51 @@ impl<P: Platform> Hsm<P> {
         trace!(hsm = self.options.name, ?request);
         let response = if self.persistent.realm.is_some() {
             Response::HaveRealm
-        } else if !request.configuration.is_ok()
-            || !request.configuration.0.contains(&self.persistent.id)
-        {
-            Response::InvalidConfiguration
         } else {
-            let realm_id = create_random_realm_id(&mut self.platform);
+            let realm = create_random_realm_id(&mut self.platform);
+            let group = GroupId::random(&mut self.platform);
+
             self.persistent.mutate().realm = Some(PersistentRealmState {
-                id: realm_id,
-                groups: HashMap::new(),
+                id: realm,
+                statement: HsmRealmStatementBuilder {
+                    realm,
+                    hsm: self.persistent.id,
+                    keys: &self.realm_keys,
+                }
+                .build(&self.realm_keys.mac),
+                groups: HashMap::from([(
+                    group,
+                    PersistentGroupState {
+                        configuration: GroupConfiguration::from_local(&self.persistent.id),
+                        captured: None,
+                    },
+                )]),
             });
-            let group_info =
-                self.create_new_group(realm_id, request.configuration, Some(OwnedRange::full()));
-            Response::Ok(group_info)
+
+            let range = OwnedRange::full();
+            let (root_hash, delta) = Tree::new_tree(&MerkleHasher(), &range);
+
+            let entry = LogEntryBuilder {
+                realm,
+                group,
+                index: LogIndex::FIRST,
+                partition: Some(Partition { range, root_hash }),
+                transferring_out: None,
+                prev_hmac: EntryHmac::zero(),
+            }
+            .build(&self.realm_keys.mac);
+
+            self.volatile.leader.insert(
+                group,
+                LeaderVolatileGroupState::new(entry.clone(), &self.options),
+            );
+
+            Response::Ok {
+                realm,
+                group,
+                entry,
+                delta,
+            }
         };
         trace!(hsm = self.options.name, ?response);
         response
@@ -811,25 +833,49 @@ impl<P: Platform> Hsm<P> {
         _metrics: &mut Metrics<P>,
         request: JoinRealmRequest,
     ) -> JoinRealmResponse {
+        type Response = JoinRealmResponse;
         trace!(hsm = self.options.name, ?request);
 
         let response = match &self.persistent.realm {
             Some(realm) => {
                 if realm.id == request.realm {
-                    JoinRealmResponse::Ok {
+                    Response::Ok {
                         hsm: self.persistent.id,
                     }
                 } else {
-                    JoinRealmResponse::HaveOtherRealm
+                    Response::HaveOtherRealm
                 }
             }
             None => {
-                let mut persistent = self.persistent.mutate();
-                persistent.realm = Some(PersistentRealmState {
-                    id: request.realm,
-                    groups: HashMap::new(),
-                });
-                JoinRealmResponse::Ok { hsm: persistent.id }
+                // Check peer's MAC to make sure this HSM has the same keys.
+                if (HsmRealmStatementBuilder {
+                    realm: request.realm,
+                    hsm: request.peer,
+                    keys: &self.realm_keys,
+                })
+                .verify(&self.realm_keys.mac, &request.statement)
+                .is_err()
+                {
+                    Response::InvalidStatement
+                } else {
+                    // Construct a similar MAC but for the local HSM ID. This
+                    // will be re-checked on every boot, in case the keys
+                    // somehow change.
+                    let statement = HsmRealmStatementBuilder {
+                        realm: request.realm,
+                        hsm: self.persistent.id,
+                        keys: &self.realm_keys,
+                    }
+                    .build(&self.realm_keys.mac);
+
+                    let mut persistent = self.persistent.mutate();
+                    persistent.realm = Some(PersistentRealmState {
+                        id: request.realm,
+                        statement,
+                        groups: HashMap::new(),
+                    });
+                    Response::Ok { hsm: persistent.id }
+                }
             }
         };
 
@@ -845,23 +891,80 @@ impl<P: Platform> Hsm<P> {
         type Response = NewGroupResponse;
         trace!(hsm = self.options.name, ?request);
 
-        let Some(realm) = &self.persistent.realm else {
-            trace!(hsm = self.options.name, response = ?Response::InvalidRealm);
-            return Response::InvalidRealm;
-        };
+        let response = (|| {
+            let Some(realm) = &self.persistent.realm else {
+                return Response::InvalidRealm;
+            };
 
-        let response = if realm.id != request.realm {
-            Response::InvalidRealm
-        } else if !request.configuration.is_ok()
-            || !request.configuration.0.contains(&self.persistent.id)
-        {
-            Response::InvalidConfiguration
-        } else {
-            let owned_range: Option<OwnedRange> = None;
-            let group_info =
-                self.create_new_group(request.realm, request.configuration, owned_range);
-            Response::Ok(group_info)
-        };
+            if realm.id != request.realm {
+                return Response::InvalidRealm;
+            }
+
+            if realm.groups.len() >= usize::from(GROUPS_LIMIT) {
+                return Response::TooManyGroups;
+            }
+
+            if request.members.iter().any(|(hsm_id, hsm_realm_statement)| {
+                HsmRealmStatementBuilder {
+                    realm: realm.id,
+                    hsm: *hsm_id,
+                    keys: &self.realm_keys,
+                }
+                .verify(&self.realm_keys.mac, hsm_realm_statement)
+                .is_err()
+            }) {
+                return Response::InvalidStatement;
+            }
+
+            let Ok(configuration) = GroupConfiguration::from_sorted_including_local(
+                request.members.iter().map(|(id, _)| *id).collect::<Vec<HsmId>>(),
+                &self.persistent.id,
+            ) else {
+                return Response::InvalidConfiguration;
+            };
+
+            let group = GroupId::random(&mut self.platform);
+            let statement = GroupConfigurationStatementBuilder {
+                realm: request.realm,
+                group,
+                configuration: &configuration,
+            }
+            .build(&self.realm_keys.mac);
+
+            {
+                let mut persistent = self.persistent.mutate();
+                let existing = persistent.realm.as_mut().unwrap().groups.insert(
+                    group,
+                    PersistentGroupState {
+                        configuration,
+                        captured: None,
+                    },
+                );
+                assert!(existing.is_none());
+            }
+
+            let entry = LogEntryBuilder {
+                realm: request.realm,
+                group,
+                index: LogIndex::FIRST,
+                partition: None,
+                transferring_out: None,
+                prev_hmac: EntryHmac::zero(),
+            }
+            .build(&self.realm_keys.mac);
+
+            self.volatile.leader.insert(
+                group,
+                LeaderVolatileGroupState::new(entry.clone(), &self.options),
+            );
+
+            Response::Ok {
+                group,
+                statement,
+                entry,
+            }
+        })();
+
         trace!(hsm = self.options.name, ?response);
         response
     }
@@ -875,28 +978,37 @@ impl<P: Platform> Hsm<P> {
         trace!(hsm = self.options.name, ?request);
 
         let response = (|| {
+            let Ok(configuration) = GroupConfiguration::from_sorted_including_local(
+                request.configuration,
+                &self.persistent.id,
+            ) else {
+                return Response::InvalidConfiguration;
+            };
+
             match &self.persistent.realm {
                 None => return Response::InvalidRealm,
 
                 Some(realm) => {
                     if realm.id != request.realm {
                         return Response::InvalidRealm;
-                    } else if (GroupConfigurationStatementBuilder {
+                    }
+                    if realm.groups.len() >= usize::from(GROUPS_LIMIT) {
+                        return Response::TooManyGroups;
+                    }
+
+                    if (GroupConfigurationStatementBuilder {
                         realm: request.realm,
                         group: request.group,
-                        configuration: &request.configuration,
+                        configuration: &configuration,
                     })
                     .verify(&self.realm_keys.mac, &request.statement)
                     .is_err()
                     {
                         return Response::InvalidStatement;
-                    } else if !request.configuration.is_ok()
-                        || !request.configuration.0.contains(&self.persistent.id)
-                    {
-                        return Response::InvalidConfiguration;
                     }
                 }
             }
+
             self.persistent
                 .mutate()
                 .realm
@@ -905,7 +1017,7 @@ impl<P: Platform> Hsm<P> {
                 .groups
                 .entry(request.group)
                 .or_insert(PersistentGroupState {
-                    configuration: request.configuration,
+                    configuration,
                     captured: None,
                 });
             Response::Ok
@@ -1019,7 +1131,7 @@ impl<P: Platform> Hsm<P> {
         self.persist_current_captures();
 
         let response = (|| {
-            let config = match &self.persistent.realm {
+            let configuration = match &self.persistent.realm {
                 None => return Response::InvalidRealm,
 
                 Some(realm) => {
@@ -1054,36 +1166,21 @@ impl<P: Platform> Hsm<P> {
                                 {
                                     return Response::InvalidHmac;
                                 }
-                                group.configuration.clone()
+                                group.configuration.to_vec()
                             }
                         },
                     }
                 }
             };
 
-            let tree = request.last_entry.partition.as_ref().map(|p| {
-                Tree::with_existing_root(
-                    MerkleHasher(),
-                    p.root_hash,
-                    self.options.tree_overlay_size,
-                )
-            });
-
             self.volatile
                 .leader
                 .entry(request.group)
-                .or_insert_with(|| LeaderVolatileGroupState {
-                    log: VecDeque::from([LeaderLogEntry {
-                        entry: request.last_entry,
-                        response: None,
-                    }]),
-                    committed: None,
-                    incoming: None,
-                    tree,
-                    sessions: Cache::new(usize::from(self.options.max_sessions)),
+                .or_insert_with(|| {
+                    LeaderVolatileGroupState::new(request.last_entry, &self.options)
                 });
 
-            Response::Ok { config }
+            Response::Ok { configuration }
         })();
 
         trace!(hsm = self.options.name, ?response);
@@ -1283,24 +1380,6 @@ impl<P: Platform> Hsm<P> {
                 delta = split_delta;
             }
 
-            let index = last_entry.index.next();
-            let transferring_out = Some(TransferringOut {
-                destination: request.destination,
-                partition: transferring_partition,
-                at: index,
-            });
-            let prev_hmac = last_entry.entry_hmac.clone();
-
-            let entry_hmac = EntryHmacBuilder {
-                realm: request.realm,
-                group: request.source,
-                index,
-                partition: &keeping_partition,
-                transferring_out: &transferring_out,
-                prev_hmac: &prev_hmac,
-            }
-            .build(&self.realm_keys.mac);
-
             leader.tree = keeping_partition.as_ref().map(|p| {
                 Tree::with_existing_root(
                     MerkleHasher(),
@@ -1309,13 +1388,20 @@ impl<P: Platform> Hsm<P> {
                 )
             });
 
-            let entry = LogEntry {
+            let index = last_entry.index.next();
+            let entry = LogEntryBuilder {
+                realm: request.realm,
+                group: request.source,
                 index,
                 partition: keeping_partition,
-                transferring_out,
-                prev_hmac,
-                entry_hmac,
-            };
+                transferring_out: Some(TransferringOut {
+                    destination: request.destination,
+                    partition: transferring_partition,
+                    at: index,
+                }),
+                prev_hmac: last_entry.entry_hmac.clone(),
+            }
+            .build(&self.realm_keys.mac);
 
             leader.log.push_back(LeaderLogEntry {
                 entry: entry.clone(),
@@ -1498,29 +1584,15 @@ impl<P: Platform> Hsm<P> {
                 (request.transferring, StoreDelta::default())
             };
 
-            let index = last_entry.index.next();
-            let partition_hash = partition.root_hash;
-            let partition = Some(partition);
-            let transferring_out = last_entry.transferring_out.clone();
-            let prev_hmac = last_entry.entry_hmac.clone();
-
-            let entry_hmac = EntryHmacBuilder {
+            let entry = LogEntryBuilder {
                 realm: request.realm,
                 group: request.destination,
-                index,
-                partition: &partition,
-                transferring_out: &transferring_out,
-                prev_hmac: &prev_hmac,
+                index: last_entry.index.next(),
+                partition: Some(partition.clone()),
+                transferring_out: last_entry.transferring_out.clone(),
+                prev_hmac: last_entry.entry_hmac.clone(),
             }
             .build(&self.realm_keys.mac);
-
-            let entry = LogEntry {
-                index,
-                partition,
-                transferring_out,
-                prev_hmac,
-                entry_hmac,
-            };
 
             leader.log.push_back(LeaderLogEntry {
                 entry: entry.clone(),
@@ -1529,7 +1601,7 @@ impl<P: Platform> Hsm<P> {
 
             leader.tree = Some(Tree::with_existing_root(
                 MerkleHasher(),
-                partition_hash,
+                partition.root_hash,
                 self.options.tree_overlay_size,
             ));
             Response::Ok { entry, delta }
@@ -1575,28 +1647,15 @@ impl<P: Platform> Hsm<P> {
                 return Response::NotTransferring;
             }
 
-            let index = last_entry.index.next();
-            let owned_partition = last_entry.partition.clone();
-            let transferring_out = None;
-            let prev_hmac = last_entry.entry_hmac.clone();
-
-            let entry_hmac = EntryHmacBuilder {
+            let entry = LogEntryBuilder {
                 realm: request.realm,
                 group: request.source,
-                index,
-                partition: &owned_partition,
-                transferring_out: &transferring_out,
-                prev_hmac: &prev_hmac,
+                index: last_entry.index.next(),
+                partition: last_entry.partition.clone(),
+                transferring_out: None,
+                prev_hmac: last_entry.entry_hmac.clone(),
             }
             .build(&self.realm_keys.mac);
-
-            let entry = LogEntry {
-                index,
-                partition: owned_partition,
-                transferring_out,
-                prev_hmac,
-                entry_hmac,
-            };
 
             leader.log.push_back(LeaderLogEntry {
                 entry: entry.clone(),
@@ -1784,7 +1843,20 @@ fn handle_app_request(
 
     let (root_hash, store_delta) = merkle.update_overlay(rng, change);
 
-    let new_entry = make_next_log_entry(leader, request.realm, request.group, root_hash, &keys.mac);
+    let last_entry = leader.log.back().unwrap();
+    let new_entry = LogEntryBuilder {
+        realm: request.realm,
+        group: request.group,
+        index: last_entry.entry.index.next(),
+        partition: Some(Partition {
+            range: last_entry.entry.partition.as_ref().unwrap().range.clone(),
+            root_hash,
+        }),
+        transferring_out: last_entry.entry.transferring_out.clone(),
+        prev_hmac: last_entry.entry.entry_hmac.clone(),
+    }
+    .build(&keys.mac);
+
     leader.log.push_back(LeaderLogEntry {
         entry: new_entry.clone(),
         response: Some(secrets_response),
@@ -2026,43 +2098,6 @@ impl NoiseHelper {
     }
 }
 
-fn make_next_log_entry(
-    leader: &LeaderVolatileGroupState,
-    realm: RealmId,
-    group: GroupId,
-    root_hash: DataHash,
-    mac_key: &MacKey,
-) -> LogEntry {
-    let last_entry = leader.log.back().unwrap();
-
-    let index = last_entry.entry.index.next();
-    let partition = Some(Partition {
-        range: last_entry.entry.partition.as_ref().unwrap().range.clone(),
-        root_hash,
-    });
-
-    let transferring_out = last_entry.entry.transferring_out.clone();
-    let prev_hmac = last_entry.entry.entry_hmac.clone();
-
-    let entry_hmac = EntryHmacBuilder {
-        realm,
-        group,
-        index,
-        partition: &partition,
-        transferring_out: &transferring_out,
-        prev_hmac: &prev_hmac,
-    }
-    .build(mac_key);
-
-    LogEntry {
-        index,
-        partition,
-        transferring_out,
-        prev_hmac,
-        entry_hmac,
-    }
-}
-
 #[cfg(test)]
 mod test {
     use hashbrown::HashMap;
@@ -2073,8 +2108,8 @@ mod test {
         super::bitvec,
         super::hal::MAX_NVRAM_SIZE,
         super::merkle::{agent::StoreKey, NodeHasher},
-        types::{Configuration, DataHash, EntryHmac, GroupId, HsmId, LogIndex},
-        MerkleHasher, PersistentGroupState, PersistentRealmState, PersistentState,
+        types::{DataHash, EntryHmac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT},
+        *,
     };
 
     #[test]
@@ -2098,23 +2133,31 @@ mod test {
         r
     }
 
+    // Verify that a PersistentState with GROUPS_LIMIT groups with
+    // CONFIGURATION_LIMIT HSMs each fits in the NVRAM limit.
     #[test]
     fn persistent_data_size() {
-        // Verify that a PersistentState with 16 groups with 8 HSMs each fits in the NVRAM limit.
+        let id = HsmId([0xff; 16]);
         let group = PersistentGroupState {
-            configuration: Configuration(
-                (0..8).map(|i| HsmId(array_big(i))).collect::<Vec<HsmId>>(),
-            ),
+            configuration: GroupConfiguration::from_sorted_including_local(
+                (0..CONFIGURATION_LIMIT)
+                    .map(|i| HsmId(array_big(i)))
+                    .rev()
+                    .collect::<Vec<HsmId>>(),
+                &id,
+            )
+            .unwrap(),
             captured: Some((LogIndex(u64::MAX - 1), EntryHmac([0xff; 32]))),
         };
         let mut groups = HashMap::new();
-        for id in 0..16 {
+        for id in 0..GROUPS_LIMIT {
             groups.insert(GroupId(array_big(id)), group.clone());
         }
         let p = PersistentState {
-            id: HsmId([0xff; 16]),
+            id,
             realm: Some(PersistentRealmState {
                 id: RealmId([0xff; 16]),
+                statement: HsmRealmStatement([0xff; 32]),
                 groups,
             }),
         };

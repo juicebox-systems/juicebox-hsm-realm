@@ -8,7 +8,7 @@ use url::Url;
 use super::super::agent::types as agent_types;
 use super::super::rpc::HandlerError;
 use super::{types, ManagementGrant, Manager};
-use hsm_types::{Configuration, GroupId, HsmId, LogIndex};
+use hsm_types::{GroupId, HsmId, LogIndex};
 use hsmcore::hsm::types as hsm_types;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::rpc::{self, RpcError};
@@ -25,7 +25,7 @@ impl Manager {
             Err(_err) => return Ok(Response::NoStore),
         };
 
-        // calculate the exact set of step downs needed.
+        // Calculate the exact set of step downs needed.
         let stepdowns = match self.resolve_stepdowns(&req, &addresses).await {
             Err(e) => return Ok(e),
             Ok(sd) => sd,
@@ -44,7 +44,13 @@ impl Manager {
         }
 
         for (stepdown, grant) in zip(stepdowns, grants) {
-            info!(url=%stepdown.url, hsm=?stepdown.hsm, group=?stepdown.group, realm=?stepdown.realm, "Asking Agent/HSM to step down as leader");
+            info!(
+                url=%stepdown.url,
+                hsm=?stepdown.hsm,
+                group=?stepdown.group,
+                realm=?stepdown.realm,
+                "Asking agent/HSM to step down as leader",
+            );
             match rpc::send(
                 &self.0.agents,
                 &stepdown.url,
@@ -87,11 +93,7 @@ impl Manager {
     ) -> Result<Option<HsmId>, RpcError> {
         let hsm_status = super::get_hsm_statuses(
             &self.0.agents,
-            stepdown
-                .config
-                .0
-                .iter()
-                .filter_map(|hsm| addresses.get(hsm)),
+            stepdown.config.iter().filter_map(|hsm| addresses.get(hsm)),
         )
         .await;
 
@@ -114,13 +116,14 @@ impl Manager {
         match req {
             types::StepDownRequest::Hsm(hsm) => match addresses.get(hsm) {
                 None => {
-                    warn!(?hsm, "failed to find hsm in service discovery");
+                    warn!(?hsm, "failed to find HSM in service discovery");
                     Err(types::StepDownResponse::InvalidHsm)
                 }
+
                 Some(url) => {
                     match rpc::send(&self.0.agents, url, agent_types::StatusRequest {}).await {
                         Err(err) => {
-                            warn!(?err, url=%url, hsm=?hsm, "failed to get status of HSM");
+                            warn!(?err, %url, ?hsm, "failed to get status of HSM");
                             Err(types::StepDownResponse::RpcError(err))
                         }
                         Ok(agent_types::StatusResponse {
@@ -145,12 +148,13 @@ impl Manager {
                             })
                             .collect()),
                         Ok(_s) => {
-                            info!(?hsm,url=%url, "hsm is not a member of a realm");
+                            info!(?hsm, %url, "HSM is not a member of a realm");
                             Ok(Vec::new())
                         }
                     }
                 }
             },
+
             types::StepDownRequest::Group { realm, group } => {
                 Ok(join_all(addresses.iter().map(|(_hsm, url)| {
                     rpc::send(&self.0.agents, url, agent_types::StatusRequest {})
@@ -191,5 +195,5 @@ struct Stepdown {
     url: Url,
     group: GroupId,
     realm: RealmId,
-    config: Configuration,
+    config: Vec<HsmId>,
 }

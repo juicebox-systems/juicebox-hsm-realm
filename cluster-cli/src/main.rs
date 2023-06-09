@@ -81,31 +81,43 @@ enum Command {
     /// about agents.
     Groups,
 
+    /// Request HSMs to irreversibly adopt an existing realm.
+    ///
+    /// At least one HSM that is already in the realm must be online for this
+    /// to complete.
+    JoinRealm {
+        /// The ID of the realm to join.
+        #[arg(long, value_parser = parse_realm_id)]
+        realm: RealmId,
+
+        /// URLs of agents whose HSMs will join the realm.
+        #[arg(required = true)]
+        agents: Vec<Url>,
+    },
+
     /// Create a new group on a set of agents' HSMs.
     ///
     /// The new group will not have ownership of any user records. Use
     /// 'transfer' to assign it ownership.
     NewGroup {
         /// The ID of the realm in which to create the new group.
-        ///
-        /// If any of the HSMs have not joined the realm, this will
-        /// irreversibly assign them to the realm.
         #[arg(long, value_parser = parse_realm_id)]
         realm: RealmId,
 
         /// URLs of agents whose HSMs will form the new group.
+        ///
+        /// All of the HSMs should have already joined the realm.
         #[arg(required = true)]
         agents: Vec<Url>,
     },
 
-    /// Create a new realm and group on a set of agents' HSMs.
+    /// Create a new realm and group on a single agent's HSM.
     ///
     /// The new group will own all of the user record space. Use 'new-group'
     /// and 'transfer' to repartition across additional groups.
     NewRealm {
-        /// URLs of agents whose HSMs will form the new realm and group.
-        #[arg(required = true)]
-        agents: Vec<Url>,
+        /// URL of agent whose HSM will form the new realm and group.
+        agent: Url,
     },
 
     /// Ask an HSM to step down as leader for any groups that it's leading.
@@ -279,9 +291,15 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
         Command::Groups => commands::groups::status(&agents_client, &store).await,
 
-        Command::NewGroup { realm, agents } => commands::new_group::new_group(realm, &agents).await,
+        Command::JoinRealm { realm, agents } => {
+            commands::join_realm::join_realm(realm, &agents, &agents_client, &store).await
+        }
 
-        Command::NewRealm { agents } => commands::new_realm::new_realm(&agents).await,
+        Command::NewGroup { realm, agents } => {
+            commands::new_group::new_group(realm, &agents, &agents_client).await
+        }
+
+        Command::NewRealm { agent } => commands::new_realm::new_realm(&agent, &agents_client).await,
 
         Command::Transfer {
             realm,
@@ -378,6 +396,7 @@ mod tests {
             vec!["cluster", "experimental", "--help"],
             vec!["cluster", "experimental", "assimilate", "--help"],
             vec!["cluster", "groups", "--help"],
+            vec!["cluster", "join-realm", "--help"],
             vec!["cluster", "new-group", "--help"],
             vec!["cluster", "new-realm", "--help"],
             vec!["cluster", "stepdown", "--help"],

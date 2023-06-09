@@ -15,8 +15,8 @@ use super::Agent;
 use hsmcore::hsm::{
     commit::HsmElection,
     types::{
-        CommitRequest, CommitResponse, Configuration, GroupId, HsmId, LogIndex,
-        PersistStateRequest, PersistStateResponse,
+        CommitRequest, CommitResponse, GroupId, HsmId, LogIndex, PersistStateRequest,
+        PersistStateResponse,
     },
 };
 use juicebox_hsm::logging::Spew;
@@ -55,12 +55,7 @@ impl<T: Transport + 'static> Agent<T> {
         });
     }
 
-    pub(super) fn start_group_committer(
-        &self,
-        realm: RealmId,
-        group: GroupId,
-        config: Configuration,
-    ) {
+    pub(super) fn start_group_committer(&self, realm: RealmId, group: GroupId, config: Vec<HsmId>) {
         info!(name=?self.0.name, ?realm, ?group, "Starting group committer");
 
         let agent = self.clone();
@@ -90,7 +85,7 @@ impl<T: Transport + 'static> Agent<T> {
         &self,
         realm: RealmId,
         group: GroupId,
-        config: &Configuration,
+        config: &[HsmId],
         peers: &PeerCache,
         last_committed: Option<LogIndex>,
     ) -> CommitterStatus {
@@ -110,7 +105,7 @@ impl<T: Transport + 'static> Agent<T> {
         let captures = self.get_captures(realm, group, config, peers).await;
 
         // Calculate a commit index.
-        let mut election = HsmElection::new(&config.0);
+        let mut election = HsmElection::new(config);
         for c in &captures {
             election.vote(c.hsm, c.index);
         }
@@ -146,10 +141,10 @@ impl<T: Transport + 'static> Agent<T> {
         &self,
         realm: RealmId,
         group: GroupId,
-        config: &Configuration,
+        config: &[HsmId],
         peers: &PeerCache,
     ) -> Vec<Captured> {
-        let urls: Vec<Url> = config.0.iter().filter_map(|hsm| peers.url(hsm)).collect();
+        let urls: Vec<Url> = config.iter().filter_map(|hsm| peers.url(hsm)).collect();
         join_all(urls.iter().map(|url| {
             rpc::send(
                 &self.0.peer_client,

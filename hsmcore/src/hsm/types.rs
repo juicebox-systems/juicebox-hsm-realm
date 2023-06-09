@@ -52,6 +52,20 @@ impl fmt::Display for HsmId {
     }
 }
 
+/// A public key used by clients for encrypted communication (over Noise)
+/// to the HSMs in a realm.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct PublicKey(#[serde(with = "bytes")] pub Vec<u8>);
+
+impl fmt::Debug for PublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in &self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
 /// Identifies a tenant and user in the context of a particular realm.
 ///
 /// Each replication group can be assigned up to one range of record IDs to
@@ -333,22 +347,17 @@ impl HashOutput for DataHash {
     }
 }
 
-/// A fixed set of HSMs forming a replication group.
+/// The maximum number of HSMs permitted in a replication group.
 ///
-/// A strict majority of the HSMs in the group is needed to form a quorum,
-/// which is needed to commit a new log entry.
+/// This is restricted to avoid filling up HSM NVRAM. It's also not practically
+/// very useful to support larger groups, since a group of 9 can tolerate 4 HSM
+/// failures, and by then, you're in significant trouble.
+pub const CONFIGURATION_LIMIT: u8 = 9;
+
+/// The maximum number of replication groups permitted per HSM.
 ///
-/// The vector must be sorted by HSM ID, must not contain duplicates, and must
-/// contain at least 1 HSM.
-///
-/// TODO: Verify this is enforced.
-///
-/// TODO: Verify that HSMs make sure they're actually listed in the
-/// configurations they're assumed to be part of.
-///
-/// TODO: rename to GroupConfiguration?
-#[derive(Clone, Deserialize, Debug, Serialize)]
-pub struct Configuration(pub Vec<HsmId>);
+/// This is restricted to avoid filling up HSM NVRAM.
+pub const GROUPS_LIMIT: u8 = 16;
 
 /// A MAC over a realm ID, group ID, and group configuration.
 ///
@@ -357,6 +366,21 @@ pub struct Configuration(pub Vec<HsmId>);
 pub struct GroupConfigurationStatement(#[serde(with = "bytes")] pub [u8; 32]);
 
 impl fmt::Debug for GroupConfigurationStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+/// A MAC over an HSM ID, a realm ID, and the realm's keys.
+///
+/// See [super::HsmRealmStatementBuilder].
+#[derive(Clone, Deserialize, Serialize)]
+pub struct HsmRealmStatement(#[serde(with = "bytes")] pub [u8; 32]);
+
+impl fmt::Debug for HsmRealmStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in self.0 {
             write!(f, "{byte:02x}")?;
@@ -445,8 +469,7 @@ pub struct StatusResponse {
     pub realm: Option<RealmStatus>,
     /// The public key used by clients for encrypted communication (over Noise)
     /// to the HSM.
-    #[serde(with = "bytes")]
-    pub public_key: Vec<u8>,
+    pub public_key: PublicKey,
 }
 
 /// Part of [`StatusResponse`]. Contains information about the HSM's
@@ -457,6 +480,12 @@ pub struct RealmStatus {
     ///
     /// Realm IDs are generated randomly by the first HSM to create the realm.
     pub id: RealmId,
+    /// A MAC that can prove to other HSMs that this HSM has joined the realm
+    /// and has possession of the realm's secret keys.
+    ///
+    /// Other HSMs will want to verify this before joining the realm or before
+    /// creating a group with this HSM.
+    pub statement: HsmRealmStatement,
     /// Information about the HSM's participation in replication groups within
     /// this realm.
     ///
@@ -471,8 +500,8 @@ pub struct RealmStatus {
 pub struct GroupStatus {
     /// The group's unique ID.
     pub id: GroupId,
-    /// The group's fixed set of members, including this HSM.
-    pub configuration: Configuration,
+    /// The group's fixed set of members, including this HSM, in sorted order.
+    pub configuration: Vec<HsmId>,
     /// Information the HSM has "captured" persistently about the last log
     /// entry for the group that it has seen, if any.
     ///
@@ -557,7 +586,7 @@ pub struct LeaderStatus {
 }
 
 /// Request type for the HSM NewRealm RPC (see [`NewRealmResponse`]). Creates a
-/// new realm with a single new replication group.
+/// new realm with a single new replication group consisting of a single HSM.
 ///
 /// The HSM serving this request will automatically join the new realm and
 /// group.
@@ -570,52 +599,32 @@ pub struct LeaderStatus {
 /// For production, NewRealm is used just once, probably during a key ceremony,
 /// when launching a new HSM-backed realm.
 #[derive(Debug, Deserialize, Serialize)]
-pub struct NewRealmRequest {
-    /// The set of HSM members for the initial group, including this HSM.
-    pub configuration: Configuration,
-}
+pub struct NewRealmRequest {}
 
 /// Response type for the HSM NewRealm RPC (see [`NewRealmRequest`]).
 #[derive(Debug, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum NewRealmResponse {
     /// The realm was created successfully on this HSM.
-    ///
-    /// The inner field contains information about the new group, as well as
-    /// the new realm's ID. This information is needed to complete the realm
-    /// initialization process.
-    Ok(NewGroupInfo),
+    Ok {
+        /// The newly generated ID of the new realm.
+        realm: RealmId,
+        /// The newly generated ID for the new group.
+        group: GroupId,
+        /// The first log entry for the new group.
+        ///
+        /// This entry should be persisted. If it somehow fails to persist, the
+        /// new realm/group should be discarded.
+        entry: LogEntry,
+        /// Merkle tree data to be persisted.
+        ///
+        /// The new group owns a new Merkle tree, and this contains its root
+        /// node.
+        delta: StoreDelta<DataHash>,
+    },
     /// This HSM is already a member of a realm, so it can't create a new
     /// realm.
     HaveRealm,
-    /// The configuration is invalid (see [`Configuration`]) or does not
-    /// contain this HSM.
-    InvalidConfiguration,
-}
-
-/// Part of [`NewRealmResponse`] and [`NewGroupResponse`]. Contains information
-/// about the newly created group.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct NewGroupInfo {
-    /// For a NewRealm RPC, the newly generated ID of the new realm. For a
-    /// NewGroup RPC, the ID of the existing realm.
-    pub realm: RealmId,
-    /// The newly generated ID for the new group.
-    pub group: GroupId,
-    /// This MAC should be given to other members of the group with
-    /// [`JoinGroupRequest`] after persisting `entry`.
-    pub statement: GroupConfigurationStatement,
-    /// The first log entry for the new group.
-    ///
-    /// This entry should be persisted. If it somehow fails to persist, the new
-    /// realm/group should be discarded.
-    pub entry: LogEntry,
-    /// Merkle tree data to be persisted.
-    ///
-    /// For a NewRealm RPC, the new group owns a new Merkle tree, and this
-    /// contains its root node. For a NewGroup RPC, the new group does not own
-    /// a partition yet, so it has no Merkle tree and this is empty.
-    pub delta: StoreDelta<DataHash>,
 }
 
 /// Request type for the HSM JoinRealm RPC (see [`JoinRealmResponse`]). The HSM
@@ -631,6 +640,16 @@ pub struct NewGroupInfo {
 pub struct JoinRealmRequest {
     /// The ID of the realm to join.
     pub realm: RealmId,
+    /// The ID of another HSM that has already joined the realm.
+    ///
+    /// This is used to validate the provided `statement`.
+    pub peer: HsmId,
+    /// A MAC proving that `peer` has joined the realm and has possession of
+    /// the realm's secret keys.
+    ///
+    /// By verifying this MAC, this HSM confirms that it has the same keys,
+    /// which is useful in preventing operator errors.
+    pub statement: HsmRealmStatement,
 }
 
 /// Response type for the HSM JoinRealm RPC (see [`JoinRealmRequest`]).
@@ -645,10 +664,15 @@ pub enum JoinRealmResponse {
     /// This HSM is already a member of a different realm, so it can't join
     /// this realm.
     HaveOtherRealm,
+    /// This HSM could not verify the provided statement.
+    ///
+    /// Check that it and `peer` have been initialized with the same secret
+    /// keys.
+    InvalidStatement,
 }
 
 /// Request type for the HSM NewGroup RPC (see [`NewGroupResponse`]). Creates a
-/// new replication group with an existing realm.
+/// new replication group within an existing realm.
 ///
 /// The HSM serving this request should have already joined the realm. It will
 /// automatically join the new group.
@@ -661,14 +685,20 @@ pub enum JoinRealmResponse {
 /// to persist information about each group that it's a member of. To prevent
 /// rollback attacks, an HSM cannot forget this information (unless it's
 /// reinitialized with a new identity). Therefore, you should not accumulate
-/// too many unnecessary groups.
+/// too many unnecessary groups. Each HSM can join up to [`GROUPS_LIMIT`]
+/// groups.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NewGroupRequest {
     /// The ID of the realm that every new group member should have already
     /// joined.
     pub realm: RealmId,
-    /// The set of HSM members for the new group, including this HSM.
-    pub configuration: Configuration,
+    /// The set of HSM members for the new group, including this HSM, as well
+    /// as MACs proving that each HSM has joined the realm and posesses the
+    /// same secret keys.
+    ///
+    /// The vector should be sorted by HSM ID and should not exceed
+    /// [`CONFIGURATION_LIMIT`] in length.
+    pub members: Vec<(HsmId, HsmRealmStatement)>,
 }
 
 /// Response type for the HSM NewGroup RPC (see [`NewGroupRequest`]).
@@ -676,17 +706,34 @@ pub struct NewGroupRequest {
 #[allow(clippy::large_enum_variant)]
 pub enum NewGroupResponse {
     /// The group was created successfully on this HSM.
-    ///
-    /// The inner field contains information about the new group. This
-    /// information is needed to complete the realm initialization process.
-    Ok(NewGroupInfo),
+    Ok {
+        /// The newly generated ID for the new group.
+        group: GroupId,
+        /// This MAC should be given to other members of the group with
+        /// [`JoinGroupRequest`] after persisting `entry`.
+        statement: GroupConfigurationStatement,
+        /// The first log entry for the new group.
+        ///
+        /// This entry should be persisted. If it somehow fails to persist, the
+        /// new group should be abandoned.
+        entry: LogEntry,
+    },
     /// This HSM is not a member of this realm (it's either not a member of any
     /// realm or is already a member of a different realm), so it can't create
     /// the new group.
     InvalidRealm,
-    /// The configuration is invalid (see [`Configuration`]) or does not
-    /// contain this HSM.
+    /// The given `members` does not contain this HSM, is not sorted by HSM ID,
+    /// contains duplicate HSM IDs, or exceeds [`CONFIGURATION_LIMIT`] in
+    /// length.
     InvalidConfiguration,
+    /// This HSM could not verify one of the provided [`HsmRealmStatement`]s.
+    ///
+    /// Check that it and the other members have been initialized with the same
+    /// secret keys.
+    InvalidStatement,
+    /// This HSM cannot join any more groups, since it is already a member of
+    /// [`GROUPS_LIMIT`].
+    TooManyGroups,
 }
 
 /// Request type for the HSM JoinGroup RPC (see [`JoinGroupResponse`]). The HSM
@@ -702,7 +749,8 @@ pub enum NewGroupResponse {
 ///
 /// Each HSM has to persist information about each group that it's a member of.
 /// To prevent rollback attacks, an HSM cannot forget this information (unless
-/// it's reinitialized with a new identity).
+/// it's reinitialized with a new identity). Each HSM can join up to
+/// [`GROUPS_LIMIT`] groups.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JoinGroupRequest {
     /// The ID of the realm that this HSM should have already joined.
@@ -710,7 +758,9 @@ pub struct JoinGroupRequest {
     /// The ID of the group to join.
     pub group: GroupId,
     /// The fixed set of HSM members for the group, including this HSM.
-    pub configuration: Configuration,
+    ///
+    /// The vector should be sorted by HSM ID.
+    pub configuration: Vec<HsmId>,
     /// A MAC created by the HSM that created the group, used to check the
     /// authenticity of the group information.
     pub statement: GroupConfigurationStatement,
@@ -726,11 +776,15 @@ pub enum JoinGroupResponse {
     /// realm or is already a member of a different realm), so it can't join
     /// the new group.
     InvalidRealm,
-    /// The configuration is invalid (see [`Configuration`]) or does not
-    /// contain this HSM.
+    /// The given `configuration` does not contain this HSM, is not sorted by
+    /// HSM ID, contains duplicate HSM IDs, or exceeds [`CONFIGURATION_LIMIT`]
+    /// in length.
     InvalidConfiguration,
     /// The `statement` MAC was invalid.
     InvalidStatement,
+    /// This HSM cannot join any more groups, since it is already a member of
+    /// [`GROUPS_LIMIT`].
+    TooManyGroups,
 }
 
 /// Request type for the HSM CaptureNext RPC (see [`CaptureNextResponse`]). The
@@ -815,11 +869,12 @@ pub enum BecomeLeaderResponse {
     /// The HSM successfully became leader of the group (or it was already
     /// leader).
     Ok {
-        /// The fixed set of HSM members of the group, including this one.
+        /// The fixed set of HSM members of the group, including this one, in
+        /// sorted order.
         ///
         /// This is provided for convenience so that the caller (the agent) can
         /// run the replication protocol with the other members.
-        config: Configuration,
+        configuration: Vec<HsmId>,
     },
     /// This HSM is not a member of this realm.
     InvalidRealm,
@@ -1538,6 +1593,7 @@ pub enum AppResponse {
 
 /// The error types from [`AppResponse`], used internally in the HSM
 /// processing.
+// TODO: move to HSM-only module
 pub enum AppError {
     InvalidRealm,
     InvalidGroup,
@@ -1572,10 +1628,9 @@ impl From<AppError> for AppResponse {
 mod test {
     use juicebox_sdk_marshalling as marshalling;
 
-    use crate::merkle::HashOutput;
-
-    use super::super::super::bitvec::Bits;
     use super::{DataHash, RecordId};
+    use crate::bitvec::Bits;
+    use crate::merkle::HashOutput;
 
     #[test]
     fn record_id_bitvec() {

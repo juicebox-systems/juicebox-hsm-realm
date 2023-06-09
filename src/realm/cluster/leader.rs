@@ -11,7 +11,7 @@ use super::super::agent::types::{
 };
 use super::super::store::bigtable::StoreClient;
 use super::{Error, ManagementGrant, Manager};
-use hsm_types::{Configuration, GroupId, HsmId, LogIndex};
+use hsm_types::{GroupId, HsmId, LogIndex};
 use hsmcore::hsm::types as hsm_types;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::rpc::{self, RpcError};
@@ -23,7 +23,7 @@ impl Manager {
         let hsm_status =
             super::get_hsm_statuses(&self.0.agents, addresses.iter().map(|(_, url)| url)).await;
 
-        let mut groups: HashMap<GroupId, (Configuration, RealmId, Option<HsmId>)> = HashMap::new();
+        let mut groups: HashMap<GroupId, (Vec<HsmId>, RealmId, Option<HsmId>)> = HashMap::new();
         for (hsm, _url) in hsm_status.values() {
             if let Some(realm) = &hsm.realm {
                 for g in &realm.groups {
@@ -112,7 +112,7 @@ pub async fn find_leaders(
 pub(super) async fn assign_group_a_leader(
     agent_client: &Client<AgentService>,
     grant: &ManagementGrant<'_>,
-    config: Configuration,
+    config: Vec<HsmId>,
     skipping: Option<HsmId>,
     hsm_status: &HashMap<HsmId, (hsm_types::StatusResponse, Url)>,
     last: Option<LogIndex>,
@@ -120,8 +120,7 @@ pub(super) async fn assign_group_a_leader(
     // We calculate a score for each group member based on how much work we
     // think its doing. Then use that to control the order in which we try to
     // make a member the leader.
-    let mut scored: Vec<_> = config
-        .0
+    let mut scored: Vec<Score> = config
         .into_iter()
         .filter(|id| match skipping {
             Some(hsm) if *id == hsm => false,

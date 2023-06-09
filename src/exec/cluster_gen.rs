@@ -9,7 +9,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info};
 
-use hsmcore::hsm::types::GroupId;
+use hsmcore::hsm::types::{GroupId, OwnedRange, PublicKey};
 use juicebox_sdk::{
     AuthToken, Client, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper,
 };
@@ -74,7 +74,7 @@ impl ClusterResult {
                 .iter()
                 .map(|r| Realm {
                     address: self.load_balancers[0].clone(),
-                    public_key: Some(r.communication_public_key.clone()),
+                    public_key: Some(r.communication_public_key.0.clone()),
                     id: r.realm,
                 })
                 .collect(),
@@ -123,7 +123,7 @@ pub struct RealmResult {
     pub agents: Vec<Url>,
     pub groups: Vec<GroupId>,
     pub realm: RealmId,
-    pub communication_public_key: Vec<u8>,
+    pub communication_public_key: PublicKey,
 }
 
 pub async fn create_cluster(
@@ -205,7 +205,7 @@ pub async fn create_cluster(
     let mut realms = Vec::with_capacity(args.realms.len());
     let mut hsm_gen = HsmGenerator::new(args.entrust, ports);
     for realm in &args.realms {
-        let res = create_realm(&mut hsm_gen, process_group, realm, &args.bigtable).await;
+        let res = create_realm(&mut hsm_gen, process_group, realm, &args.bigtable, &store).await;
         realms.push(res);
     }
 
@@ -286,7 +286,10 @@ async fn create_realm(
     process_group: &mut ProcessGroup,
     r: &RealmConfig,
     bigtable: &bigtable::Args,
+    store: &StoreClient,
 ) -> RealmResult {
+    assert_ne!(r.hsms, 0);
+
     let (agents, key) = hsm_gen
         .create_hsms(
             r.hsms.into(),
@@ -297,26 +300,53 @@ async fn create_realm(
         )
         .await;
 
-    match cluster::new_realm(&agents).await {
+    let agents_client = http_client::Client::<AgentService>::new(ClientOptions::default());
+
+    match cluster::new_realm(&agents_client, &agents[0]).await {
         Ok((realm, group_id)) => {
+            cluster::join_realm(&agents_client, realm, &agents[1..], &agents[0])
+                .await
+                .unwrap();
+
             let mut res = RealmResult {
                 agents,
                 groups: vec![group_id],
                 realm,
                 communication_public_key: key,
             };
-            for _ in 1..r.groups {
-                let group_id = cluster::new_group(realm, &res.agents).await.unwrap();
+
+            // Create additional groups.
+            for _ in 0..r.groups {
+                let group_id = cluster::new_group(&agents_client, realm, &res.agents)
+                    .await
+                    .unwrap();
                 res.groups.push(group_id);
-                // TODO, transfer some partition to the new group
             }
+
+            if r.groups > 0 {
+                // Transfer everything from the original group to the next one,
+                // because the original group isn't fault-tolerant.
+                cluster::transfer(
+                    res.realm,
+                    res.groups[0],
+                    res.groups[1],
+                    OwnedRange::full(),
+                    store,
+                )
+                .await
+                .unwrap();
+
+                // TODO, transfer ranges to the other new groups
+            }
+
             res
         }
 
         // If we're restarting a realm from its persisted state, it might already have a realm/groups.
-        Err(NewRealmError::HaveRealm { agent }) => {
-            let c = http_client::Client::<AgentService>::new(ClientOptions::default());
-            let sr = rpc::send(&c, &agent, StatusRequest {}).await.unwrap();
+        Err(NewRealmError::HaveRealm) => {
+            let sr = rpc::send(&agents_client, &agents[0], StatusRequest {})
+                .await
+                .unwrap();
             match sr.hsm.and_then(|hsm| hsm.realm) {
                 None => panic!("it said it had a realm)"),
                 Some(r) => {
@@ -324,7 +354,7 @@ async fn create_realm(
                     while !join_all(
                         agents
                             .iter()
-                            .map(|url| rpc::send(&c, url, StatusRequest {})),
+                            .map(|url| rpc::send(&agents_client, url, StatusRequest {})),
                     )
                     .await
                     .into_iter()

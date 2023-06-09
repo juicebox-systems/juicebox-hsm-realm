@@ -94,7 +94,6 @@ fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
             group.members[0]
                 .1
                 .configuration
-                .0
                 .iter()
                 .filter(|hsm_id| !group.members.iter().any(|(h, _)| &h == hsm_id))
                 .map(|hsm_id| {

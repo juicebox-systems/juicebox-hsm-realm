@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use reqwest::Url;
 use std::collections::HashMap;
 
+use hsmcore::hsm::types::PublicKey;
 use juicebox_hsm::http_client::Client;
 use juicebox_hsm::realm::agent::types::AgentService;
 use juicebox_hsm::realm::store::bigtable::StoreClient;
@@ -18,7 +19,7 @@ pub async fn print_sensible_configuration(
     store: &StoreClient,
 ) -> anyhow::Result<()> {
     let hsm_statuses = get_hsm_statuses(agents_client, store).await?;
-    let realms: HashMap<RealmId, Vec<u8>> = hsm_statuses
+    let realms: HashMap<RealmId, PublicKey> = hsm_statuses
         .into_iter()
         .filter_map(|(_, hsm)| hsm.realm.map(|realm| (realm.id, hsm.public_key)))
         .collect();
@@ -35,7 +36,7 @@ pub async fn print_sensible_configuration(
             .map(|(id, public_key)| Realm {
                 address: load_balancer.clone(),
                 id,
-                public_key: Some(public_key),
+                public_key: Some(public_key.0),
             })
             .collect(),
         pin_hashing_mode: PinHashingMode::Standard2019,

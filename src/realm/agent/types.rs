@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use hsm_types::{
-    Configuration, GroupConfigurationStatement, GroupId, HsmId, LogIndex, OwnedRange, Partition,
-    RecordId, TransferNonce, TransferStatement,
+    GroupConfigurationStatement, GroupId, HsmId, HsmRealmStatement, LogIndex, OwnedRange,
+    Partition, RecordId, TransferNonce, TransferStatement,
 };
 use hsmcore::hsm::types as hsm_types;
 use juicebox_sdk_core::{
@@ -37,19 +37,12 @@ impl Rpc<AgentService> for NewRealmRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct NewRealmRequest {
-    pub configuration: Configuration,
-}
+pub struct NewRealmRequest {}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum NewRealmResponse {
-    Ok {
-        realm: RealmId,
-        group: GroupId,
-        statement: GroupConfigurationStatement,
-    },
+    Ok { realm: RealmId, group: GroupId },
     HaveRealm,
-    InvalidConfiguration,
     NoHsm,
     NoStore,
     StorePreconditionFailed,
@@ -63,12 +56,15 @@ impl Rpc<AgentService> for JoinRealmRequest {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct JoinRealmRequest {
     pub realm: RealmId,
+    pub peer: HsmId,
+    pub statement: HsmRealmStatement,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum JoinRealmResponse {
     Ok { hsm: HsmId },
     HaveOtherRealm,
+    InvalidStatement,
     NoHsm,
 }
 
@@ -80,7 +76,7 @@ impl Rpc<AgentService> for NewGroupRequest {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NewGroupRequest {
     pub realm: RealmId,
-    pub configuration: Configuration,
+    pub members: Vec<(HsmId, HsmRealmStatement)>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -91,6 +87,8 @@ pub enum NewGroupResponse {
     },
     InvalidRealm,
     InvalidConfiguration,
+    InvalidStatement,
+    TooManyGroups,
     NoHsm,
     NoStore,
     StorePreconditionFailed,
@@ -105,7 +103,7 @@ impl Rpc<AgentService> for JoinGroupRequest {
 pub struct JoinGroupRequest {
     pub realm: RealmId,
     pub group: GroupId,
-    pub configuration: Configuration,
+    pub configuration: Vec<HsmId>,
     pub statement: GroupConfigurationStatement,
 }
 
@@ -115,6 +113,7 @@ pub enum JoinGroupResponse {
     InvalidRealm,
     InvalidConfiguration,
     InvalidStatement,
+    TooManyGroups,
     NoHsm,
 }
 
