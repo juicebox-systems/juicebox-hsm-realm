@@ -229,15 +229,15 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::hsm::types::{OwnedRange, RecordId};
-    use super::super::{
-        agent::tests::{read, read_tree_side},
-        tests::{
-            check_delta_invariants, check_tree_invariants, new_empty_tree, rec_id, tree_insert,
-            tree_size, TestHasher, TEST_REALM,
-        },
-        {dot, Dir, KeyVec},
+    use crate::merkle::dot::tree_to_dot;
+    use crate::merkle::test_types::{
+        check_delta_invariants, check_tree_invariants, new_empty_tree, read, read_tree_side,
+        rec_id, tree_insert, TestHasher,
     };
+
+    use super::super::super::hsm::types::{OwnedRange, RecordId};
+    use super::super::tests::{tree_size, TEST_REALM};
+    use super::super::{Dir, KeyVec};
 
     #[tokio::test]
     async fn one_bit() {
@@ -335,9 +335,19 @@ mod tests {
     async fn test_arb_split_merge(range: OwnedRange, keys: &[RecordId], split: &RecordId) {
         let (mut tree, mut root, mut store) = new_empty_tree(&range).await;
         for k in keys {
-            root = tree_insert(&mut tree, &mut store, &range, root, k, vec![k.0[0]], true).await;
+            root = tree_insert(
+                &mut tree,
+                &mut store,
+                &range,
+                &TEST_REALM,
+                root,
+                k,
+                vec![k.0[0]],
+                true,
+            )
+            .await;
         }
-        check_tree_invariants(&tree.hasher, &range, root, &store).await;
+        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root, &store).await.unwrap(),
             store.len()
@@ -351,8 +361,22 @@ mod tests {
         let s = tree.range_split(proof).unwrap();
         check_delta_invariants(s.right.root_hash, &s.delta);
         store.apply_store_delta(s.left.root_hash, s.delta);
-        check_tree_invariants(&TestHasher {}, &s.left.range, s.left.root_hash, &store).await;
-        check_tree_invariants(&TestHasher {}, &s.right.range, s.right.root_hash, &store).await;
+        check_tree_invariants(
+            &TestHasher,
+            &s.left.range,
+            &TEST_REALM,
+            s.left.root_hash,
+            &store,
+        )
+        .await;
+        check_tree_invariants(
+            &TestHasher,
+            &s.right.range,
+            &TEST_REALM,
+            s.right.root_hash,
+            &store,
+        )
+        .await;
         assert_eq!(
             tree_size(KeyVec::new(), s.left.root_hash, &store)
                 .await
@@ -371,6 +395,7 @@ mod tests {
                     &mut tree_l,
                     &mut store_l,
                     &s.left.range,
+                    &TEST_REALM,
                     root_l,
                     k,
                     vec![k.0[0]],
@@ -382,6 +407,7 @@ mod tests {
                     &mut tree_r,
                     &mut store_r,
                     &s.right.range,
+                    &TEST_REALM,
                     root_r,
                     k,
                     vec![k.0[0]],
@@ -390,35 +416,42 @@ mod tests {
                 .await;
             }
         }
-        check_tree_invariants(&TestHasher {}, &s.left.range, root_l, &store_l).await;
-        check_tree_invariants(&TestHasher {}, &s.right.range, root_r, &store_r).await;
+        check_tree_invariants(&TestHasher {}, &s.left.range, &TEST_REALM, root_l, &store_l).await;
+        check_tree_invariants(
+            &TestHasher {},
+            &s.right.range,
+            &TEST_REALM,
+            root_r,
+            &store_r,
+        )
+        .await;
 
         if root_l != s.left.root_hash {
-            dot::tree_to_dot(&TEST_REALM, &store_l, root_l, "expected_left.dot")
+            tree_to_dot(&TEST_REALM, &store_l, root_l, "expected_left.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(&TEST_REALM, &store, s.left.root_hash, "actual_left.dot")
+            tree_to_dot(&TEST_REALM, &store, s.left.root_hash, "actual_left.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(&TEST_REALM, &store, s.right.root_hash, "actual_right.dot")
+            tree_to_dot(&TEST_REALM, &store, s.right.root_hash, "actual_right.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(&TEST_REALM, &pre_split_store, root, "before_split.dot")
+            tree_to_dot(&TEST_REALM, &pre_split_store, root, "before_split.dot")
                 .await
                 .unwrap();
             panic!("left tree after split at {split:?} not as expected, see expected_left.dot & actual_left.dot for details");
         }
         if root_r != s.right.root_hash {
-            dot::tree_to_dot(&TEST_REALM, &store_r, root_r, "expected_right.dot")
+            tree_to_dot(&TEST_REALM, &store_r, root_r, "expected_right.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(&TEST_REALM, &store, s.left.root_hash, "actual_left.dot")
+            tree_to_dot(&TEST_REALM, &store, s.left.root_hash, "actual_left.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(&TEST_REALM, &store, s.right.root_hash, "actual_right.dot")
+            tree_to_dot(&TEST_REALM, &store, s.right.root_hash, "actual_right.dot")
                 .await
                 .unwrap();
-            dot::tree_to_dot(&TEST_REALM, &pre_split_store, root, "before_split.dot")
+            tree_to_dot(&TEST_REALM, &pre_split_store, root, "before_split.dot")
                 .await
                 .unwrap();
             panic!("right tree after split at {split:?} not as expected, see expected_right.dot & actual_right.dot for details");
@@ -435,7 +468,7 @@ mod tests {
         store_l.add_from_other_store(store_r);
         store_l.apply_store_delta(merged.root_hash, merged.delta);
         if pre_split_root_hash != merged.root_hash {
-            dot::tree_to_dot(
+            tree_to_dot(
                 &TEST_REALM,
                 &pre_split_store,
                 pre_split_root_hash,
@@ -443,7 +476,7 @@ mod tests {
             )
             .await
             .unwrap();
-            dot::tree_to_dot(&TEST_REALM, &store_l, merged.root_hash, "after_merge.dot")
+            tree_to_dot(&TEST_REALM, &store_l, merged.root_hash, "after_merge.dot")
                 .await
                 .unwrap();
             assert_eq!(
@@ -451,7 +484,14 @@ mod tests {
                 "tree after split then merge should be the same as before the initial split"
             );
         }
-        check_tree_invariants(&tree_r.hasher, &merged.range, merged.root_hash, &store_l).await;
+        check_tree_invariants(
+            &tree_r.hasher,
+            &merged.range,
+            &TEST_REALM,
+            merged.root_hash,
+            &store_l,
+        )
+        .await;
         assert_eq!(
             tree_size(KeyVec::new(), merged.root_hash, &store_l)
                 .await

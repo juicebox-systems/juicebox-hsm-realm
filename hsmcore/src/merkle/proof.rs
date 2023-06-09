@@ -365,11 +365,9 @@ impl<HO: HashOutput> VerifiedProof<HO> {
 mod tests {
 
     use super::super::super::hsm::types::OwnedRange;
+    use super::super::test_types::{new_empty_tree, read, rec_id, tree_insert};
+    use super::super::tests::TEST_REALM;
     use super::super::Bits;
-    use super::super::{
-        agent::tests::read,
-        tests::{new_empty_tree, rec_id, tree_insert, TEST_REALM},
-    };
     use super::ProofError;
 
     #[tokio::test]
@@ -382,6 +380,7 @@ mod tests {
             &mut tree,
             &mut store,
             &range,
+            &TEST_REALM,
             root,
             &rid1,
             [1].to_vec(),
@@ -392,6 +391,7 @@ mod tests {
             &mut tree,
             &mut store,
             &range,
+            &TEST_REALM,
             root,
             &rid5,
             [2].to_vec(),
@@ -453,6 +453,7 @@ mod tests {
             &mut tree,
             &mut store,
             &range,
+            &TEST_REALM,
             root,
             &rec_id(&[0b10000000]),
             [1].to_vec(),
@@ -467,6 +468,7 @@ mod tests {
                 &mut tree,
                 &mut store,
                 &range,
+                &TEST_REALM,
                 root,
                 &rec_id(&[0b11000000]),
                 [i].to_vec(),

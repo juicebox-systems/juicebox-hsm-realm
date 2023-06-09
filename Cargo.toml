@@ -11,6 +11,7 @@ members = [
     "entrust_nfast",
     "hsmcore",
     "load_balancer",
+    "merkle_tree_docgen",
     "software_agent",
 ]
 default-members = [

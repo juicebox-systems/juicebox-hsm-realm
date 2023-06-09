@@ -1,0 +1,23 @@
+# http://www.graphviz.org/content/cluster
+
+digraph G {
+rankdir=LR
+
+subgraph cluster_agent {
+    HSM [fillcolor=chartreuse4,fontcolor=white,color=green,penwidth=3,style=filled,shape=box];
+    Agent [color=blue,shape=box];
+    Agent -> HSM  
+    label = "Server";
+}
+
+Agent -> Tree
+
+subgraph cluster_1 {
+    node [style=filled];
+    Tree [label="Tree Table", color=blue]
+    label = "Bigtable";
+    color=blue
+}
+  
+Client -> Agent
+}

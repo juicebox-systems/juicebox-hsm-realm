@@ -141,20 +141,17 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
 #[cfg(test)]
 mod tests {
-
-    use std::collections::BTreeMap;
-
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
+    use std::collections::BTreeMap;
 
     use super::super::super::hsm::types::OwnedRange;
-    use super::super::agent::{tests::read, Node};
-    use super::super::{
-        tests::{
-            check_tree_invariants, new_empty_tree, rec_id, tree_insert, tree_size, TEST_REALM,
-        },
-        KeyVec, NodeKey,
+    use super::super::agent::Node;
+    use super::super::test_types::{
+        check_tree_invariants, new_empty_tree, read, rec_id, tree_insert,
     };
+    use super::super::tests::{tree_size, TEST_REALM};
+    use super::super::{KeyVec, NodeKey};
 
     #[tokio::test]
     async fn first_insert() {
@@ -178,7 +175,7 @@ mod tests {
         assert_eq!(leaf_key.prefix, rec_id(&[1, 2, 3]).to_bitvec());
         assert!(d.remove.contains(&NodeKey::new(KeyVec::new(), root)));
         store.apply_store_delta(new_root, d);
-        check_tree_invariants(&tree.hasher, &range, new_root, &store).await;
+        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, new_root, &store).await;
 
         let p = read(&TEST_REALM, &store, &range, &new_root, &rec_id(&[1, 2, 3]))
             .await
@@ -196,6 +193,7 @@ mod tests {
             &mut tree,
             &mut store,
             &range,
+            &TEST_REALM,
             root,
             &rec_id(&[2, 6, 8]),
             [42].to_vec(),
@@ -206,6 +204,7 @@ mod tests {
             &mut tree,
             &mut store,
             &range,
+            &TEST_REALM,
             root,
             &rec_id(&[4, 4, 6]),
             [43].to_vec(),
@@ -216,6 +215,7 @@ mod tests {
             &mut tree,
             &mut store,
             &range,
+            &TEST_REALM,
             root,
             &rec_id(&[0, 2, 3]),
             [44].to_vec(),
@@ -229,7 +229,7 @@ mod tests {
         assert_eq!([42].to_vec(), p.leaf.unwrap().value);
         assert_eq!(3, p.path.len());
         assert_eq!(root, p.root_hash);
-        check_tree_invariants(&tree.hasher, &range, root, &store).await;
+        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root, &store).await.unwrap(),
             store.len()
@@ -247,6 +247,7 @@ mod tests {
             &mut tree,
             &mut store,
             &range,
+            &TEST_REALM,
             root,
             &rec_id(&[2, 6, 8]),
             [42].to_vec(),
@@ -257,6 +258,7 @@ mod tests {
             &mut tree,
             &mut store,
             &range,
+            &TEST_REALM,
             root,
             &rec_id(&[4, 4, 6]),
             [43].to_vec(),
@@ -268,6 +270,7 @@ mod tests {
             &mut tree,
             &mut store,
             &range,
+            &TEST_REALM,
             root,
             &rec_id(&[4, 4, 6]),
             [44].to_vec(),
@@ -279,13 +282,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
-        check_tree_invariants(&tree.hasher, &range, root, &store).await;
+        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root, &store).await;
 
         // writing the same value again shouldn't do anything dumb, like cause the leaf to be deleted.
         root = tree_insert(
             &mut tree,
             &mut store,
             &range,
+            &TEST_REALM,
             root,
             &rec_id(&[4, 4, 6]),
             [44].to_vec(),
@@ -296,7 +300,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
-        check_tree_invariants(&tree.hasher, &range, root, &store).await;
+        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root, &store).await.unwrap(),
             store.len()
@@ -325,6 +329,7 @@ mod tests {
                 &mut tree,
                 &mut store,
                 &range,
+                &TEST_REALM,
                 root,
                 &key,
                 [i].to_vec(),
@@ -342,7 +347,7 @@ mod tests {
             //     dot::tree_to_dot(root, &store, "many.dot").unwrap();
             // }
         }
-        check_tree_invariants(&tree.hasher, &range, root, &store).await;
+        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root, &store).await.unwrap(),
             store.len()
@@ -360,6 +365,7 @@ mod tests {
             &mut tree,
             &mut store,
             &range,
+            &TEST_REALM,
             root,
             &rid1,
             [1].to_vec(),
@@ -385,21 +391,21 @@ mod tests {
             .insert(tree.latest_proof(rp_3).unwrap(), [13].to_vec())
             .unwrap();
         store.apply_store_delta(root1, d1);
-        check_tree_invariants(&tree.hasher, &range, root1, &store).await;
+        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root1, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root1, &store).await.unwrap(),
             store.len()
         );
 
         store.apply_store_delta(root2, d2);
-        check_tree_invariants(&tree.hasher, &range, root2, &store).await;
+        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root2, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root2, &store).await.unwrap(),
             store.len()
         );
 
         store.apply_store_delta(root3, d3);
-        check_tree_invariants(&tree.hasher, &range, root3, &store).await;
+        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root3, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root3, &store).await.unwrap(),
             store.len()

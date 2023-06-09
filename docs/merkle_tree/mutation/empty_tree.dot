@@ -1,0 +1,10 @@
+Digraph merkletree {
+
+
+Subgraph depth_0 {
+rank=same
+
+h8a8990a24073c3e9 [fillcolor=darkseagreen label="root\n8a8990a24073c3e9" ordering=out shape=box style=filled ];
+}
+
+}
