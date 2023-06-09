@@ -36,8 +36,7 @@ impl GroupConfiguration {
             return Err("too many HSMs in configuration");
         }
 
-        let mut pairwise = hsms.iter().zip(hsms.iter().skip(1));
-        if !pairwise.all(|(a, b)| a < b) {
+        if !hsms.windows(2).all(|pair| pair[0] < pair[1]) {
             return Err("HSM IDs need to be sorted and unique in configuration");
         }
 
@@ -103,6 +102,27 @@ mod tests {
             )
             .unwrap_err(),
             "configuration should include local HSM ID"
+        );
+
+        assert_eq!(
+            GroupConfiguration::from_sorted_including_local(vec![], &HsmId([0x00; 16]))
+                .unwrap_err(),
+            "configuration needs at least 1 HSM"
+        );
+
+        GroupConfiguration::from_sorted_including_local(
+            (0..CONFIGURATION_LIMIT).map(|i| HsmId([i; 16])).collect(),
+            &HsmId([0x00; 16]),
+        )
+        .unwrap();
+
+        assert_eq!(
+            GroupConfiguration::from_sorted_including_local(
+                (0..=CONFIGURATION_LIMIT).map(|i| HsmId([i; 16])).collect(),
+                &HsmId([0x00; 16]),
+            )
+            .unwrap_err(),
+            "too many HSMs in configuration"
         );
     }
 }
