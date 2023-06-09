@@ -614,7 +614,7 @@ pub enum NewRealmResponse {
         /// The first log entry for the new group.
         ///
         /// This entry should be persisted. If it somehow fails to persist, the
-        /// new realm/group should be discarded.
+        /// new realm/group should be discarded by clearing the HSM.
         entry: LogEntry,
         /// Merkle tree data to be persisted.
         ///

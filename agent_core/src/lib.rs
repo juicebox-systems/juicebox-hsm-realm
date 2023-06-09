@@ -160,7 +160,13 @@ impl<T: Transport + 'static> Agent<T> {
     fn start_watching(&self, realm: RealmId, group: GroupId, next_index: LogIndex) {
         let state = self.0.clone();
 
-        trace!(agent = state.name, realm = ?realm, group = ?group, ?next_index, "start watching log");
+        trace!(
+            agent = state.name,
+            ?realm,
+            ?group,
+            ?next_index,
+            "start watching log"
+        );
 
         tokio::spawn(async move {
             let mut it = state.store.read_log_entries_iter(
@@ -305,7 +311,7 @@ impl<T: Transport + 'static> Agent<T> {
                 }
             };
             let hsm_id = fn_hsm_id().await;
-            info!(hsm=?hsm_id, url=%url, "registering agent with service discovery");
+            info!(hsm=?hsm_id, %url, "registering agent with service discovery");
             loop {
                 if let Err(e) = agent
                     .store
@@ -460,8 +466,8 @@ impl<T: Transport + 'static> Agent<T> {
 
         info!(
             agent = name,
-            realm = ?realm,
-            group = ?group,
+            ?realm,
+            ?group,
             "creating tables for new realm"
         );
         self.0
@@ -472,8 +478,8 @@ impl<T: Transport + 'static> Agent<T> {
 
         info!(
             agent = name,
-            realm = ?realm,
-            group = ?group,
+            ?realm,
+            ?group,
             "appending log entry for new realm"
         );
         assert_eq!(entry.index, LogIndex::FIRST);
