@@ -485,7 +485,8 @@ pub enum HsmError {
 pub enum PersistenceError {
     IOError(IOError),
     Deserialization(DeserializationError),
-    InvalidSignature,
+    InvalidChecksum,
+    InvalidRealmStatement,
 }
 
 impl From<IOError> for PersistenceError {
@@ -593,7 +594,7 @@ impl<P: Platform> Hsm<P> {
                 keys: &realm_keys,
             }
             .verify(&realm_keys.mac, &realm.statement)
-            .expect("failed to verify HSM-realm statement on keys and persistent state");
+            .map_err(|_| PersistenceError::InvalidRealmStatement)?;
         }
 
         let captured: HashMap<GroupId, (LogIndex, EntryHmac)> = persistent
@@ -706,7 +707,7 @@ impl<P: Platform> Hsm<P> {
             return Ok(None);
         }
         if d.len() < Blake2s256::output_size() {
-            return Err(PersistenceError::InvalidSignature);
+            return Err(PersistenceError::InvalidChecksum);
         }
         let (data, stored_digest) = d.split_at(d.len() - Blake2s256::output_size());
         let calced_digest = Blake2s256::digest(data);
@@ -716,7 +717,7 @@ impl<P: Platform> Hsm<P> {
                 Err(e) => Err(PersistenceError::Deserialization(e)),
             }
         } else {
-            Err(PersistenceError::InvalidSignature)
+            Err(PersistenceError::InvalidChecksum)
         }
     }
 
