@@ -16,6 +16,7 @@ use juicebox_hsm::client_auth::{creation::create_token, tenant_secret_name, Auth
 use juicebox_hsm::exec::bigtable::BigtableRunner;
 use juicebox_hsm::exec::certs::create_localhost_key_and_cert;
 use juicebox_hsm::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
+use juicebox_hsm::http_client::{Client, ClientOptions};
 use juicebox_hsm::logging;
 use juicebox_hsm::metrics;
 use juicebox_hsm::process_group::ProcessGroup;
@@ -124,19 +125,21 @@ async fn main() {
         .collect();
 
     let mut hsm_generator = HsmGenerator::new(Entrust(false), 4000);
+    let agents_client = Client::new(ClientOptions::default());
 
-    let num_hsms = 5;
-    info!(count = num_hsms, "creating initial HSMs and agents");
+    info!("creating initial HSM and agents");
     let (group1, realm1_public_key) = hsm_generator
         .create_hsms(
-            num_hsms,
+            1,
             MetricsParticipants::None,
             &mut process_group,
             &bt_args,
             None,
         )
         .await;
-    let (realm_id, group_id1) = cluster::new_realm(&group1).await.unwrap();
+    let (realm_id, group_id1) = cluster::new_realm(&agents_client, &group1[0])
+        .await
+        .unwrap();
     info!(?realm_id, group_id = ?group_id1, "initialized cluster");
 
     info!("creating additional groups");
@@ -159,10 +162,26 @@ async fn main() {
         )
         .await;
 
+    cluster::join_realm(
+        &agents_client,
+        realm_id,
+        group1
+            .iter()
+            .skip(1)
+            .chain(group2.iter())
+            .chain(group3.iter())
+            .cloned()
+            .collect::<Vec<Url>>()
+            .as_slice(),
+        &group1[0],
+    )
+    .await
+    .unwrap();
+
     let mut groups = try_join_all([
-        cluster::new_group(realm_id, &group2),
-        cluster::new_group(realm_id, &group3),
-        cluster::new_group(realm_id, &group1),
+        cluster::new_group(&agents_client, realm_id, &group2),
+        cluster::new_group(&agents_client, realm_id, &group3),
+        cluster::new_group(&agents_client, realm_id, &group1),
     ])
     .await
     .unwrap();
@@ -236,18 +255,22 @@ async fn main() {
     let mut realms = join_all([5100, 6000, 7100].map(|start_port| {
         let mut hsm_generator = HsmGenerator::new(Entrust(false), start_port);
         let mut process_group = process_group.clone();
+        let agents_client = agents_client.clone();
         let bigtable = bt_args.clone();
         async move {
             let (agents, public_key) = hsm_generator
                 .create_hsms(
-                    num_hsms,
+                    1,
                     MetricsParticipants::None,
                     &mut process_group,
                     &bigtable,
                     None,
                 )
                 .await;
-            let realm_id = cluster::new_realm(&agents).await.unwrap().0;
+            let realm_id = cluster::new_realm(&agents_client, &agents[0])
+                .await
+                .unwrap()
+                .0;
             (realm_id, public_key)
         }
     }))
@@ -261,7 +284,7 @@ async fn main() {
             .map(|(id, public_key)| Realm {
                 id,
                 address: lb.next().unwrap().clone(),
-                public_key: Some(public_key),
+                public_key: Some(public_key.0),
             })
             .collect(),
         register_threshold: 3,

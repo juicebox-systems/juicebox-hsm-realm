@@ -58,7 +58,7 @@ fn print_agent_status(hsm_id: &HsmId, url: &Url, status: Result<StatusResponse, 
                             "differs"
                         }
                     );
-                    println!("{TAB}public key: {}", hex::encode(status.public_key));
+                    println!("{TAB}public key: {:?}", status.public_key);
 
                     match status.realm {
                         Some(mut realm) => {
@@ -115,7 +115,7 @@ fn print_group_status(hsm_id: &HsmId, group: &GroupStatus) {
     }
 
     println!("{TAB}{TAB}configuration:");
-    for hsm in &group.configuration.0 {
+    for hsm in &group.configuration {
         if hsm == hsm_id {
             println!("{TAB}{TAB}{TAB}- HSM ID: {hsm} (self)");
         } else {

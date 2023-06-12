@@ -15,13 +15,14 @@ use std::time::Duration;
 use tokio::time::sleep;
 use url::Url;
 
-use super::super::{
+use super::PortIssuer;
+use crate::{
     http_client::{self, ClientOptions},
     process_group::ProcessGroup,
     realm::agent::types::{AgentService, StatusRequest},
     realm::store::bigtable,
 };
-use super::PortIssuer;
+use hsmcore::hsm::types::PublicKey;
 
 type AgentClient = http_client::Client<AgentService>;
 
@@ -62,7 +63,7 @@ impl HsmGenerator {
         process_group: &mut ProcessGroup,
         bigtable: &bigtable::Args,
         hsm_dir: Option<PathBuf>,
-    ) -> (Vec<Url>, Vec<u8>) {
+    ) -> (Vec<Url>, PublicKey) {
         let mut agent_urls = Vec::with_capacity(count);
         let mut next_is_leader = true;
         if self.entrust.0 {
@@ -122,7 +123,7 @@ impl HsmGenerator {
     }
 
     // Returns the realm public key.
-    async fn wait_for_agents(&self, agents: &[Url]) -> Vec<u8> {
+    async fn wait_for_agents(&self, agents: &[Url]) -> PublicKey {
         // Wait for the agent to be up, which in turn waits for the HSM
         // to be up.
         //

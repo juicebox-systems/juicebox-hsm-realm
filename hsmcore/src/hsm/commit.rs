@@ -37,7 +37,7 @@ impl<P: Platform> Hsm<P> {
                 },
             };
 
-            let mut election = HsmElection::new(&group.configuration.0);
+            let mut election = HsmElection::new(&group.configuration);
             let verify_capture = |captured: &Captured| -> bool {
                 match (CapturedStatementBuilder {
                     hsm: captured.hsm,
@@ -158,11 +158,13 @@ pub struct HsmElection {
 pub struct ElectionNoQuorum;
 
 impl HsmElection {
-    pub fn new(voters: &[HsmId]) -> HsmElection {
-        assert!(!voters.is_empty());
-        HsmElection {
-            votes: HashMap::from_iter(voters.iter().map(|id| (*id, None))),
-        }
+    pub fn new<'a, I>(voters: I) -> HsmElection
+    where
+        I: IntoIterator<Item = &'a HsmId>,
+    {
+        let votes = HashMap::from_iter(voters.into_iter().map(|id| (*id, None)));
+        assert!(!votes.is_empty());
+        HsmElection { votes }
     }
 
     pub fn vote(&mut self, voter: HsmId, index: LogIndex) {
@@ -198,7 +200,7 @@ mod test {
     #[test]
     #[should_panic]
     fn empty_election() {
-        HsmElection::new(&[]);
+        HsmElection::new([]);
     }
 
     #[test]

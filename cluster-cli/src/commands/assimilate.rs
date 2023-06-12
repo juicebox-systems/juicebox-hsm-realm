@@ -38,7 +38,9 @@ pub async fn assimilate(
         None => match get_unique_realm(&hsm_statuses)? {
             Some(realm) => realm,
             None => {
-                let realm = cluster::new_realm(&[hsm_statuses[0].0.clone()]).await?.0;
+                let realm = cluster::new_realm(agents_client, &hsm_statuses[0].0)
+                    .await?
+                    .0;
                 // We need to update the status for this HSM, since it now owns
                 // the entire range. Out of laziness, refresh all of them.
                 hsm_statuses = get_checked_hsm_statuses().await?;
@@ -47,12 +49,34 @@ pub async fn assimilate(
         },
     };
 
-    hsm_statuses.retain(|(_, status)| match &status.realm {
-        None => true,
-        Some(realm_status) => realm_status.id == realm,
-    });
+    // Join any more HSMs into the realm.
+    match hsm_statuses
+        .iter()
+        .find(|(_, status)| status.realm.as_ref().is_some_and(|rs| rs.id == realm))
+    {
+        None => {
+            // This should only happen if the user provided a (possibly
+            // incorrect) realm ID.
+            return Err(anyhow!(
+                "could not find any available HSMs in realm {realm:?} (need at least one)"
+            ));
+        }
 
-    let new_groups: Vec<GroupId> = nominal_groups(group_size, realm, &hsm_statuses).await?;
+        Some((existing, _)) => {
+            let new: Vec<Url> = hsm_statuses
+                .iter()
+                .filter(|(_, status)| status.realm.is_none())
+                .map(|(url, _)| url.clone())
+                .collect();
+            cluster::join_realm(agents_client, realm, &new, existing).await?;
+            hsm_statuses = get_checked_hsm_statuses().await?;
+        }
+    }
+
+    hsm_statuses.retain(|(_, status)| status.realm.as_ref().is_some_and(|rs| rs.id == realm));
+
+    let new_groups: Vec<GroupId> =
+        nominal_groups(group_size, realm, &hsm_statuses, agents_client).await?;
 
     // Each iteration of this loop ensures that one new group owns its entire
     // assigned partition. The owned range may have to be transferred from one
@@ -147,6 +171,7 @@ async fn nominal_groups(
     group_size: usize,
     realm: RealmId,
     hsm_statuses: &[(Url, StatusResponse)],
+    agents_client: &Client<AgentService>,
 ) -> anyhow::Result<Vec<GroupId>> {
     // Groups are not "reused" so that if the number of HSMs is exactly the
     // group size, then the result is that many groups, not just one.
@@ -173,7 +198,7 @@ async fn nominal_groups(
                     .groups
                     .iter()
                     .filter(|group| !used.contains(&group.id))
-                    .filter(|group| target_hsms == HashSet::from_iter(&group.configuration.0))
+                    .filter(|group| target_hsms == HashSet::from_iter(&group.configuration))
                     .map(|group| group.id)
                     .min()
             }) {
@@ -190,7 +215,9 @@ async fn nominal_groups(
             async move {
                 match group {
                     Group::Existing { id } => Ok(id),
-                    Group::New { agent_urls } => cluster::new_group(realm, &agent_urls).await,
+                    Group::New { agent_urls } => {
+                        cluster::new_group(agents_client, realm, &agent_urls).await
+                    }
                 }
             }
         }))
