@@ -71,6 +71,7 @@ async fn leader_handover() {
                 .register(
                     &vec![1, 2, 3, 4].into(),
                     &b"bob".to_vec().into(),
+                    &b"info".to_vec().into(),
                     Policy { num_guesses: 3 },
                 )
                 .await
@@ -79,7 +80,10 @@ async fn leader_handover() {
                 Err(e) => failures.push(format!("{e:?}")),
             }
 
-            match client.recover(&vec![1, 2, 3, 4].into()).await {
+            match client
+                .recover(&vec![1, 2, 3, 4].into(), &b"info".to_vec().into())
+                .await
+            {
                 Ok(secret) if secret.expose_secret() == b"bob".to_vec() => success_count += 1,
                 Ok(secret) => failures.push(format!(
                     "expected {:?} got {:?}",
