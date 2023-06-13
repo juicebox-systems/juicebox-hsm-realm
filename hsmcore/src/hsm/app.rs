@@ -14,7 +14,7 @@ use juicebox_sdk_core::{
         SecretsResponse,
     },
     types::{
-        MaskedTgkShare, OprfBlindedResult, OprfSeed, OprfServer, Policy, RegistrationVersion,
+        MaskedUnlockKeyShare, OprfBlindedResult, OprfSeed, OprfServer, Policy, RegistrationVersion,
         SaltShare, UnlockTag, UserSecretShare, OPRF_KEY_INFO,
     },
 };
@@ -50,7 +50,7 @@ struct RegisteredState {
     salt_share: SaltShare,
     guess_count: u16,
     policy: Policy,
-    masked_tgk_share: MaskedTgkShare,
+    masked_unlock_key_share: MaskedUnlockKeyShare,
     tag: UnlockTag,
     secret_share: UserSecretShare,
 }
@@ -74,7 +74,7 @@ fn register2(
         salt_share: request.salt_share,
         guess_count: 0,
         policy: request.policy,
-        masked_tgk_share: request.masked_tgk_share,
+        masked_unlock_key_share: request.masked_unlock_key_share,
         tag: request.tag,
         secret_share: request.secret_share,
     }));
@@ -129,7 +129,7 @@ fn recover2(
 ) -> (Recover2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
-    let (oprf_seed, masked_tgk_share) = match &mut user_record.registration_state {
+    let (oprf_seed, masked_unlock_key_share) = match &mut user_record.registration_state {
         RegistrationState::Registered(state) if state.version != request.version => {
             trace!(
                 hsm = ctx.hsm_name,
@@ -149,7 +149,10 @@ fn recover2(
         }
         RegistrationState::Registered(state) => {
             state.guess_count += 1;
-            (state.oprf_seed.clone(), state.masked_tgk_share.clone())
+            (
+                state.oprf_seed.clone(),
+                state.masked_unlock_key_share.clone(),
+            )
         }
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
@@ -175,7 +178,7 @@ fn recover2(
     (
         Recover2Response::Ok {
             blinded_oprf_result,
-            masked_tgk_share,
+            masked_unlock_key_share,
         },
         Some(user_record),
     )
@@ -313,7 +316,7 @@ mod test {
             Recover3Response, Register1Response, Register2Request, Register2Response,
         },
         types::{
-            MaskedTgkShare, OprfBlindedInput, OprfBlindedResult, OprfSeed, Policy,
+            MaskedUnlockKeyShare, OprfBlindedInput, OprfBlindedResult, OprfSeed, Policy,
             RegistrationVersion, SaltShare, UnlockTag, UserSecretShare,
         },
     };
@@ -338,7 +341,7 @@ mod test {
             salt_share: salt_share(),
             oprf_seed: oprf_seed(),
             tag: unlock_tag(),
-            masked_tgk_share: masked_tgk_share(),
+            masked_unlock_key_share: masked_unlock_key_share(),
             secret_share: user_secret_share(),
             policy: policy(),
         };
@@ -418,7 +421,7 @@ mod test {
             response,
             Recover2Response::Ok {
                 blinded_oprf_result: oprf_blinded_result(),
-                masked_tgk_share: masked_tgk_share()
+                masked_unlock_key_share: masked_unlock_key_share()
             }
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
@@ -627,7 +630,7 @@ mod test {
                 salt_share: salt_share(),
                 guess_count,
                 policy: policy(),
-                masked_tgk_share: masked_tgk_share(),
+                masked_unlock_key_share: masked_unlock_key_share(),
                 tag: unlock_tag(),
                 secret_share: user_secret_share(),
             })),
@@ -662,8 +665,8 @@ mod test {
         SaltShare::from([1; 17])
     }
 
-    fn masked_tgk_share() -> MaskedTgkShare {
-        MaskedTgkShare::try_from(vec![1; 33]).unwrap()
+    fn masked_unlock_key_share() -> MaskedUnlockKeyShare {
+        MaskedUnlockKeyShare::try_from(vec![1; 33]).unwrap()
     }
 
     fn unlock_tag() -> UnlockTag {
