@@ -187,12 +187,18 @@ impl DocTree {
 }
 
 fn dot_to_png(dir: &Path) {
-    Command::new("bash")
+    let o = Command::new("bash")
         .arg("-c")
         .arg("dot -O -Tpng *.dot")
         .current_dir(dir)
         .output()
         .unwrap();
+    if !o.status.success() {
+        panic!(
+            "failed to run dot program, ensure its installed and on the path. {}",
+            o.status
+        );
+    }
 }
 
 // This truncates the path labels so that it looks like an 8 bit tree.
