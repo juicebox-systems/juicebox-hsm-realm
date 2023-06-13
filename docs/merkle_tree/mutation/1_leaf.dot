@@ -1,0 +1,18 @@
+Digraph merkletree {
+
+h8fce43f249426a93 -> h2a9967cd63409150 [arrowsize=0.7 label="Left: 00001000" nojustify=true ];
+
+Subgraph depth_0 {
+rank=same
+
+h8fce43f249426a93 [fillcolor=darkseagreen label="root\n8fce43f249426a93" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_256 {
+rank=same
+
+h2a9967cd63409150 [fillcolor=lightblue1 label="2a9967cd63409150\nvalue: B" ordering=out shape=box style=filled ];
+}
+
+}

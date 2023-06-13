@@ -1,13 +1,37 @@
-use std::{
-    fs::File,
-    io::{BufWriter, Write},
-};
+extern crate alloc;
 
-use super::super::bitvec::DisplayBits;
-use super::agent::StoreKey;
-use super::{agent::tests::TreeStoreReader, agent::Node, Bits, Branch, Dir, HashOutput, KeyVec};
+use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use async_recursion::async_recursion;
+use async_trait::async_trait;
+use core::fmt::{Display, Write};
+use hashbrown::HashMap;
+use std::path::Path;
+use std::{fs, io};
+
+use super::agent::{Node, StoreKey, TreeStoreError};
+use super::{Bits, Branch, Dir, HashOutput, KeyVec};
+use crate::bitvec::{BitVec, DisplayBits};
+use crate::hsm::types::RecordId;
 use juicebox_sdk_core::types::RealmId;
+
+#[async_trait]
+pub trait TreeStoreReader<HO: HashOutput>: Sync {
+    async fn path_lookup(
+        &self,
+        realm_id: &RealmId,
+        record_id: &RecordId,
+    ) -> Result<HashMap<HO, Node<HO>>, TreeStoreError>;
+
+    async fn read_node(
+        &self,
+        realm_id: &RealmId,
+        key: StoreKey,
+    ) -> Result<Node<HO>, TreeStoreError>;
+}
 
 // Creates a dot file for a visualization of the tree starting
 // at the supplied root hash.
@@ -15,63 +39,274 @@ pub async fn tree_to_dot<HO: HashOutput>(
     realm_id: &RealmId,
     reader: &impl TreeStoreReader<HO>,
     root: HO,
-    output_file: &str,
+    output_file: impl AsRef<Path>,
 ) -> std::io::Result<()> {
-    let f = File::create(output_file).unwrap();
-    let mut w = BufWriter::new(f);
-    writeln!(w, "digraph merkletree {{")?;
-    add_node_to_dot(realm_id, KeyVec::new(), root, reader, &mut w).await?;
-    writeln!(w, "}}")?;
-    w.flush()
+    tree_to_dot_document(realm_id, reader, root)
+        .await
+        .write(output_file.as_ref())
+}
+
+pub async fn tree_to_dot_document<HO: HashOutput>(
+    realm_id: &RealmId,
+    reader: &impl TreeStoreReader<HO>,
+    root: HO,
+) -> DotGraph {
+    let mut dot_visitor = DotVisitor::new("merkletree");
+    visit_tree_at(realm_id, reader, KeyVec::new(), root, &mut dot_visitor).await;
+    dot_visitor.dot
+}
+
+pub trait Visitor<HO: HashOutput>: Sync {
+    fn visit_node(&mut self, prefix: &KeyVec, node_hash: &HO, node: &Node<HO>);
+    fn visit_branch(&mut self, prefix: &KeyVec, node_hash: &HO, dir: Dir, branch: &Branch<HO>);
 }
 
 #[async_recursion]
-async fn add_node_to_dot<W: Write + Send, HO: HashOutput>(
+pub async fn visit_tree_at<HO: HashOutput>(
     realm_id: &RealmId,
+    reader: &impl TreeStoreReader<HO>,
     prefix: KeyVec,
     h: HO,
-    reader: &impl TreeStoreReader<HO>,
-    w: &mut W,
-) -> std::io::Result<()> {
-    match reader
+    visitor: &mut (impl Visitor<HO> + Send),
+) {
+    let node = reader
         .read_node(realm_id, StoreKey::new(&prefix, &h))
         .await
-        .unwrap_or_else(|_| panic!("node with hash {h:?} should exist"))
-    {
-        Node::Interior(int) => {
-            if let Some(ref b) = int.left {
-                write_branch(&h, b, Dir::Left, w)?;
-                add_node_to_dot(realm_id, prefix.concat(&b.prefix), b.hash, reader, w).await?;
-            }
-            if let Some(ref b) = int.right {
-                write_branch(&h, b, Dir::Right, w)?;
-                add_node_to_dot(realm_id, prefix.concat(&b.prefix), b.hash, reader, w).await?;
-            }
-            writeln!(
-                w,
-                "h{:?} [label=\"{:?}\" style=filled fillcolor=azure3 ordering=out shape=box];",
-                h, h
-            )
+        .unwrap_or_else(|_| panic!("node with hash {h:?} should exist"));
+
+    visitor.visit_node(&prefix, &h, &node);
+    if let Node::Interior(int) = node {
+        if let Some(ref b) = int.left {
+            visitor.visit_branch(&prefix, &h, Dir::Left, b);
+            visit_tree_at(realm_id, reader, prefix.concat(&b.prefix), b.hash, visitor).await;
         }
-        Node::Leaf(l) => {
-            writeln!(w,"h{:?} [label=\"{:?}\\nv:{:?}\" style=filled fillcolor=lightblue1 ordering=out shape=box];", h, h, l.value)
+        if let Some(ref b) = int.right {
+            visitor.visit_branch(&prefix, &h, Dir::Right, b);
+            visit_tree_at(realm_id, reader, prefix.concat(&b.prefix), b.hash, visitor).await;
         }
     }
 }
-fn write_branch<HO: HashOutput>(
-    parent: &HO,
-    b: &Branch<HO>,
-    dir: Dir,
-    w: &mut impl Write,
-) -> std::io::Result<()> {
-    let lb = if b.prefix.len() > 8 { "\\n" } else { " " };
-    writeln!(
-        w,
-        "h{:?} -> h{:?} [label=\"{}:{}{}\\l\" nojustify=true arrowsize=0.7];",
-        parent,
-        b.hash,
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GraphType {
+    Digraph,
+    Subgraph,
+}
+
+pub struct DotGraph {
+    pub graph: GraphType,
+    pub name: String,
+    pub attributes: DotAttributes,
+    // order is important, especially for edges, hence Vec rather than a Map.
+    pub nodes: Vec<(String, DotAttributes)>,
+    pub edges: Vec<(String, String, DotAttributes)>,
+    pub graphs: Vec<DotGraph>,
+}
+
+impl DotGraph {
+    pub fn new(name: impl Into<String>) -> Self {
+        DotGraph {
+            graph: GraphType::Digraph,
+            name: name.into(),
+            attributes: DotAttributes::default(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            graphs: Vec::new(),
+        }
+    }
+
+    pub fn merge(&mut self, other: DotGraph) {
+        self.attributes.0.extend(other.attributes.0);
+        self.nodes.extend(other.nodes);
+        self.edges.extend(other.edges);
+        self.graphs.extend(other.graphs);
+    }
+
+    pub fn add_node(&mut self, name: impl Into<String>, attr: DotAttributes) {
+        self.nodes.push((name.into(), attr));
+    }
+
+    pub fn add_edge(
+        &mut self,
+        from: impl Into<String>,
+        to: impl Into<String>,
+        attr: DotAttributes,
+    ) {
+        self.edges.push((from.into(), to.into(), attr));
+    }
+
+    pub fn node_mut(&mut self, name: &str) -> Option<&mut (String, DotAttributes)> {
+        let r = self.nodes.iter_mut().find(|(n, _)| n == name);
+        if r.is_some() {
+            return r;
+        }
+        for g in self.graphs.iter_mut() {
+            let r = g.node_mut(name);
+            if r.is_some() {
+                return r;
+            }
+        }
+        None
+    }
+
+    pub fn edge_mut(
+        &mut self,
+        from: &str,
+        to: &str,
+    ) -> Option<&mut (String, String, DotAttributes)> {
+        let e = self
+            .edges
+            .iter_mut()
+            .find(|(f, t, _attr)| f == from && t == to);
+        if e.is_some() {
+            return e;
+        }
+        for g in self.graphs.iter_mut() {
+            let e = g.edge_mut(from, to);
+            if e.is_some() {
+                return e;
+            }
+        }
+        None
+    }
+
+    pub fn graph_mut(&mut self, name: &str) -> &mut DotGraph {
+        let idx = match self.graphs.iter().position(|g| g.name == name) {
+            None => {
+                let mut g = DotGraph::new(name);
+                g.graph = GraphType::Subgraph;
+                self.graphs.push(g);
+                self.graphs.len() - 1
+            }
+            Some(i) => i,
+        };
+        &mut self.graphs[idx]
+    }
+
+    pub fn write(&self, output_file: &Path) -> io::Result<()> {
+        fs::write(output_file, format!("{self}"))
+    }
+}
+
+impl Display for DotGraph {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        writeln!(f, "{:?} {} {{", self.graph, self.name)?;
+        writeln!(f, "{:#}", self.attributes)?;
+        for (name, node) in &self.nodes {
+            writeln!(f, "{} [{}];", name, node)?;
+        }
+        for (from, to, edge) in &self.edges {
+            writeln!(f, "{} -> {} [{}];", from, to, edge)?;
+        }
+        for g in &self.graphs {
+            writeln!(f)?;
+            writeln!(f, "{g}")?;
+        }
+        writeln!(f, "}}")
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct DotAttributes(BTreeMap<String, String>);
+
+impl DotAttributes {
+    pub fn set(&mut self, name: impl Into<String>, val: impl Into<String>) -> &mut Self {
+        self.0.insert(name.into(), val.into());
+        self
+    }
+}
+
+impl Display for DotAttributes {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for (k, v) in &self.0 {
+            write!(f, "{}={}", k, v)?;
+            if f.alternate() {
+                writeln!(f)?;
+            } else {
+                f.write_char(' ')?;
+            }
+        }
+        Ok(())
+    }
+}
+
+pub struct DotVisitor {
+    pub dot: DotGraph,
+}
+
+impl DotVisitor {
+    pub fn new(name: impl Into<String>) -> Self {
+        DotVisitor {
+            dot: DotGraph::new(name),
+        }
+    }
+}
+
+impl<HO: HashOutput> Visitor<HO> for DotVisitor {
+    fn visit_node(&mut self, prefix: &BitVec, hash: &HO, node: &Node<HO>) {
+        let mut attr = DotAttributes::default();
+        if prefix.is_empty() {
+            attr.set("fillcolor", "darkseagreen");
+        } else if matches!(node, Node::Leaf(_)) {
+            attr.set("fillcolor", "lightblue1");
+        } else {
+            attr.set("fillcolor", "azure3");
+        }
+        attr.set("style", "filled");
+        attr.set("ordering", "out");
+        attr.set("shape", "box");
+        fn format_leaf_value(v: &[u8]) -> String {
+            if v.len() == 1 && v[0] <= 26 {
+                ((b'A' + v[0] - 1) as char).into()
+            } else {
+                format!("{:?}", v)
+            }
+        }
+        match node {
+            Node::Interior(_) if prefix.is_empty() => {
+                attr.set("label", format!("\"root\\n{:?}\"", hash))
+            }
+            Node::Interior(_) => attr.set("label", format!("\"{:?}\"", hash)),
+            Node::Leaf(l) => attr.set(
+                "label",
+                format!("\"{:?}\\nvalue: {}\"", hash, format_leaf_value(&l.value)),
+            ),
+        };
+        // We create a subgraph for each prefix bit depth so that we can force
+        // the layout to put nodes at the same bit depth at the same vertical
+        // position in the output.
+        let cluster_name = format!("depth_{}", prefix.len());
+        let depth_graph = self.dot.graph_mut(&cluster_name);
+        depth_graph.attributes.set("rank", "same");
+        depth_graph.add_node(hash_id(hash), attr);
+    }
+
+    fn visit_branch(&mut self, _prefix: &BitVec, node_hash: &HO, dir: Dir, branch: &Branch<HO>) {
+        let mut attr = DotAttributes::default();
+        attr.set("nojustify", "true");
+        attr.set("arrowsize", "0.7");
+
+        attr.set("label", format_branch_label(dir, branch));
+        self.dot
+            .add_edge(hash_id(node_hash), hash_id(&branch.hash), attr);
+    }
+}
+
+pub fn hash_id<HO: HashOutput>(h: &HO) -> String {
+    format!("h{h:?}")
+}
+
+fn format_branch_label<HO>(dir: Dir, branch: &Branch<HO>) -> String {
+    let lb = if branch.prefix.len() > 8 { "\\n" } else { " " };
+    format!(
+        "\"{}:{}{}\\l\"",
         dir,
         lb,
-        DisplayBits("\\n", &b.prefix),
+        DisplayBits {
+            byte_separator: "\\n",
+            opener: "",
+            closer: "",
+            bits: &branch.prefix
+        }
     )
 }

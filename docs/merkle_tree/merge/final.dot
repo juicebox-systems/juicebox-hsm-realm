@@ -1,0 +1,68 @@
+Digraph merkletree {
+
+he3d349631adb6469 -> h23fd91b164dbd66b [arrowsize=0.7 label="Left: 00\l" nojustify=true ];
+h23fd91b164dbd66b -> h8b9f7baeda9917e6 [arrowsize=0.7 label="Left: 00\l" nojustify=true ];
+h8b9f7baeda9917e6 -> hc054fba26029cf03 [arrowsize=0.7 label="Left: 0000" nojustify=true ];
+h8b9f7baeda9917e6 -> h799532a0e0d5bbb9 [arrowsize=0.7 label="Right: 1\l" nojustify=true ];
+h799532a0e0d5bbb9 -> h9de962342421a59f [arrowsize=0.7 label="Left: 0\l" nojustify=true ];
+h9de962342421a59f -> h2a9967cd63409150 [arrowsize=0.7 label="Left: 00" nojustify=true ];
+h9de962342421a59f -> h52fb4742172f2888 [arrowsize=0.7 label="Right: 10" nojustify=true ];
+h799532a0e0d5bbb9 -> h3178f5b8405a7339 [arrowsize=0.7 label="Right: 111" nojustify=true ];
+h23fd91b164dbd66b -> h15c12d359027d23f [arrowsize=0.7 label="Right: 111011" nojustify=true ];
+he3d349631adb6469 -> h79964b40a0422fec [arrowsize=0.7 label="Right: 11\l" nojustify=true ];
+h79964b40a0422fec -> h962c7ad2f83c7e39 [arrowsize=0.7 label="Left: 001000" nojustify=true ];
+h79964b40a0422fec -> h55274cb7ef43c9f8 [arrowsize=0.7 label="Right: 11\l" nojustify=true ];
+h55274cb7ef43c9f8 -> h14b22d0071006e14 [arrowsize=0.7 label="Left: 0000" nojustify=true ];
+h55274cb7ef43c9f8 -> h78dbe349a145d188 [arrowsize=0.7 label="Right: 1010" nojustify=true ];
+
+Subgraph depth_0 {
+rank=same
+
+he3d349631adb6469 [fillcolor=darkseagreen label="root\ne3d349631adb6469" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_2 {
+rank=same
+
+h23fd91b164dbd66b [fillcolor=azure3 label="23fd91b164dbd66b" ordering=out shape=box style=filled ];
+h79964b40a0422fec [fillcolor=azure3 label="79964b40a0422fec" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_4 {
+rank=same
+
+h8b9f7baeda9917e6 [fillcolor=azure3 label="8b9f7baeda9917e6" ordering=out shape=box style=filled ];
+h55274cb7ef43c9f8 [fillcolor=azure3 label="55274cb7ef43c9f8" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_256 {
+rank=same
+
+hc054fba26029cf03 [fillcolor=lightblue1 label="c054fba26029cf03\nvalue: A" ordering=out shape=box style=filled ];
+h2a9967cd63409150 [fillcolor=lightblue1 label="2a9967cd63409150\nvalue: B" ordering=out shape=box style=filled ];
+h52fb4742172f2888 [fillcolor=lightblue1 label="52fb4742172f2888\nvalue: C" ordering=out shape=box style=filled ];
+h3178f5b8405a7339 [fillcolor=lightblue1 label="3178f5b8405a7339\nvalue: D" ordering=out shape=box style=filled ];
+h15c12d359027d23f [fillcolor=lightblue1 label="15c12d359027d23f\nvalue: E" ordering=out shape=box style=filled ];
+h962c7ad2f83c7e39 [fillcolor=lightblue1 label="962c7ad2f83c7e39\nvalue: F" ordering=out shape=box style=filled ];
+h14b22d0071006e14 [fillcolor=lightblue1 label="14b22d0071006e14\nvalue: G" ordering=out shape=box style=filled ];
+h78dbe349a145d188 [fillcolor=lightblue1 label="78dbe349a145d188\nvalue: H" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_5 {
+rank=same
+
+h799532a0e0d5bbb9 [fillcolor=azure3 label="799532a0e0d5bbb9" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_6 {
+rank=same
+
+h9de962342421a59f [fillcolor=azure3 label="9de962342421a59f" ordering=out shape=box style=filled ];
+}
+
+}
