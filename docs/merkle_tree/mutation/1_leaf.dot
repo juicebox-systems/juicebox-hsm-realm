@@ -12,7 +12,7 @@ h8fce43f249426a93 [fillcolor=darkseagreen label="root\n8fce43f249426a93" orderin
 Subgraph depth_256 {
 rank=same
 
-h2a9967cd63409150 [fillcolor=lightblue1 label="2a9967cd63409150\nvalue:[2]" ordering=out shape=box style=filled ];
+h2a9967cd63409150 [fillcolor=lightblue1 label="2a9967cd63409150\nvalue: B" ordering=out shape=box style=filled ];
 }
 
 }

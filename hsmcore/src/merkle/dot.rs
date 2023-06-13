@@ -255,12 +255,22 @@ impl<HO: HashOutput> Visitor<HO> for DotVisitor {
         attr.set("style", "filled");
         attr.set("ordering", "out");
         attr.set("shape", "box");
+        fn format_leaf_value(v: &[u8]) -> String {
+            if v.len() == 1 && v[0] <= 26 {
+                ((b'A' + v[0] - 1) as char).into()
+            } else {
+                format!("{:?}", v)
+            }
+        }
         match node {
             Node::Interior(_) if prefix.is_empty() => {
                 attr.set("label", format!("\"root\\n{:?}\"", hash))
             }
             Node::Interior(_) => attr.set("label", format!("\"{:?}\"", hash)),
-            Node::Leaf(l) => attr.set("label", format!("\"{:?}\\nvalue:{:?}\"", hash, &l.value)),
+            Node::Leaf(l) => attr.set(
+                "label",
+                format!("\"{:?}\\nvalue: {}\"", hash, format_leaf_value(&l.value)),
+            ),
         };
         // We create a subgraph for each prefix bit depth so that we can force
         // the layout to put nodes at the same bit depth at the same vertical
