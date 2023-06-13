@@ -1641,6 +1641,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "sharks",
  "tempfile",
  "thiserror",
  "tokio",

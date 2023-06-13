@@ -98,6 +98,7 @@ serde = { version = "1.0.152", default-features = false, features = [
     "derive",
 ] }
 serde_json = "1.0.94"
+sharks = "0.5.0"
 signal-hook = "0.3.15"
 subtle = { version = "2.4.1", default-features = false }
 tempfile = "3.5.0"
@@ -187,6 +188,7 @@ expect-test = { workspace = true }
 hex-literal = { workspace = true }
 once_cell = { workspace = true }
 rand_chacha = { workspace = true }
+sharks = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 
@@ -195,4 +197,8 @@ doctest = false
 
 [[bench]]
 name = "voprf_benchmark"
+harness = false
+
+[[bench]]
+name = "sharks_benchmark"
 harness = false
