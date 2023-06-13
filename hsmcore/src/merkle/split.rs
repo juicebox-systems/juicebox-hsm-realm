@@ -230,7 +230,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 #[cfg(test)]
 mod tests {
     use crate::merkle::dot::tree_to_dot;
-    use crate::merkle::test_types::{
+    use crate::merkle::testing::{
         check_delta_invariants, check_tree_invariants, new_empty_tree, read, read_tree_side,
         rec_id, tree_insert, TestHasher,
     };

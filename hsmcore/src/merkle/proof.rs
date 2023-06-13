@@ -365,7 +365,7 @@ impl<HO: HashOutput> VerifiedProof<HO> {
 mod tests {
 
     use super::super::super::hsm::types::OwnedRange;
-    use super::super::test_types::{new_empty_tree, read, rec_id, tree_insert};
+    use super::super::testing::{new_empty_tree, read, rec_id, tree_insert};
     use super::super::tests::TEST_REALM;
     use super::super::Bits;
     use super::ProofError;

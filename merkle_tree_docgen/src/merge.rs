@@ -3,7 +3,7 @@ use std::path::Path;
 
 use hsmcore::bitvec::Bits;
 use hsmcore::merkle::dot::{hash_id, DotGraph};
-use hsmcore::merkle::test_types::rec_id;
+use hsmcore::merkle::testing::rec_id;
 use hsmcore::merkle::KeyVec;
 
 use super::TreeIndex;

@@ -9,7 +9,7 @@ use hsmcore::merkle::agent::{Node, StoreKey};
 use hsmcore::merkle::dot::{
     hash_id, tree_to_dot_document, visit_tree_at, DotGraph, TreeStoreReader, Visitor,
 };
-use hsmcore::merkle::test_types::{
+use hsmcore::merkle::testing::{
     new_empty_tree, read, rec_id, tree_insert, MemStore, TestHash, TestHasher,
 };
 use hsmcore::merkle::{Branch, Dir, HashOutput, KeyVec, Tree};

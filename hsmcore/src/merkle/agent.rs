@@ -206,7 +206,7 @@ pub fn all_store_key_starts(
 #[cfg(test)]
 pub mod tests {
 
-    use crate::merkle::test_types::{new_empty_tree, read, TestHash};
+    use crate::merkle::testing::{new_empty_tree, read, TestHash};
 
     use super::super::super::bitvec;
     use super::super::super::hsm::types::{OwnedRange, RecordId};

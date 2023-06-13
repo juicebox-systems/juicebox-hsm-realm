@@ -147,9 +147,7 @@ mod tests {
 
     use super::super::super::hsm::types::OwnedRange;
     use super::super::agent::Node;
-    use super::super::test_types::{
-        check_tree_invariants, new_empty_tree, read, rec_id, tree_insert,
-    };
+    use super::super::testing::{check_tree_invariants, new_empty_tree, read, rec_id, tree_insert};
     use super::super::tests::{tree_size, TEST_REALM};
     use super::super::{KeyVec, NodeKey};
 

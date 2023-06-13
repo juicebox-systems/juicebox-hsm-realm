@@ -5,7 +5,7 @@ use hsmcore::bitvec::Bits;
 use hsmcore::hsm::types::OwnedRange;
 use hsmcore::merkle::agent::Node;
 use hsmcore::merkle::dot::{hash_id, DotAttributes, DotGraph};
-use hsmcore::merkle::test_types::{rec_id, TestHash};
+use hsmcore::merkle::testing::{rec_id, TestHash};
 use hsmcore::merkle::{Dir, KeyVec};
 
 use super::{DocTree, TreeIndex};

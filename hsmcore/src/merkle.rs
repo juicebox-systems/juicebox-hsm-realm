@@ -22,7 +22,7 @@ mod overlay;
 pub mod proof;
 mod split;
 #[cfg(any(test, feature = "dot"))]
-pub mod test_types;
+pub mod testing;
 
 pub type KeyVec = BitVec;
 pub type KeySlice<'a> = BitSlice<'a>;
@@ -300,7 +300,7 @@ mod tests {
 
     use super::agent::{Node, StoreKey, TreeStoreError};
     use super::dot::TreeStoreReader;
-    use super::test_types::{
+    use super::testing::{
         check_tree_invariants, new_empty_tree, read, rec_id, TestHash, TestHasher,
     };
     use super::{BitVec, Branch, HashOutput, InteriorNode, KeyVec, LeafNode};
