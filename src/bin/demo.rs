@@ -9,7 +9,8 @@ use tracing::info;
 use juicebox_hsm::http_client;
 use juicebox_hsm::logging;
 use juicebox_sdk::{
-    AuthToken, Client, Configuration, Pin, Policy, RealmId, RecoverError, TokioSleeper, UserSecret,
+    AuthToken, Client, Configuration, Pin, Policy, RealmId, RecoverError, TokioSleeper, UserInfo,
+    UserSecret,
 };
 use juicebox_sdk_networking::rpc::LoadBalancerService;
 
@@ -74,6 +75,7 @@ async fn main() {
         .register(
             &Pin::from(b"1234".to_vec()),
             &UserSecret::from(b"teyla21".to_vec()),
+            &UserInfo::from(b"presso".to_vec()),
             Policy { num_guesses: 2 },
         )
         .await
@@ -81,7 +83,13 @@ async fn main() {
     info!("Register succeeded");
 
     info!("Starting recover with wrong PIN (guess 1)");
-    match client.recover(&Pin::from(b"1212".to_vec())).await {
+    match client
+        .recover(
+            &Pin::from(b"1212".to_vec()),
+            &UserInfo::from(b"presso".to_vec()),
+        )
+        .await
+    {
         Err(RecoverError::InvalidPin { guesses_remaining }) => {
             assert_eq!(guesses_remaining, 1);
             info!("Recover expectedly unsuccessful")
@@ -91,7 +99,10 @@ async fn main() {
 
     info!("Starting recover with correct PIN (guess 2)");
     let secret = client
-        .recover(&Pin::from(b"1234".to_vec()))
+        .recover(
+            &Pin::from(b"1234".to_vec()),
+            &UserInfo::from(b"presso".to_vec()),
+        )
         .await
         .expect("recover failed");
     info!(
@@ -100,7 +111,13 @@ async fn main() {
     );
 
     info!("Starting recover with wrong PIN (guess 1)");
-    match client.recover(&Pin::from(b"1212".to_vec())).await {
+    match client
+        .recover(
+            &Pin::from(b"1212".to_vec()),
+            &UserInfo::from(b"presso".to_vec()),
+        )
+        .await
+    {
         Err(RecoverError::InvalidPin { guesses_remaining }) => {
             assert_eq!(guesses_remaining, 1);
             info!("Recover expectedly unsuccessful")
@@ -109,7 +126,13 @@ async fn main() {
     };
 
     info!("Starting recover with wrong PIN (guess 2)");
-    match client.recover(&Pin::from(b"1212".to_vec())).await {
+    match client
+        .recover(
+            &Pin::from(b"1212".to_vec()),
+            &UserInfo::from(b"presso".to_vec()),
+        )
+        .await
+    {
         Err(RecoverError::InvalidPin { guesses_remaining }) => {
             assert_eq!(guesses_remaining, 0);
             info!("Recover expectedly unsuccessful")
@@ -118,7 +141,13 @@ async fn main() {
     };
 
     info!("Starting recover with correct PIN (guess 3)");
-    match client.recover(&Pin::from(b"1234".to_vec())).await {
+    match client
+        .recover(
+            &Pin::from(b"1234".to_vec()),
+            &UserInfo::from(b"presso".to_vec()),
+        )
+        .await
+    {
         Err(RecoverError::InvalidPin { guesses_remaining }) => {
             assert_eq!(guesses_remaining, 0);
             info!("Recover expectedly unsuccessful")
@@ -131,6 +160,7 @@ async fn main() {
         .register(
             &Pin::from(b"4321".to_vec()),
             &UserSecret::from(b"presso42".to_vec()),
+            &UserInfo::from(b"teyla".to_vec()),
             Policy { num_guesses: 2 },
         )
         .await
@@ -139,7 +169,10 @@ async fn main() {
 
     info!("Starting recover with correct PIN (guess 1)");
     let secret = client
-        .recover(&Pin::from(b"4321".to_vec()))
+        .recover(
+            &Pin::from(b"4321".to_vec()),
+            &UserInfo::from(b"teyla".to_vec()),
+        )
         .await
         .expect("recover failed");
     info!(

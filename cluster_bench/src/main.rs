@@ -3,7 +3,7 @@ use clap::{Parser, ValueEnum};
 use dogstatsd::{ServiceCheckOptions, ServiceStatus};
 use futures::StreamExt;
 use hdrhistogram::Histogram;
-use juicebox_sdk::{AuthToken, Policy, RealmId, TokioSleeper};
+use juicebox_sdk::{AuthToken, Policy, RealmId, TokioSleeper, UserInfo};
 use juicebox_sdk_networking::rpc::LoadBalancerService;
 use reqwest::Certificate;
 use std::collections::HashMap;
@@ -176,6 +176,7 @@ async fn run(args: Args) -> anyhow::Result<usize> {
         .register(
             &Pin::from(b"pin0".to_vec()),
             &UserSecret::from(b"secret0".to_vec()),
+            &UserInfo::from(b"info0".to_vec()),
             Policy { num_guesses: 2 },
         )
         .await
@@ -293,6 +294,7 @@ async fn run_op(op: Operation, i: u64, client_builder: Arc<ClientBuilder>) -> Re
             .register(
                 &Pin::from(format!("pin{i}").into_bytes()),
                 &UserSecret::from(format!("secret{i}").into_bytes()),
+                &UserInfo::from(format!("info{i}").into_bytes()),
                 Policy { num_guesses: 2 },
             )
             .await
@@ -305,7 +307,10 @@ async fn run_op(op: Operation, i: u64, client_builder: Arc<ClientBuilder>) -> Re
         },
 
         Operation::Recover => match client
-            .recover(&Pin::from(format!("pin{i}").into_bytes()))
+            .recover(
+                &Pin::from(format!("pin{i}").into_bytes()),
+                &UserInfo::from(format!("info{i}").into_bytes()),
+            )
             .await
         {
             Ok(_) => Ok(start.elapsed()),
@@ -323,7 +328,13 @@ async fn run_op(op: Operation, i: u64, client_builder: Arc<ClientBuilder>) -> Re
             }
         },
 
-        Operation::AuthError => match client.recover(&Pin::from(b"bogus".to_vec())).await {
+        Operation::AuthError => match client
+            .recover(
+                &Pin::from(b"bogus".to_vec()),
+                &UserInfo::from(b"bogus".to_vec()),
+            )
+            .await
+        {
             Err(RecoverError::InvalidAuth) => Ok(start.elapsed()),
             Ok(_) => {
                 debug!(?op, i, "client got unexpected success");

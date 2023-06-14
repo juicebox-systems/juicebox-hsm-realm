@@ -14,7 +14,7 @@ use juicebox_hsm::http_client::{self};
 use juicebox_hsm::logging;
 use juicebox_hsm::process_group::ProcessGroup;
 use juicebox_hsm::realm::store::bigtable;
-use juicebox_sdk::{Client, Pin, UserSecret};
+use juicebox_sdk::{Client, Pin, UserInfo, UserSecret};
 use juicebox_sdk_core::types::Policy;
 use juicebox_sdk_networking::rpc::LoadBalancerService;
 
@@ -103,6 +103,7 @@ async fn main() {
         .register(
             &Pin::from(b"pin-test".to_vec()),
             &UserSecret::from(b"secret-test".to_vec()),
+            &UserInfo::from(b"info-test".to_vec()),
             Policy { num_guesses: 2 },
         )
         .await
@@ -124,6 +125,7 @@ async fn main() {
                 .register(
                     &Pin::from(format!("pin{i}").into_bytes()),
                     &UserSecret::from(format!("secret{i}").into_bytes()),
+                    &UserInfo::from(format!("info{i}").into_bytes()),
                     Policy { num_guesses: 2 },
                 )
                 .await
