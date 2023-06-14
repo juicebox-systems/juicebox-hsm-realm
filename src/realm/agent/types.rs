@@ -320,6 +320,7 @@ pub struct AppRequest {
     pub session_id: SessionId,
     pub kind: ClientRequestKind,
     pub encrypted: NoiseRequest,
+    pub tenant: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

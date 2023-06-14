@@ -393,6 +393,7 @@ async fn handle_client_request_inner(
                 session_id: request.session_id,
                 kind: request.kind,
                 encrypted: request.encrypted.clone(),
+                tenant: claims.issuer.clone(),
             },
         )
         .await

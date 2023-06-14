@@ -40,7 +40,7 @@ use juicebox_sdk_marshalling::{self as marshalling, bytes, DeserializationError}
 use juicebox_sdk_noise::server as noise;
 use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use types::{
-    AppError, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
+    AppError, AppRequest, AppRequestType, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CaptureNextRequest, CaptureNextResponse, Captured, CapturedStatement, CompleteTransferRequest,
     CompleteTransferResponse, DataHash, EntryHmac, GroupConfigurationStatement, GroupId,
     GroupMemberRole, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId, HsmRealmStatement,
@@ -1789,6 +1789,17 @@ fn secrets_req_name(r: &SecretsRequest) -> &'static str {
     }
 }
 
+fn secrets_request_type(r: &SecretsRequest) -> AppRequestType {
+    match r {
+        SecretsRequest::Register1 => AppRequestType::Register1,
+        SecretsRequest::Register2(_) => AppRequestType::Register2,
+        SecretsRequest::Recover1 => AppRequestType::Recover1,
+        SecretsRequest::Recover2(_) => AppRequestType::Recover2,
+        SecretsRequest::Recover3(_) => AppRequestType::Recover3,
+        SecretsRequest::Delete => AppRequestType::Delete,
+    }
+}
+
 fn handle_app_request(
     app_ctx: &app::AppContext,
     request: AppRequest,
@@ -1831,6 +1842,7 @@ fn handle_app_request(
         Err(response) => return response.into(),
     };
 
+    let secrets_request_type = secrets_request_type(&secrets_request);
     req_name_out.replace(secrets_req_name(&secrets_request));
 
     let (secrets_response, change) = app::process(
@@ -1865,6 +1877,7 @@ fn handle_app_request(
     AppResponse::Ok {
         entry: new_entry,
         delta: store_delta,
+        request_type: secrets_request_type,
     }
 }
 
