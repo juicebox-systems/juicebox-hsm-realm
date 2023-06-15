@@ -1,10 +1,9 @@
 use alloc::{format, vec::Vec};
 use core::{
-    num::NonZeroU32,
+    cmp::min,
     ops::{Deref, Sub},
     slice,
 };
-use rand_core::Error;
 
 use super::seelib::{
     CertType_SEECert, Cmd_GenerateRandom, Cmd_GetWorldSigners, Cmd_NVMemOp,
@@ -25,6 +24,7 @@ pub struct NCipher {
     // as a certificate here because a certificate contains raw pointers, which
     // makes it problematic.
     pub world_signer: M_KeyHash,
+    rng: BlockRng<NCipherRngFiller>,
 }
 
 impl NCipher {
@@ -36,21 +36,47 @@ impl NCipher {
             0 => Err(WorldSignerError::NoWorldSigner),
             1 => Ok(NCipher {
                 world_signer: unsafe { (*reply.reply.getworldsigners.sigs).hash },
+                // This doesn't use a full 8k block incase the hsm side has the same issue
+                // as the host API with larger responses.
+                rng: BlockRng::new(8000, NCipherRngFiller),
             }),
             _ => Err(WorldSignerError::TooManyWorldSigners),
         }
     }
 }
 
-impl rand_core::CryptoRng for NCipher {}
+struct BlockRng<F> {
+    buff: Vec<u8>,
+    size: usize,
+    pos: usize,
+    filler: F,
+}
 
-// TODO: This RNG is slow, so we should be using it to seed another one
-// instead.
-impl rand_core::RngCore for NCipher {
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.try_fill_bytes(dest).unwrap()
+trait BlockRngFiller {
+    fn fill(&mut self, buff: &mut Vec<u8>);
+}
+
+// Platform gets cloned on every request. We need to safely impl Clone but its
+// exceedingly unlikely that the cloned platform actually calls the rng so we
+// want clone to be cheap and only do the allocation/fill when it needs to.
+impl<F: BlockRngFiller + Clone> Clone for BlockRng<F> {
+    fn clone(&self) -> Self {
+        Self::new(self.size, self.filler.clone())
     }
+}
 
+impl<F: BlockRngFiller> BlockRng<F> {
+    fn new(block_size: usize, filler: F) -> Self {
+        Self {
+            buff: Vec::new(),
+            size: block_size,
+            pos: block_size,
+            filler,
+        }
+    }
+}
+
+impl<F: BlockRngFiller> rand_core::RngCore for BlockRng<F> {
     fn next_u32(&mut self) -> u32 {
         rand_core::impls::next_u32_via_fill(self)
     }
@@ -59,17 +85,60 @@ impl rand_core::RngCore for NCipher {
         rand_core::impls::next_u64_via_fill(self)
     }
 
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        let mut cmd = M_Command::new(Cmd_GenerateRandom);
-        cmd.args.generaterandom.lenbytes = dest.len() as M_Word;
-        let reply = transact(&mut cmd, None).map_err(|err| {
-            rand_core::Error::from(NonZeroU32::new(Error::CUSTOM_START + err.status()).unwrap())
-        })?;
-        unsafe {
-            let d = reply.reply.generaterandom.data.as_slice();
-            dest.copy_from_slice(d);
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.try_fill_bytes(dest).unwrap()
+    }
+
+    fn try_fill_bytes(&mut self, mut dest: &mut [u8]) -> Result<(), rand_core::Error> {
+        while !dest.is_empty() {
+            if self.pos >= self.buff.len() {
+                // This deals with the initial case where self.buff has 0 length.
+                self.buff.resize(self.size, 0);
+                self.filler.fill(&mut self.buff);
+                self.pos = 0;
+            }
+            let src = &self.buff[self.pos..];
+            let chunk = min(dest.len(), src.len());
+            dest[..chunk].copy_from_slice(&src[..chunk]);
+            self.pos += chunk;
+            dest = &mut dest[chunk..];
         }
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+struct NCipherRngFiller;
+
+impl BlockRngFiller for NCipherRngFiller {
+    fn fill(&mut self, buff: &mut Vec<u8>) {
+        let mut cmd = M_Command::new(Cmd_GenerateRandom);
+        cmd.args.generaterandom.lenbytes = buff.len() as M_Word;
+        let reply = transact(&mut cmd, None).unwrap();
+        unsafe {
+            assert_eq!(buff.len() as u32, reply.reply.generaterandom.data.len);
+            buff.copy_from_slice(reply.reply.generaterandom.data.as_slice());
+        }
+    }
+}
+
+impl rand_core::CryptoRng for NCipher {}
+
+impl rand_core::RngCore for NCipher {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.rng.fill_bytes(dest)
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        self.rng.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.rng.next_u64()
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+        self.rng.try_fill_bytes(dest)
     }
 }
 
@@ -293,6 +362,8 @@ impl Deref for Reply {
 
 #[cfg(test)]
 mod test {
+    use rand_core::RngCore;
+
     use super::*;
 
     #[test]
@@ -359,5 +430,52 @@ mod test {
             nsec: 999_999_999,
         };
         assert_eq!(Nanos::MAX, e - s);
+    }
+
+    #[derive(Clone)]
+    struct TestFiller {
+        fills: usize,
+    }
+    impl BlockRngFiller for TestFiller {
+        fn fill(&mut self, buff: &mut Vec<u8>) {
+            assert_eq!(16, buff.len());
+            for (i, x) in buff.iter_mut().enumerate() {
+                *x = u8::try_from(i + 1).unwrap();
+            }
+            self.fills += 1;
+        }
+    }
+
+    #[test]
+    fn block_rng() {
+        let filler = TestFiller { fills: 0 };
+        let mut rng = BlockRng::new(16, filler);
+        // new should be cheap, the buffer should be an empty vec
+        assert!(rng.buff.is_empty());
+        assert_eq!(16, rng.pos);
+        assert_eq!(16, rng.size);
+        // Getting some random data should cause the buffer to be created & filled.
+        assert_ne!(0, rng.next_u32());
+        assert_eq!(16, rng.buff.len());
+        assert_eq!(1, rng.filler.fills);
+        // Should be able to get more bytes than are in the buffer.
+        let mut bytes: [u8; 69] = [0; 69];
+        rng.fill_bytes(&mut bytes);
+        assert!(bytes.iter().all(|v| *v != 0));
+        assert_eq!(5, rng.filler.fills);
+        assert!(rng.pos > 8); // ensure next_u64 will need to refill the buffer
+        assert_ne!(0, rng.next_u64());
+        assert_eq!(6, rng.filler.fills);
+    }
+
+    #[test]
+    fn block_rng_clone() {
+        let filler = TestFiller { fills: 0 };
+        let mut rng = BlockRng::new(16, filler);
+        assert_ne!(0, rng.next_u32());
+        let mut rng2 = rng.clone();
+        assert!(rng2.buff.is_empty());
+        assert_ne!(rng.next_u32(), rng2.next_u32());
+        assert_eq!(rng.filler.fills + 1, rng2.filler.fills);
     }
 }
