@@ -232,6 +232,13 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
 
         Box::pin(
             async move {
+                if request.uri().path() == "/livez" {
+                    return Ok(Response::builder()
+                        .status(200)
+                        .body(Full::from(Bytes::from("Juicebox load balancer: OK\n")))
+                        .unwrap());
+                }
+
                 let request_bytes = request.collect().await?.to_bytes();
 
                 // todo: figure out a way to reject without reading all bytes into memory first
