@@ -1550,6 +1550,9 @@ pub enum AppResponse {
         /// Zero or more changes to the Merkle tree as a result of this
         /// request, including the encrypted user record.
         delta: StoreDelta<DataHash>,
+        /// The type of [`AppRequest`] that was processed. This is exposed
+        /// to the Agent for accounting purposes.
+        request_type: AppRequestType,
     },
     /// This HSM is not a member of this realm.
     InvalidRealm,
@@ -1589,6 +1592,17 @@ pub enum AppResponse {
     SessionError,
     /// The Noise payload's plaintext could not be deserialized.
     DecodingError,
+}
+
+/// The different types of AppRequests that the client may make.
+#[derive(Debug, Deserialize, Serialize)]
+pub enum AppRequestType {
+    Register1,
+    Register2,
+    Recover1,
+    Recover2,
+    Recover3,
+    Delete,
 }
 
 /// The error types from [`AppResponse`], used internally in the HSM

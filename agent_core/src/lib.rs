@@ -2,7 +2,7 @@ use anyhow::Context;
 use bytes::Bytes;
 use futures::channel::oneshot;
 use futures::Future;
-use hsmcore::hsm::types::{DataHash, LogEntry};
+use hsmcore::hsm::types::{AppRequestType, DataHash, LogEntry};
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -1141,6 +1141,7 @@ impl<T: Transport + 'static> Agent<T> {
         let realm = request.realm;
         let group = request.group;
         let tags = [tag!(?realm), tag!(?group)];
+        let tenant_tag = tag!(tenant: "{}",request.tenant);
 
         let start_result = self
             .0
@@ -1152,13 +1153,34 @@ impl<T: Transport + 'static> Agent<T> {
 
         match start_result {
             Err(response) => Ok(response),
-            Ok(append_request) => {
-                self.0
+            Ok((append_request, request_type)) => {
+                let res = self
+                    .0
                     .metrics
                     .async_time("agent.commit.latency", &tags, || {
                         self.finish_app_request(realm, group, append_request)
                     })
-                    .await
+                    .await;
+                if res.is_ok() {
+                    // This metric is used for tenant accounting. The metric
+                    // name, tag names & values are aligned with what the
+                    // software realm generates for accounting. Future tools
+                    // that export this data from Datadog will be dependant on
+                    // these being stable.
+                    let req_type_name = match request_type {
+                        AppRequestType::Register1 => "register1",
+                        AppRequestType::Register2 => "register2",
+                        AppRequestType::Recover1 => "recover1",
+                        AppRequestType::Recover2 => "recover2",
+                        AppRequestType::Recover3 => "recover3",
+                        AppRequestType::Delete => "delete",
+                    };
+                    self.0.metrics.incr(
+                        "realm.request.count",
+                        [tag!(?realm), tenant_tag, tag!(type: "{}", req_type_name)],
+                    );
+                }
+                res
             }
         }
     }
@@ -1196,7 +1218,7 @@ impl<T: Transport + 'static> Agent<T> {
         &self,
         request: AppRequest,
         tags: &[metrics::Tag],
-    ) -> Result<Append, AppResponse> {
+    ) -> Result<(Append, AppRequestType), AppResponse> {
         type HsmResponse = hsm_types::AppResponse;
         type Response = AppResponse;
 
@@ -1288,14 +1310,18 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(HsmResponse::SessionError) => return Err(Response::SessionError),
                 Ok(HsmResponse::DecodingError) => return Err(Response::DecodingError),
 
-                Ok(HsmResponse::Ok { entry, delta }) => {
+                Ok(HsmResponse::Ok {
+                    entry,
+                    delta,
+                    request_type,
+                }) => {
                     trace!(
                         agent = self.0.name,
                         ?entry,
                         ?delta,
                         "got new log entry and data updates from HSM"
                     );
-                    return Ok(Append { entry, delta });
+                    return Ok((Append { entry, delta }, request_type));
                 }
             };
         }
