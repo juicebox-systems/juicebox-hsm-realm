@@ -1,5 +1,6 @@
 use alloc::{format, vec::Vec};
 use core::{
+    cmp::min,
     num::NonZeroU32,
     ops::{Deref, Sub},
     slice,
@@ -177,12 +178,18 @@ impl NVRam for NCipher {
                 data.len()
             )));
         }
-        let len = u32::from_be_bytes(
+        let len = usize::try_from(u32::from_be_bytes(
             data[NVRAM_LEN_OFFSET..NVRAM_LEN_OFFSET + 4]
                 .try_into()
                 .unwrap(),
-        );
-        data.truncate(len as usize);
+        ))
+        .unwrap();
+
+        // In the unlikely event that the read returned the expected 4096 bytes,
+        // but len said it was more than the allowed 4000 bytes limit the
+        // response to the allowed size. In this event its likely that the
+        // hash check performed by the caller will fail.
+        data.truncate(min(len, MAX_NVRAM_SIZE));
         Ok(data)
     }
 
