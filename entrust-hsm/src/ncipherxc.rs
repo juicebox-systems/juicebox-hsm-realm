@@ -30,5 +30,5 @@ fn apanic(_info: &PanicInfo) -> ! {
     unsafe {
         abort();
     }
-    panic!("didn't abort");
+    loop {}
 }
