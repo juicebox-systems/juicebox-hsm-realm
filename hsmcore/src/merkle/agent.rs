@@ -124,9 +124,9 @@ impl StoreKey {
         //   the base128 encoding)
         //   the hash
         let prefix_len_bytes = base128::encoded_len(prefix.len());
-        let mut out: Vec<u8> = Vec::with_capacity(prefix_len_bytes + hash.as_u8().len());
+        let mut out: Vec<u8> = Vec::with_capacity(prefix_len_bytes + hash.as_slice().len());
         encode_prefix_into(prefix, &mut out);
-        out.extend(hash.as_u8());
+        out.extend(hash.as_slice());
         StoreKey(out)
     }
 

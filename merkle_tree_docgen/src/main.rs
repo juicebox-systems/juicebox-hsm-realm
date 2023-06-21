@@ -83,7 +83,7 @@ async fn doc_proofs(dir: &Path) {
 
 struct DocTree {
     realm: RealmId,
-    tree: Tree<TestHasher, TestHash>,
+    tree: Tree<TestHasher>,
     root: TestHash,
     store: MemStore<TestHash>,
     partition: OwnedRange,
@@ -170,14 +170,14 @@ impl DocTree {
 
         let left_tree = DocTree {
             realm: self.realm,
-            tree: Tree::with_existing_root(TestHasher, split.left.root_hash, 1),
+            tree: Tree::<TestHasher>::with_existing_root(split.left.root_hash, 1),
             root: split.left.root_hash,
             store: self.store.clone(),
             partition: split.left.range,
         };
         let right_tree = DocTree {
             realm: self.realm,
-            tree: Tree::with_existing_root(TestHasher, split.right.root_hash, 1),
+            tree: Tree::<TestHasher>::with_existing_root(split.right.root_hash, 1),
             root: split.right.root_hash,
             store: self.store,
             partition: split.right.range,
