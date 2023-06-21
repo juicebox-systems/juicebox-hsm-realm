@@ -36,8 +36,8 @@ impl NCipher {
             0 => Err(WorldSignerError::NoWorldSigner),
             1 => Ok(NCipher {
                 world_signer: unsafe { (*reply.reply.getworldsigners.sigs).hash },
-                // This doesn't use a full 8k block incase the hsm side has the same issue
-                // as the host API with larger responses.
+                // This doesn't use a full 8192 byte block in case the hsm side has the same issue
+                // as the host API with larger responses where they go exceptionally slow.
                 rng: BlockRng::new(8000, NCipherRngFiller),
             }),
             _ => Err(WorldSignerError::TooManyWorldSigners),
@@ -46,9 +46,8 @@ impl NCipher {
 }
 
 struct BlockRng<F> {
-    buff: Vec<u8>,
+    buf: Vec<u8>,
     size: usize,
-    pos: usize,
     filler: F,
 }
 
@@ -68,9 +67,8 @@ impl<F: BlockRngFiller + Clone> Clone for BlockRng<F> {
 impl<F: BlockRngFiller> BlockRng<F> {
     fn new(block_size: usize, filler: F) -> Self {
         Self {
-            buff: Vec::new(),
+            buf: Vec::new(),
             size: block_size,
-            pos: block_size,
             filler,
         }
     }
@@ -91,16 +89,12 @@ impl<F: BlockRngFiller> rand_core::RngCore for BlockRng<F> {
 
     fn try_fill_bytes(&mut self, mut dest: &mut [u8]) -> Result<(), rand_core::Error> {
         while !dest.is_empty() {
-            if self.pos >= self.buff.len() {
-                // This deals with the initial case where self.buff has 0 length.
-                self.buff.resize(self.size, 0);
-                self.filler.fill(&mut self.buff);
-                self.pos = 0;
+            if self.buf.is_empty() {
+                self.buf.resize(self.size, 0);
+                self.filler.fill(&mut self.buf);
             }
-            let src = &self.buff[self.pos..];
-            let chunk = min(dest.len(), src.len());
-            dest[..chunk].copy_from_slice(&src[..chunk]);
-            self.pos += chunk;
+            let chunk = min(dest.len(), self.buf.len());
+            dest[..chunk].copy_from_slice(self.buf.drain(self.buf.len() - chunk..).as_slice());
             dest = &mut dest[chunk..];
         }
         Ok(())
@@ -451,19 +445,18 @@ mod test {
         let filler = TestFiller { fills: 0 };
         let mut rng = BlockRng::new(16, filler);
         // new should be cheap, the buffer should be an empty vec
-        assert!(rng.buff.is_empty());
-        assert_eq!(16, rng.pos);
+        assert!(rng.buf.is_empty());
         assert_eq!(16, rng.size);
         // Getting some random data should cause the buffer to be created & filled.
         assert_ne!(0, rng.next_u32());
-        assert_eq!(16, rng.buff.len());
+        assert_eq!(12, rng.buf.len());
         assert_eq!(1, rng.filler.fills);
         // Should be able to get more bytes than are in the buffer.
         let mut bytes: [u8; 69] = [0; 69];
         rng.fill_bytes(&mut bytes);
         assert!(bytes.iter().all(|v| *v != 0));
         assert_eq!(5, rng.filler.fills);
-        assert!(rng.pos > 8); // ensure next_u64 will need to refill the buffer
+        assert!(rng.buf.len() < 8); // ensure next_u64 will need to refill the buffer
         assert_ne!(0, rng.next_u64());
         assert_eq!(6, rng.filler.fills);
     }
@@ -474,7 +467,7 @@ mod test {
         let mut rng = BlockRng::new(16, filler);
         assert_ne!(0, rng.next_u32());
         let mut rng2 = rng.clone();
-        assert!(rng2.buff.is_empty());
+        assert!(rng2.buf.is_empty());
         assert_ne!(rng.next_u32(), rng2.next_u32());
         assert_eq!(rng.filler.fills + 1, rng2.filler.fills);
     }
