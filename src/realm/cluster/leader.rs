@@ -165,14 +165,18 @@ pub(super) async fn assign_group_a_leader(
 }
 
 fn score(group: &GroupId, m: &hsm_types::StatusResponse) -> Score {
-    let mut work = 0;
+    let mut work: usize = 0;
     let mut last_captured = None;
     if let Some(r) = &m.realm {
-        // group member scores +1, leader scores + 10
+        // group member scores +1, leader scores + 2 + MSB of the partition size. (0-255)
         for g in &r.groups {
             work += 1;
-            if g.leader.is_some() {
-                work += 10;
+            if let Some(leader) = &g.leader {
+                work += 2;
+                if let Some(part) = &leader.owned_range {
+                    let part_size = part.end.0[0] - part.start.0[0];
+                    work += part_size as usize;
+                }
             }
             if g.id == *group {
                 last_captured = g.captured.as_ref().map(|(index, _)| *index);
