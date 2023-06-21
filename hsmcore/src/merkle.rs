@@ -304,6 +304,8 @@ impl<'a, H: NodeHasher> NodeHashBuilder<'a, H> {
                 let mut h = H::default();
                 h.update(b"leaf");
                 h.update(&key.0);
+                let val_len = u64::try_from(val.len()).unwrap();
+                h.update(&val_len.to_be_bytes());
                 h.update(val);
                 h.finalize()
             }
