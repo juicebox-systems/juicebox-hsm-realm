@@ -27,8 +27,11 @@ unsafe impl GlobalAlloc for Alloc {
 
 #[panic_handler]
 fn apanic(_info: &PanicInfo) -> ! {
+    // We're not allowed to return from this function. In the extremely unlikely
+    // event that abort doesn't actually abort we sit in a infinite loop. Which
+    // is annoying but safe (from a security POV).
     unsafe {
         abort();
     }
-    panic!("didn't abort");
+    loop {}
 }
