@@ -354,15 +354,18 @@ impl<'a> TransferStatementBuilder<'a> {
     }
 }
 
-pub struct MerkleHasher();
-impl NodeHasher<DataHash> for MerkleHasher {
-    fn calc_hash(&self, parts: &[&[u8]]) -> DataHash {
-        let mut h = Blake2s256::new();
-        for p in parts {
-            h.update([b'|']); //delim all the parts
-            h.update(p);
-        }
-        DataHash(h.finalize().into())
+#[derive(Default)]
+pub struct MerkleHasher(Blake2s256);
+
+impl NodeHasher for MerkleHasher {
+    type Output = DataHash;
+
+    fn update(&mut self, d: &[u8]) {
+        self.0.update(d)
+    }
+
+    fn finalize(self) -> DataHash {
+        DataHash(self.0.finalize().into())
     }
 }
 
@@ -435,15 +438,16 @@ struct LeaderVolatileGroupState {
     committed: Option<LogIndex>,
     incoming: Option<TransferNonce>,
     /// This is `Some` if and only if the last entry in `log` owns a partition.
-    tree: Option<Tree<MerkleHasher, DataHash>>,
+    tree: Option<Tree<MerkleHasher>>,
     sessions: Cache<(RecordId, SessionId), noise::Transport>,
 }
 
 impl LeaderVolatileGroupState {
     fn new(last_entry: LogEntry, options: &HsmOptions) -> Self {
-        let tree = last_entry.partition.as_ref().map(|p| {
-            Tree::with_existing_root(MerkleHasher(), p.root_hash, options.tree_overlay_size)
-        });
+        let tree = last_entry
+            .partition
+            .as_ref()
+            .map(|p| Tree::with_existing_root(p.root_hash, options.tree_overlay_size));
         Self {
             log: VecDeque::from([LeaderLogEntry {
                 entry: last_entry,
@@ -801,7 +805,7 @@ impl<P: Platform> Hsm<P> {
             });
 
             let range = OwnedRange::full();
-            let (root_hash, delta) = Tree::new_tree(&MerkleHasher(), &range);
+            let (root_hash, delta) = Tree::<MerkleHasher>::new_tree(&range);
 
             let entry = LogEntryBuilder {
                 realm,
@@ -1381,13 +1385,9 @@ impl<P: Platform> Hsm<P> {
                 delta = split_delta;
             }
 
-            leader.tree = keeping_partition.as_ref().map(|p| {
-                Tree::with_existing_root(
-                    MerkleHasher(),
-                    p.root_hash,
-                    self.options.tree_overlay_size,
-                )
-            });
+            leader.tree = keeping_partition
+                .as_ref()
+                .map(|p| Tree::with_existing_root(p.root_hash, self.options.tree_overlay_size));
 
             let index = last_entry.index.next();
             let entry = LogEntryBuilder {
@@ -1601,7 +1601,6 @@ impl<P: Platform> Hsm<P> {
             });
 
             leader.tree = Some(Tree::with_existing_root(
-                MerkleHasher(),
                 partition.root_hash,
                 self.options.tree_overlay_size,
             ));
@@ -1883,10 +1882,9 @@ fn handle_app_request(
 
 /// Used in [`handle_app_request`].
 struct MerkleHelper<'a> {
-    tree: &'a mut Tree<MerkleHasher, DataHash>,
+    tree: &'a mut Tree<MerkleHasher>,
     leaf_key: &'a RecordEncryptionKey,
     latest_proof: VerifiedProof<DataHash>,
-    update_num: u64,
 }
 
 impl<'a> MerkleHelper<'a> {
@@ -1894,7 +1892,7 @@ impl<'a> MerkleHelper<'a> {
         record_id: &RecordId,
         request_proof: ReadProof<DataHash>,
         leaf_key: &'a RecordEncryptionKey,
-        tree: &'a mut Tree<MerkleHasher, DataHash>,
+        tree: &'a mut Tree<MerkleHasher>,
     ) -> Result<(Self, Option<Vec<u8>>), AppError> {
         use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 
@@ -1938,30 +1936,11 @@ impl<'a> MerkleHelper<'a> {
             }
         };
 
-        // The last 8 bytes of the value are a sequential update number to stop
-        // leaf hashes repeating.
-        //
-        // TODO: do we need this anymore with the random nonces?
-        let (update_num, latest_value) = match latest_value {
-            Some(mut v) => {
-                let split_at = v
-                    .len()
-                    .checked_sub(8)
-                    .expect("node should be at least 8 bytes");
-
-                let update_num = u64::from_be_bytes(v[split_at..].try_into().unwrap());
-                v.truncate(split_at);
-                (update_num, Some(v))
-            }
-            None => (0, None),
-        };
-
         Ok((
             MerkleHelper {
                 leaf_key,
                 tree,
                 latest_proof,
-                update_num,
             },
             latest_value,
         ))
@@ -1976,7 +1955,7 @@ impl<'a> MerkleHelper<'a> {
 
         match change {
             Some(change) => match change {
-                RecordChange::Update(mut record) => {
+                RecordChange::Update(record) => {
                     // TODO: Pad the record? Especially with the addition of
                     // `RegistrationState::NoGuesses`, the length of the
                     // encrypted record may reveal information to an adversary
@@ -1988,8 +1967,6 @@ impl<'a> MerkleHelper<'a> {
 
                     let mut nonce = XNonce::default();
                     rng.fill_bytes(&mut nonce);
-                    record
-                        .extend_from_slice(&self.update_num.checked_add(1).unwrap().to_be_bytes());
                     let plain_text: &[u8] = &record;
 
                     // An optimization we could do is to use the authentication
@@ -2118,19 +2095,18 @@ mod test {
     use juicebox_sdk_core::types::RealmId;
     use juicebox_sdk_marshalling as marshalling;
 
-    use super::{
-        super::bitvec,
-        super::hal::MAX_NVRAM_SIZE,
-        super::merkle::{agent::StoreKey, NodeHasher},
-        types::{DataHash, EntryHmac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT},
-        *,
-    };
+    use super::super::bitvec;
+    use super::super::hal::MAX_NVRAM_SIZE;
+    use super::super::merkle::agent::StoreKey;
+    use super::super::merkle::testing::rec_id;
+    use super::super::merkle::NodeHashBuilder;
+    use super::types::{DataHash, EntryHmac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT};
+    use super::*;
 
     #[test]
     fn test_store_key_parse_data_hash() {
         let prefix = bitvec![0, 1, 1, 1];
-        let mh = MerkleHasher();
-        let hash = mh.calc_hash(&[&[1, 2, 3, 4]]);
+        let hash = NodeHashBuilder::<MerkleHasher>::Leaf(&rec_id(&[1]), &[1, 2, 3, 4]).build();
 
         let sk = StoreKey::new(&prefix, &hash);
         match StoreKey::parse::<DataHash>(&sk.into_bytes()) {

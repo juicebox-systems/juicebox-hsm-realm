@@ -159,7 +159,7 @@ async fn read_log_entry() {
 async fn last_log_entry_does_not_cross_groups() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator()).await;
-    let (_, delta) = Tree::new_tree(&MerkleHasher(), &OwnedRange::full());
+    let (_, delta) = Tree::<MerkleHasher>::new_tree(&OwnedRange::full());
 
     for g in &[GROUP_1, GROUP_2, GROUP_3] {
         assert!(data.read_last_log_entry(&REALM, g).await.unwrap().is_none());
@@ -378,7 +378,7 @@ async fn append_store_delta() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator()).await;
     let entries = create_log_batch(LogIndex::FIRST, EntryHmac([0; 32]), 4);
-    let (starting_root, delta) = Tree::new_tree(&MerkleHasher(), &OwnedRange::full());
+    let (starting_root, delta) = Tree::<MerkleHasher>::new_tree(&OwnedRange::full());
 
     data.append(&REALM, &GROUP_3, &entries, delta)
         .await
@@ -396,7 +396,7 @@ async fn append_store_delta() {
     )
     .await
     .unwrap();
-    let mut tree = Tree::with_existing_root(MerkleHasher(), starting_root, 15);
+    let mut tree = Tree::<MerkleHasher>::with_existing_root(starting_root, 15);
     let vp = tree.latest_proof(rp).unwrap();
     let (new_root, delta) = tree.insert(vp, vec![1, 2, 3]).unwrap();
     let last_log_entry = entries.last().unwrap();

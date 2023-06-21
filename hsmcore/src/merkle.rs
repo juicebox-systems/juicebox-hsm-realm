@@ -30,11 +30,11 @@ pub type KeySlice<'a> = BitSlice<'a>;
 // TODO
 //  docs
 //  more tests
-pub struct Tree<H: NodeHasher<HO>, HO> {
-    hasher: H,
-    overlay: TreeOverlay<HO>,
+pub struct Tree<H: NodeHasher> {
+    overlay: TreeOverlay<H::Output>,
 }
-impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
+
+impl<H: NodeHasher> Tree<H> {
     // Creates a new empty tree for the indicated partition. Returns the root
     // hash along with the storage delta required to create the tree.
     //
@@ -45,8 +45,8 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     //      Use the latest_proof result to call insert to put the updated value in the tree.
     //      Apply the store delta returned from insert to storage. Keep track of what
     //      the new root hash is.
-    pub fn new_tree(hasher: &H, key_range: &OwnedRange) -> (HO, StoreDelta<HO>) {
-        let (hash, root) = InteriorNode::new(hasher, key_range, true, None, None);
+    pub fn new_tree(key_range: &OwnedRange) -> (H::Output, StoreDelta<H::Output>) {
+        let (hash, root) = InteriorNode::new::<H>(key_range, true, None, None);
         let mut delta = DeltaBuilder::new();
         delta.add(NodeKey::new(KeyVec::new(), hash), Node::Interior(root));
         (hash, delta.build())
@@ -54,9 +54,8 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
     // Create a new Tree instance for a previously constructed tree given the root hash
     // of the tree's content.
-    pub fn with_existing_root(hasher: H, root: HO, overlay_size: u16) -> Self {
+    pub fn with_existing_root(root: H::Output, overlay_size: u16) -> Self {
         Tree {
-            hasher,
             overlay: TreeOverlay::new(root, overlay_size),
         }
     }
@@ -64,8 +63,11 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     // Return a verified proof that was updated to the latest tree from the overlay.
     // This allows access to the current value, as well as being able to call insert later
     // to update the value in the tree.
-    pub fn latest_proof(&self, rp: ReadProof<HO>) -> Result<VerifiedProof<HO>, ProofError> {
-        rp.verify(&self.hasher, &self.overlay)
+    pub fn latest_proof(
+        &self,
+        rp: ReadProof<H::Output>,
+    ) -> Result<VerifiedProof<H::Output>, ProofError> {
+        rp.verify::<H>(&self.overlay)
     }
 }
 
@@ -74,105 +76,92 @@ pub struct InteriorNode<HO> {
     left: Option<Branch<HO>>,
     right: Option<Branch<HO>>,
 }
+
 impl<HO: HashOutput> InteriorNode<HO> {
-    fn new<H: NodeHasher<HO>>(
-        h: &H,
+    fn new<H: NodeHasher<Output = HO>>(
         key_range: &OwnedRange,
         is_root: bool,
-        left: Option<Branch<HO>>,
-        right: Option<Branch<HO>>,
-    ) -> (HO, InteriorNode<HO>) {
+        left: Option<Branch<H::Output>>,
+        right: Option<Branch<H::Output>>,
+    ) -> (H::Output, InteriorNode<H::Output>) {
         Branch::assert_dir(&left, Dir::Left);
         Branch::assert_dir(&right, Dir::Right);
-        let hash = Self::calc_hash(h, key_range, is_root, &left, &right);
+        let hash = Self::calc_hash::<H>(key_range, is_root, &left, &right);
         (hash, InteriorNode { left, right })
     }
     // construct returns a new InteriorNode with the supplied children. It will determine
     // which should be left and right. If you know which should be left & right use new instead.
     // TODO: get rid of new and always use this?
-    fn construct<H: NodeHasher<HO>>(
-        h: &H,
+    fn construct<H: NodeHasher<Output = HO>>(
         key_range: &OwnedRange,
         is_root: bool,
-        a: Option<Branch<HO>>,
-        b: Option<Branch<HO>>,
-    ) -> (HO, InteriorNode<HO>) {
+        a: Option<Branch<H::Output>>,
+        b: Option<Branch<H::Output>>,
+    ) -> (HO, InteriorNode<H::Output>) {
         match (&a, &b) {
-            (None, None) => Self::new(h, key_range, is_root, None, None),
+            (None, None) => Self::new::<H>(key_range, is_root, None, None),
             (Some(x), _) => {
                 let (l, r) = if x.dir() == Dir::Left { (a, b) } else { (b, a) };
-                Self::new(h, key_range, is_root, l, r)
+                Self::new::<H>(key_range, is_root, l, r)
             }
             (_, Some(x)) => {
                 let (l, r) = if x.dir() == Dir::Left { (b, a) } else { (a, b) };
-                Self::new(h, key_range, is_root, l, r)
+                Self::new::<H>(key_range, is_root, l, r)
             }
         }
     }
-    fn calc_hash<H: NodeHasher<HO>>(
-        h: &H,
+    fn calc_hash<H: NodeHasher<Output = HO>>(
         key_range: &OwnedRange,
         is_root: bool,
-        left: &Option<Branch<HO>>,
-        right: &Option<Branch<HO>>,
-    ) -> HO {
-        let mut parts: [&[u8]; 8] = Default::default();
-
-        if is_root {
-            parts[0] = &key_range.start.0;
-            parts[1] = &key_range.end.0;
-        }
-        let left_prefix_len = left.as_ref().map(|b| b.prefix.len().to_be_bytes());
-        if let Some(b) = left {
-            parts[2] = left_prefix_len.as_ref().unwrap();
-            parts[3] = b.prefix.as_bytes();
-            parts[4] = b.hash.as_u8();
-        }
-        let right_prefix_len = right.as_ref().map(|b| b.prefix.len().to_be_bytes());
-        if let Some(b) = right {
-            parts[5] = right_prefix_len.as_ref().unwrap();
-            parts[6] = b.prefix.as_bytes();
-            parts[7] = b.hash.as_u8();
-        }
-        h.calc_hash(&parts)
+        left: &Option<Branch<H::Output>>,
+        right: &Option<Branch<H::Output>>,
+    ) -> H::Output {
+        let b = if is_root {
+            NodeHashBuilder::<H>::Root(key_range, left, right)
+        } else {
+            NodeHashBuilder::<H>::Interior(left.as_ref().unwrap(), right.as_ref().unwrap())
+        };
+        b.build()
     }
+
     pub fn branch(&self, dir: Dir) -> &Option<Branch<HO>> {
         match dir {
             Dir::Left => &self.left,
             Dir::Right => &self.right,
         }
     }
-    fn root_with_new_partition<H: NodeHasher<HO>>(
+    fn root_with_new_partition<H: NodeHasher<Output = HO>>(
         &self,
-        h: &H,
         key_range: &OwnedRange,
-    ) -> (HO, InteriorNode<HO>) {
-        InteriorNode::new(h, key_range, true, self.left.clone(), self.right.clone())
+    ) -> (H::Output, InteriorNode<H::Output>) {
+        InteriorNode::new::<H>(key_range, true, self.left.clone(), self.right.clone())
     }
-    fn with_new_child<H: NodeHasher<HO>>(
+    fn with_new_child<H: NodeHasher<Output = HO>>(
         &self,
-        h: &H,
         key_range: &OwnedRange,
         is_root: bool,
         dir: Dir,
-        child: Branch<HO>,
-    ) -> (HO, InteriorNode<HO>) {
+        child: Branch<H::Output>,
+    ) -> (H::Output, InteriorNode<H::Output>) {
         match dir {
-            Dir::Left => InteriorNode::new(h, key_range, is_root, Some(child), self.right.clone()),
-            Dir::Right => InteriorNode::new(h, key_range, is_root, self.left.clone(), Some(child)),
+            Dir::Left => {
+                InteriorNode::new::<H>(key_range, is_root, Some(child), self.right.clone())
+            }
+            Dir::Right => {
+                InteriorNode::new::<H>(key_range, is_root, self.left.clone(), Some(child))
+            }
         }
     }
-    fn with_new_child_hash<H: NodeHasher<HO>>(
+    fn with_new_child_hash<H: NodeHasher<Output = HO>>(
         &self,
-        h: &H,
         key_range: &OwnedRange,
         is_root: bool,
         dir: Dir,
-        hash: HO,
-    ) -> (HO, InteriorNode<HO>) {
+        hash: H::Output,
+    ) -> (H::Output, InteriorNode<H::Output>) {
         let b = self.branch(dir).as_ref().unwrap();
         let nb = Branch::new(b.prefix.clone(), hash);
-        self.with_new_child(h, key_range, is_root, dir, nb)
+        self.with_new_child::<H>(key_range, is_root, dir, nb)
     }
 }
 
@@ -189,12 +178,12 @@ impl Debug for LeafNode {
 }
 
 impl LeafNode {
-    fn new<HO, H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: Vec<u8>) -> (HO, LeafNode) {
-        let h = Self::calc_hash(hasher, k, &v);
+    fn new<H: NodeHasher>(k: &RecordId, v: Vec<u8>) -> (H::Output, LeafNode) {
+        let h = Self::calc_hash::<H>(k, &v);
         (h, LeafNode { value: v })
     }
-    fn calc_hash<HO, H: NodeHasher<HO>>(hasher: &H, k: &RecordId, v: &[u8]) -> HO {
-        hasher.calc_hash(&[&k.0, v])
+    fn calc_hash<H: NodeHasher>(k: &RecordId, v: &[u8]) -> H::Output {
+        NodeHashBuilder::<H>::Leaf(k, v).build()
     }
 }
 
@@ -285,13 +274,74 @@ pub enum MergeError {
     NotAdjacentRanges,
 }
 
+pub trait NodeHasher: Default {
+    type Output: HashOutput;
+
+    fn update(&mut self, d: &[u8]);
+    fn finalize(self) -> Self::Output;
+}
+
 pub trait HashOutput: Hash + Copy + Eq + Debug + Sync + Send {
+    fn zero() -> Self;
     fn from_slice(bytes: &[u8]) -> Option<Self>;
     fn as_u8(&self) -> &[u8];
 }
 
-pub trait NodeHasher<HO>: Sync {
-    fn calc_hash(&self, parts: &[&[u8]]) -> HO;
+pub enum NodeHashBuilder<'a, H: NodeHasher> {
+    Leaf(&'a RecordId, &'a [u8]),
+    Interior(&'a Branch<H::Output>, &'a Branch<H::Output>),
+    Root(
+        &'a OwnedRange,
+        &'a Option<Branch<H::Output>>,
+        &'a Option<Branch<H::Output>>,
+    ),
+}
+
+impl<'a, H: NodeHasher> NodeHashBuilder<'a, H> {
+    pub fn build(&self) -> H::Output {
+        match self {
+            NodeHashBuilder::Leaf(key, val) => {
+                let mut h = H::default();
+                h.update(b"leaf");
+                h.update(&key.0);
+                h.update(val);
+                h.finalize()
+            }
+            NodeHashBuilder::Interior(left, right) => {
+                let mut h = H::default();
+                h.update(b"interior");
+                h.update(&[Self::branch_len(left)]);
+                h.update(&[Self::branch_len(right)]);
+                Self::branch(&mut h, left);
+                Self::branch(&mut h, right);
+                h.finalize()
+            }
+            NodeHashBuilder::Root(partition, left_maybe, right_maybe) => {
+                let mut h = H::default();
+                h.update(b"root");
+                h.update(&partition.start.0);
+                h.update(&partition.end.0);
+                let zero = Branch::new(KeyVec::new(), H::Output::zero());
+                let left = left_maybe.as_ref().unwrap_or(&zero);
+                let right = right_maybe.as_ref().unwrap_or(&zero);
+                h.update(&[Self::branch_len(left)]);
+                h.update(&[Self::branch_len(right)]);
+                Self::branch(&mut h, left);
+                Self::branch(&mut h, right);
+                h.finalize()
+            }
+        }
+    }
+    fn branch_len(b: &Branch<H::Output>) -> u8 {
+        // 2 for prefix_len
+        u8::try_from(2 + b.prefix.as_bytes().len() + b.hash.as_u8().len()).unwrap()
+    }
+    fn branch(h: &mut H, b: &Branch<H::Output>) {
+        let prefix_len = u16::try_from(b.prefix.len()).unwrap();
+        h.update(&prefix_len.to_be_bytes());
+        h.update(b.prefix.as_bytes());
+        h.update(b.hash.as_u8());
+    }
 }
 
 #[cfg(test)]
@@ -386,29 +436,28 @@ mod tests {
     #[tokio::test]
     async fn get_nothing() {
         let range = OwnedRange::full();
-        let (tree, root, store) = new_empty_tree(&range).await;
+        let (_tree, root, store) = new_empty_tree(&range).await;
         let p = read(&TEST_REALM, &store, &range, &root, &rec_id(&[1, 2, 3]))
             .await
             .unwrap();
         assert_eq!(1, p.path.len());
         assert!(p.leaf.is_none());
-        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root, &store).await;
+        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, root, &store).await;
     }
 
     #[test]
     fn test_empty_root_prefix_hash() {
-        let h = TestHasher;
-        let (root_hash, _) = InteriorNode::new(&h, &OwnedRange::full(), true, None, None);
+        let (root_hash, _) = InteriorNode::new::<TestHasher>(&OwnedRange::full(), true, None, None);
         let p0 = OwnedRange {
             start: rec_id(&[1]),
             end: rec_id(&[2]),
         };
-        let (hash_p0, _) = InteriorNode::new(&h, &p0, true, None, None);
+        let (hash_p0, _) = InteriorNode::new::<TestHasher>(&p0, true, None, None);
         let p1 = OwnedRange {
             start: p0.start,
             end: p0.end.next().unwrap(),
         };
-        let (hash_p1, _) = InteriorNode::new(&h, &p1, true, None, None);
+        let (hash_p1, _) = InteriorNode::new::<TestHasher>(&p1, true, None, None);
         assert_ne!(root_hash, hash_p0);
         assert_ne!(root_hash, hash_p1);
         assert_ne!(hash_p0, hash_p1);
@@ -417,11 +466,9 @@ mod tests {
     #[test]
     fn test_branch_prefix_hash() {
         let p = OwnedRange::full();
-        let h = TestHasher {};
         let k1 = bitvec![0, 0, 1, 1, 0, 0, 0, 0];
         let k2 = bitvec![1, 1, 0, 1, 0, 0, 0, 0];
-        let a = InteriorNode::new(
-            &h,
+        let a = InteriorNode::new::<TestHasher>(
             &p,
             false,
             Some(Branch::new(
@@ -433,8 +480,7 @@ mod tests {
                 TestHash([8, 7, 6, 5, 4, 3, 2, 1]),
             )),
         );
-        let b = InteriorNode::new(
-            &h,
+        let b = InteriorNode::new::<TestHasher>(
             &p,
             false,
             Some(Branch::new(
@@ -451,12 +497,11 @@ mod tests {
 
     #[test]
     fn test_leaf_hash() {
-        let h = TestHasher {};
         let v = vec![1, 2, 3, 4, 5, 6, 8, 9];
         let k1 = rec_id(&[1, 2]);
         let k2 = rec_id(&[1, 4]);
-        let ha = LeafNode::calc_hash(&h, &k1, &v);
-        let hb = LeafNode::calc_hash(&h, &k2, &v);
+        let ha = LeafNode::calc_hash::<TestHasher>(&k1, &v);
+        let hb = LeafNode::calc_hash::<TestHasher>(&k2, &v);
         assert_ne!(ha, hb);
     }
 

@@ -6,10 +6,10 @@ use super::{
     super::bitvec::Bits,
     agent::{DeltaBuilder, Node, NodeKey, StoreDelta},
     proof::{ProofError, VerifiedProof},
-    Branch, HashOutput, InteriorNode, LeafNode, NodeHasher, Tree,
+    Branch, InteriorNode, LeafNode, NodeHasher, Tree,
 };
 
-impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
+impl<H: NodeHasher> Tree<H> {
     // Insert a new value for the leaf described by the read proof. Returns the
     // new root hash and a set of changes that need making to the tree storage.
     // In the event the insert results in no changes (i.e. the insert is
@@ -17,9 +17,9 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     // no delta is returned.
     pub fn insert(
         &mut self,
-        mut proof: VerifiedProof<HO>,
+        mut proof: VerifiedProof<H::Output>,
         v: Vec<u8>,
-    ) -> Result<(HO, StoreDelta<HO>), ProofError> {
+    ) -> Result<(H::Output, StoreDelta<H::Output>), ProofError> {
         //
         if proof.root_hash() != &self.overlay.latest_root {
             return Err(ProofError::Stale);
@@ -38,7 +38,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 .hash;
             delta.remove(NodeKey::new(proof.key.to_bitvec(), leaf_hash));
         }
-        let (leaf_hash, leaf) = LeafNode::new(&self.hasher, &proof.key, v);
+        let (leaf_hash, leaf) = LeafNode::new::<H>(&proof.key, v);
         delta.add(
             NodeKey::new(proof.key.to_bitvec(), leaf_hash),
             Node::Leaf(leaf),
@@ -55,7 +55,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 let b = Branch::new(key.slice(last.prefix.len()..).into(), leaf_hash);
                 let (hash, updated_n) =
                     last.node
-                        .with_new_child(&self.hasher, &proof.range, true, last.next_dir, b);
+                        .with_new_child::<H>(&proof.range, true, last.next_dir, b);
                 delta.add(
                     NodeKey::new(last.prefix.clone(), hash),
                     Node::Interior(updated_n),
@@ -66,8 +66,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             Some(b) => {
                 if key.slice(last.prefix.len()..) == b.prefix {
                     // this points to the existing leaf, just need to update it.
-                    let (new_hash, updated_n) = last.node.with_new_child_hash(
-                        &self.hasher,
+                    let (new_hash, updated_n) = last.node.with_new_child_hash::<H>(
                         &proof.range,
                         last.prefix.is_empty(),
                         last.next_dir,
@@ -84,8 +83,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     let key_tail = key.slice(last.prefix.len()..);
                     let comm = key_tail.common_prefix(&b.prefix);
                     assert!(!comm.is_empty());
-                    let (child_hash, new_child) = InteriorNode::construct(
-                        &self.hasher,
+                    let (child_hash, new_child) = InteriorNode::construct::<H>(
                         &proof.range,
                         false,
                         Some(Branch::new(
@@ -94,8 +92,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                         )),
                         Some(Branch::new(b.prefix.slice(comm.len()..).into(), b.hash)),
                     );
-                    let (new_hash, updated_n) = last.node.with_new_child(
-                        &self.hasher,
+                    let (new_hash, updated_n) = last.node.with_new_child::<H>(
                         &proof.range,
                         last.prefix.is_empty(),
                         last.next_dir,
@@ -120,8 +117,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
         // now roll the hash back up the path.
         let mut updated_n;
         for parent in proof.path.into_iter().rev() {
-            (child_hash, updated_n) = parent.node.with_new_child_hash(
-                &self.hasher,
+            (child_hash, updated_n) = parent.node.with_new_child_hash::<H>(
                 &proof.range,
                 parent.prefix.is_empty(),
                 parent.next_dir,
@@ -147,7 +143,9 @@ mod tests {
 
     use super::super::super::hsm::types::OwnedRange;
     use super::super::agent::Node;
-    use super::super::testing::{check_tree_invariants, new_empty_tree, read, rec_id, tree_insert};
+    use super::super::testing::{
+        check_tree_invariants, new_empty_tree, read, rec_id, tree_insert, TestHasher,
+    };
     use super::super::tests::{tree_size, TEST_REALM};
     use super::super::{KeyVec, NodeKey};
 
@@ -173,7 +171,7 @@ mod tests {
         assert_eq!(leaf_key.prefix, rec_id(&[1, 2, 3]).to_bitvec());
         assert!(d.remove.contains(&NodeKey::new(KeyVec::new(), root)));
         store.apply_store_delta(new_root, d);
-        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, new_root, &store).await;
+        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, new_root, &store).await;
 
         let p = read(&TEST_REALM, &store, &range, &new_root, &rec_id(&[1, 2, 3]))
             .await
@@ -227,7 +225,7 @@ mod tests {
         assert_eq!([42].to_vec(), p.leaf.unwrap().value);
         assert_eq!(3, p.path.len());
         assert_eq!(root, p.root_hash);
-        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root, &store).await;
+        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, root, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root, &store).await.unwrap(),
             store.len()
@@ -280,7 +278,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
-        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root, &store).await;
+        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, root, &store).await;
 
         // writing the same value again shouldn't do anything dumb, like cause the leaf to be deleted.
         root = tree_insert(
@@ -298,7 +296,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
-        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root, &store).await;
+        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, root, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root, &store).await.unwrap(),
             store.len()
@@ -345,7 +343,7 @@ mod tests {
             //     dot::tree_to_dot(root, &store, "many.dot").unwrap();
             // }
         }
-        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root, &store).await;
+        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, root, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root, &store).await.unwrap(),
             store.len()
@@ -389,21 +387,21 @@ mod tests {
             .insert(tree.latest_proof(rp_3).unwrap(), [13].to_vec())
             .unwrap();
         store.apply_store_delta(root1, d1);
-        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root1, &store).await;
+        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, root1, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root1, &store).await.unwrap(),
             store.len()
         );
 
         store.apply_store_delta(root2, d2);
-        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root2, &store).await;
+        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, root2, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root2, &store).await.unwrap(),
             store.len()
         );
 
         store.apply_store_delta(root3, d3);
-        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root3, &store).await;
+        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, root3, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root3, &store).await.unwrap(),
             store.len()

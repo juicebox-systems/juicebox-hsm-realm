@@ -5,16 +5,19 @@ use super::{
     super::bitvec::Bits,
     agent::{DeltaBuilder, Node, NodeKey},
     proof::{ProofError, ReadProof},
-    Branch, Dir, HashOutput, InteriorNode, KeyVec, NodeHasher, SplitResult, SplitRoot, Tree,
+    Branch, Dir, InteriorNode, KeyVec, NodeHasher, SplitResult, SplitRoot, Tree,
 };
 
-impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
+impl<H: NodeHasher> Tree<H> {
     // Splits the current tree into two at the key in the proof. This key
     // becomes the first key in the new right side.
-    pub fn range_split(self, proof: ReadProof<HO>) -> Result<SplitResult<HO>, ProofError> {
+    pub fn range_split(
+        self,
+        proof: ReadProof<H::Output>,
+    ) -> Result<SplitResult<H::Output>, ProofError> {
         assert!(proof.key > RecordId::min_id());
 
-        let proof = proof.verify(&self.hasher, &self.overlay)?;
+        let proof = proof.verify::<H>(&self.overlay)?;
 
         // Find the split node. We start at the bottom of the path. If the key is greater than the
         // left branch and smaller or equal to the right branch then this is the split node. If its
@@ -73,12 +76,12 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 let root = &proof.path[0].node;
                 let ((left_hash, left_node), (right_hash, right_node)) = match side {
                     Dir::Left => (
-                        InteriorNode::new(&self.hasher, &left_range, true, None, None),
-                        root.root_with_new_partition(&self.hasher, &right_range),
+                        InteriorNode::new::<H>(&left_range, true, None, None),
+                        root.root_with_new_partition::<H>(&right_range),
                     ),
                     Dir::Right => (
-                        root.root_with_new_partition(&self.hasher, &left_range),
-                        InteriorNode::new(&self.hasher, &right_range, true, None, None),
+                        root.root_with_new_partition::<H>(&left_range),
+                        InteriorNode::new::<H>(&right_range, true, None, None),
                     ),
                 };
                 let left = SplitRoot {
@@ -109,9 +112,9 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                 info!("starting split at root node");
                 let root = &proof.path[0].node;
                 let (left_hash, left_node) =
-                    InteriorNode::new(&self.hasher, &left_range, true, root.left.clone(), None);
+                    InteriorNode::new::<H>(&left_range, true, root.left.clone(), None);
                 let (right_hash, right_node) =
-                    InteriorNode::new(&self.hasher, &right_range, true, None, root.right.clone());
+                    InteriorNode::new::<H>(&right_range, true, None, root.right.clone());
                 let left = SplitRoot {
                     root_hash: left_hash,
                     range: left_range,
@@ -161,8 +164,7 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                             Dir::Left => (right, &right_range, left),
                             Dir::Right => (left, &left_range, right),
                         };
-                        let (new_hash, new_node) = parent.with_new_child(
-                            &self.hasher,
+                        let (new_hash, new_node) = parent.with_new_child::<H>(
                             new_node_range,
                             path_idx == 0,
                             parent_d,
@@ -191,21 +193,15 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
                     ));
                 }
                 let left_root = if !left.prefix.is_empty() {
-                    let (h, n) =
-                        InteriorNode::construct(&self.hasher, &left_range, true, None, Some(left));
+                    let (h, n) = InteriorNode::construct::<H>(&left_range, true, None, Some(left));
                     delta.add(NodeKey::new(KeyVec::new(), h), Node::Interior(n));
                     h
                 } else {
                     left.hash
                 };
                 let right_root = if !right.prefix.is_empty() {
-                    let (h, n) = InteriorNode::construct(
-                        &self.hasher,
-                        &right_range,
-                        true,
-                        None,
-                        Some(right),
-                    );
+                    let (h, n) =
+                        InteriorNode::construct::<H>(&right_range, true, None, Some(right));
                     delta.add(NodeKey::new(KeyVec::new(), h), Node::Interior(n));
                     h
                 } else {
@@ -232,7 +228,7 @@ mod tests {
     use crate::merkle::dot::tree_to_dot;
     use crate::merkle::testing::{
         check_delta_invariants, check_tree_invariants, new_empty_tree, read, read_tree_side,
-        rec_id, tree_insert, TestHasher,
+        rec_id, tree_insert, TestHash, TestHasher,
     };
 
     use super::super::super::hsm::types::{OwnedRange, RecordId};
@@ -347,7 +343,7 @@ mod tests {
             )
             .await;
         }
-        check_tree_invariants(&tree.hasher, &range, &TEST_REALM, root, &store).await;
+        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, root, &store).await;
         assert_eq!(
             tree_size(KeyVec::new(), root, &store).await.unwrap(),
             store.len()
@@ -359,24 +355,12 @@ mod tests {
             .await
             .unwrap();
         let s = tree.range_split(proof).unwrap();
-        check_delta_invariants(s.right.root_hash, &s.delta);
+        check_delta_invariants::<TestHash>(s.right.root_hash, &s.delta);
         store.apply_store_delta(s.left.root_hash, s.delta);
-        check_tree_invariants(
-            &TestHasher,
-            &s.left.range,
-            &TEST_REALM,
-            s.left.root_hash,
-            &store,
-        )
-        .await;
-        check_tree_invariants(
-            &TestHasher,
-            &s.right.range,
-            &TEST_REALM,
-            s.right.root_hash,
-            &store,
-        )
-        .await;
+        check_tree_invariants::<TestHasher>(&s.left.range, &TEST_REALM, s.left.root_hash, &store)
+            .await;
+        check_tree_invariants::<TestHasher>(&s.right.range, &TEST_REALM, s.right.root_hash, &store)
+            .await;
         assert_eq!(
             tree_size(KeyVec::new(), s.left.root_hash, &store)
                 .await
@@ -416,15 +400,8 @@ mod tests {
                 .await;
             }
         }
-        check_tree_invariants(&TestHasher {}, &s.left.range, &TEST_REALM, root_l, &store_l).await;
-        check_tree_invariants(
-            &TestHasher {},
-            &s.right.range,
-            &TEST_REALM,
-            root_r,
-            &store_r,
-        )
-        .await;
+        check_tree_invariants::<TestHasher>(&s.left.range, &TEST_REALM, root_l, &store_l).await;
+        check_tree_invariants::<TestHasher>(&s.right.range, &TEST_REALM, root_r, &store_r).await;
 
         if root_l != s.left.root_hash {
             tree_to_dot(&TEST_REALM, &store_l, root_l, "expected_left.dot")
@@ -484,14 +461,8 @@ mod tests {
                 "tree after split then merge should be the same as before the initial split"
             );
         }
-        check_tree_invariants(
-            &tree_r.hasher,
-            &merged.range,
-            &TEST_REALM,
-            merged.root_hash,
-            &store_l,
-        )
-        .await;
+        check_tree_invariants::<TestHasher>(&merged.range, &TEST_REALM, merged.root_hash, &store_l)
+            .await;
         assert_eq!(
             tree_size(KeyVec::new(), merged.root_hash, &store_l)
                 .await

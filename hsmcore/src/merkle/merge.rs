@@ -11,7 +11,7 @@ use super::{
     Branch, HashOutput, InteriorNode, KeyVec, MergeError, MergeResult, NodeHasher, Tree,
 };
 
-impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
+impl<H: NodeHasher> Tree<H> {
     // Merge an adjacent tree into this tree. Requires a read proof from both
     // trees. The tree to the left (in key order) should provide a right leaning
     // proof. The tree to the right should provide a left leaning proof. Note:
@@ -19,15 +19,15 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
     // latest hash for that tree, it can't be validated here.
     pub fn merge(
         self,
-        my_proof: ReadProof<HO>,
-        other_proof: ReadProof<HO>,
-    ) -> Result<MergeResult<HO>, MergeError> {
+        my_proof: ReadProof<H::Output>,
+        other_proof: ReadProof<H::Output>,
+    ) -> Result<MergeResult<H::Output>, MergeError> {
         //
         let mine = my_proof
-            .verify(&self.hasher, &self.overlay)
+            .verify::<H>(&self.overlay)
             .map_err(MergeError::Proof)?;
         let other = other_proof
-            .verify_foreign_proof(&self.hasher)
+            .verify_foreign_proof::<H>()
             .map_err(MergeError::Proof)?;
 
         let new_range = match mine.range.join(&other.range) {
@@ -83,14 +83,13 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
         // Will recursively split branches into 0/1 groups and create join's once they're down to 2 branches.
         // Assumes branches is sorted by prefix low to high.
-        fn reduce_to_tree<HO: HashOutput>(
-            h: &impl NodeHasher<HO>,
+        fn reduce_to_tree<H: NodeHasher>(
             partition: &OwnedRange,
             bit_pos_start: usize,
             bit_pos: usize,
-            branches: &[Branch<HO>],
-            delta: &mut DeltaBuilder<HO>,
-        ) -> Branch<HO> {
+            branches: &[Branch<H::Output>],
+            delta: &mut DeltaBuilder<H::Output>,
+        ) -> Branch<H::Output> {
             assert!(!branches.is_empty());
             if branches.len() == 1 {
                 let b = &branches[0];
@@ -98,18 +97,27 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
             }
             match branches.iter().position(|b| b.prefix[bit_pos]) {
                 // everything is 0
-                None => reduce_to_tree(h, partition, bit_pos_start, bit_pos + 1, branches, delta),
+                None => reduce_to_tree::<H>(partition, bit_pos_start, bit_pos + 1, branches, delta),
                 // everything is 1
                 Some(0) => {
-                    reduce_to_tree(h, partition, bit_pos_start, bit_pos + 1, branches, delta)
+                    reduce_to_tree::<H>(partition, bit_pos_start, bit_pos + 1, branches, delta)
                 }
                 Some(idx) => {
-                    let left =
-                        reduce_to_tree(h, partition, bit_pos, bit_pos + 1, &branches[..idx], delta);
-                    let right =
-                        reduce_to_tree(h, partition, bit_pos, bit_pos + 1, &branches[idx..], delta);
-                    let (hash, n) = InteriorNode::construct(
-                        h,
+                    let left = reduce_to_tree::<H>(
+                        partition,
+                        bit_pos,
+                        bit_pos + 1,
+                        &branches[..idx],
+                        delta,
+                    );
+                    let right = reduce_to_tree::<H>(
+                        partition,
+                        bit_pos,
+                        bit_pos + 1,
+                        &branches[idx..],
+                        delta,
+                    );
+                    let (hash, n) = InteriorNode::construct::<H>(
                         partition,
                         bit_pos == 0,
                         Some(left),
@@ -129,16 +137,15 @@ impl<H: NodeHasher<HO>, HO: HashOutput> Tree<H, HO> {
 
         // Handle edge case where we're merging two empty trees, branches will be empty.
         let root_hash = if branches.is_empty() {
-            let (hash, root) = InteriorNode::new(&self.hasher, &new_range, true, None, None);
+            let (hash, root) = InteriorNode::new::<H>(&new_range, true, None, None);
             delta.add(NodeKey::new(KeyVec::new(), hash), Node::Interior(root));
             hash
         } else {
-            let res = reduce_to_tree(&self.hasher, &new_range, 0, 0, &branches, &mut delta);
+            let res = reduce_to_tree::<H>(&new_range, 0, 0, &branches, &mut delta);
             if res.prefix.is_empty() {
                 res.hash
             } else {
-                let (hash, n) =
-                    InteriorNode::construct(&self.hasher, &new_range, true, Some(res), None);
+                let (hash, n) = InteriorNode::construct::<H>(&new_range, true, Some(res), None);
                 delta.add(NodeKey::new(KeyVec::new(), hash), Node::Interior(n));
                 hash
             }

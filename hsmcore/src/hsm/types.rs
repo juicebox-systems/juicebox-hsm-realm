@@ -333,6 +333,9 @@ impl fmt::Debug for DataHash {
     }
 }
 impl HashOutput for DataHash {
+    fn zero() -> DataHash {
+        DataHash([0; 32])
+    }
     fn from_slice(bytes: &[u8]) -> Option<DataHash> {
         let mut out = DataHash(Default::default());
         if bytes.len() == out.0.len() {

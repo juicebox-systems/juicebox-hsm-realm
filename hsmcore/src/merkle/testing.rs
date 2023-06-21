@@ -7,6 +7,7 @@ use core::{fmt::Debug, hash::Hasher};
 use hashbrown::HashMap;
 use juicebox_sdk_core::types::RealmId;
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 
 use super::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
 use super::dot::TreeStoreReader;
@@ -26,21 +27,20 @@ pub fn rec_id(bytes: &[u8]) -> RecordId {
 
 pub async fn new_empty_tree(
     range: &OwnedRange,
-) -> (Tree<TestHasher, TestHash>, TestHash, MemStore<TestHash>) {
-    let h = TestHasher {};
-    let (root_hash, delta) = Tree::new_tree(&h, range);
+) -> (Tree<TestHasher>, TestHash, MemStore<TestHash>) {
+    let (root_hash, delta) = Tree::<TestHasher>::new_tree(range);
     let mut store = MemStore::new();
     store.apply_store_delta(root_hash, delta);
     assert_eq!(1, store.nodes.len());
-    check_tree_invariants(&h, range, &RealmId([0; 16]), root_hash, &store).await;
-    let t = Tree::with_existing_root(h, root_hash, 15);
+    check_tree_invariants::<TestHasher>(range, &RealmId([0; 16]), root_hash, &store).await;
+    let t = Tree::with_existing_root(root_hash, 15);
     (t, root_hash, store)
 }
 
 // helper to insert a value into the tree and update the store
 #[allow(clippy::too_many_arguments)]
 pub async fn tree_insert(
-    tree: &mut Tree<TestHasher, TestHash>,
+    tree: &mut Tree<TestHasher>,
     store: &mut MemStore<TestHash>,
     range: &OwnedRange,
     realm: &RealmId,
@@ -57,7 +57,7 @@ pub async fn tree_insert(
     store.apply_store_delta(new_root, d);
 
     if !skip_tree_check {
-        check_tree_invariants(&tree.hasher, range, realm, new_root, store).await;
+        check_tree_invariants::<TestHasher>(range, realm, new_root, store).await;
     }
     new_root
 }
@@ -67,34 +67,32 @@ pub async fn tree_insert(
 //      2. the left branch prefix always starts with a 0
 //      3. the right branch prefix always starts with a 1
 //      5. the leaf -> root hashes are verified.
-pub async fn check_tree_invariants<HO: HashOutput>(
-    hasher: &impl NodeHasher<HO>,
+pub async fn check_tree_invariants<H: NodeHasher>(
     range: &OwnedRange,
     realm: &RealmId,
-    root: HO,
-    store: &impl TreeStoreReader<HO>,
+    root: H::Output,
+    store: &impl TreeStoreReader<H::Output>,
 ) {
     let root_hash =
-        check_tree_node_invariants(hasher, range, realm, true, root, KeyVec::new(), store).await;
+        check_tree_node_invariants::<H>(range, realm, true, root, KeyVec::new(), store).await;
     assert_eq!(root_hash, root);
 }
 
 #[async_recursion]
-async fn check_tree_node_invariants<HO: HashOutput>(
-    hasher: &impl NodeHasher<HO>,
+async fn check_tree_node_invariants<H: NodeHasher>(
     range: &OwnedRange,
     realm: &RealmId,
     is_at_root: bool,
-    node: HO,
+    node: H::Output,
     path: KeyVec,
-    store: &impl TreeStoreReader<HO>,
-) -> HO {
+    store: &impl TreeStoreReader<H::Output>,
+) -> H::Output {
     match store
         .read_node(realm, StoreKey::new(&path, &node))
         .await
         .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
     {
-        Node::Leaf(l) => LeafNode::calc_hash(hasher, &RecordId::from_bitvec(&path), &l.value),
+        Node::Leaf(l) => LeafNode::calc_hash::<H>(&RecordId::from_bitvec(&path), &l.value),
         Node::Interior(int) => {
             match &int.left {
                 None => assert!(is_at_root),
@@ -102,8 +100,8 @@ async fn check_tree_node_invariants<HO: HashOutput>(
                     assert!(!b.prefix.is_empty());
                     assert!(!b.prefix[0]);
                     let new_path = path.concat(&b.prefix);
-                    let exp_child_hash = check_tree_node_invariants(
-                        hasher, range, realm, false, b.hash, new_path, store,
+                    let exp_child_hash = check_tree_node_invariants::<H>(
+                        range, realm, false, b.hash, new_path, store,
                     )
                     .await;
                     assert_eq!(exp_child_hash, b.hash);
@@ -115,15 +113,14 @@ async fn check_tree_node_invariants<HO: HashOutput>(
                     assert!(!b.prefix.is_empty());
                     assert!(b.prefix[0]);
                     let new_path = path.concat(&b.prefix);
-                    let exp_child_hash = check_tree_node_invariants(
-                        hasher, range, realm, false, b.hash, new_path, store,
+                    let exp_child_hash = check_tree_node_invariants::<H>(
+                        range, realm, false, b.hash, new_path, store,
                     )
                     .await;
                     assert_eq!(exp_child_hash, b.hash);
                 }
             }
-            let exp_hash =
-                InteriorNode::calc_hash(hasher, range, is_at_root, &int.left, &int.right);
+            let exp_hash = InteriorNode::calc_hash::<H>(range, is_at_root, &int.left, &int.right);
             assert_eq!(exp_hash, node);
             exp_hash
         }
@@ -174,16 +171,18 @@ pub fn check_delta_invariants<HO: HashOutput>(root: HO, delta: &StoreDelta<HO>) 
     verify_prefixes(&add_by_hash, KeyVec::new(), &root);
 }
 
-pub struct TestHasher;
+#[derive(Default)]
+pub struct TestHasher(DefaultHasher);
 
-impl NodeHasher<TestHash> for TestHasher {
-    fn calc_hash(&self, parts: &[&[u8]]) -> TestHash {
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        for p in parts {
-            h.write(&[b'|']); //delim all the parts
-            h.write(p);
-        }
-        TestHash(h.finish().to_le_bytes())
+impl NodeHasher for TestHasher {
+    type Output = TestHash;
+
+    fn update(&mut self, d: &[u8]) {
+        self.0.write(d);
+    }
+
+    fn finalize(self) -> TestHash {
+        TestHash(self.0.finish().to_le_bytes())
     }
 }
 
@@ -191,6 +190,9 @@ impl NodeHasher<TestHash> for TestHasher {
 pub struct TestHash(#[serde(with = "bytes")] pub [u8; 8]);
 
 impl HashOutput for TestHash {
+    fn zero() -> TestHash {
+        TestHash([0; 8])
+    }
     fn from_slice(bytes: &[u8]) -> Option<TestHash> {
         if bytes.len() == 8 {
             let mut h = TestHash([0u8; 8]);
