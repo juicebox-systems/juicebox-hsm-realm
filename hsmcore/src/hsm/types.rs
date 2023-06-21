@@ -345,7 +345,7 @@ impl HashOutput for DataHash {
             None
         }
     }
-    fn as_u8(&self) -> &[u8] {
+    fn as_slice(&self) -> &[u8] {
         &self.0
     }
 }

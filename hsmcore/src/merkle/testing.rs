@@ -202,14 +202,14 @@ impl HashOutput for TestHash {
             None
         }
     }
-    fn as_u8(&self) -> &[u8] {
+    fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
     }
 }
 
 impl Debug for TestHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for b in self.as_u8() {
+        for b in self.as_slice() {
             write!(f, "{:02x}", *b)?;
         }
         Ok(())

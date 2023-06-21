@@ -284,7 +284,7 @@ pub trait NodeHasher: Default {
 pub trait HashOutput: Hash + Copy + Eq + Debug + Sync + Send {
     fn zero() -> Self;
     fn from_slice(bytes: &[u8]) -> Option<Self>;
-    fn as_u8(&self) -> &[u8];
+    fn as_slice(&self) -> &[u8];
 }
 
 pub enum NodeHashBuilder<'a, H: NodeHasher> {
@@ -334,13 +334,13 @@ impl<'a, H: NodeHasher> NodeHashBuilder<'a, H> {
     }
     fn branch_len(b: &Branch<H::Output>) -> u8 {
         // 2 for prefix_len
-        u8::try_from(2 + b.prefix.as_bytes().len() + b.hash.as_u8().len()).unwrap()
+        u8::try_from(2 + b.prefix.as_bytes().len() + b.hash.as_slice().len()).unwrap()
     }
     fn branch(h: &mut H, b: &Branch<H::Output>) {
         let prefix_len = u16::try_from(b.prefix.len()).unwrap();
         h.update(&prefix_len.to_be_bytes());
         h.update(b.prefix.as_bytes());
-        h.update(b.hash.as_u8());
+        h.update(b.hash.as_slice());
     }
 }
 
