@@ -246,12 +246,11 @@ impl NVRam for NCipher {
                 .unwrap(),
         ))
         .unwrap();
+        if len > MAX_NVRAM_SIZE {
+            return Err(IOError(format!("indicated length of stored data was {len} which is larger than the allowed maximum of {MAX_NVRAM_SIZE}")));
+        }
 
-        // In the unlikely event that the read returned the expected 4096 bytes,
-        // but len said it was more than the allowed 4000 bytes limit the
-        // response to the allowed size. In this event its likely that the
-        // hash check performed by the caller will fail.
-        data.truncate(min(len, MAX_NVRAM_SIZE));
+        data.truncate(len);
         Ok(data)
     }
 
