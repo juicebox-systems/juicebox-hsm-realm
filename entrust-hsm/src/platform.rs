@@ -240,12 +240,17 @@ impl NVRam for NCipher {
                 data.len()
             )));
         }
-        let len = u32::from_be_bytes(
+        let len = usize::try_from(u32::from_be_bytes(
             data[NVRAM_LEN_OFFSET..NVRAM_LEN_OFFSET + 4]
                 .try_into()
                 .unwrap(),
-        );
-        data.truncate(len as usize);
+        ))
+        .unwrap();
+        if len > MAX_NVRAM_SIZE {
+            return Err(IOError(format!("indicated length of stored data was {len} which is larger than the allowed maximum of {MAX_NVRAM_SIZE}")));
+        }
+
+        data.truncate(len);
         Ok(data)
     }
 
