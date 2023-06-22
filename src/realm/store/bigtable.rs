@@ -825,6 +825,7 @@ impl LogEntriesIter {
 }
 
 impl StoreClient {
+    #[instrument(level = "trace", skip(self))]
     pub async fn get_addresses(&self) -> Result<Vec<(HsmId, Url)>, tonic::Status> {
         discovery::get_addresses(self.bigtable.clone(), &self.instance).await
     }
