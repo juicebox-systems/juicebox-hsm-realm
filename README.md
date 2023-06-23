@@ -186,7 +186,7 @@ may not be valid on all HSMs. These crates depend only on the `core` and
 There are also various tools in this repository, not included in the diagram
 above:
 - `cluster_bench` runs a client benchmark against existing realm(s).
-- `cluster-cli` is used to manage realms from the command-line, including
+- `cluster_cli` is used to manage realms from the command-line, including
   initializing realms and transferring ownership.
 - `codegen` generates bindings from Google's Protocol Buffers definitions.
 - `entrust_init` is used to set up Entrust HSMs before they can participate in
