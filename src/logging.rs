@@ -187,6 +187,7 @@ pub fn flush() {
 
 /// Setting this as a value in the context of a tracing span will determine its
 /// and all its child spans sampling rate.
+#[derive(Clone, Copy, Debug)]
 pub enum TracingSource {
     /// The default/unknown source. Spans in this context get sampled at the default rate.
     Default,
@@ -211,22 +212,14 @@ impl ShouldSample for TracingSourceSampler {
         links: &[opentelemetry::trace::Link],
         instrumentation_library: &opentelemetry::InstrumentationLibrary,
     ) -> opentelemetry::trace::SamplingResult {
-        if let Some(pc) = parent_context {
-            let src: Option<&TracingSource> = pc.get();
-            if matches!(src, Some(&TracingSource::BackgroundJob)) {
-                return self.background.should_sample(
-                    parent_context,
-                    trace_id,
-                    name,
-                    span_kind,
-                    attributes,
-                    links,
-                    instrumentation_library,
-                );
-            }
-        }
-
-        self.default.should_sample(
+        let sampler = match parent_context {
+            None => &self.default,
+            Some(pc) => match pc.get() {
+                None | Some(&TracingSource::Default) => &self.default,
+                Some(&TracingSource::BackgroundJob) => &self.background,
+            },
+        };
+        sampler.should_sample(
             parent_context,
             trace_id,
             name,
