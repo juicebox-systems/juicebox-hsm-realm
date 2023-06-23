@@ -810,7 +810,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "entrust-agent"
+name = "entrust_agent"
 version = "0.1.0"
 dependencies = [
  "agent_core",
@@ -827,7 +827,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "entrust-hsm"
+name = "entrust_api"
+version = "0.1.0"
+dependencies = [
+ "juicebox-sdk-marshalling",
+ "serde",
+]
+
+[[package]]
+name = "entrust_hsm"
 version = "0.1.0"
 dependencies = [
  "entrust_api",
@@ -836,14 +844,6 @@ dependencies = [
  "juicebox-sdk-marshalling",
  "rand_core",
  "x25519-dalek",
-]
-
-[[package]]
-name = "entrust_api"
-version = "0.1.0"
-dependencies = [
- "juicebox-sdk-marshalling",
- "serde",
 ]
 
 [[package]]

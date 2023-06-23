@@ -128,24 +128,24 @@ graph TD
     hsmcore
   end
   %% deps
-  entrust-hsm --> entrust_api
-  entrust-hsm --> hsmcore
-  entrust-hsm --> juicebox-sdk-core
+  entrust_hsm --> entrust_api
+  entrust_hsm --> hsmcore
+  entrust_hsm --> juicebox-sdk-core
   hsmcore --> juicebox-sdk-core
   hsmcore --> juicebox-sdk-noise
 
   subgraph agent
     agent_core
-    entrust-agent[\entrust-agent/]
+    entrust_agent[\entrust_agent/]
     software_agent[\"software-agent\n(dev only)"/]
   end
   %% deps
   agent --> juicebox_hsm
   agent --> juicebox-sdk-core
   agent_core --> juicebox-sdk-networking
-  entrust-agent --> agent_core
-  entrust-agent --> entrust_api
-  entrust-agent --> entrust_nfast
+  entrust_agent --> agent_core
+  entrust_agent --> entrust_api
+  entrust_agent --> entrust_nfast
   software_agent --> agent_core
   software_agent --> hsmcore
 
