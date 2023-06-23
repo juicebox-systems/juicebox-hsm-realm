@@ -1,6 +1,6 @@
 use is_terminal::IsTerminal;
 use opentelemetry::sdk::propagation::TraceContextPropagator;
-use opentelemetry::sdk::trace::Sampler;
+use opentelemetry::sdk::trace::{Sampler, ShouldSample};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
@@ -130,7 +130,10 @@ pub fn configure_with_options(options: Options) {
         )
         .with_trace_config(
             opentelemetry::sdk::trace::config()
-                .with_sampler(Sampler::TraceIdRatioBased(0.1))
+                .with_sampler(TracingSourceSampler {
+                    default: Sampler::TraceIdRatioBased(0.1),
+                    background: Sampler::TraceIdRatioBased(0.005),
+                })
                 .with_resource(Resource::new(vec![KeyValue::new(
                     "service.name",
                     options.process_name,
@@ -180,6 +183,52 @@ pub fn configure_with_options(options: Options) {
 
 pub fn flush() {
     opentelemetry::global::shutdown_tracer_provider()
+}
+
+/// Setting this as a value in the context of a tracing span will determine its
+/// and all its child spans sampling rate.
+#[derive(Clone, Copy, Debug)]
+pub enum TracingSource {
+    /// The default/unknown source. Spans in this context get sampled at the default rate.
+    Default,
+    /// A background job/task that should have different trace sampling.
+    BackgroundJob,
+}
+
+#[derive(Debug, Clone)]
+struct TracingSourceSampler {
+    default: Sampler,
+    background: Sampler,
+}
+
+impl ShouldSample for TracingSourceSampler {
+    fn should_sample(
+        &self,
+        parent_context: Option<&opentelemetry::Context>,
+        trace_id: opentelemetry::trace::TraceId,
+        name: &str,
+        span_kind: &opentelemetry::trace::SpanKind,
+        attributes: &opentelemetry::trace::OrderMap<opentelemetry::Key, opentelemetry::Value>,
+        links: &[opentelemetry::trace::Link],
+        instrumentation_library: &opentelemetry::InstrumentationLibrary,
+    ) -> opentelemetry::trace::SamplingResult {
+        let sampler = match parent_context {
+            None => &self.default,
+            Some(pc) => match pc.get() {
+                None | Some(&TracingSource::Default) => &self.default,
+                Some(&TracingSource::BackgroundJob) => &self.background,
+            },
+        };
+        sampler.should_sample(
+            parent_context,
+            trace_id,
+            name,
+            span_kind,
+            attributes,
+            links,
+            instrumentation_library,
+        )
+    }
 }
 
 #[cfg(test)]

@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
-use tracing::{info, instrument, trace, warn, Span};
+use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::types::{ReadCapturedRequest, ReadCapturedResponse};
 use super::Agent;
@@ -19,7 +20,7 @@ use hsmcore::hsm::{
         PersistStateResponse,
     },
 };
-use juicebox_hsm::logging::Spew;
+use juicebox_hsm::logging::{Spew, TracingSource};
 use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::{hsm::client::Transport, store::bigtable::StoreClient};
 use juicebox_sdk_core::types::RealmId;
@@ -39,9 +40,20 @@ impl<T: Transport + 'static> Agent<T> {
 
         tokio::spawn(async move {
             const WRITE_INTERVAL_MILLIS: u64 = 100;
+            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+
             loop {
                 sleep(how_long_to_wait(SystemTime::now(), WRITE_INTERVAL_MILLIS)).await;
-                match agent.0.hsm.send(PersistStateRequest {}).await {
+                let span = span!(Level::TRACE, "nvram_writer_loop");
+                span.set_parent(cx.clone());
+
+                match agent
+                    .0
+                    .hsm
+                    .send(PersistStateRequest {})
+                    .instrument(span)
+                    .await
+                {
                     Err(err) => {
                         if let Some(suppressed) = NVRAM_WRITER_SPEW.ok() {
                             warn!(?err, suppressed, "failed to request HSM to write to NVRAM");
@@ -64,9 +76,16 @@ impl<T: Transport + 'static> Agent<T> {
             let interval = Duration::from_millis(2);
             let mut last_committed: Option<LogIndex> = None;
             let peers = PeerCache::new(agent.0.store.clone(), Duration::from_secs(10)).await;
+
+            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+
             loop {
+                let span = span!(Level::TRACE, "committer_loop");
+                span.set_parent(cx.clone());
+
                 match agent
                     .commit_maybe(realm, group, &config, &peers, last_committed)
+                    .instrument(span)
                     .await
                 {
                     CommitterStatus::NoLongerLeader => {
@@ -80,7 +99,7 @@ impl<T: Transport + 'static> Agent<T> {
         });
     }
 
-    #[instrument(level = "trace", skip(self, config, peers))]
+    #[instrument(level = "trace", skip(self, config, peers), fields(quorum))]
     async fn commit_maybe(
         &self,
         realm: RealmId,
@@ -122,7 +141,7 @@ impl<T: Transport + 'static> Agent<T> {
                 };
             }
         }
-        trace!(?group, index=?commit_index, "election has quorum");
+        Span::current().record("quorum", commit_index.0);
 
         self.do_commit(
             CommitRequest {

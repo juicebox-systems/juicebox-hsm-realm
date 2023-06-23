@@ -19,7 +19,7 @@ use tokio::task::JoinHandle;
 use tokio::time;
 use tokio_rustls::rustls;
 use tokio_rustls::TlsAcceptor;
-use tracing::{instrument, trace, warn, Instrument, Span};
+use tracing::{instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
@@ -29,7 +29,7 @@ use juicebox_hsm::client_auth::{
     tenant_secret_name, validation::Validator as AuthTokenValidator, AuthKey,
 };
 use juicebox_hsm::http_client::{Client, ClientOptions};
-use juicebox_hsm::logging::Spew;
+use juicebox_hsm::logging::{Spew, TracingSource};
 use juicebox_hsm::metrics::{self, Tag};
 use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::agent::types::{
@@ -136,8 +136,15 @@ impl LoadBalancer {
     async fn start_refresher(&self) {
         let state = self.0.clone();
         tokio::spawn(async move {
+            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+
             loop {
-                let updated = refresh(&state.name, &state.store, &state.agent_client).await;
+                let span = span!(Level::TRACE, "refresher_loop");
+                span.set_parent(cx.clone());
+
+                let updated = refresh(&state.name, &state.store, &state.agent_client)
+                    .instrument(span)
+                    .await;
                 *state.realms.lock().unwrap() = Arc::new(updated);
                 time::sleep(Duration::from_millis(100)).await;
             }
@@ -154,15 +161,14 @@ struct Partition {
 
 static REFRESH_SPEW: Spew = Spew::new();
 
-#[tracing::instrument(level = "trace")]
+#[tracing::instrument(level = "trace", skip(store, agent_client))]
 async fn refresh(
     name: &str,
     store: &StoreClient,
     agent_client: &Client<AgentService>,
 ) -> HashMap<RealmId, Vec<Partition>> {
-    trace!(load_balancer = name, "refreshing cluster information");
     match store.get_addresses().await {
-        Err(_) => todo!(),
+        Err(err) => todo!("{err:?}"),
         Ok(addresses) => {
             let responses = join_all(
                 addresses
@@ -205,11 +211,6 @@ async fn refresh(
                     }
                 }
             }
-            trace!(
-                ?realms,
-                load_balancer = name,
-                "done refreshing cluster information"
-            );
             realms
         }
     }

@@ -16,7 +16,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{info, instrument, trace, warn, Instrument, Span};
+use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
@@ -32,12 +32,13 @@ use hsmcore::hsm::types as hsm_types;
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
 use juicebox_hsm::http_client::{Client, ClientOptions};
+use juicebox_hsm::logging::TracingSource;
 use juicebox_hsm::metrics::{self, Tag};
 use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::hsm::client::{HsmClient, Transport};
 use juicebox_hsm::realm::merkle;
 use juicebox_hsm::realm::rpc::{handle_rpc, HandlerError};
-use juicebox_hsm::realm::store::bigtable;
+use juicebox_hsm::realm::store::bigtable::{self, LogEntriesIter};
 use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::rpc::Rpc;
@@ -150,7 +151,6 @@ impl<T: Transport + 'static> Agent<T> {
                         Some((index, _)) => index.next(),
                         None => LogIndex::FIRST,
                     };
-                    info!(agent=?self.0.name, realm=?realm.id, group=?g.id, index=?idx, "restarted watching log");
                     self.start_watching(realm.id, g.id, idx);
                 }
             }
@@ -160,7 +160,7 @@ impl<T: Transport + 'static> Agent<T> {
     fn start_watching(&self, realm: RealmId, group: GroupId, next_index: LogIndex) {
         let state = self.0.clone();
 
-        trace!(
+        info!(
             agent = state.name,
             ?realm,
             ?group,
@@ -175,51 +175,62 @@ impl<T: Transport + 'static> Agent<T> {
                 next_index,
                 (Self::MAX_APPEND_BATCH_SIZE * 2).try_into().unwrap(),
             );
+            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+
             loop {
-                match it.next().await {
-                    Err(e) => {
-                        warn!(err=?e, "error reading log");
-                        sleep(Duration::from_millis(25)).await;
-                    }
-                    Ok(entries) if entries.is_empty() => {
-                        // TODO: how would we tell if the log was truncated?
-                        sleep(Duration::from_millis(1)).await;
-                    }
-                    Ok(entries) => {
-                        let index = entries[0].index;
-                        trace!(
-                            agent = state.name,
-                            ?realm,
-                            ?group,
-                            first_index=?index,
-                            num=?entries.len(),
-                            "found log entries"
-                        );
-                        match state
-                            .hsm
-                            .send(CaptureNextRequest {
-                                realm,
-                                group,
-                                entries,
-                            })
-                            .await
-                        {
-                            Err(_) => todo!(),
-                            Ok(CaptureNextResponse::Ok) => {
-                                trace!(
-                                    agent = state.name,
-                                    ?realm,
-                                    ?group,
-                                    ?index,
-                                    "HSM captured entries"
-                                );
-                            }
-                            Ok(r) => todo!("{r:#?}"),
-                        }
-                    }
-                }
+                let span = span!(Level::TRACE, "log_watcher_loop");
+                span.set_parent(cx.clone());
+
+                Self::watch_log_one(state.clone(), &mut it, realm, group)
+                    .instrument(span)
+                    .await;
             }
         });
+    }
+
+    #[instrument(
+        level = "trace",
+        skip(state, it),
+        fields(num_log_entries_read, num_captured, index)
+    )]
+    async fn watch_log_one(
+        state: Arc<AgentInner<T>>,
+        it: &mut LogEntriesIter,
+        realm: RealmId,
+        group: GroupId,
+    ) {
+        match it.next().await {
+            Err(e) => {
+                warn!(err=?e, "error reading log");
+                sleep(Duration::from_millis(25)).await;
+            }
+            Ok(entries) if entries.is_empty() => {
+                // TODO: how would we tell if the log was truncated?
+                sleep(Duration::from_millis(1)).await;
+            }
+            Ok(entries) => {
+                let span = Span::current();
+                let num_entries = entries.len();
+                span.record("num_log_entries_read", num_entries);
+                span.record("index", entries[0].index.0);
+
+                match state
+                    .hsm
+                    .send(CaptureNextRequest {
+                        realm,
+                        group,
+                        entries,
+                    })
+                    .await
+                {
+                    Err(err) => todo!("{err:?}"),
+                    Ok(CaptureNextResponse::Ok) => {
+                        Span::current().record("num_captured", num_entries);
+                    }
+                    Ok(r) => todo!("{r:#?}"),
+                }
+            }
+        }
     }
 
     pub async fn listen(self, address: SocketAddr) -> Result<(Url, JoinHandle<()>), anyhow::Error> {
