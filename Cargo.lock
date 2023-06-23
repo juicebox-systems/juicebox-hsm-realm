@@ -1529,7 +1529,6 @@ dependencies = [
  "juicebox-sdk-networking",
  "juicebox-sdk-noise",
  "rand",
- "secrecy",
  "serde",
  "serde_json",
  "sharks",
@@ -1538,6 +1537,7 @@ dependencies = [
  "url",
  "voprf",
  "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1549,10 +1549,10 @@ dependencies = [
  "juicebox-sdk-marshalling",
  "juicebox-sdk-noise",
  "rand_core",
- "secrecy",
  "serde",
  "subtle",
  "voprf",
+ "zeroize",
 ]
 
 [[package]]
@@ -1560,7 +1560,6 @@ name = "juicebox-sdk-marshalling"
 version = "0.1.0"
 dependencies = [
  "ciborium",
- "secrecy",
  "serde",
 ]
 
@@ -3197,8 +3196,9 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "voprf"
-version = "0.5.0-pre.3"
-source = "git+https://github.com/facebook/voprf?rev=4bd2cf466e45a7003f7acf34d5278b0871dbdb11#4bd2cf466e45a7003f7acf34d5278b0871dbdb11"
+version = "0.5.0-pre.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "536355986090b5ec32a4c7aa5d58ce999254da979f3f30edf8b1a6ab384958dc"
 dependencies = [
  "curve25519-dalek",
  "derive-where",

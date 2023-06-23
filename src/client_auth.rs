@@ -59,7 +59,7 @@ pub fn tenant_secret_name(tenant: &str) -> SecretName {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use secrecy::{ExposeSecret, SecretString};
+    use secrecy::ExposeSecret;
 
     #[test]
     fn test_token_basic() {
@@ -83,7 +83,7 @@ mod tests {
     fn test_token_bogus() {
         let realm_id = RealmId([5; 16]);
         let key = AuthKey::from(b"it's-a-me!".to_vec());
-        let token = AuthToken(SecretString::from(String::from("bogus")));
+        let token = AuthToken::from(String::from("bogus"));
         assert_eq!(
             format!(
                 "{:?}",
@@ -161,7 +161,7 @@ mod tests {
         let mint = |key_id| {
             let mut header = Header::new(Algorithm::HS256);
             header.kid = Some(String::from(key_id));
-            AuthToken(SecretString::from(
+            AuthToken::from(
                 encode(
                     &header,
                     &creation::InternalClaims {
@@ -174,7 +174,7 @@ mod tests {
                     &EncodingKey::from_secret(key.0 .0.expose_secret()),
                 )
                 .unwrap(),
-            ))
+            )
         };
 
         let validator = validation::Validator::new(realm_id);

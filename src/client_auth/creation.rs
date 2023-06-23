@@ -1,5 +1,5 @@
 use jsonwebtoken::{self, get_current_timestamp, Algorithm, EncodingKey, Header};
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::ExposeSecret;
 use serde::Serialize;
 
 use super::{AuthKey, AuthToken, Claims, SecretVersion};
@@ -31,7 +31,7 @@ pub(super) fn create_token_at(
         claims.issuer,
     );
     header.kid = Some(format!("{}:{}", claims.issuer, key_version.0));
-    AuthToken(SecretString::from(
+    AuthToken::from(
         jsonwebtoken::encode(
             &header,
             &InternalClaims {
@@ -44,5 +44,5 @@ pub(super) fn create_token_at(
             &EncodingKey::from_secret(key.0 .0.expose_secret()),
         )
         .expect("failed to mint token"),
-    ))
+    )
 }
