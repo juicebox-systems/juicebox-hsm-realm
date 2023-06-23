@@ -10,7 +10,8 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tracing::{instrument, trace, Span};
+use tonic::Code;
+use tracing::{instrument, trace, warn, Span};
 
 use super::{mutate_rows, read_rows, Instance, MutateRowsError, StoreClient};
 use crate::metrics;
@@ -82,7 +83,7 @@ pub fn merkle_table_brief(realm: &RealmId) -> String {
 }
 
 impl StoreClient {
-    #[instrument(level = "trace", skip(self, add))]
+    #[instrument(level = "trace", skip(self, add), fields(retries))]
     pub(super) async fn write_merkle_nodes(
         &self,
         realm: &RealmId,
@@ -95,32 +96,56 @@ impl StoreClient {
 
         let start = Instant::now();
 
-        let new_merkle_entries = add
-            .iter()
-            .map(|(key, value)| mutate_rows_request::Entry {
-                row_key: key.store_key().into_bytes(),
-                mutations: vec![Mutation {
-                    mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
-                        family_name: String::from("f"),
-                        column_qualifier: b"n".to_vec(),
-                        timestamp_micros: -1,
-                        // TODO: unnecessarily wraps the leaf node values.
-                        value: marshalling::to_vec(value).expect("TODO"),
-                    })),
-                }],
-            })
-            .collect::<Vec<_>>();
+        let make_new_merkle_entries = || {
+            add.iter()
+                .map(|(key, value)| mutate_rows_request::Entry {
+                    row_key: key.store_key().into_bytes(),
+                    mutations: vec![Mutation {
+                        mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
+                            family_name: String::from("f"),
+                            column_qualifier: b"n".to_vec(),
+                            timestamp_micros: -1,
+                            // TODO: unnecessarily wraps the leaf node values.
+                            value: marshalling::to_vec(value).expect("TODO"),
+                        })),
+                    }],
+                })
+                .collect::<Vec<_>>()
+        };
 
-        let mut bigtable = self.bigtable.clone();
-        mutate_rows(
-            &mut bigtable,
-            MutateRowsRequest {
-                table_name: merkle_table(&self.instance, realm),
-                app_profile_id: String::new(),
-                entries: new_merkle_entries,
-            },
-        )
-        .await?;
+        const MAX_RETRIES: usize = 3;
+        for retries in 0.. {
+            Span::current().record("retries", retries);
+            let mut bigtable = self.bigtable.clone();
+            match mutate_rows(
+                &mut bigtable,
+                MutateRowsRequest {
+                    table_name: merkle_table(&self.instance, realm),
+                    app_profile_id: String::new(),
+                    entries: make_new_merkle_entries(),
+                },
+            )
+            .await
+            {
+                Ok(_) => break,
+                // Disconnect errors are buried under 'Unknown'. We'll only retry those.
+                Err(MutateRowsError::Tonic(status)) if status.code() == Code::Unknown => {
+                    warn!(
+                        ?realm,
+                        ?group,
+                        ?status,
+                        ?retries,
+                        "Tonic error writing new merkle nodes"
+                    );
+                    if retries >= MAX_RETRIES {
+                        return Err(MutateRowsError::Tonic(status));
+                    }
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            }
+        }
 
         let cache_stats = {
             let mut locked_cache = self.merkle_cache.0.lock().unwrap();
