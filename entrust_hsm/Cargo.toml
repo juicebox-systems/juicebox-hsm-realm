@@ -1,5 +1,5 @@
 [package]
-name = "entrust-hsm"
+name = "entrust_hsm"
 version = "0.1.0"
 edition = "2021"
 
