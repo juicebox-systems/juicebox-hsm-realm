@@ -2,7 +2,7 @@
 members = [
     "agent_core",
     "cluster_bench",
-    "cluster-cli",
+    "cluster_cli",
     "codegen",
     "entrust_agent",
     "entrust_api",
@@ -18,7 +18,7 @@ default-members = [
     ".",
     "agent_core",
     "cluster_bench",
-    "cluster-cli",
+    "cluster_cli",
     "codegen",
     "hsmcore",
     "load_balancer",
