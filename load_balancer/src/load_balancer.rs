@@ -2,13 +2,14 @@ use anyhow::Context;
 use bytes::Bytes;
 use futures::future::join_all;
 use futures::Future;
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
 use rustls::server::ResolvesServerCert;
 use std::collections::HashMap;
+use std::error::Error;
 use std::iter::zip;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -17,8 +18,7 @@ use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time;
-use tokio_rustls::rustls;
-use tokio_rustls::TlsAcceptor;
+use tokio_rustls::{rustls, TlsAcceptor};
 use tracing::{instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
@@ -218,7 +218,7 @@ async fn refresh(
 
 impl Service<Request<IncomingBody>> for LoadBalancer {
     type Response = Response<Full<Bytes>>;
-    type Error = hyper::Error;
+    type Error = Box<dyn Error + Send + Sync>;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     #[instrument(level = "trace", name = "Service::call", skip(self, request))]
@@ -240,49 +240,52 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                         .unwrap());
                 }
 
-                let request_bytes = request.collect().await?.to_bytes();
+                let response = match Limited::new(request, BODY_SIZE_LIMIT).collect().await {
+                    Err(err) if err.downcast_ref::<LengthLimitError>().is_some() => {
+                        ClientResponse::PayloadTooLarge
+                    }
+                    Err(err) => return Err(err),
+                    Ok(collected_bytes) => {
+                        let request_bytes = collected_bytes.to_bytes();
+                        match marshalling::from_slice(request_bytes.as_ref()) {
+                            Err(_) => ClientResponse::DecodingError,
+                            Ok(request) => {
+                                let realms = state.realms.lock().unwrap().clone();
+                                match handle_client_request(
+                                    &request,
+                                    &state.name,
+                                    &realms,
+                                    state.secret_manager.as_ref(),
+                                    &state.agent_client,
+                                    &state.metrics,
+                                )
+                                .await
+                                {
+                                    ClientResponse::Unavailable => {
+                                        // retry with refreshed info about realm endpoints
+                                        let refreshed_realms = Arc::new(
+                                            refresh(&state.name, &state.store, &state.agent_client)
+                                                .await,
+                                        );
+                                        *state.realms.lock().unwrap() = refreshed_realms.clone();
 
-                // todo: figure out a way to reject without reading all bytes into memory first
-                let response = if request_bytes.len() >= BODY_SIZE_LIMIT {
-                    ClientResponse::PayloadTooLarge
-                } else {
-                    match marshalling::from_slice(request_bytes.as_ref()) {
-                        Err(_) => ClientResponse::DecodingError,
-                        Ok(request) => {
-                            let realms = state.realms.lock().unwrap().clone();
-                            match handle_client_request(
-                                &request,
-                                &state.name,
-                                &realms,
-                                state.secret_manager.as_ref(),
-                                &state.agent_client,
-                                &state.metrics,
-                            )
-                            .await
-                            {
-                                ClientResponse::Unavailable => {
-                                    // retry with refreshed info about realm endpoints
-                                    let refreshed_realms = Arc::new(
-                                        refresh(&state.name, &state.store, &state.agent_client)
-                                            .await,
-                                    );
-                                    *state.realms.lock().unwrap() = refreshed_realms.clone();
-
-                                    handle_client_request(
-                                        &request,
-                                        &state.name,
-                                        &refreshed_realms,
-                                        state.secret_manager.as_ref(),
-                                        &state.agent_client,
-                                        &state.metrics,
-                                    )
-                                    .await
+                                        handle_client_request(
+                                            &request,
+                                            &state.name,
+                                            &refreshed_realms,
+                                            state.secret_manager.as_ref(),
+                                            &state.agent_client,
+                                            &state.metrics,
+                                        )
+                                        .await
+                                    }
+                                    response => response,
                                 }
-                                response => response,
                             }
                         }
                     }
                 };
+
                 trace!(load_balancer = state.name, ?response);
                 Ok(Response::builder()
                     .header("Access-Control-Allow-Origin", "*")
