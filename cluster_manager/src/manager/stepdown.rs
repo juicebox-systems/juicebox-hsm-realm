@@ -5,11 +5,12 @@ use std::iter::zip;
 use tracing::{info, warn};
 use url::Url;
 
-use super::super::agent::types as agent_types;
-use super::super::rpc::HandlerError;
-use super::{types, ManagementGrant, Manager};
+use super::{ManagementGrant, Manager};
 use hsm_types::{GroupId, HsmId, LogIndex};
 use hsmcore::hsm::types as hsm_types;
+use juicebox_hsm::realm::agent::types as agent_types;
+use juicebox_hsm::realm::cluster::{get_hsm_statuses, types};
+use juicebox_hsm::realm::rpc::HandlerError;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::rpc::{self, RpcError};
 
@@ -91,7 +92,7 @@ impl Manager {
         stepdown: Stepdown,
         last: Option<LogIndex>,
     ) -> Result<Option<HsmId>, RpcError> {
-        let hsm_status = super::get_hsm_statuses(
+        let hsm_status = get_hsm_statuses(
             &self.0.agents,
             stepdown.config.iter().filter_map(|hsm| addresses.get(hsm)),
         )
