@@ -514,6 +514,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "cluster_manager"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "clap 4.3.0",
+ "ctrlc",
+ "expect-test",
+ "futures",
+ "hsmcore",
+ "http-body-util",
+ "hyper 1.0.0-rc.3",
+ "juicebox-sdk-core",
+ "juicebox-sdk-networking",
+ "juicebox_hsm",
+ "opentelemetry",
+ "opentelemetry-http",
+ "tokio",
+ "tonic",
+ "tracing 0.2.0",
+ "tracing-opentelemetry",
+ "url",
+]
+
+[[package]]
 name = "codegen"
 version = "0.0.0"
 dependencies = [

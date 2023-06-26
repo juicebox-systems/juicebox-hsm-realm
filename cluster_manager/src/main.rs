@@ -7,8 +7,10 @@ use juicebox_hsm::exec::panic;
 use juicebox_hsm::google_auth;
 use juicebox_hsm::logging;
 use juicebox_hsm::metrics;
-use juicebox_hsm::realm::cluster::Manager;
 use juicebox_hsm::realm::store::bigtable;
+use manager::Manager;
+
+mod manager;
 
 #[derive(Debug, Parser)]
 #[command(about = "Management controller for Juicebox Clusters")]
