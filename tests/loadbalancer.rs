@@ -64,7 +64,7 @@ async fn request_bodysize_check() {
         .unwrap();
     assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, res.status());
 
-    let req = vec![1; BODY_SIZE_LIMIT - 1];
+    let req = vec![1; BODY_SIZE_LIMIT];
     let res = http
         .post(
             cluster.load_balancers[0]
