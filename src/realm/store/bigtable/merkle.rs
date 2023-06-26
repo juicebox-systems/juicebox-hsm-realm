@@ -137,6 +137,10 @@ impl StoreClient {
                         ?retries,
                         "Tonic error writing new merkle nodes"
                     );
+                    self.metrics.incr(
+                        "store_client.merkle_write.unknown_error",
+                        [tag!(?realm), tag!(?group)],
+                    );
                     if retries >= MAX_RETRIES {
                         return Err(MutateRowsError::Tonic(status));
                     }

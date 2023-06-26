@@ -579,6 +579,10 @@ impl StoreClient {
                     // attempting a retry, otherwise we can trip the log
                     // precondition check unintentionally.
                     warn!(?realm, ?group, ?status, "error while appending log entry");
+                    self.metrics.incr(
+                        "store_client.log_append.unknown_error",
+                        [tag!(?realm), tag!(?group)],
+                    );
 
                     match self.read_last_log_entry(realm, group).await? {
                         Some(entry) if entry.index < entries[0].index => {
