@@ -588,27 +588,39 @@ impl StoreClient {
                         Some(entry) if entry.index < entries[0].index => {
                             // Latest log entry is before the first one we're trying to write.
                             // The row wasn't written and we can retry that.
-                            info!(?realm, ?group, "it appears the log entry wasn't written");
+                            info!(
+                                ?realm,
+                                ?group,
+                                "GRPC Unknown error and it appears the log entry wasn't written"
+                            );
                         }
                         Some(entry) if &entry == entries.last().unwrap() => {
                             // Latest log entry matches the last log entry we were writing.
                             // The write succeeded.
-                            info!(?realm, ?group, "it appears the log entry was written");
+                            info!(
+                                ?realm,
+                                ?group,
+                                "GRPC Unknown error and it appears the log entry was written"
+                            );
                             return Ok(());
                         }
                         Some(_) => {
-                            // latest log entry does match anything we're expecting it must of
+                            // Latest log entry does not match anything we're expecting. It must have
                             // been written by another leader.
                             info!(
                                 ?realm,
                                 ?group,
-                                "it appears the log entry was written by someone else"
+                                "GRPC Unknown error and it appears the log entry was written by someone else"
                             );
                             return Err(AppendError::LogPrecondition);
                         }
                         None => {
-                            // no long entry at all, safe to retry.
-                            info!(?realm, ?group, "the log appears empty");
+                            // No long entry at all, safe to retry.
+                            info!(
+                                ?realm,
+                                ?group,
+                                "GRPC Unknown error and the log appears empty"
+                            );
                         }
                     }
                     if retries >= MAX_RETRIES {
