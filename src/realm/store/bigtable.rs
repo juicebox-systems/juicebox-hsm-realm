@@ -20,7 +20,8 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tonic::transport::Endpoint;
-use tracing::{info, instrument, trace};
+use tonic::Code;
+use tracing::{info, instrument, trace, warn, Span};
 use url::Url;
 
 use crate::google_auth::AuthMiddleware;
@@ -335,6 +336,12 @@ pub enum AppendError {
     MerkleDeletes(google::rpc::Status),
 }
 
+impl From<tonic::Status> for AppendError {
+    fn from(value: tonic::Status) -> Self {
+        AppendError::Grpc(value)
+    }
+}
+
 pub struct Options {
     pub metrics: metrics::Client,
 
@@ -533,7 +540,7 @@ impl StoreClient {
 
     /// Append a new batch of log entries, but only if the row doesn't yet
     /// exist.
-    #[instrument(level = "trace", skip(self, bigtable, entries), fields(num_entries = entries.len()))]
+    #[instrument(level = "trace", skip(self, bigtable, entries), fields(retries,num_entries = entries.len()))]
     async fn log_append(
         &self,
         bigtable: &mut BigtableClient,
@@ -541,32 +548,95 @@ impl StoreClient {
         group: &GroupId,
         entries: &[LogEntry],
     ) -> Result<(), AppendError> {
-        let append_response = bigtable
-            .check_and_mutate_row(CheckAndMutateRowRequest {
-                table_name: log_table(&self.instance, realm),
-                app_profile_id: String::new(),
-                row_key: log_key(group, entries[0].index),
-                predicate_filter: None, // checks for any value
-                true_mutations: Vec::new(),
-                false_mutations: entries
-                    .iter()
-                    .map(|entry| Mutation {
-                        mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
-                            family_name: String::from("f"),
-                            column_qualifier: DownwardLogIndex(entry.index).bytes().to_vec(),
-                            timestamp_micros: -1,
-                            value: marshalling::to_vec(entry).expect("TODO"),
-                        })),
-                    })
-                    .collect(),
-            })
-            .await
-            .map_err(AppendError::Grpc)?
-            .into_inner();
-        if append_response.predicate_matched {
-            return Err(AppendError::LogPrecondition);
+        const MAX_RETRIES: usize = 3;
+        for retries in 0.. {
+            Span::current().record("retries", retries);
+
+            match bigtable
+                .check_and_mutate_row(CheckAndMutateRowRequest {
+                    table_name: log_table(&self.instance, realm),
+                    app_profile_id: String::new(),
+                    row_key: log_key(group, entries[0].index),
+                    predicate_filter: None, // checks for any value
+                    true_mutations: Vec::new(),
+                    false_mutations: entries
+                        .iter()
+                        .map(|entry| Mutation {
+                            mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
+                                family_name: String::from("f"),
+                                column_qualifier: DownwardLogIndex(entry.index).bytes().to_vec(),
+                                timestamp_micros: -1,
+                                value: marshalling::to_vec(entry).expect("TODO"),
+                            })),
+                        })
+                        .collect(),
+                })
+                .await
+            {
+                Err(status) if status.code() == Code::Unknown => {
+                    // Disconnect errors get bundled under Unknown. We need to
+                    // determine the current state of the row in bigtable before
+                    // attempting a retry, otherwise we can trip the log
+                    // precondition check unintentionally.
+                    warn!(?realm, ?group, ?status, "error while appending log entry");
+                    self.metrics.incr(
+                        "store_client.log_append.unknown_error",
+                        [tag!(?realm), tag!(?group)],
+                    );
+
+                    match self.read_last_log_entry(realm, group).await? {
+                        Some(entry) if entry.index < entries[0].index => {
+                            // Latest log entry is before the first one we're trying to write.
+                            // The row wasn't written and we can retry that.
+                            info!(
+                                ?realm,
+                                ?group,
+                                "GRPC Unknown error and it appears the log entry wasn't written"
+                            );
+                        }
+                        Some(entry) if &entry == entries.last().unwrap() => {
+                            // Latest log entry matches the last log entry we were writing.
+                            // The write succeeded.
+                            info!(
+                                ?realm,
+                                ?group,
+                                "GRPC Unknown error and it appears the log entry was written"
+                            );
+                            return Ok(());
+                        }
+                        Some(_) => {
+                            // Latest log entry does not match anything we're expecting. It must have
+                            // been written by another leader.
+                            info!(
+                                ?realm,
+                                ?group,
+                                "GRPC Unknown error and it appears the log entry was written by someone else"
+                            );
+                            return Err(AppendError::LogPrecondition);
+                        }
+                        None => {
+                            // No long entry at all, safe to retry.
+                            info!(
+                                ?realm,
+                                ?group,
+                                "GRPC Unknown error and the log appears empty"
+                            );
+                        }
+                    }
+                    if retries >= MAX_RETRIES {
+                        return Err(AppendError::Grpc(status));
+                    }
+                }
+                Err(status) => return Err(AppendError::Grpc(status)),
+                Ok(append_response) => {
+                    if append_response.into_inner().predicate_matched {
+                        return Err(AppendError::LogPrecondition);
+                    }
+                    return Ok(());
+                }
+            }
         }
-        Ok(())
+        unreachable!()
     }
 
     #[instrument(level = "trace", skip(self))]
