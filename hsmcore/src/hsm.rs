@@ -1970,12 +1970,6 @@ impl<'a> MerkleHelper<'a> {
         match change {
             Some(change) => match change {
                 RecordChange::Update(record) => {
-                    // TODO: Pad the record? Especially with the addition of
-                    // `RegistrationState::NoGuesses`, the length of the
-                    // encrypted record may reveal information to an adversary
-                    // about whether a guess succeeded. (The adversary could
-                    // then choose not to commit the log entry and restart the
-                    // HSM to roll back.)
                     let cipher = XChaCha20Poly1305::new_from_slice(&self.leaf_key.0)
                         .expect("couldn't create cipher");
 
