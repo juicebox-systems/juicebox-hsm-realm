@@ -1,7 +1,7 @@
 use core::ops::{Deref, DerefMut};
 
 pub trait OnMutationFinished<T> {
-    fn finished(&self, t: &T);
+    fn finished(&mut self, t: &T);
 }
 
 /// MutationTracker wraps a value and tracks mutations. When the mutation is

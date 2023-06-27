@@ -559,13 +559,29 @@ impl<'a, C: Clock> Metrics<'a, C> {
 
 struct NVRamWriter<N: NVRam> {
     nvram: N,
+    hash_of_last_write: Option<[u8; 32]>,
 }
+
+impl<N: NVRam> NVRamWriter<N> {
+    fn new(nvram: N) -> Self {
+        Self {
+            nvram,
+            hash_of_last_write: None,
+        }
+    }
+}
+
 impl<N: NVRam> OnMutationFinished<PersistentState> for NVRamWriter<N> {
-    fn finished(&self, state: &PersistentState) {
+    fn finished(&mut self, state: &PersistentState) {
         let mut data = marshalling::to_vec(&state).expect("failed to serialize state");
-        let d = Blake2s256::digest(&data);
+        let d: [u8; 32] = Blake2s256::digest(&data).into();
+        if Some(d) == self.hash_of_last_write {
+            // Data hasn't changed since last write, no need to write it again.
+            return;
+        }
         data.extend(d);
-        self.nvram.write(data).expect("Write to NVRam failed")
+        self.nvram.write(data).expect("Write to NVRam failed");
+        self.hash_of_last_write = Some(d);
     }
 }
 
@@ -575,9 +591,7 @@ impl<P: Platform> Hsm<P> {
         mut platform: P,
         realm_keys: RealmKeys,
     ) -> Result<Self, PersistenceError> {
-        let writer = NVRamWriter {
-            nvram: platform.clone(),
-        };
+        let mut writer = NVRamWriter::new(platform.clone());
         let persistent = match Self::read_persisted_state(&platform)? {
             Some(state) => state,
             None => {
