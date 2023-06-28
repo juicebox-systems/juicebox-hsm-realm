@@ -96,6 +96,7 @@ fn create_random_realm_id(rng: &mut impl CryptoRng) -> RealmId {
     RealmId(id)
 }
 
+#[derive(Serialize)]
 struct GroupConfigurationStatementBuilder<'a> {
     realm: RealmId,
     group: GroupId,
@@ -104,16 +105,10 @@ struct GroupConfigurationStatementBuilder<'a> {
 
 impl<'a> GroupConfigurationStatementBuilder<'a> {
     fn calculate(&self, key: &MacKey) -> Blake2sMac256 {
-        let mut mac = Blake2sMac256::new_with_salt_and_personal(&key.0, &[], b"groupc")
+        let mut mac = Blake2sMac256::new_with_salt_and_personal(&key.0, &[], b"groupcfg")
             .expect("failed to initialize Blake2sMac");
-        mac.update(b"group configuration|");
-        mac.update(&self.realm.0);
-        mac.update(b"|");
-        mac.update(&self.group.0);
-        for hsm_id in self.configuration {
-            mac.update(b"|");
-            mac.update(&hsm_id.0);
-        }
+        ciborium::ser::into_writer(self, DigestWriter(&mut mac))
+            .expect("failed to serialize GroupConfigurationStatementBuilder");
         mac
     }
 
@@ -130,6 +125,7 @@ impl<'a> GroupConfigurationStatementBuilder<'a> {
     }
 }
 
+#[derive(Serialize)]
 struct HsmRealmStatementBuilder<'a> {
     realm: RealmId,
     hsm: HsmId,
@@ -140,18 +136,8 @@ impl<'a> HsmRealmStatementBuilder<'a> {
     fn calculate(&self, key: &MacKey) -> Blake2sMac256 {
         let mut mac = Blake2sMac256::new_with_salt_and_personal(&key.0, &[], b"realm")
             .expect("failed to initialize Blake2sMac");
-        mac.update(b"hsm realm|");
-        mac.update(&self.realm.0);
-        mac.update(b"|");
-        mac.update(&self.hsm.0);
-        mac.update(b"|");
-        mac.update(self.keys.communication.0.as_bytes());
-        mac.update(b"|");
-        mac.update(self.keys.communication.1.as_bytes());
-        mac.update(b"|");
-        mac.update(&self.keys.record.0);
-        // There's no need to include `self.keys.mac` explicitly, since it's
-        // used as the key to this MAC.
+        ciborium::ser::into_writer(self, DigestWriter(&mut mac))
+            .expect("failed to serialize HsmRealmStatementBuilder");
         mac
     }
 
@@ -164,6 +150,7 @@ impl<'a> HsmRealmStatementBuilder<'a> {
     }
 }
 
+#[derive(Serialize)]
 struct CapturedStatementBuilder<'a> {
     hsm: HsmId,
     realm: RealmId,
@@ -176,16 +163,8 @@ impl<'a> CapturedStatementBuilder<'a> {
     fn calculate(&self, key: &MacKey) -> Blake2sMac256 {
         let mut mac = Blake2sMac256::new_with_salt_and_personal(&key.0, &[], b"capture")
             .expect("failed to initialize Blake2sMac");
-        mac.update(b"captured|");
-        mac.update(&self.hsm.0);
-        mac.update(b"|");
-        mac.update(&self.realm.0);
-        mac.update(b"|");
-        mac.update(&self.group.0);
-        mac.update(b"|");
-        mac.update(&self.index.0.to_be_bytes());
-        mac.update(b"|");
-        mac.update(&self.entry_hmac.0);
+        ciborium::ser::into_writer(self, DigestWriter(&mut mac))
+            .expect("failed to serialize CapturedStatementBuilder");
         mac
     }
 
@@ -229,6 +208,7 @@ impl LogEntryBuilder {
     }
 }
 
+#[derive(Serialize)]
 struct EntryHmacBuilder<'a> {
     realm: RealmId,
     group: GroupId,
@@ -242,50 +222,8 @@ impl<'a> EntryHmacBuilder<'a> {
     fn calculate(&self, key: &MacKey) -> Blake2sMac256 {
         let mut mac = Blake2sMac256::new_with_salt_and_personal(&key.0, &[], b"entry")
             .expect("failed to initialize Blake2sMac");
-        mac.update(b"entry|");
-        mac.update(&self.realm.0);
-        mac.update(b"|");
-        mac.update(&self.group.0);
-        mac.update(b"|");
-        mac.update(&self.index.0.to_be_bytes());
-        mac.update(b"|");
-
-        match self.partition {
-            Some(p) => {
-                mac.update(&p.range.start.0);
-                mac.update(b"|");
-                mac.update(&p.range.end.0);
-                mac.update(b"|");
-                mac.update(&p.root_hash.0);
-            }
-            None => mac.update(b"none|none|none"),
-        }
-
-        mac.update(b"|");
-
-        match self.transferring_out {
-            Some(TransferringOut {
-                destination,
-                partition,
-                at,
-            }) => {
-                mac.update(&destination.0);
-                mac.update(b"|");
-                mac.update(&partition.range.start.0);
-                mac.update(b"|");
-                mac.update(&partition.range.end.0);
-                mac.update(b"|");
-                mac.update(&partition.root_hash.0);
-                mac.update(b"|");
-                mac.update(&at.0.to_be_bytes());
-            }
-            None => {
-                mac.update(b"none|none|none|none|none");
-            }
-        }
-
-        mac.update(b"|");
-        mac.update(&self.prev_hmac.0);
+        ciborium::ser::into_writer(self, DigestWriter(&mut mac))
+            .expect("failed to serialize EntryHmacBuilder");
         mac
     }
 
@@ -323,6 +261,7 @@ impl TransferNonce {
     }
 }
 
+#[derive(Serialize)]
 struct TransferStatementBuilder<'a> {
     realm: RealmId,
     partition: &'a Partition,
@@ -334,18 +273,8 @@ impl<'a> TransferStatementBuilder<'a> {
     fn calculate(&self, key: &MacKey) -> Blake2sMac256 {
         let mut mac = Blake2sMac256::new_with_salt_and_personal(&key.0, &[], b"transfer")
             .expect("failed to initialize Blake2sMac");
-        mac.update(b"transfer|");
-        mac.update(&self.realm.0);
-        mac.update(b"|");
-        mac.update(&self.partition.range.start.0);
-        mac.update(b"|");
-        mac.update(&self.partition.range.end.0);
-        mac.update(b"|");
-        mac.update(&self.partition.root_hash.0);
-        mac.update(b"|");
-        mac.update(&self.destination.0);
-        mac.update(b"|");
-        mac.update(&self.nonce.0);
+        ciborium::ser::into_writer(self, DigestWriter(&mut mac))
+            .expect("failed to serialize TransferStatementBuilder");
         mac
     }
 
@@ -355,6 +284,21 @@ impl<'a> TransferStatementBuilder<'a> {
 
     fn verify(&self, key: &MacKey, statement: &TransferStatement) -> Result<(), digest::MacError> {
         self.calculate(key).verify(&statement.0.into())
+    }
+}
+
+pub struct DigestWriter<'a, D: digest::Update>(pub &'a mut D);
+
+impl<'a, D: digest::Update> ciborium_io::Write for DigestWriter<'a, D> {
+    type Error = ();
+
+    fn write_all(&mut self, data: &[u8]) -> Result<(), Self::Error> {
+        self.0.update(data);
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
@@ -374,6 +318,7 @@ impl NodeHasher for MerkleHasher {
 }
 
 /// A private key used to encrypt/decrypt record values.
+#[derive(Serialize)]
 pub struct RecordEncryptionKey([u8; 32]);
 
 impl RecordEncryptionKey {
@@ -405,6 +350,7 @@ pub struct HsmOptions {
     pub metrics: MetricsReporting,
 }
 
+#[derive(Serialize)]
 pub struct RealmKeys {
     pub communication: (x25519::StaticSecret, x25519::PublicKey),
     pub record: RecordEncryptionKey,
@@ -2120,6 +2066,24 @@ mod test {
     use super::super::merkle::NodeHashBuilder;
     use super::types::{DataHash, EntryHmac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT};
     use super::*;
+
+    #[test]
+    fn group_config_statement_builder() {
+        let mut b = GroupConfigurationStatementBuilder {
+            realm: RealmId([1; 16]),
+            group: GroupId([2; 16]),
+            configuration: &GroupConfiguration::from_local(&HsmId([5; 16])),
+        };
+        let k = MacKey([32; 32]);
+        let s1 = b.build(&k);
+        let k2 = MacKey([31; 32]);
+        let s2 = b.build(&k2);
+        assert_ne!(s1.0, s2.0);
+
+        b.group = GroupId([3; 16]);
+        let s3 = b.build(&k);
+        assert_ne!(s1.0, s3.0);
+    }
 
     #[test]
     fn test_store_key_parse_data_hash() {
