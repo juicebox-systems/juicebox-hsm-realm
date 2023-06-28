@@ -142,6 +142,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 blake2 = { workspace = true }
 bytes = { workspace = true }
+ciborium = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
 digest = { workspace = true }

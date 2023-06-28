@@ -6,7 +6,7 @@ use hsm_types::{
     GroupConfigurationStatement, GroupId, HsmId, HsmRealmStatement, LogIndex, OwnedRange,
     Partition, RecordId, TransferNonce, TransferStatement,
 };
-use hsmcore::hsm::types as hsm_types;
+use hsmcore::hsm::{types as hsm_types, DigestWriter};
 use juicebox_sdk_core::{
     requests::{ClientRequestKind, NoiseRequest, NoiseResponse},
     types::{RealmId, SessionId},
@@ -339,18 +339,26 @@ pub enum AppResponse {
 }
 
 pub fn make_record_id(tenant: &str, user: &str) -> RecordId {
-    let mut h = Blake2s256::new();
-    // TODO: deal with possibility of b'|' and other special characters
-    // occurring in `tenant` and `user`.
-    //
     // TODO: maybe this should be a MAC with a per-realm key so that tenants
     // can't cause unbalanced Merkle trees (the same way hash tables are
     // randomized).
     //
     // TODO: we may need a way to enumerate all the users for a given tenant if
     // that tenant wanted to delete all their data.
-    h.update(tenant);
-    h.update(b"|");
-    h.update(user);
-    RecordId(h.finalize().into())
+    RecordIdBuilder { tenant, user }.build()
+}
+
+#[derive(Serialize)]
+struct RecordIdBuilder<'a> {
+    tenant: &'a str,
+    user: &'a str,
+}
+
+impl<'a> RecordIdBuilder<'a> {
+    fn build(&self) -> RecordId {
+        let mut h = Blake2s256::new();
+        ciborium::ser::into_writer(self, DigestWriter(&mut h))
+            .expect("failed to serialize RecordIdBuilder");
+        RecordId(h.finalize().into())
+    }
 }
