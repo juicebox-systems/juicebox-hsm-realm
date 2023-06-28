@@ -18,6 +18,7 @@ use crate::metrics;
 use crate::metrics_tag as tag;
 use crate::realm::merkle::agent::TreeStoreReader;
 use hsmcore::bitvec::Bits;
+use hsmcore::hash::{HashMap as HsmHashMap, HashSet as HsmHashSet, NotRandomized};
 use hsmcore::hsm::cache;
 use hsmcore::hsm::types::{DataHash, GroupId, RecordId};
 use hsmcore::merkle::agent::{all_store_key_starts, Node, NodeKey, StoreKey, TreeStoreError};
@@ -45,7 +46,8 @@ impl cache::Clock for MonotonicClock {
 type CacheStats = cache::Stats<Instant>;
 
 /// Non-threadsafe Merkle node cache.
-type NodeCache = cache::Cache<StoreKey, Vec<u8>, MonotonicClock>;
+type NodeCache =
+    cache::Cache<StoreKey, Vec<u8>, MonotonicClock, std::collections::hash_map::RandomState>;
 
 /// Sharable and cheaply cloneable Merkle node cache.
 #[derive(Clone)]
@@ -88,7 +90,7 @@ impl StoreClient {
         &self,
         realm: &RealmId,
         group: &GroupId,
-        add: hashbrown::HashMap<NodeKey<DataHash>, Node<DataHash>>,
+        add: HsmHashMap<NodeKey<DataHash>, Node<DataHash>, NotRandomized>,
     ) -> Result<(), MutateRowsError> {
         if add.is_empty() {
             return Ok(());
@@ -174,7 +176,7 @@ impl StoreClient {
         &self,
         realm: &RealmId,
         group: &GroupId,
-        remove: hashbrown::HashSet<NodeKey<DataHash>>,
+        remove: HsmHashSet<NodeKey<DataHash>, NotRandomized>,
     ) -> Result<(), MutateRowsError> {
         if remove.is_empty() {
             return Ok(());

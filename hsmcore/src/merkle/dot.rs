@@ -8,13 +8,13 @@ use alloc::vec::Vec;
 use async_recursion::async_recursion;
 use async_trait::async_trait;
 use core::fmt::{Display, Write};
-use hashbrown::HashMap;
 use std::path::Path;
 use std::{fs, io};
 
 use super::agent::{Node, StoreKey, TreeStoreError};
 use super::{Bits, Branch, Dir, HashOutput, KeyVec};
 use crate::bitvec::{BitVec, DisplayBits};
+use crate::hash::HashMap;
 use crate::hsm::types::RecordId;
 use juicebox_sdk_core::types::RealmId;
 

@@ -12,7 +12,9 @@ clap = { workspace = true }
 ctrlc = { workspace = true }
 entrust_api = { path = "../entrust_api" }
 entrust_nfast = { path = "../entrust_nfast" }
+hsmcore = { workspace = true }
 juicebox_hsm = { path = ".." }
+rand_core = { workspace = true, features = ["getrandom"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }

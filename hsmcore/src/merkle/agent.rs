@@ -2,12 +2,12 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use hashbrown::{HashMap, HashSet}; // TODO: randomize hasher
 use serde::{Deserialize, Serialize};
 
 use super::super::hsm::types::RecordId;
 use super::Bits;
 use super::{base128, HashOutput, InteriorNode, KeyVec, LeafNode};
+use crate::hash::{HashExt, HashMap, HashSet, NotRandomized};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Node<HO> {
@@ -31,9 +31,17 @@ pub enum TreeStoreError {
 #[non_exhaustive]
 pub struct StoreDelta<HO: HashOutput> {
     /// New nodes to be added.
-    pub add: HashMap<NodeKey<HO>, Node<HO>>,
+    ///
+    /// This map doesn't need mitigation from HashDoS attacks because it's
+    /// produced by the HSMs from Merkle tree modifications. The agents trust
+    /// the HSMs. Plus, the node hashes do not depend on user input, since a
+    /// random nonce is rolled up into them.
+    ///
+    /// It's best to avoid randomization here for performance. This and the
+    /// `remove` set are created when processing every tree update.
+    pub add: HashMap<NodeKey<HO>, Node<HO>, NotRandomized>,
     /// Existing nodes to be removed.
-    pub remove: HashSet<NodeKey<HO>>,
+    pub remove: HashSet<NodeKey<HO>, NotRandomized>,
 }
 
 impl<HO: HashOutput> Default for StoreDelta<HO> {
@@ -66,8 +74,8 @@ impl<HO: HashOutput> StoreDelta<HO> {
 
 #[derive(Default)]
 pub struct DeltaBuilder<HO> {
-    to_add: HashMap<NodeKey<HO>, Node<HO>>,
-    to_remove: HashSet<NodeKey<HO>>,
+    to_add: HashMap<NodeKey<HO>, Node<HO>, NotRandomized>,
+    to_remove: HashSet<NodeKey<HO>, NotRandomized>,
 }
 impl<HO: HashOutput> DeltaBuilder<HO> {
     pub fn new() -> Self {

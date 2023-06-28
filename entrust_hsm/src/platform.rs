@@ -34,12 +34,16 @@ impl NCipher {
             .map_err(|e| WorldSignerError::FailedToLoad { status: e.status() })?;
         match unsafe { reply.reply.getworldsigners.n_sigs } {
             0 => Err(WorldSignerError::NoWorldSigner),
-            1 => Ok(NCipher {
-                world_signer: unsafe { (*reply.reply.getworldsigners.sigs).hash },
+            1 => {
+                let world_signer = unsafe { (*reply.reply.getworldsigners.sigs).hash };
                 // This doesn't use a full 8192 byte block in case the hsm side has the same issue
                 // as the host API with larger responses where they go exceptionally slow.
-                rng: BlockRng::new(8000, NCipherRngFiller),
-            }),
+                hsmcore::hash::set_global_rng_owned(BlockRng::new(8000, NCipherRngFiller));
+                Ok(NCipher {
+                    world_signer,
+                    rng: BlockRng::new(8000, NCipherRngFiller),
+                })
+            }
             _ => Err(WorldSignerError::TooManyWorldSigners),
         }
     }
@@ -115,6 +119,8 @@ impl BlockRngFiller for NCipherRngFiller {
         }
     }
 }
+
+impl rand_core::CryptoRng for BlockRng<NCipherRngFiller> {}
 
 impl rand_core::CryptoRng for NCipher {}
 

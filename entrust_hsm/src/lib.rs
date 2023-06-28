@@ -11,13 +11,13 @@ extern crate alloc;
 
 use alloc::{format, string::String, vec, vec::Vec};
 use core::cmp::min;
-use hashbrown::HashMap;
 use x25519_dalek as x25519;
 
 use entrust_api::{
     ChunkCount, ChunkNumber, KeyRole, SEEJobRequestType, SEEJobResponseType, StartRequest,
     StartResponse, Ticket, Trailer,
 };
+use hsmcore::hash::{HashExt, HashMap, NotRandomized};
 use hsmcore::hsm::{Hsm, HsmOptions, MacKey, MetricsReporting, RealmKeys, RecordEncryptionKey};
 use juicebox_sdk_marshalling as marshalling;
 use platform::{transact, NCipher, SeeError};
@@ -51,7 +51,23 @@ pub extern "C" fn rust_main() -> isize {
 
 // SEEJobs deals with chunked responses, and handling requests to get the chunks.
 struct SEEJobs {
-    response_chunks: HashMap<ChunkNumber, Vec<u8>>,
+    /// Queue of chunks (packets) of response data to return to the agent.
+    ///
+    /// # Security note
+    ///
+    /// This map doesn't need mitigation from HashDoS attacks because, even if
+    /// the agent fully controlled the chunk numbers, it could only DoS its own
+    /// HSM. Agents have plenty of other ways to DoS their own HSM. The chunk
+    /// numbers are assigned by a counter within the HSM as the HSM generates
+    /// new responses (bigger responses cause more chunks). A correct agent
+    /// reads the responses, thereby emptying out the map.
+    ///
+    /// This hash table is created before the HSM "Platform" has been
+    /// initialized, which provides the normal way to access the hardware RNG.
+    /// That inconvenience is why it's not randomized. The code could be
+    /// refactored to access the RNG earlier in the initialization process, but
+    /// that doesn't seem worth the trouble/risk.
+    response_chunks: HashMap<ChunkNumber, Vec<u8>, NotRandomized>,
     next_chunk: ChunkNumber,
 }
 

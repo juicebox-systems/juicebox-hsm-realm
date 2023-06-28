@@ -2,8 +2,8 @@ extern crate alloc;
 
 use alloc::collections::BTreeMap;
 use core::fmt::Debug;
-use core::hash::Hash;
-use hashbrown::HashMap; // TODO: randomize hasher
+use core::hash::{BuildHasher, Hash};
+use hashbrown::HashMap;
 
 /// Reports the current time so that the cache can determine relative age.
 ///
@@ -50,17 +50,18 @@ where
 /// A simple LRU cache.
 ///
 /// It's `O(log(N))` but not particularly efficient.
-pub struct Cache<K, V, C: Clock = LogicalClock> {
-    map: HashMap<K, (C::Time, V)>,
+pub struct Cache<K, V, C: Clock, H> {
+    map: HashMap<K, (C::Time, V), H>,
     lru: BTreeMap<C::Time, K>,
     clock: C,
     limit: usize,
 }
 
-impl<K, V, C> Cache<K, V, C>
+impl<K, V, C, H> Cache<K, V, C, H>
 where
     K: Clone + Eq + Hash,
     C: Clock,
+    H: BuildHasher + Default,
 {
     pub fn new(limit: usize) -> Self
     where
@@ -68,7 +69,7 @@ where
     {
         assert!(limit > 0);
         Self {
-            map: HashMap::new(),
+            map: HashMap::with_hasher(H::default()),
             lru: BTreeMap::new(),
             clock: C::default(),
             limit,
@@ -146,9 +147,13 @@ where
 mod tests {
     use super::*;
 
+    use std::collections::hash_map::RandomState;
+
+    type FloatCache = Cache<char, f64, LogicalClock, RandomState>;
+
     #[test]
     fn test_basic() {
-        let mut cache: Cache<char, f64> = Cache::new(3);
+        let mut cache = FloatCache::new(3);
         cache.insert('4', 4.0); // t=1
         cache.insert('1', 1.0); // t=2
         cache.insert('3', 3.0); // t=3
@@ -194,7 +199,7 @@ mod tests {
 
     #[test]
     fn test_tiny() {
-        let mut cache: Cache<char, f64> = Cache::new(1);
+        let mut cache = FloatCache::new(1);
         cache.insert('1', 1.0);
         cache.insert('3', 3.0);
         assert_eq!(cache.remove(&'1'), None);
@@ -205,7 +210,7 @@ mod tests {
 
     #[test]
     fn test_get() {
-        let mut cache: Cache<char, f64> = Cache::new(2);
+        let mut cache = FloatCache::new(2);
         cache.insert('1', 1.0);
         cache.insert('3', 3.0);
         assert_eq!(cache.get(&'1'), Some(&1.0));

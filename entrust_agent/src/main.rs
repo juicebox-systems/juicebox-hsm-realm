@@ -118,6 +118,20 @@ async fn main() {
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
     let metrics = metrics::Client::new("entrust_agent");
 
+    // The HSM is compiled with `no_std`, so it uses the hashbrown create
+    // directly for hash tables. This call registers a global RNG to randomize
+    // any HSM-style hash tables that might be created on this agent (outside
+    // the HSM). Without this call, if this agent accidentally instantiated an
+    // HSM-style hash table, it would panic. With this call, it will only incur
+    // a performance penalty.
+    //
+    // Note that it's practically difficult to determine in testing if this
+    // agent might possibly instantiate an HSM-style hash table. The "software
+    // agent" embeds a local "software HSM", so it registers the global
+    // handler. We don't run as many tests with this Entrust-specific agent,
+    // since it requires an actual HSM.
+    hsmcore::hash::set_global_rng_owned(rand_core::OsRng);
+
     let auth_manager = if args.bigtable.needs_auth() {
         Some(
             google_auth::from_adc()
