@@ -4,13 +4,12 @@ use alloc::borrow::Cow;
 use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::vec::Vec;
-use blake2::Blake2s256;
+use blake2::{Blake2s256, Blake2sMac256};
 use chacha20poly1305::aead::Aead;
 use core::fmt::{self, Debug};
 use core::time::Duration;
-use digest::Digest;
+use digest::{Digest, Mac};
 use hashbrown::{hash_map::Entry, HashMap}; // TODO: randomize hasher
-use hmac::{Mac, SimpleHmac};
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace, warn};
 use x25519_dalek as x25519;
@@ -61,7 +60,7 @@ use types::{
 const SESSION_LIFETIME: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Deserialize, Serialize)]
-pub struct MacKey(#[serde(with = "bytes")] [u8; 64]);
+pub struct MacKey(#[serde(with = "bytes")] [u8; 32]);
 
 impl fmt::Debug for MacKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -69,8 +68,8 @@ impl fmt::Debug for MacKey {
     }
 }
 
-impl From<[u8; 64]> for MacKey {
-    fn from(key: [u8; 64]) -> Self {
+impl From<[u8; 32]> for MacKey {
+    fn from(key: [u8; 32]) -> Self {
         Self(key)
     }
 }
@@ -104,8 +103,9 @@ struct GroupConfigurationStatementBuilder<'a> {
 }
 
 impl<'a> GroupConfigurationStatementBuilder<'a> {
-    fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
-        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0.into());
+    fn calculate(&self, key: &MacKey) -> Blake2sMac256 {
+        let mut mac = Blake2sMac256::new_with_salt_and_personal(&key.0, &[], b"groupc")
+            .expect("failed to initialize Blake2sMac");
         mac.update(b"group configuration|");
         mac.update(&self.realm.0);
         mac.update(b"|");
@@ -137,8 +137,9 @@ struct HsmRealmStatementBuilder<'a> {
 }
 
 impl<'a> HsmRealmStatementBuilder<'a> {
-    fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
-        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0.into());
+    fn calculate(&self, key: &MacKey) -> Blake2sMac256 {
+        let mut mac = Blake2sMac256::new_with_salt_and_personal(&key.0, &[], b"realm")
+            .expect("failed to initialize Blake2sMac");
         mac.update(b"hsm realm|");
         mac.update(&self.realm.0);
         mac.update(b"|");
@@ -172,8 +173,9 @@ struct CapturedStatementBuilder<'a> {
 }
 
 impl<'a> CapturedStatementBuilder<'a> {
-    fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
-        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0.into());
+    fn calculate(&self, key: &MacKey) -> Blake2sMac256 {
+        let mut mac = Blake2sMac256::new_with_salt_and_personal(&key.0, &[], b"capture")
+            .expect("failed to initialize Blake2sMac");
         mac.update(b"captured|");
         mac.update(&self.hsm.0);
         mac.update(b"|");
@@ -237,8 +239,9 @@ struct EntryHmacBuilder<'a> {
 }
 
 impl<'a> EntryHmacBuilder<'a> {
-    fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
-        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0.into());
+    fn calculate(&self, key: &MacKey) -> Blake2sMac256 {
+        let mut mac = Blake2sMac256::new_with_salt_and_personal(&key.0, &[], b"entry")
+            .expect("failed to initialize Blake2sMac");
         mac.update(b"entry|");
         mac.update(&self.realm.0);
         mac.update(b"|");
@@ -328,8 +331,9 @@ struct TransferStatementBuilder<'a> {
 }
 
 impl<'a> TransferStatementBuilder<'a> {
-    fn calculate(&self, key: &MacKey) -> SimpleHmac<Blake2s256> {
-        let mut mac = SimpleHmac::<Blake2s256>::new(&key.0.into());
+    fn calculate(&self, key: &MacKey) -> Blake2sMac256 {
+        let mut mac = Blake2sMac256::new_with_salt_and_personal(&key.0, &[], b"transfer")
+            .expect("failed to initialize Blake2sMac");
         mac.update(b"transfer|");
         mac.update(&self.realm.0);
         mac.update(b"|");

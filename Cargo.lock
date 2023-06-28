@@ -1250,7 +1250,6 @@ dependencies = [
  "digest",
  "generic-array",
  "hashbrown 0.13.2",
- "hmac",
  "hsmcore",
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
