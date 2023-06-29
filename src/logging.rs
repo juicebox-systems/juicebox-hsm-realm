@@ -1,9 +1,9 @@
-use is_terminal::IsTerminal;
 use opentelemetry::sdk::propagation::TraceContextPropagator;
 use opentelemetry::sdk::trace::{Sampler, ShouldSample};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
+use std::io::IsTerminal;
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
