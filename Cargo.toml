@@ -69,7 +69,6 @@ hsmcore = { path = "hsmcore" }
 http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
-is-terminal = "0.4.7"
 jsonwebtoken = { version = "8.3.0", default-features = false }
 libc = { version = "0.2.139", default-features = false }
 juicebox-sdk = { path = "sdk/rust/sdk/client", features = ["tokio"] }
@@ -154,7 +153,6 @@ hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-is-terminal = { workspace = true }
 jsonwebtoken = { workspace = true }
 libc = { workspace = true }
 juicebox-sdk = { workspace = true }

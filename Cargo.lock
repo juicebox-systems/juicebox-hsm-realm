@@ -1645,7 +1645,6 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "is-terminal",
  "jsonwebtoken",
  "juicebox-sdk",
  "juicebox-sdk-core",
