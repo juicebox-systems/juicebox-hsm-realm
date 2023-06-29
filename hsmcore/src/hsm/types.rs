@@ -204,9 +204,9 @@ pub struct LogEntry {
     /// A copy of the `entry_hmac` field of the entry preceding this one.
     ///
     /// For the first entry in the log, this is [`EntryHmac::zero`].
-    pub prev_hmac: EntryHmac,
+    pub prev_hmac: EntryMac,
     /// Allows HSMs to check the authenticity of the entry.
-    pub entry_hmac: EntryHmac,
+    pub entry_hmac: EntryMac,
     // TODO: these may be needed for log compaction:
     // pub committed: LogIndex,
     // pub committed_statement: CommittedStatement,
@@ -238,21 +238,21 @@ pub struct TransferringOut {
 // The PartialEq impl produces the same output as a derived version would.
 // But we can't use the derived one as we want a constant time compare.
 #[allow(clippy::derived_hash_with_manual_eq)]
-pub struct EntryHmac(#[serde(with = "bytes")] pub [u8; 32]);
+pub struct EntryMac(#[serde(with = "bytes")] pub [u8; 32]);
 
-impl EntryHmac {
+impl EntryMac {
     pub fn zero() -> Self {
         Self([0; 32])
     }
 }
 
-impl PartialEq for EntryHmac {
+impl PartialEq for EntryMac {
     fn eq(&self, other: &Self) -> bool {
         self.0.ct_eq(&other.0).into()
     }
 }
 
-impl fmt::Debug for EntryHmac {
+impl fmt::Debug for EntryMac {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in self.0 {
             write!(f, "{byte:02x}")?;
@@ -527,7 +527,7 @@ pub struct GroupStatus {
     /// This is guaranteed to advance monotonically, even across power outages.
     /// The HSM guarantees that the entry MAC was valid and chained back to the
     /// previous log entries it had seen.
-    pub captured: Option<(LogIndex, EntryHmac)>,
+    pub captured: Option<(LogIndex, EntryMac)>,
     /// If the HSM is acting as leader for the group, this provides more
     /// information.
     ///
@@ -1007,7 +1007,7 @@ pub struct Captured {
     /// The index of the captured log entry.
     pub index: LogIndex,
     /// The `entry_hmac` field of the captured log entry.
-    pub hmac: EntryHmac,
+    pub hmac: EntryMac,
     /// A MAC over all the fields above.
     ///
     /// This is given to the group's leader as proof that a majority of the
@@ -1043,7 +1043,7 @@ pub enum CommitResponse {
         ///
         /// These responses may now be returned to the respective clients whose
         /// requests caused the log entries to be created.
-        responses: Vec<(EntryHmac, NoiseResponse)>,
+        responses: Vec<(EntryMac, NoiseResponse)>,
         /// The HSM's latest role in this group.
         ///
         /// This is normally the leader role. However, if the HSM was stepping

@@ -41,7 +41,7 @@ use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, Metrics
 use types::{
     AppError, AppRequest, AppRequestType, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CaptureNextRequest, CaptureNextResponse, Captured, CapturedStatement, CompleteTransferRequest,
-    CompleteTransferResponse, DataHash, EntryHmac, GroupConfigurationStatement, GroupId,
+    CompleteTransferResponse, DataHash, EntryMac, GroupConfigurationStatement, GroupId,
     GroupMemberRole, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId, HsmRealmStatement,
     JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus,
     LogEntry, LogIndex, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
@@ -156,7 +156,7 @@ struct CapturedStatementBuilder<'a> {
     realm: RealmId,
     group: GroupId,
     index: LogIndex,
-    entry_hmac: &'a EntryHmac,
+    entry_hmac: &'a EntryMac,
 }
 
 impl<'a> CapturedStatementBuilder<'a> {
@@ -183,7 +183,7 @@ struct LogEntryBuilder {
     pub index: LogIndex,
     pub partition: Option<Partition>,
     pub transferring_out: Option<TransferringOut>,
-    pub prev_hmac: EntryHmac,
+    pub prev_hmac: EntryMac,
 }
 
 impl LogEntryBuilder {
@@ -215,7 +215,7 @@ struct EntryHmacBuilder<'a> {
     index: LogIndex,
     partition: &'a Option<Partition>,
     transferring_out: &'a Option<TransferringOut>,
-    prev_hmac: &'a EntryHmac,
+    prev_hmac: &'a EntryMac,
 }
 
 impl<'a> EntryHmacBuilder<'a> {
@@ -227,11 +227,11 @@ impl<'a> EntryHmacBuilder<'a> {
         mac
     }
 
-    fn build(&self, key: &MacKey) -> EntryHmac {
-        EntryHmac(self.calculate(key).finalize().into_bytes().into())
+    fn build(&self, key: &MacKey) -> EntryMac {
+        EntryMac(self.calculate(key).finalize().into_bytes().into())
     }
 
-    fn verify(&self, key: &MacKey, hmac: &EntryHmac) -> Result<(), digest::MacError> {
+    fn verify(&self, key: &MacKey, hmac: &EntryMac) -> Result<(), digest::MacError> {
         self.calculate(key).verify(&hmac.0.into())
     }
 
@@ -373,12 +373,12 @@ struct PersistentRealmState {
 #[derive(Clone, Deserialize, Serialize)]
 struct PersistentGroupState {
     configuration: GroupConfiguration,
-    captured: Option<(LogIndex, EntryHmac)>,
+    captured: Option<(LogIndex, EntryMac)>,
 }
 
 struct VolatileState {
     leader: HashMap<GroupId, LeaderVolatileGroupState>,
-    captured: HashMap<GroupId, (LogIndex, EntryHmac)>,
+    captured: HashMap<GroupId, (LogIndex, EntryMac)>,
     // A Group can be in leader, stepping_down or neither. Its never in both leader & stepping_down.
     stepping_down: HashMap<GroupId, SteppingDownVolatileGroupState>,
 }
@@ -565,7 +565,7 @@ impl<P: Platform> Hsm<P> {
             .map_err(|_| PersistenceError::InvalidRealmStatement)?;
         }
 
-        let captured: HashMap<GroupId, (LogIndex, EntryHmac)> = persistent
+        let captured: HashMap<GroupId, (LogIndex, EntryMac)> = persistent
             .realm
             .iter()
             .flat_map(|r| r.groups.iter())
@@ -777,7 +777,7 @@ impl<P: Platform> Hsm<P> {
                 index: LogIndex::FIRST,
                 partition: Some(Partition { range, root_hash }),
                 transferring_out: None,
-                prev_hmac: EntryHmac::zero(),
+                prev_hmac: EntryMac::zero(),
             }
             .build(&self.realm_keys.mac);
 
@@ -918,7 +918,7 @@ impl<P: Platform> Hsm<P> {
                 index: LogIndex::FIRST,
                 partition: None,
                 transferring_out: None,
-                prev_hmac: EntryHmac::zero(),
+                prev_hmac: EntryMac::zero(),
             }
             .build(&self.realm_keys.mac);
 
@@ -1039,7 +1039,7 @@ impl<P: Platform> Hsm<P> {
                                 if entry.index != LogIndex::FIRST {
                                     return Response::MissingPrev;
                                 }
-                                if entry.prev_hmac != EntryHmac::zero() {
+                                if entry.prev_hmac != EntryMac::zero() {
                                     return Response::InvalidChain;
                                 }
                             }
@@ -2064,7 +2064,7 @@ mod test {
     use super::super::merkle::agent::StoreKey;
     use super::super::merkle::testing::rec_id;
     use super::super::merkle::NodeHashBuilder;
-    use super::types::{DataHash, EntryHmac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT};
+    use super::types::{DataHash, EntryMac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT};
     use super::*;
 
     #[test]
@@ -2119,7 +2119,7 @@ mod test {
                 &id,
             )
             .unwrap(),
-            captured: Some((LogIndex(u64::MAX - 1), EntryHmac([0xff; 32]))),
+            captured: Some((LogIndex(u64::MAX - 1), EntryMac([0xff; 32]))),
         };
         let mut groups = HashMap::new();
         for id in 0..GROUPS_LIMIT {

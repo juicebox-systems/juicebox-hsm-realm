@@ -27,7 +27,7 @@ use url::Url;
 use crate::google_auth::AuthMiddleware;
 use crate::metrics;
 use crate::metrics_tag as tag;
-use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex};
+use hsmcore::hsm::types::{DataHash, EntryMac, GroupId, HsmId, LogEntry, LogIndex};
 use hsmcore::merkle::agent::StoreDelta;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
@@ -302,7 +302,7 @@ pub struct StoreClient {
     // https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2
     bigtable: BigtableClient,
     instance: Instance,
-    last_write: Mutex<Option<(RealmId, GroupId, LogIndex, EntryHmac)>>,
+    last_write: Mutex<Option<(RealmId, GroupId, LogIndex, EntryMac)>>,
     metrics: metrics::Client,
     merkle_cache: merkle::Cache,
 }

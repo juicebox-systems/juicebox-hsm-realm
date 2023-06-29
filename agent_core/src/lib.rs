@@ -27,7 +27,7 @@ pub use juicebox_hsm::realm::agent::types;
 
 use append::{Append, AppendingState};
 use hsm_types::{
-    CaptureNextRequest, CaptureNextResponse, Captured, EntryHmac, GroupId, HsmId, LogIndex,
+    CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId, LogIndex,
     TransferInProofs,
 };
 use hsmcore::hsm::types as hsm_types;
@@ -94,7 +94,7 @@ struct LeaderState {
 
     /// Used to route responses back to the right client after the HSM commits
     /// a batch of log entries and releases the responses.
-    response_channels: HashMap<EntryHmac, oneshot::Sender<NoiseResponse>>,
+    response_channels: HashMap<EntryMac, oneshot::Sender<NoiseResponse>>,
 
     /// When set the leader is stepping down, and should stop processing once
     /// this log entry is complete.
