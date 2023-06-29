@@ -1709,8 +1709,11 @@ name = "load_balancer"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "blake2",
  "bytes",
+ "ciborium",
  "clap 4.3.0",
+ "digest",
  "dogstatsd",
  "expect-test",
  "futures",
@@ -1725,6 +1728,7 @@ dependencies = [
  "opentelemetry-http",
  "rustls 0.20.8",
  "rustls-pemfile",
+ "serde",
  "signal-hook",
  "tokio",
  "tokio-rustls 0.23.4",
