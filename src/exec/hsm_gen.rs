@@ -64,42 +64,42 @@ impl HsmGenerator {
         bigtable: &bigtable::Args,
         hsm_dir: Option<PathBuf>,
     ) -> (Vec<Url>, PublicKey) {
+        let mode = if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        };
+
         let mut agent_urls = Vec::with_capacity(count);
         let mut next_is_leader = true;
+
         if self.entrust.0 {
             let agent_port = self.port.next();
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
-            let mut cmd = Command::new(format!(
-                "target/{}/entrust-agent",
-                if cfg!(debug_assertions) {
-                    "debug"
-                } else {
-                    "release"
-                }
-            ));
+            let mut cmd = Command::new(format!("target/{mode}/entrust_agent"));
             if metrics.report_metrics(next_is_leader) {
                 cmd.arg("--metrics").arg("1000");
             };
             next_is_leader = false;
             cmd.arg("--listen").arg(agent_address);
+            cmd.arg("--image").arg(format!(
+                "target/powerpc-unknown-linux-gnu/{mode}/entrust-hsm.sar",
+            ));
+            cmd.arg("--userdata").arg(format!(
+                "target/powerpc-unknown-linux-gnu/{mode}/userdata.cpio"
+            ));
             bigtable.add_to_cmd(&mut cmd);
             process_group.spawn(&mut cmd);
             agent_urls.push(agent_url);
             count -= 1;
         }
+
         iter::repeat_with(|| {
             let agent_port = self.port.next();
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
-            let mut cmd = Command::new(format!(
-                "target/{}/software_agent",
-                if cfg!(debug_assertions) {
-                    "debug"
-                } else {
-                    "release"
-                }
-            ));
+            let mut cmd = Command::new(format!("target/{mode}/software_agent"));
             cmd.arg("--key")
                 .arg(&self.secret)
                 .arg("--listen")
