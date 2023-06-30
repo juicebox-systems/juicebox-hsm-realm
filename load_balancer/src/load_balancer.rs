@@ -4,7 +4,6 @@ use bytes::Bytes;
 use digest::Digest;
 use futures::future::join_all;
 use futures::Future;
-use hsmcore::hsm::DigestWriter;
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -28,6 +27,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use hsm_types::{GroupId, OwnedRange};
+use hsmcore::hsm::mac::DigestWriter;
 use hsmcore::hsm::types::{self as hsm_types, RecordId};
 use juicebox_hsm::client_auth::{
     tenant_secret_name, validation::Validator as AuthTokenValidator, AuthKey,

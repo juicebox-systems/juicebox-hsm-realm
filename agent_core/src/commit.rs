@@ -251,8 +251,8 @@ impl<T: Transport + 'static> Agent<T> {
         let mut released_count = 0;
         let mut locked = self.0.state.lock().unwrap();
         if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
-            for (hmac, client_response) in responses {
-                if let Some(sender) = leader.response_channels.remove(&hmac) {
+            for (mac, client_response) in responses {
+                if let Some(sender) = leader.response_channels.remove(&mac.into()) {
                     if sender.send(client_response).is_err() {
                         warn!("dropping response on the floor: client no longer waiting");
                     }

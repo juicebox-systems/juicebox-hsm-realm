@@ -5,8 +5,9 @@ use hashbrown::HashMap;
 use tracing::{info, trace, warn};
 
 use super::super::hal::Platform;
+use super::mac::{CapturedStatementMessage, CtMac};
 use super::types::{Captured, CommitRequest, CommitResponse, GroupMemberRole, HsmId, LogIndex};
-use super::{CapturedStatementBuilder, Hsm, Metrics};
+use super::{Hsm, Metrics};
 
 impl<P: Platform> Hsm<P> {
     pub(super) fn handle_commit(
@@ -39,14 +40,17 @@ impl<P: Platform> Hsm<P> {
 
             let mut election = HsmElection::new(&group.configuration);
             let verify_capture = |captured: &Captured| -> bool {
-                match (CapturedStatementBuilder {
-                    hsm: captured.hsm,
-                    realm: captured.realm,
-                    group: captured.group,
-                    index: captured.index,
-                    entry_hmac: &captured.hmac,
-                }
-                .verify(&self.realm_keys.mac, &captured.statement))
+                match self
+                    .realm_keys
+                    .mac
+                    .captured_mac(&CapturedStatementMessage {
+                        hsm: captured.hsm,
+                        realm: captured.realm,
+                        group: captured.group,
+                        index: captured.index,
+                        entry_mac: &captured.mac,
+                    })
+                    .verify(&captured.statement)
                 {
                     Ok(_) => true,
                     Err(err) => {
@@ -60,13 +64,13 @@ impl<P: Platform> Hsm<P> {
                     && captured.realm == request.realm
                     && verify_capture(captured)
                 {
-                    // Ensure the entry HMAC is valid for this log by checking
+                    // Ensure the entry MAC is valid for this log by checking
                     // it against entries we have. For a new leader this won't
                     // be able to commit until the witnesses catch up to a log
                     // entry written by the new leader.
                     if let Some(offset) = captured.index.0.checked_sub(log[0].entry.index.0) {
                         if let Ok(offset) = usize::try_from(offset) {
-                            if offset < log.len() && log[offset].entry.entry_hmac == captured.hmac {
+                            if offset < log.len() && log[offset].entry.entry_mac == captured.mac {
                                 election.vote(captured.hsm, captured.index);
                             }
                         }
@@ -106,13 +110,13 @@ impl<P: Platform> Hsm<P> {
                     None => panic!("We should never empty leader.log entirely"),
                     Some(e) if e.entry.index < commit_index => {
                         if let Some(r) = e.response {
-                            responses.push((e.entry.entry_hmac, r));
+                            responses.push((e.entry.entry_mac, r));
                         }
                     }
                     Some(mut e) => {
                         assert!(e.entry.index == commit_index);
                         if let Some(r) = e.response.take() {
-                            responses.push((e.entry.entry_hmac.clone(), r));
+                            responses.push((e.entry.entry_mac.clone(), r));
                         }
                         // If there's still something in the log then we
                         // don't need to put this one back. But it seems

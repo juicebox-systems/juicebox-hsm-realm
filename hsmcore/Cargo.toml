@@ -28,6 +28,8 @@ x25519-dalek = { workspace = true }
 [dev-dependencies]
 async-recursion = { workspace = true }
 async-trait = { workspace = true }
+cbor-diag = { workspace = true }
+expect-test = { workspace = true }
 tokio = { workspace = true }
 rand = { workspace = true, features = ["std_rng"] }
 hsmcore = { path = ".", features = ["dot"] }

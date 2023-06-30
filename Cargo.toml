@@ -44,6 +44,7 @@ async-recursion = "1.0.2"
 async-trait = "0.1.64"
 blake2 = { version = "0.10.6", default-features = false }
 bytes = { version = "1.4.0", default-features = false }
+cbor-diag = { version = "0.1.11" }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
     "alloc",
 ] }

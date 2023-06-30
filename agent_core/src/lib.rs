@@ -94,11 +94,26 @@ struct LeaderState {
 
     /// Used to route responses back to the right client after the HSM commits
     /// a batch of log entries and releases the responses.
-    response_channels: HashMap<EntryMac, oneshot::Sender<NoiseResponse>>,
+    response_channels: HashMap<HashableEntryMac, oneshot::Sender<NoiseResponse>>,
 
     /// When set the leader is stepping down, and should stop processing once
     /// this log entry is complete.
     stepdown_at: Option<LogIndex>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct HashableEntryMac(EntryMac);
+
+impl From<EntryMac> for HashableEntryMac {
+    fn from(value: EntryMac) -> Self {
+        HashableEntryMac(value)
+    }
+}
+
+impl std::hash::Hash for HashableEntryMac {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.as_bytes().hash(state);
+    }
 }
 
 impl<T> Clone for Agent<T> {
@@ -704,7 +719,7 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
             Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
             Ok(HsmResponse::StepdownInProgress) => Ok(Response::StepdownInProgress),
-            Ok(HsmResponse::InvalidHmac) => panic!(),
+            Ok(HsmResponse::InvalidMac) => panic!(),
             Ok(HsmResponse::NotCaptured { have }) => Ok(Response::NotCaptured { have }),
         }
     }
@@ -1203,7 +1218,7 @@ impl<T: Transport + 'static> Agent<T> {
 
             leader
                 .response_channels
-                .insert(append_request.entry.entry_hmac.clone(), sender);
+                .insert(append_request.entry.entry_mac.clone().into(), sender);
         }
 
         self.append(realm, group, append_request);

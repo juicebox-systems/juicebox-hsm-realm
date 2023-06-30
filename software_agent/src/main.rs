@@ -16,7 +16,7 @@ use tokio::runtime::Handle;
 use tracing::info;
 
 use agent_core::Agent;
-use hsmcore::hsm::MacKey;
+use hsmcore::hsm::mac::MacKey;
 use juicebox_hsm::clap_parsers::{parse_duration, parse_listen};
 use juicebox_hsm::exec::panic;
 use juicebox_hsm::future_task::FutureTasks;
