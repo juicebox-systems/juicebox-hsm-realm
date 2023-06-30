@@ -38,7 +38,7 @@ pub struct HsmGenerator {
 impl HsmGenerator {
     pub fn new(entrust: Entrust, ports: impl Into<PortIssuer>) -> HsmGenerator {
         let buf = if entrust.0 {
-            "010203".to_string()
+            "(this is not used)".to_string()
         } else {
             let mut v = vec![0; 32];
             OsRng.fill_bytes(&mut v);
@@ -87,7 +87,7 @@ impl HsmGenerator {
                 "target/powerpc-unknown-linux-gnu/{mode}/entrust-hsm.sar",
             ));
             cmd.arg("--userdata").arg(format!(
-                "target/powerpc-unknown-linux-gnu/{mode}/userdata.cpio"
+                "target/powerpc-unknown-linux-gnu/{mode}/userdata.sar"
             ));
             bigtable.add_to_cmd(&mut cmd);
             process_group.spawn(&mut cmd);

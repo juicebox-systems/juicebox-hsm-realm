@@ -32,7 +32,11 @@ struct Args {
     #[arg(long, value_name = "N", default_value_t = 100)]
     count: usize,
 
-    /// Use an entrust HSM/Agent for one of the HSMs and make it the leader.
+    /// Use an entrust HSM/Agent as the only HSM.
+    ///
+    /// You must provide signed machine and userdata files at
+    /// "target/powerpc-unknown-linux-gnu/{mode}/entrust-hsm.sar" and
+    /// "target/powerpc-unknown-linux-gnu/{mode}/userdata.sar".
     #[arg(long, default_value_t = false)]
     entrust: bool,
 
@@ -76,7 +80,14 @@ async fn main() {
     let config = ClusterConfig {
         load_balancers: 1,
         realms: vec![RealmConfig {
-            hsms: 5,
+            hsms: if args.entrust {
+                // Entrust HSMs cannot participate in the same realm as
+                // software HSMs since they (currently) have no way to share
+                // the same secret keys.
+                1
+            } else {
+                5
+            },
             groups: 1,
             metrics: args.metrics,
             state_dir: args.state.clone(),
