@@ -10,6 +10,7 @@ use core::fmt::Debug;
 use core::time::Duration;
 use digest::Digest;
 use hashbrown::{hash_map::Entry, HashMap}; // TODO: randomize hasher
+use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace, warn};
 use x25519_dalek as x25519;
@@ -172,11 +173,27 @@ pub struct HsmOptions {
     pub metrics: MetricsReporting,
 }
 
-#[derive(Serialize)]
 pub struct RealmKeys {
     pub communication: (x25519::StaticSecret, x25519::PublicKey),
     pub record: RecordEncryptionKey,
     pub mac: MacKey,
+}
+
+impl Serialize for RealmKeys {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Serialize)]
+        struct SerializeAsByteArray(#[serde(with = "bytes")] [u8; 32]);
+
+        let mut ts = serializer.serialize_tuple(4)?;
+        ts.serialize_element(&SerializeAsByteArray(*self.communication.0.as_bytes()))?;
+        ts.serialize_element(&SerializeAsByteArray(*self.communication.1.as_bytes()))?;
+        ts.serialize_element(&self.record)?;
+        ts.serialize_element(&self.mac)?;
+        ts.end()
+    }
 }
 
 #[derive(Deserialize, Serialize)]
