@@ -3,7 +3,6 @@ extern crate alloc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::mem;
-use hashbrown::HashMap; // TODO: randomize hasher
 use serde::{Deserialize, Serialize};
 
 use super::super::hsm::types::{OwnedRange, RecordId};
@@ -11,6 +10,7 @@ use super::agent::Node;
 use super::overlay::TreeOverlay;
 use super::Bits;
 use super::{Dir, HashOutput, InteriorNode, KeySlice, KeyVec, LeafNode, NodeHasher};
+use crate::hash::{HashExt, HashMap, NotRandomized};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProofError {
@@ -265,7 +265,16 @@ impl<HO: HashOutput> VerifiedProof<HO> {
         if proof.root_hash == overlay.latest_root {
             return Self::new_already_latest(proof);
         }
-        let mut proof_nodes = HashMap::with_capacity(proof.path.len() + 1);
+
+        // This map doesn't need mitigation from HashDoS attacks because its
+        // keys correspond to a hashes of nodes in a path that's been verified
+        // to be part of the Merkle tree.
+        //
+        // It's best to avoid randomization here for performance. This is
+        // called when processing every record update request.
+        let mut proof_nodes: HashMap<HO, Node<HO>, NotRandomized> =
+            HashMap::with_capacity(proof.path.len() + 1);
+
         let mut old_path = Vec::new();
         mem::swap(&mut old_path, &mut proof.path);
         let old_path_len = old_path.len();

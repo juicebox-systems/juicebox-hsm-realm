@@ -36,13 +36,22 @@ impl NCipher {
             0 => Err(WorldSignerError::NoWorldSigner),
             1 => Ok(NCipher {
                 world_signer: unsafe { (*reply.reply.getworldsigners.sigs).hash },
-                // This doesn't use a full 8192 byte block in case the hsm side has the same issue
-                // as the host API with larger responses where they go exceptionally slow.
-                rng: BlockRng::new(8000, NCipherRngFiller),
+                rng: new_rng(),
             }),
             _ => Err(WorldSignerError::TooManyWorldSigners),
         }
     }
+}
+
+pub fn register_global_rng() {
+    hsmcore::hash::set_global_rng_owned(new_rng());
+}
+
+fn new_rng() -> BlockRng<NCipherRngFiller> {
+    // This doesn't use a full 8192 byte block in case the hsm side has the
+    // same issue as the host API with larger responses where they go
+    // exceptionally slow.
+    BlockRng::new(8000, NCipherRngFiller)
 }
 
 struct BlockRng<F> {
@@ -115,6 +124,8 @@ impl BlockRngFiller for NCipherRngFiller {
         }
     }
 }
+
+impl rand_core::CryptoRng for BlockRng<NCipherRngFiller> {}
 
 impl rand_core::CryptoRng for NCipher {}
 

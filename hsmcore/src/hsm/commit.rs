@@ -1,13 +1,13 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use hashbrown::HashMap;
 use tracing::{info, trace, warn};
 
 use super::super::hal::Platform;
 use super::mac::{CapturedStatementMessage, CtMac};
 use super::types::{Captured, CommitRequest, CommitResponse, GroupMemberRole, HsmId, LogIndex};
 use super::{Hsm, Metrics};
+use crate::hash::{HashMap, NotRandomized};
 
 impl<P: Platform> Hsm<P> {
     pub(super) fn handle_commit(
@@ -155,7 +155,20 @@ impl<P: Platform> Hsm<P> {
 }
 
 pub struct HsmElection {
-    votes: HashMap<HsmId, Option<LogIndex>>,
+    /// State per eligible voter.
+    ///
+    /// # Security note
+    ///
+    /// This map doesn't need mitigation from HashDoS attacks because its keys
+    /// are not user-controlled. This is used as part of commit handling in
+    /// both the HSM and the agent. In the HSM, group creation checks that its
+    /// members share the same secret keys, so their identities are known and
+    /// trusted. In the agent, the configuration comes from the HSM, which it
+    /// trusts.
+    ///
+    /// It's probably best to avoid randomization here for performance. This is
+    /// created when processing a commit request, which could be frequent.
+    votes: HashMap<HsmId, Option<LogIndex>, NotRandomized>,
 }
 
 #[derive(Debug, Eq, PartialEq)]

@@ -39,6 +39,7 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
+ahash = { version = "0.8.3", default-features = false }
 anyhow = "1.0.70"
 async-recursion = "1.0.2"
 async-trait = "0.1.64"
@@ -60,7 +61,10 @@ expect-test = "1.4.1"
 futures = "0.3.25"
 gcp_auth = "0.8.0"
 generic-array = { version = "0.14.7", features = ["serde", "zeroize"] }
-hashbrown = { version = "0.13.2" }
+hashbrown = { version = "0.14.0", default-features = false, features = [
+    "inline-more",
+    "serde",
+] }
 h2 = { version = "0.3.17" }
 hdrhistogram = { version = "7.5.2", default-features = false }
 hex = "0.4.3"
@@ -104,6 +108,11 @@ serde = { version = "1.0.152", default-features = false, features = [
 serde_json = "1.0.94"
 sharks = "0.5.0"
 signal-hook = "0.3.15"
+spin = { version = "0.9.8", default-features = false, features = [
+    "once",
+    "mutex",
+    "spin_mutex",
+] }
 subtle = { version = "2.4.1", default-features = false }
 tempfile = "3.5.0"
 thiserror = "1.0.40"
@@ -189,6 +198,7 @@ criterion = { workspace = true }
 expect-test = { workspace = true }
 hex-literal = { workspace = true }
 once_cell = { workspace = true }
+rand_core = { workspace = true, features = ["getrandom"] }
 rand_chacha = { workspace = true }
 sharks = { workspace = true }
 tempfile = { workspace = true }

@@ -885,8 +885,10 @@ dependencies = [
  "entrust_api",
  "entrust_nfast",
  "expect-test",
+ "hsmcore",
  "juicebox-sdk-marshalling",
  "juicebox_hsm",
+ "rand_core",
  "tokio",
  "tracing 0.2.0",
 ]
@@ -904,7 +906,6 @@ name = "entrust_hsm"
 version = "0.1.0"
 dependencies = [
  "entrust_api",
- "hashbrown 0.13.2",
  "hsmcore",
  "juicebox-sdk-marshalling",
  "rand_core",
@@ -1211,11 +1212,10 @@ checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 
 [[package]]
 name = "hashbrown"
-version = "0.13.2"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43a3c133739dddd0d2990f9a4bdf8eb4b21ef50e4851ca85ab661199821d510e"
+checksum = "2c6201b9ff9fd90a5a3bac2e56a830d0caa509576f0e503818ee82c181b3437a"
 dependencies = [
- "ahash 0.8.3",
  "serde",
 ]
 
@@ -1293,6 +1293,7 @@ dependencies = [
 name = "hsmcore"
 version = "0.1.0"
 dependencies = [
+ "ahash 0.8.3",
  "async-recursion",
  "async-trait",
  "blake2",
@@ -1303,7 +1304,7 @@ dependencies = [
  "digest",
  "expect-test",
  "generic-array",
- "hashbrown 0.13.2",
+ "hashbrown 0.14.0",
  "hsmcore",
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
@@ -1311,6 +1312,7 @@ dependencies = [
  "rand",
  "rand_core",
  "serde",
+ "spin 0.9.8",
  "subtle",
  "tokio",
  "tracing 0.2.0",
@@ -1691,7 +1693,7 @@ dependencies = [
  "expect-test",
  "futures",
  "gcp_auth",
- "hashbrown 0.13.2",
+ "hashbrown 0.14.0",
  "hdrhistogram",
  "hex",
  "hex-literal",
@@ -1714,6 +1716,7 @@ dependencies = [
  "prost-types",
  "rand",
  "rand_chacha",
+ "rand_core",
  "reqwest",
  "secrecy",
  "serde",
@@ -2438,7 +2441,7 @@ dependencies = [
  "cc",
  "libc",
  "once_cell",
- "spin",
+ "spin 0.5.2",
  "untrusted",
  "web-sys",
  "winapi",
@@ -2763,6 +2766,12 @@ name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
+
+[[package]]
+name = "spin"
+version = "0.9.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 
 [[package]]
 name = "static_assertions"

@@ -11,18 +11,18 @@ extern crate alloc;
 
 use alloc::{format, string::String, vec, vec::Vec};
 use core::cmp::min;
-use hashbrown::HashMap;
 use x25519_dalek as x25519;
 
 use entrust_api::{
     ChunkCount, ChunkNumber, KeyRole, SEEJobRequestType, SEEJobResponseType, StartRequest,
     StartResponse, Ticket, Trailer,
 };
+use hsmcore::hash::{HashExt, HashMap};
 use hsmcore::hsm::{
     mac::MacKey, Hsm, HsmOptions, MetricsReporting, RealmKeys, RecordEncryptionKey,
 };
 use juicebox_sdk_marshalling as marshalling;
-use platform::{transact, NCipher, SeeError};
+use platform::{register_global_rng, transact, NCipher, SeeError};
 use seelib::{
     Cmd_Export, Cmd_RedeemTicket, M_ByteBlock, M_Command, M_Hash, M_Status, M_Word,
     SEElib_AwaitJobEx, SEElib_InitComplete, SEElib_ReturnJob, Status_BufferFull,
@@ -39,6 +39,10 @@ pub extern "C" fn rust_main() -> isize {
         SEElib_InitComplete(0);
     }
 
+    // Set up the random number generator early since `SEEJobs` has a
+    // randomized hash table.
+    register_global_rng();
+
     // We process start jobs until we get a successful HSM instance, then start
     // handling application requests.
     let mut seejobs = SEEJobs {
@@ -53,6 +57,7 @@ pub extern "C" fn rust_main() -> isize {
 
 // SEEJobs deals with chunked responses, and handling requests to get the chunks.
 struct SEEJobs {
+    /// Queue of chunks (packets) of response data to return to the agent.
     response_chunks: HashMap<ChunkNumber, Vec<u8>>,
     next_chunk: ChunkNumber,
 }

@@ -9,7 +9,7 @@ use chacha20poly1305::aead::Aead;
 use core::fmt::Debug;
 use core::time::Duration;
 use digest::Digest;
-use hashbrown::{hash_map::Entry, HashMap}; // TODO: randomize hasher
+use hashbrown::hash_map::Entry;
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace, warn};
@@ -34,8 +34,8 @@ use super::merkle::{
     MergeError, NodeHasher, Tree,
 };
 use super::mutation::{MutationTracker, OnMutationFinished};
+use crate::hash::{HashExt, HashMap};
 use app::RecordChange;
-use cache::Cache;
 use configuration::GroupConfiguration;
 use juicebox_sdk_core::{
     requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
@@ -57,6 +57,16 @@ use types::{
     TransferOutResponse, TransferStatementRequest, TransferStatementResponse, TransferringOut,
     CONFIGURATION_LIMIT, GROUPS_LIMIT,
 };
+
+// TODO: This is susceptible to DoS attacks. One user could create many
+// sessions to evict all other users' Noise connections, or one attacker could
+// collect many (currently 511) user accounts to evict all other connections.
+type SessionCache = cache::Cache<
+    (RecordId, SessionId),
+    noise::Transport,
+    cache::LogicalClock,
+    crate::hash::RandomState,
+>;
 
 /// Returned in Noise handshake requests as a hint to the client of how long it
 /// should reuse an inactive session.
@@ -228,7 +238,7 @@ struct LeaderVolatileGroupState {
     incoming: Option<TransferNonce>,
     /// This is `Some` if and only if the last entry in `log` owns a partition.
     tree: Option<Tree<MerkleHasher>>,
-    sessions: Cache<(RecordId, SessionId), noise::Transport>,
+    sessions: SessionCache,
 }
 
 impl LeaderVolatileGroupState {
@@ -245,7 +255,7 @@ impl LeaderVolatileGroupState {
             committed: None,
             incoming: None,
             tree,
-            sessions: Cache::new(usize::from(options.max_sessions)),
+            sessions: SessionCache::new(usize::from(options.max_sessions)),
         }
     }
 }
@@ -602,7 +612,7 @@ impl<P: Platform> Hsm<P> {
                         hsm: self.persistent.id,
                         keys: &self.realm_keys,
                     }),
-                groups: HashMap::from([(
+                groups: HashMap::from_iter([(
                     group,
                     PersistentGroupState {
                         configuration: GroupConfiguration::from_local(&self.persistent.id),
@@ -1827,7 +1837,7 @@ impl NoiseHelper {
         record_id: RecordId,
         session_id: SessionId,
         encrypted: &NoiseRequest,
-        sessions: &mut Cache<(RecordId, SessionId), noise::Transport>,
+        sessions: &mut SessionCache,
         realm_communication: &(x25519::StaticSecret, x25519::PublicKey),
         rng: &mut dyn CryptoRng,
     ) -> Result<(Self, SecretsRequest), AppError> {
@@ -1870,11 +1880,7 @@ impl NoiseHelper {
         ))
     }
 
-    fn encode(
-        self,
-        response: SecretsResponse,
-        sessions: &mut Cache<(RecordId, SessionId), noise::Transport>,
-    ) -> NoiseResponse {
+    fn encode(self, response: SecretsResponse, sessions: &mut SessionCache) -> NoiseResponse {
         // TODO: The SecretsResponse should probably be padded so that the
         // agent doesn't learn from its encrypted length whether the client was
         // successful.
@@ -1911,7 +1917,7 @@ impl NoiseHelper {
 
 #[cfg(test)]
 mod test {
-    use hashbrown::HashMap;
+    use crate::hash::HashMap;
     use juicebox_sdk_core::types::RealmId;
     use juicebox_sdk_marshalling as marshalling;
 

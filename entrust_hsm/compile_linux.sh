@@ -1,6 +1,9 @@
 #!/bin/bash -eux
 set -o pipefail
 
+# cd to script's directory
+cd -P -- "$(dirname -- "$0")"
+
 TARGET=powerpc-unknown-linux-gnu
 
 # Compile Rust code
