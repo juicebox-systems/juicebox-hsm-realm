@@ -283,7 +283,7 @@ impl<const N: usize> fmt::Debug for CtBytes<N> {
 /// - entry's `transferring_out`, and
 /// - entry's `prev_mac`.
 ///
-/// See [super::EntryMacBuilder].
+/// See [super::mac::EntryMacMessage].
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct EntryMac(CtBytes<32>);
 
@@ -432,7 +432,7 @@ pub const GROUPS_LIMIT: u8 = 16;
 
 /// A MAC over a realm ID, group ID, and group configuration.
 ///
-/// See [super::GroupConfigurationStatementBuilder].
+/// See [super::mac::GroupConfigurationStatementMessage].
 #[derive(Clone, Deserialize, Serialize)]
 pub struct GroupConfigurationStatement(CtBytes<32>);
 
@@ -458,7 +458,7 @@ impl From<CtBytes<32>> for GroupConfigurationStatement {
 
 /// A MAC over an HSM ID, a realm ID, and the realm's keys.
 ///
-/// See [super::HsmRealmStatementBuilder].
+/// See [super::mac::HsmRealmStatementMessage].
 #[derive(Clone, Deserialize, Serialize)]
 pub struct HsmRealmStatement(CtBytes<32>);
 
@@ -498,7 +498,7 @@ impl From<[u8; 32]> for HsmRealmStatement {
 /// - log index, and
 /// - entry MAC.
 ///
-/// See [super::CapturedStatementBuilder].
+/// See [super::mac::CapturedStatementMessage].
 #[derive(Clone, Deserialize, Serialize)]
 pub struct CapturedStatement(CtBytes<32>);
 
@@ -554,7 +554,7 @@ impl PartialEq for TransferNonce {
 /// - partition (range of record IDs and hash of root node to transfer), and
 /// - transfer nonce from the destination group.
 ///
-/// See [super::TransferStatementBuilder].
+/// See [super::mac::TransferStatementMessage].
 #[derive(Clone, Deserialize, Serialize)]
 pub struct TransferStatement(CtBytes<32>);
 
