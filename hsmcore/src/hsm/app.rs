@@ -21,7 +21,7 @@ use juicebox_sdk_core::{
 use juicebox_sdk_marshalling as marshalling;
 
 /// Persistent state for a particular user.
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct UserRecord {
     registration_state: RegistrationState,
     // TODO: audit log
@@ -36,14 +36,14 @@ impl UserRecord {
 }
 
 /// Persistent state for a particular registration of a particular user.
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 enum RegistrationState {
     NotRegistered,
     Registered(Box<RegisteredState>),
     NoGuesses,
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct RegisteredState {
     oprf_seed: OprfSeed,
     version: RegistrationVersion,
@@ -89,6 +89,12 @@ fn recover1(
 ) -> (Recover1Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover1 request",);
 
+    // Some of these state's don't alter the user record. However that can leak
+    // a result before the commit by examining the returned store delta. For
+    // those cases we return the UserRecord unchanged so that there's a write
+    // either way. As the leaf is encrypted with a random nonce, the externalized
+    // leaf value will change even when the UserRecord has not.
+    // This applies to recover2 and 3 as well.
     match &user_record.registration_state {
         RegistrationState::Registered(state) if state.guess_count >= state.policy.num_guesses => {
             trace!(
@@ -104,11 +110,11 @@ fn recover1(
                 version: state.version.clone(),
                 salt_share: state.salt_share.clone(),
             },
-            None,
+            Some(user_record),
         ),
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
-            (Recover1Response::NoGuesses, None)
+            (Recover1Response::NoGuesses, Some(user_record))
         }
         RegistrationState::NotRegistered => {
             trace!(
@@ -136,7 +142,7 @@ fn recover2(
                 ?record_id,
                 "can't recover: wrong version"
             );
-            return (Recover2Response::VersionMismatch, None);
+            return (Recover2Response::VersionMismatch, Some(user_record));
         }
         RegistrationState::Registered(state) if state.guess_count >= state.policy.num_guesses => {
             trace!(
@@ -156,7 +162,7 @@ fn recover2(
         }
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
-            return (Recover2Response::NoGuesses, None);
+            return (Recover2Response::NoGuesses, Some(user_record));
         }
         RegistrationState::NotRegistered => {
             trace!(
@@ -207,7 +213,7 @@ fn recover3(
                 ?record_id,
                 "can't recover: wrong version"
             );
-            (Recover3Response::VersionMismatch, None)
+            (Recover3Response::VersionMismatch, Some(user_record))
         }
         RegistrationState::Registered(state) if !bool::from(request.tag.ct_eq(&state.tag)) => {
             trace!(
@@ -216,21 +222,19 @@ fn recover3(
                 "can't recover: bad unlock tag"
             );
             let guesses_remaining = state.policy.num_guesses - state.guess_count;
-            let mut user_record_out = None;
 
             if guesses_remaining == 0 {
                 user_record.registration_state = RegistrationState::NoGuesses;
-                user_record_out = Some(user_record);
             }
 
             (
                 Recover3Response::BadUnlockTag { guesses_remaining },
-                user_record_out,
+                Some(user_record),
             )
         }
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
-            (Recover3Response::NoGuesses, None)
+            (Recover3Response::NoGuesses, Some(user_record))
         }
         RegistrationState::Registered(state) => {
             state.guess_count = 0;
@@ -363,7 +367,7 @@ mod test {
         let (response, user_record_out) = recover1(
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(
             response,
@@ -372,7 +376,7 @@ mod test {
                 salt_share: salt_share()
             }
         );
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -383,10 +387,10 @@ mod test {
         let (response, user_record_out) = recover1(
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(response, Recover1Response::NoGuesses);
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -438,10 +442,10 @@ mod test {
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
             request,
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(response, Recover2Response::VersionMismatch,);
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -457,10 +461,10 @@ mod test {
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
             request,
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(response, Recover2Response::NoGuesses);
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -516,10 +520,10 @@ mod test {
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
             request,
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(response, Recover3Response::VersionMismatch,);
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -533,7 +537,7 @@ mod test {
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
             request,
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(
             response,
@@ -541,7 +545,7 @@ mod test {
                 guesses_remaining: 1
             }
         );
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -582,10 +586,10 @@ mod test {
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
             request,
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(response, Recover3Response::NoGuesses);
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
