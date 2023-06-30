@@ -865,13 +865,16 @@ impl<P: Platform> Hsm<P> {
                     }
 
                     for entry in request.entries {
-                        if EntryMacMessage::verify_entry(
-                            &self.realm_keys.mac,
-                            request.realm,
-                            request.group,
-                            &entry,
-                        )
-                        .is_err()
+                        if self
+                            .realm_keys
+                            .mac
+                            .log_entry_mac(&EntryMacMessage::new(
+                                request.realm,
+                                request.group,
+                                &entry,
+                            ))
+                            .verify(&entry.entry_mac)
+                            .is_err()
                         {
                             return Response::InvalidMac;
                         }
@@ -967,13 +970,16 @@ impl<P: Platform> Hsm<P> {
                                         have: Some(*captured_index),
                                     };
                                 }
-                                if EntryMacMessage::verify_entry(
-                                    &self.realm_keys.mac,
-                                    request.realm,
-                                    request.group,
-                                    &request.last_entry,
-                                )
-                                .is_err()
+                                if self
+                                    .realm_keys
+                                    .mac
+                                    .log_entry_mac(&EntryMacMessage::new(
+                                        request.realm,
+                                        request.group,
+                                        &request.last_entry,
+                                    ))
+                                    .verify(&request.last_entry.entry_mac)
+                                    .is_err()
                                 {
                                     return Response::InvalidMac;
                                 }

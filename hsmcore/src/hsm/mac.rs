@@ -93,21 +93,15 @@ pub struct EntryMacMessage<'a> {
 }
 
 impl<'a> EntryMacMessage<'a> {
-    pub fn verify_entry(
-        key: &MacKey,
-        realm: RealmId,
-        group: GroupId,
-        entry: &'a LogEntry,
-    ) -> Result<(), digest::MacError> {
-        key.log_entry_mac(&EntryMacMessage {
+    pub fn new(realm: RealmId, group: GroupId, entry: &'a LogEntry) -> Self {
+        EntryMacMessage {
             realm,
             group,
             index: entry.index,
             partition: &entry.partition,
             transferring_out: &entry.transferring_out,
             prev_mac: &entry.prev_mac,
-        })
-        .verify(&entry.entry_mac)
+        }
     }
 }
 
