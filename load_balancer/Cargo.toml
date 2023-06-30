@@ -7,9 +7,12 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
+blake2 = { workspace = true }
 bytes = { workspace = true }
+ciborium = { workspace = true }
 clap = { workspace = true }
 dogstatsd = { workspace = true }
+digest = { workspace = true }
 futures = { workspace = true }
 hsmcore = { workspace = true }
 http-body-util = { workspace = true }
@@ -22,6 +25,7 @@ opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
+serde = { workspace = true }
 signal-hook = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }

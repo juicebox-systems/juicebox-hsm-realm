@@ -18,7 +18,9 @@ use entrust_api::{
     ChunkCount, ChunkNumber, KeyRole, SEEJobRequestType, SEEJobResponseType, StartRequest,
     StartResponse, Ticket, Trailer,
 };
-use hsmcore::hsm::{Hsm, HsmOptions, MacKey, MetricsReporting, RealmKeys, RecordEncryptionKey};
+use hsmcore::hsm::{
+    mac::MacKey, Hsm, HsmOptions, MetricsReporting, RealmKeys, RecordEncryptionKey,
+};
 use juicebox_sdk_marshalling as marshalling;
 use platform::{transact, NCipher, SeeError};
 use seelib::{

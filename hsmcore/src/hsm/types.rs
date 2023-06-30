@@ -1,9 +1,13 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use blake2::Blake2sMac256;
 use core::fmt::{self, Display};
+use core::ops::Deref;
 use core::time::Duration;
+use digest::CtOutput;
 use serde::{Deserialize, Serialize};
+use subtle::{Choice, ConstantTimeEq};
 
 use super::super::bitvec::{BitVec, Bits};
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
@@ -200,12 +204,12 @@ pub struct LogEntry {
     /// group, this field includes some metadata about that. This metadata is
     /// copied to all subsequent log entries until the transfer completes.
     pub transferring_out: Option<TransferringOut>,
-    /// A copy of the `entry_hmac` field of the entry preceding this one.
+    /// A copy of the `entry_mac` field of the entry preceding this one.
     ///
-    /// For the first entry in the log, this is [`EntryHmac::zero`].
-    pub prev_hmac: EntryHmac,
+    /// For the first entry in the log, this is [`EntryMac::zero`].
+    pub prev_mac: EntryMac,
     /// Allows HSMs to check the authenticity of the entry.
-    pub entry_hmac: EntryHmac,
+    pub entry_mac: EntryMac,
     // TODO: these may be needed for log compaction:
     // pub committed: LogIndex,
     // pub committed_statement: CommittedStatement,
@@ -221,6 +225,53 @@ pub struct TransferringOut {
     pub at: LogIndex,
 }
 
+/// A Fixed size array of bytes that are compared in constant time.
+#[derive(Clone, Deserialize, Eq, Serialize)]
+pub struct CtBytes<const N: usize>(#[serde(with = "bytes")] [u8; N]);
+
+impl<const N: usize> CtBytes<N> {
+    pub fn zero() -> Self {
+        CtBytes([0; N])
+    }
+
+    pub fn as_bytes(&self) -> &[u8; N] {
+        &self.0
+    }
+}
+
+impl From<CtOutput<Blake2sMac256>> for CtBytes<32> {
+    fn from(value: CtOutput<Blake2sMac256>) -> Self {
+        CtBytes(value.into_bytes().into())
+    }
+}
+
+impl<const N: usize> From<[u8; N]> for CtBytes<N> {
+    fn from(value: [u8; N]) -> Self {
+        CtBytes(value)
+    }
+}
+
+impl<const N: usize> ConstantTimeEq for CtBytes<N> {
+    fn ct_eq(&self, other: &Self) -> Choice {
+        self.0.ct_eq(&other.0)
+    }
+}
+
+impl<const N: usize> PartialEq for CtBytes<N> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.ct_eq(&other.0).into()
+    }
+}
+
+impl<const N: usize> fmt::Debug for CtBytes<N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
+
 /// A MAC over a log entry, allowing HSMs to check the authenticity of the
 /// entry.
 ///
@@ -230,24 +281,41 @@ pub struct TransferringOut {
 /// - entry's `index`,
 /// - entry's `partition`,
 /// - entry's `transferring_out`, and
-/// - entry's `prev_hmac`.
+/// - entry's `prev_mac`.
 ///
-/// See [super::EntryHmacBuilder].
-#[derive(Clone, Eq, Deserialize, Hash, PartialEq, Serialize)]
-pub struct EntryHmac(#[serde(with = "bytes")] pub [u8; 32]);
+/// See [super::mac::EntryMacMessage].
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct EntryMac(CtBytes<32>);
 
-impl EntryHmac {
+impl EntryMac {
     pub fn zero() -> Self {
-        Self([0; 32])
+        Self(CtBytes::zero())
     }
 }
 
-impl fmt::Debug for EntryHmac {
+impl Deref for EntryMac {
+    type Target = CtBytes<32>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl fmt::Debug for EntryMac {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
+        self.0.fmt(f)
+    }
+}
+
+impl From<CtBytes<32>> for EntryMac {
+    fn from(value: CtBytes<32>) -> Self {
+        Self(value)
+    }
+}
+
+impl From<[u8; 32]> for EntryMac {
+    fn from(value: [u8; 32]) -> Self {
+        Self(value.into())
     }
 }
 
@@ -364,31 +432,59 @@ pub const GROUPS_LIMIT: u8 = 16;
 
 /// A MAC over a realm ID, group ID, and group configuration.
 ///
-/// See [super::GroupConfigurationStatementBuilder].
+/// See [super::mac::GroupConfigurationStatementMessage].
 #[derive(Clone, Deserialize, Serialize)]
-pub struct GroupConfigurationStatement(#[serde(with = "bytes")] pub [u8; 32]);
+pub struct GroupConfigurationStatement(CtBytes<32>);
+
+impl Deref for GroupConfigurationStatement {
+    type Target = CtBytes<32>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl fmt::Debug for GroupConfigurationStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
+        self.0.fmt(f)
+    }
+}
+
+impl From<CtBytes<32>> for GroupConfigurationStatement {
+    fn from(value: CtBytes<32>) -> Self {
+        Self(value)
     }
 }
 
 /// A MAC over an HSM ID, a realm ID, and the realm's keys.
 ///
-/// See [super::HsmRealmStatementBuilder].
+/// See [super::mac::HsmRealmStatementMessage].
 #[derive(Clone, Deserialize, Serialize)]
-pub struct HsmRealmStatement(#[serde(with = "bytes")] pub [u8; 32]);
+pub struct HsmRealmStatement(CtBytes<32>);
+
+impl Deref for HsmRealmStatement {
+    type Target = CtBytes<32>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl fmt::Debug for HsmRealmStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
+        self.0.fmt(f)
+    }
+}
+
+impl From<CtBytes<32>> for HsmRealmStatement {
+    fn from(value: CtBytes<32>) -> Self {
+        Self(value)
+    }
+}
+
+impl From<[u8; 32]> for HsmRealmStatement {
+    fn from(value: [u8; 32]) -> Self {
+        Self(value.into())
     }
 }
 
@@ -400,18 +496,29 @@ impl fmt::Debug for HsmRealmStatement {
 /// - realm ID,
 /// - group ID,
 /// - log index, and
-/// - entry HMAC.
+/// - entry MAC.
 ///
-/// See [super::CapturedStatementBuilder].
+/// See [super::mac::CapturedStatementMessage].
 #[derive(Clone, Deserialize, Serialize)]
-pub struct CapturedStatement(#[serde(with = "bytes")] pub [u8; 32]);
+pub struct CapturedStatement(CtBytes<32>);
+
+impl Deref for CapturedStatement {
+    type Target = CtBytes<32>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl fmt::Debug for CapturedStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
+        self.0.fmt(f)
+    }
+}
+
+impl From<CtBytes<32>> for CapturedStatement {
+    fn from(value: CtBytes<32>) -> Self {
+        Self(value)
     }
 }
 
@@ -420,7 +527,7 @@ impl fmt::Debug for CapturedStatement {
 /// This is used for the destination group to check that a
 /// [`TransferStatement`], which is generated by the source group, is not
 /// stale.
-#[derive(Copy, Clone, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Copy, Clone, Deserialize, Eq, Serialize)]
 pub struct TransferNonce(#[serde(with = "bytes")] pub [u8; 16]);
 
 impl fmt::Debug for TransferNonce {
@@ -429,6 +536,12 @@ impl fmt::Debug for TransferNonce {
             write!(f, "{byte:02x}")?;
         }
         Ok(())
+    }
+}
+
+impl PartialEq for TransferNonce {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.ct_eq(&other.0).into()
     }
 }
 
@@ -441,16 +554,27 @@ impl fmt::Debug for TransferNonce {
 /// - partition (range of record IDs and hash of root node to transfer), and
 /// - transfer nonce from the destination group.
 ///
-/// See [super::TransferStatementBuilder].
+/// See [super::mac::TransferStatementMessage].
 #[derive(Clone, Deserialize, Serialize)]
-pub struct TransferStatement(#[serde(with = "bytes")] pub [u8; 32]);
+pub struct TransferStatement(CtBytes<32>);
+
+impl Deref for TransferStatement {
+    type Target = CtBytes<32>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl fmt::Debug for TransferStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
+        self.0.fmt(f)
+    }
+}
+
+impl From<CtBytes<32>> for TransferStatement {
+    fn from(value: CtBytes<32>) -> Self {
+        Self(value)
     }
 }
 
@@ -511,7 +635,7 @@ pub struct GroupStatus {
     /// This is guaranteed to advance monotonically, even across power outages.
     /// The HSM guarantees that the entry MAC was valid and chained back to the
     /// previous log entries it had seen.
-    pub captured: Option<(LogIndex, EntryHmac)>,
+    pub captured: Option<(LogIndex, EntryMac)>,
     /// If the HSM is acting as leader for the group, this provides more
     /// information.
     ///
@@ -811,7 +935,7 @@ pub struct CaptureNextRequest {
     ///
     /// The first entry should have an index one greater than the last entry in
     /// the last call to CaptureNext and should chain back to it (with its
-    /// `prev_hmac` field).
+    /// `prev_mac` field).
     pub entries: Vec<LogEntry>,
 }
 
@@ -824,10 +948,10 @@ pub enum CaptureNextResponse {
     InvalidRealm,
     /// This HSM is not a member of this group.
     InvalidGroup,
-    /// Some provided log entry's `entry_hmac` MAC was invalid.
-    InvalidHmac,
+    /// Some provided log entry's `entry_mac` MAC was invalid.
+    InvalidMac,
     /// Either the last log entry the HSM had captured did not match the
-    /// `prev_hmac` field of the first entry given, or the `prev_hmac` field of
+    /// `prev_mac` field of the first entry given, or the `prev_mac` field of
     /// one of the entries given did not match its predecessor.
     InvalidChain,
     /// Either the last log entry the HSM had captured did not have an index
@@ -883,8 +1007,8 @@ pub enum BecomeLeaderResponse {
     InvalidRealm,
     /// This HSM is not a member of this group.
     InvalidGroup,
-    /// The `last_entry.entry_hmac` MAC was invalid.
-    InvalidHmac,
+    /// The `last_entry.entry_mac` MAC was invalid.
+    InvalidMac,
     /// The log entry in `last_entry` was not the last one this HSM has
     /// captured, so this HSM could not accept it.
     NotCaptured {
@@ -990,8 +1114,8 @@ pub struct Captured {
     pub group: GroupId,
     /// The index of the captured log entry.
     pub index: LogIndex,
-    /// The `entry_hmac` field of the captured log entry.
-    pub hmac: EntryHmac,
+    /// The `entry_mac` field of the captured log entry.
+    pub mac: EntryMac,
     /// A MAC over all the fields above.
     ///
     /// This is given to the group's leader as proof that a majority of the
@@ -1027,7 +1151,7 @@ pub enum CommitResponse {
         ///
         /// These responses may now be returned to the respective clients whose
         /// requests caused the log entries to be created.
-        responses: Vec<(EntryHmac, NoiseResponse)>,
+        responses: Vec<(EntryMac, NoiseResponse)>,
         /// The HSM's latest role in this group.
         ///
         /// This is normally the leader role. However, if the HSM was stepping

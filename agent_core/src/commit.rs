@@ -1,5 +1,5 @@
 use futures::future::join_all;
-use hsmcore::hsm::types::{Captured, EntryHmac, GroupMemberRole};
+use hsmcore::hsm::types::{Captured, EntryMac, GroupMemberRole};
 use juicebox_sdk_core::requests::NoiseResponse;
 use juicebox_sdk_networking::rpc;
 use reqwest::Url;
@@ -246,13 +246,13 @@ impl<T: Transport + 'static> Agent<T> {
         &self,
         realm: RealmId,
         group: GroupId,
-        responses: Vec<(EntryHmac, NoiseResponse)>,
+        responses: Vec<(EntryMac, NoiseResponse)>,
     ) -> usize {
         let mut released_count = 0;
         let mut locked = self.0.state.lock().unwrap();
         if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
-            for (hmac, client_response) in responses {
-                if let Some(sender) = leader.response_channels.remove(&hmac) {
+            for (mac, client_response) in responses {
+                if let Some(sender) = leader.response_channels.remove(&mac.into()) {
                     if sender.send(client_response).is_err() {
                         warn!("dropping response on the floor: client no longer waiting");
                     }

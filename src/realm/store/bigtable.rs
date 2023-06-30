@@ -27,7 +27,7 @@ use url::Url;
 use crate::google_auth::AuthMiddleware;
 use crate::metrics;
 use crate::metrics_tag as tag;
-use hsmcore::hsm::types::{DataHash, EntryHmac, GroupId, HsmId, LogEntry, LogIndex};
+use hsmcore::hsm::types::{DataHash, EntryMac, GroupId, HsmId, LogEntry, LogIndex};
 use hsmcore::merkle::agent::StoreDelta;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
@@ -302,7 +302,7 @@ pub struct StoreClient {
     // https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2
     bigtable: BigtableClient,
     instance: Instance,
-    last_write: Mutex<Option<(RealmId, GroupId, LogIndex, EntryHmac)>>,
+    last_write: Mutex<Option<(RealmId, GroupId, LogIndex, EntryMac)>>,
     metrics: metrics::Client,
     merkle_cache: merkle::Cache,
 }
@@ -440,12 +440,12 @@ impl StoreClient {
             let read_log_entry = {
                 let last_write = self.last_write.lock().unwrap();
                 match last_write.deref() {
-                    Some((last_realm, last_group, last_index, last_hmac))
+                    Some((last_realm, last_group, last_index, last_mac))
                         if last_realm == realm
                             && last_group == group
                             && *last_index == prev_index =>
                     {
-                        if *last_hmac != entries[0].prev_hmac {
+                        if *last_mac != entries[0].prev_mac {
                             return Err(AppendError::LogPrecondition);
                         }
                         false
@@ -459,7 +459,7 @@ impl StoreClient {
                     .await
                     .expect("TODO")
                 {
-                    if prev.entry_hmac != entries[0].prev_hmac {
+                    if prev.entry_mac != entries[0].prev_mac {
                         return Err(AppendError::LogPrecondition);
                     }
                 } else {
@@ -468,11 +468,11 @@ impl StoreClient {
             }
         }
 
-        // Make sure the batch of entries have the expected indexes & hmacs
+        // Make sure the batch of entries have the expected indexes & macs
         let mut prev = &entries[0];
         for e in &entries[1..] {
             assert_eq!(e.index, prev.index.next());
-            assert_eq!(e.prev_hmac, prev.entry_hmac);
+            assert_eq!(e.prev_mac, prev.entry_mac);
             prev = e;
         }
 
@@ -499,11 +499,11 @@ impl StoreClient {
         // Even if its not called sequentially last_write is purely a
         // performance improvement (it can save a log read), its not a
         // correctness thing. The code above that uses last_write to check the
-        // hmac chain will fallback to reading the log entry from the store if
+        // mac chain will fallback to reading the log entry from the store if
         // the last_write info doesn't apply to that append.
         let last = entries.last().unwrap();
         *self.last_write.lock().unwrap() =
-            Some((*realm, *group, last.index, last.entry_hmac.clone()));
+            Some((*realm, *group, last.index, last.entry_mac.clone()));
 
         // Delete obsolete Merkle nodes. These deletes are deferred a bit so
         // that slow concurrent readers can still access them.
