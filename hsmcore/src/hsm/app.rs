@@ -315,9 +315,9 @@ pub fn process(
 // state before the change is committed. We pad the leaf to this size to hide
 // that side channel. There's no need to pad NotRegistered, as the only way that
 // gets written is with the delete call. This size includes the bytes needed to
-// store the actual size.
+// store the size in the trailer.
 const SERIALIZED_RECORD_SIZE: usize = 448;
-const SIZE_LEN: usize = 4;
+const TRAILER_LEN: usize = u32::BITS as usize / 8;
 
 fn marshal_user_record(u: &UserRecord) -> Result<Vec<u8>, SerializationError> {
     let mut s = marshalling::to_vec(u)?;
@@ -329,41 +329,39 @@ fn marshal_user_record(u: &UserRecord) -> Result<Vec<u8>, SerializationError> {
 
     // The actual length is stored at the end of the serialized state.
     // The length is a big endian encoded u32.
-    assert!(s.len() < SERIALIZED_RECORD_SIZE - SIZE_LEN);
+    assert!(s.len() < SERIALIZED_RECORD_SIZE - TRAILER_LEN);
     let len = u32::try_from(s.len()).unwrap();
     if should_pad {
-        s.resize(SERIALIZED_RECORD_SIZE - SIZE_LEN, 0);
+        s.resize(SERIALIZED_RECORD_SIZE - TRAILER_LEN, 0);
     }
     s.extend_from_slice(&len.to_be_bytes());
     Ok(s)
 }
 
-fn unmarshal_user_record(d: &[u8]) -> Result<UserRecord, DeserializationError> {
-    let len = d.len();
-    if len < SIZE_LEN {
+fn unmarshal_user_record(padded: &[u8]) -> Result<UserRecord, DeserializationError> {
+    let padded_len = padded.len();
+    if padded_len < TRAILER_LEN {
         return Err(DeserializationError(format!(
-            "user record data is too small, only got {} bytes",
-            len
+            "user record data is too small, only got {padded_len} bytes",
         )));
     }
-    if len > SERIALIZED_RECORD_SIZE {
+    if padded.len() > SERIALIZED_RECORD_SIZE {
         return Err(DeserializationError(format!(
-            "user record data is too large. got {} bytes, but should be no more than {}",
-            len, SERIALIZED_RECORD_SIZE
+            "user record data is too large. got {padded_len} bytes, but \
+            should be no more than {SERIALIZED_RECORD_SIZE}",
         )));
     }
-    let len_bytes = &d[len - SIZE_LEN..];
-    let actual_len: usize = (u32::from_be_bytes(len_bytes.try_into().unwrap()))
+    let trailer = &padded[padded_len - TRAILER_LEN..];
+    let data_len: usize = (u32::from_be_bytes(trailer.try_into().unwrap()))
         .try_into()
         .unwrap();
-    let limit = len - SIZE_LEN;
-    if actual_len > limit {
+    let limit = padded_len - TRAILER_LEN;
+    if data_len > limit {
         return Err(DeserializationError(format!(
-            "embedded length of {} larger than the allowed size of {}",
-            actual_len, limit
+            "embedded length of {data_len} can't be larger than the {limit} bytes present",
         )));
     }
-    marshalling::from_slice(&d[..actual_len])
+    marshalling::from_slice(&padded[..data_len])
 }
 
 #[cfg(test)]
@@ -426,7 +424,7 @@ mod test {
         big[SERIALIZED_RECORD_SIZE - 4..SERIALIZED_RECORD_SIZE]
             .copy_from_slice(&((SERIALIZED_RECORD_SIZE + 1) as u32).to_be_bytes());
         assert_eq!(
-            "Deserialization error: embedded length of 449 larger than the allowed size of 444",
+            "Deserialization error: embedded length of 449 can't be larger than the 444 bytes present",
             unmarshal_user_record(&big[..SERIALIZED_RECORD_SIZE])
                 .unwrap_err()
                 .to_string()
