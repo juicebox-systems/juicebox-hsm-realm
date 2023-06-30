@@ -97,16 +97,14 @@ struct LogEntryBuilder {
 
 impl LogEntryBuilder {
     fn build(self, key: &MacKey) -> LogEntry {
-        let entry_mac = key
-            .log_entry_mac(&EntryMacMessage {
-                realm: self.realm,
-                group: self.group,
-                index: self.index,
-                partition: &self.partition,
-                transferring_out: &self.transferring_out,
-                prev_mac: &self.prev_mac,
-            })
-            .into();
+        let entry_mac = key.log_entry_mac(&EntryMacMessage {
+            realm: self.realm,
+            group: self.group,
+            index: self.index,
+            partition: &self.partition,
+            transferring_out: &self.transferring_out,
+            prev_mac: &self.prev_mac,
+        });
 
         LogEntry {
             index: self.index,
@@ -586,8 +584,7 @@ impl<P: Platform> Hsm<P> {
                         realm,
                         hsm: self.persistent.id,
                         keys: &self.realm_keys,
-                    })
-                    .into(),
+                    }),
                 groups: HashMap::from([(
                     group,
                     PersistentGroupState {
@@ -669,8 +666,7 @@ impl<P: Platform> Hsm<P> {
                             realm: request.realm,
                             hsm: self.persistent.id,
                             keys: &self.realm_keys,
-                        })
-                        .into();
+                        });
 
                     let mut persistent = self.persistent.mutate();
                     persistent.realm = Some(PersistentRealmState {
@@ -730,15 +726,14 @@ impl<P: Platform> Hsm<P> {
             };
 
             let group = GroupId::random(&mut self.platform);
-            let statement = self
-                .realm_keys
-                .mac
-                .group_configuration_mac(&GroupConfigurationStatementMessage {
-                    realm: request.realm,
-                    group,
-                    configuration: &configuration,
-                })
-                .into();
+            let statement =
+                self.realm_keys
+                    .mac
+                    .group_configuration_mac(&GroupConfigurationStatementMessage {
+                        realm: request.realm,
+                        group,
+                        configuration: &configuration,
+                    });
 
             {
                 let mut persistent = self.persistent.mutate();
@@ -1063,17 +1058,14 @@ impl<P: Platform> Hsm<P> {
                 .iter()
                 .filter_map(|(group, group_state)| {
                     group_state.captured.as_ref().map(|(index, entry_mac)| {
-                        let statement = self
-                            .realm_keys
-                            .mac
-                            .captured_mac(&CapturedStatementMessage {
+                        let statement =
+                            self.realm_keys.mac.captured_mac(&CapturedStatementMessage {
                                 hsm: state.id,
                                 realm: r.id,
                                 group: *group,
                                 index: *index,
                                 entry_mac,
-                            })
-                            .into();
+                            });
                         Captured {
                             group: *group,
                             hsm: state.id,
@@ -1302,16 +1294,12 @@ impl<P: Platform> Hsm<P> {
                 return Response::Busy;
             }
 
-            let statement = self
-                .realm_keys
-                .mac
-                .transfer_mac(&TransferStatementMessage {
-                    realm: request.realm,
-                    destination: *destination,
-                    partition,
-                    nonce: request.nonce,
-                })
-                .into();
+            let statement = self.realm_keys.mac.transfer_mac(&TransferStatementMessage {
+                realm: request.realm,
+                destination: *destination,
+                partition,
+                nonce: request.nonce,
+            });
 
             Response::Ok(statement)
         })();

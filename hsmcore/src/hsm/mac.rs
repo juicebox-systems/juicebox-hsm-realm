@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::configuration::GroupConfiguration;
 use super::types::{
-    CtBytes, EntryMac, GroupId, HsmId, LogEntry, LogIndex, Partition, TransferNonce,
+    CapturedStatement, CtBytes, EntryMac, GroupConfigurationStatement, GroupId, HsmId,
+    HsmRealmStatement, LogEntry, LogIndex, Partition, TransferNonce, TransferStatement,
     TransferringOut,
 };
 use super::RealmKeys;
@@ -30,24 +31,27 @@ impl From<[u8; 32]> for MacKey {
 }
 
 impl MacKey {
-    pub fn group_configuration_mac(&self, msg: &GroupConfigurationStatementMessage) -> CtBytes<32> {
-        self.calculate(msg, b"groupcfg")
+    pub fn group_configuration_mac(
+        &self,
+        msg: &GroupConfigurationStatementMessage,
+    ) -> GroupConfigurationStatement {
+        self.calculate(msg, b"groupcfg").into()
     }
 
-    pub fn hsm_realm_mac(&self, msg: &HsmRealmStatementMessage) -> CtBytes<32> {
-        self.calculate(msg, b"hsmrealm")
+    pub fn hsm_realm_mac(&self, msg: &HsmRealmStatementMessage) -> HsmRealmStatement {
+        self.calculate(msg, b"hsmrealm").into()
     }
 
-    pub fn captured_mac(&self, msg: &CapturedStatementMessage) -> CtBytes<32> {
-        self.calculate(msg, b"capture")
+    pub fn captured_mac(&self, msg: &CapturedStatementMessage) -> CapturedStatement {
+        self.calculate(msg, b"capture").into()
     }
 
-    pub fn log_entry_mac(&self, msg: &EntryMacMessage) -> CtBytes<32> {
-        self.calculate(msg, b"logentry")
+    pub fn log_entry_mac(&self, msg: &EntryMacMessage) -> EntryMac {
+        self.calculate(msg, b"logentry").into()
     }
 
-    pub fn transfer_mac(&self, msg: &TransferStatementMessage) -> CtBytes<32> {
-        self.calculate(msg, b"transfer")
+    pub fn transfer_mac(&self, msg: &TransferStatementMessage) -> TransferStatement {
+        self.calculate(msg, b"transfer").into()
     }
 
     fn calculate(&self, value: &impl Serialize, persona: &[u8]) -> CtBytes<32> {
