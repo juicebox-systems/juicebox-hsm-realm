@@ -1,5 +1,7 @@
 use anyhow::Context;
+use blake2::Blake2s256;
 use bytes::Bytes;
+use digest::Digest;
 use futures::future::join_all;
 use futures::Future;
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
@@ -8,6 +10,7 @@ use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
 use rustls::server::ResolvesServerCert;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::error::Error;
 use std::iter::zip;
@@ -24,7 +27,8 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use hsm_types::{GroupId, OwnedRange};
-use hsmcore::hsm::types as hsm_types;
+use hsmcore::hsm::mac::DigestWriter;
+use hsmcore::hsm::types::{self as hsm_types, RecordId};
 use juicebox_hsm::client_auth::{
     tenant_secret_name, validation::Validator as AuthTokenValidator, AuthKey,
 };
@@ -33,7 +37,7 @@ use juicebox_hsm::logging::{Spew, TracingSource};
 use juicebox_hsm::metrics::{self, Tag};
 use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::agent::types::{
-    make_record_id, AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse,
+    AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse,
 };
 use juicebox_hsm::realm::store::bigtable::StoreClient;
 use juicebox_hsm::secret_manager::SecretManager;
@@ -385,7 +389,11 @@ async fn handle_client_request_inner(
             return Response::Unavailable;
         }
     };
-    let record_id = make_record_id(&claims.issuer, &claims.subject);
+    let record_id = RecordIdBuilder {
+        tenant: &claims.issuer,
+        user: &claims.subject,
+    }
+    .build();
     request_tags.push(tag!(tenant: "{}", claims.issuer));
 
     for partition in partitions {
@@ -446,4 +454,25 @@ async fn handle_client_request_inner(
     }
 
     Response::Unavailable
+}
+
+#[derive(Serialize)]
+struct RecordIdBuilder<'a> {
+    tenant: &'a str,
+    user: &'a str,
+}
+
+// TODO: maybe this should be a MAC with a per-realm key so that tenants
+// can't cause unbalanced Merkle trees (the same way hash tables are
+// randomized).
+//
+// TODO: we may need a way to enumerate all the users for a given tenant if
+// that tenant wanted to delete all their data.
+impl<'a> RecordIdBuilder<'a> {
+    fn build(&self) -> RecordId {
+        let mut h = Blake2s256::default();
+        ciborium::ser::into_writer(self, DigestWriter(&mut h))
+            .expect("failed to serialize RecordIdBuilder");
+        RecordId(h.finalize().into())
+    }
 }

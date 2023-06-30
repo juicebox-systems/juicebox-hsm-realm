@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 use hsmcore::{
     bitvec::BitVec,
     hsm::{
-        types::{EntryHmac, GroupId, HsmId, LogEntry, LogIndex, OwnedRange, RecordId},
+        types::{EntryMac, GroupId, HsmId, LogEntry, LogIndex, OwnedRange, RecordId},
         MerkleHasher,
     },
     merkle::{
@@ -84,8 +84,8 @@ async fn read_log_entry() {
         index: LogIndex(1),
         partition: None,
         transferring_out: None,
-        prev_hmac: EntryHmac([0; 32]),
-        entry_hmac: EntryHmac([1; 32]),
+        prev_mac: EntryMac::from([0; 32]),
+        entry_mac: EntryMac::from([1; 32]),
     };
     data.append(&REALM, &GROUP_2, &[entry.clone()], StoreDelta::default())
         .await
@@ -99,7 +99,7 @@ async fn read_log_entry() {
     );
 
     // insert a batch of log entries, the last one in the batch should then be the last_log_entry
-    let mut entries = create_log_batch(entry.index.next(), entry.entry_hmac.clone(), 10);
+    let mut entries = create_log_batch(entry.index.next(), entry.entry_mac.clone(), 10);
     data.append(&REALM, &GROUP_2, &entries, StoreDelta::default())
         .await
         .unwrap();
@@ -168,8 +168,8 @@ async fn last_log_entry_does_not_cross_groups() {
         index: LogIndex(1),
         partition: None,
         transferring_out: None,
-        prev_hmac: EntryHmac([0; 32]),
-        entry_hmac: EntryHmac([1; 32]),
+        prev_mac: EntryMac::from([0; 32]),
+        entry_mac: EntryMac::from([1; 32]),
     };
 
     // with a row in group 1, other groups should still see an empty log
@@ -196,8 +196,8 @@ async fn last_log_entry_does_not_cross_groups() {
         index: LogIndex(1),
         partition: None,
         transferring_out: None,
-        prev_hmac: EntryHmac([2; 32]),
-        entry_hmac: EntryHmac([3; 32]),
+        prev_mac: EntryMac::from([2; 32]),
+        entry_mac: EntryMac::from([3; 32]),
     };
     data.append(&REALM, &GROUP_3, &[entry3.clone()], StoreDelta::default())
         .await
@@ -227,18 +227,18 @@ async fn last_log_entry_does_not_cross_groups() {
 async fn read_log_entries() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator()).await;
-    let mut entries = create_log_batch(LogIndex::FIRST, EntryHmac([0; 32]), 4);
+    let mut entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
     data.append(&REALM, &GROUP_1, &entries, StoreDelta::default())
         .await
         .unwrap();
 
-    let more_entries = create_log_batch(LogIndex(5), entries[3].entry_hmac.clone(), 6);
+    let more_entries = create_log_batch(LogIndex(5), entries[3].entry_mac.clone(), 6);
     data.append(&REALM, &GROUP_1, &more_entries, StoreDelta::default())
         .await
         .unwrap();
     entries.extend(more_entries);
 
-    let more_entries = create_log_batch(LogIndex(11), entries[9].entry_hmac.clone(), 5);
+    let more_entries = create_log_batch(LogIndex(11), entries[9].entry_mac.clone(), 5);
     data.append(&REALM, &GROUP_1, &more_entries, StoreDelta::default())
         .await
         .unwrap();
@@ -304,7 +304,7 @@ async fn read_log_entries() {
     assert_eq!(&entries[4..], &r, "should have returned remaining log rows");
 
     let last = entries.last().unwrap();
-    let more_entries = create_log_batch(last.index.next(), last.entry_hmac.clone(), 2);
+    let more_entries = create_log_batch(last.index.next(), last.entry_mac.clone(), 2);
     data.append(&REALM, &GROUP_1, &more_entries, StoreDelta::default())
         .await
         .unwrap();
@@ -316,7 +316,7 @@ async fn read_log_entries() {
 async fn append_log_precondition() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator()).await;
-    let entries = create_log_batch(LogIndex(2), EntryHmac([0; 32]), 4);
+    let entries = create_log_batch(LogIndex(2), EntryMac::from([0; 32]), 4);
     // previous log entry should exist
     assert!(matches!(
         data.append(&REALM, &GROUP_1, &entries, StoreDelta::default())
@@ -328,13 +328,13 @@ async fn append_log_precondition() {
         index: LogIndex::FIRST,
         partition: None,
         transferring_out: None,
-        prev_hmac: EntryHmac([0; 32]),
-        entry_hmac: EntryHmac([1; 32]),
+        prev_mac: EntryMac::from([0; 32]),
+        entry_mac: EntryMac::from([1; 32]),
     };
     data.append(&REALM, &GROUP_1, &[entry.clone()], StoreDelta::default())
         .await
         .unwrap();
-    // the prev_hmac in entries[0] doesn't match the entry_hmac at LogIndex 1
+    // the prev_mac in entries[0] doesn't match the entry_mac at LogIndex 1
     assert!(matches!(
         data.append(&REALM, &GROUP_1, &entries, StoreDelta::default())
             .await,
@@ -354,7 +354,7 @@ async fn append_log_precondition() {
 async fn batch_index_chain_verified() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator()).await;
-    let mut entries = create_log_batch(LogIndex::FIRST, EntryHmac([0; 32]), 4);
+    let mut entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
     entries[3].index = LogIndex(100);
     let _ = data
         .append(&REALM, &GROUP_1, &entries, StoreDelta::default())
@@ -363,11 +363,11 @@ async fn batch_index_chain_verified() {
 
 #[tokio::test]
 #[should_panic]
-async fn batch_hmac_chain_verified() {
+async fn batch_mac_chain_verified() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator()).await;
-    let mut entries = create_log_batch(LogIndex::FIRST, EntryHmac([0; 32]), 4);
-    entries[2].entry_hmac = EntryHmac([33; 32]);
+    let mut entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
+    entries[2].entry_mac = EntryMac::from([33; 32]);
     let _ = data
         .append(&REALM, &GROUP_1, &entries, StoreDelta::default())
         .await;
@@ -377,7 +377,7 @@ async fn batch_hmac_chain_verified() {
 async fn append_store_delta() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator()).await;
-    let entries = create_log_batch(LogIndex::FIRST, EntryHmac([0; 32]), 4);
+    let entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
     let (starting_root, delta) = Tree::<MerkleHasher>::new_tree(&OwnedRange::full());
 
     data.append(&REALM, &GROUP_3, &entries, delta)
@@ -407,7 +407,7 @@ async fn append_store_delta() {
     let last_log_entry = entries.last().unwrap();
     let entries = create_log_batch(
         last_log_entry.index.next(),
-        last_log_entry.entry_hmac.clone(),
+        last_log_entry.entry_mac.clone(),
         1,
     );
     // Verify the original root is readable.
@@ -463,19 +463,19 @@ async fn append_store_delta() {
     .unwrap();
 }
 
-fn create_log_batch(first_idx: LogIndex, prev_hmac: EntryHmac, count: usize) -> Vec<LogEntry> {
+fn create_log_batch(first_idx: LogIndex, prev_mac: EntryMac, count: usize) -> Vec<LogEntry> {
     let mut entries = Vec::with_capacity(count);
-    let mut prev_hmac = prev_hmac;
+    let mut prev_mac = prev_mac;
     let mut index = first_idx;
     for _ in 0..count {
         let e = LogEntry {
             index,
             partition: None,
             transferring_out: None,
-            prev_hmac,
-            entry_hmac: EntryHmac([(index.0 % 255) as u8; 32]),
+            prev_mac,
+            entry_mac: EntryMac::from([(index.0 % 255) as u8; 32]),
         };
-        prev_hmac = e.entry_hmac.clone();
+        prev_mac = e.entry_mac.clone();
         index = index.next();
         entries.push(e);
     }

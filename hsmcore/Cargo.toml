@@ -11,10 +11,11 @@ async-recursion = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 blake2 = { workspace = true }
 chacha20poly1305 = { workspace = true }
+ciborium = { workspace = true }
+ciborium-io = { workspace = true }
 digest = { workspace = true }
 generic-array = { workspace = true }
 hashbrown = { workspace = true }
-hmac = { workspace = true }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-noise = { workspace = true }
@@ -28,6 +29,8 @@ x25519-dalek = { workspace = true }
 [dev-dependencies]
 async-recursion = { workspace = true }
 async-trait = { workspace = true }
+cbor-diag = { workspace = true }
+expect-test = { workspace = true }
 tokio = { workspace = true }
 rand = { workspace = true, features = ["std_rng"] }
 rand_core = { workspace = true, features = ["getrandom"] }

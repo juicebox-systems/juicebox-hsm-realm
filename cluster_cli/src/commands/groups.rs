@@ -73,7 +73,7 @@ fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
                 group_status.role.to_string().cell(),
                 match &group_status.captured {
                     None => "None".cell(),
-                    Some((index, _hmac)) => index.to_string().cell(),
+                    Some((index, _mac)) => index.to_string().cell(),
                 }
                 .justify(Justify::Right),
                 match leader {

@@ -63,7 +63,7 @@ pub fn command_keys(
 ) -> anyhow::Result<()> {
     let mut creator = KeyCreator::new(conn, module, world, signing_key_hash)?;
 
-    creator.create_symmetric_key("simple", &args.mac, 64)?;
+    creator.create_symmetric_key("simple", &args.mac, 32)?;
     creator.create_symmetric_key("simple", &args.record, 32)?;
     creator.create_x25519_keypair("simple", &args.noise)
 }

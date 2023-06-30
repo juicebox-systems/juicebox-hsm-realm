@@ -1,7 +1,9 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
+use alloc::format;
 use alloc::vec::Vec;
+use marshalling::{DeserializationError, SerializationError};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use tracing::trace;
@@ -21,7 +23,7 @@ use juicebox_sdk_core::{
 use juicebox_sdk_marshalling as marshalling;
 
 /// Persistent state for a particular user.
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct UserRecord {
     registration_state: RegistrationState,
     // TODO: audit log
@@ -36,14 +38,14 @@ impl UserRecord {
 }
 
 /// Persistent state for a particular registration of a particular user.
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 enum RegistrationState {
     NotRegistered,
     Registered(Box<RegisteredState>),
     NoGuesses,
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct RegisteredState {
     oprf_seed: OprfSeed,
     version: RegistrationVersion,
@@ -89,6 +91,12 @@ fn recover1(
 ) -> (Recover1Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover1 request",);
 
+    // Some of these state's don't alter the user record. However that can leak
+    // a result before the commit by examining the returned store delta. For
+    // those cases we return the UserRecord unchanged so that there's a write
+    // either way. As the leaf is encrypted with a random nonce, the externalized
+    // leaf value will change even when the UserRecord has not.
+    // This applies to recover2 and 3 as well.
     match &user_record.registration_state {
         RegistrationState::Registered(state) if state.guess_count >= state.policy.num_guesses => {
             trace!(
@@ -104,11 +112,11 @@ fn recover1(
                 version: state.version.clone(),
                 salt_share: state.salt_share.clone(),
             },
-            None,
+            Some(user_record),
         ),
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
-            (Recover1Response::NoGuesses, None)
+            (Recover1Response::NoGuesses, Some(user_record))
         }
         RegistrationState::NotRegistered => {
             trace!(
@@ -136,7 +144,7 @@ fn recover2(
                 ?record_id,
                 "can't recover: wrong version"
             );
-            return (Recover2Response::VersionMismatch, None);
+            return (Recover2Response::VersionMismatch, Some(user_record));
         }
         RegistrationState::Registered(state) if state.guess_count >= state.policy.num_guesses => {
             trace!(
@@ -156,7 +164,7 @@ fn recover2(
         }
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
-            return (Recover2Response::NoGuesses, None);
+            return (Recover2Response::NoGuesses, Some(user_record));
         }
         RegistrationState::NotRegistered => {
             trace!(
@@ -207,7 +215,7 @@ fn recover3(
                 ?record_id,
                 "can't recover: wrong version"
             );
-            (Recover3Response::VersionMismatch, None)
+            (Recover3Response::VersionMismatch, Some(user_record))
         }
         RegistrationState::Registered(state) if !bool::from(request.tag.ct_eq(&state.tag)) => {
             trace!(
@@ -216,21 +224,19 @@ fn recover3(
                 "can't recover: bad unlock tag"
             );
             let guesses_remaining = state.policy.num_guesses - state.guess_count;
-            let mut user_record_out = None;
 
             if guesses_remaining == 0 {
                 user_record.registration_state = RegistrationState::NoGuesses;
-                user_record_out = Some(user_record);
             }
 
             (
                 Recover3Response::BadUnlockTag { guesses_remaining },
-                user_record_out,
+                Some(user_record),
             )
         }
         RegistrationState::NoGuesses => {
             trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
-            (Recover3Response::NoGuesses, None)
+            (Recover3Response::NoGuesses, Some(user_record))
         }
         RegistrationState::Registered(state) => {
             state.guess_count = 0;
@@ -276,7 +282,7 @@ pub fn process(
 ) -> (SecretsResponse, Option<RecordChange>) {
     let user_record_in = match record_val {
         None => UserRecord::new(),
-        Some(data) => marshalling::from_slice(data).expect("TODO"),
+        Some(data) => unmarshal_user_record(data).expect("TODO"),
     };
     let (result, user_record_out) = match request {
         SecretsRequest::Register1 => {
@@ -304,8 +310,62 @@ pub fn process(
             (SecretsResponse::Delete(res.0), res.1)
         }
     };
-    let rc = user_record_out.map(|u| RecordChange::Update(marshalling::to_vec(&u).expect("TODO")));
+    let rc = user_record_out.map(|u| RecordChange::Update(marshal_user_record(&u).expect("TODO")));
     (result, rc)
+}
+
+// A serialized NoGuesses is very small compared to a Registered. When the leaf
+// changes from Registered to NoGuesses, the size of the leaf can leak this
+// state before the change is committed. We pad the leaf to this size to hide
+// that side channel. There's no need to pad NotRegistered, as the only way that
+// gets written is with the delete call. This size includes the bytes needed to
+// store the size in the trailer.
+const SERIALIZED_RECORD_SIZE: usize = 448;
+const TRAILER_LEN: usize = u32::BITS as usize / 8;
+
+fn marshal_user_record(u: &UserRecord) -> Result<Vec<u8>, SerializationError> {
+    let mut s = marshalling::to_vec(u)?;
+    let should_pad = match u.registration_state {
+        RegistrationState::NotRegistered => false,
+        RegistrationState::Registered(_) => true,
+        RegistrationState::NoGuesses => true,
+    };
+
+    // The actual length is stored at the end of the serialized state.
+    // The length is a big endian encoded u32.
+    assert!(s.len() < SERIALIZED_RECORD_SIZE - TRAILER_LEN);
+    let len = u32::try_from(s.len()).unwrap();
+    if should_pad {
+        s.resize(SERIALIZED_RECORD_SIZE - TRAILER_LEN, 0);
+    }
+    s.extend_from_slice(&len.to_be_bytes());
+    Ok(s)
+}
+
+fn unmarshal_user_record(padded: &[u8]) -> Result<UserRecord, DeserializationError> {
+    let padded_len = padded.len();
+    if padded_len < TRAILER_LEN {
+        return Err(DeserializationError(format!(
+            "user record data is too small, only got {padded_len} bytes",
+        )));
+    }
+    if padded.len() > SERIALIZED_RECORD_SIZE {
+        return Err(DeserializationError(format!(
+            "user record data is too large. got {padded_len} bytes, but \
+            should be no more than {SERIALIZED_RECORD_SIZE}",
+        )));
+    }
+    let trailer = &padded[padded_len - TRAILER_LEN..];
+    let data_len: usize = (u32::from_be_bytes(trailer.try_into().unwrap()))
+        .try_into()
+        .unwrap();
+    let limit = padded_len - TRAILER_LEN;
+    if data_len > limit {
+        return Err(DeserializationError(format!(
+            "embedded length of {data_len} can't be larger than the {limit} bytes present",
+        )));
+    }
+    marshalling::from_slice(&padded[..data_len])
 }
 
 #[cfg(test)]
@@ -322,11 +382,66 @@ mod test {
     };
 
     use crate::hsm::{
-        app::{RegisteredState, RegistrationState, UserRecord},
+        app::{
+            marshal_user_record, unmarshal_user_record, RegisteredState, RegistrationState,
+            UserRecord, SERIALIZED_RECORD_SIZE, TRAILER_LEN,
+        },
         types::RecordId,
     };
 
     use super::{delete, recover1, recover2, recover3, register1, register2, AppContext};
+
+    #[test]
+    fn test_user_record_marshalling() {
+        let registered = registered_record(5);
+        let unpadded = juicebox_sdk_marshalling::to_vec(&registered).unwrap();
+        println!(
+            "unpadded length {}, SERIALIZED_RECORD_SIZE: {SERIALIZED_RECORD_SIZE}",
+            unpadded.len()
+        );
+        assert!(unpadded.len() < SERIALIZED_RECORD_SIZE - TRAILER_LEN);
+        assert!(SERIALIZED_RECORD_SIZE - TRAILER_LEN - unpadded.len() < 32);
+
+        let s = marshal_user_record(&registered).unwrap();
+        assert_eq!(SERIALIZED_RECORD_SIZE, s.len());
+        let d = unmarshal_user_record(&s).unwrap();
+        assert_eq!(d, registered);
+
+        let no_guesses = UserRecord {
+            registration_state: RegistrationState::NoGuesses,
+        };
+        let s = marshal_user_record(&no_guesses).unwrap();
+        assert_eq!(SERIALIZED_RECORD_SIZE, s.len());
+        let d = unmarshal_user_record(&s).unwrap();
+        assert_eq!(d, no_guesses);
+
+        let not_registered = UserRecord {
+            registration_state: RegistrationState::NotRegistered,
+        };
+        let s = marshal_user_record(&not_registered).unwrap();
+        assert_ne!(SERIALIZED_RECORD_SIZE, s.len());
+        let d = unmarshal_user_record(&s).unwrap();
+        assert_eq!(d, not_registered);
+    }
+
+    #[test]
+    fn test_user_record_marshalling_errors() {
+        assert_eq!(
+            "Deserialization error: user record data is too small, only got 0 bytes",
+            unmarshal_user_record(&[]).unwrap_err().to_string()
+        );
+        let mut big: Vec<u8> = vec![0u8; SERIALIZED_RECORD_SIZE + 1];
+        assert_eq!("Deserialization error: user record data is too large. got 449 bytes, but should be no more than 448", unmarshal_user_record(&big).unwrap_err().to_string());
+
+        big[SERIALIZED_RECORD_SIZE - 4..SERIALIZED_RECORD_SIZE]
+            .copy_from_slice(&((SERIALIZED_RECORD_SIZE + 1) as u32).to_be_bytes());
+        assert_eq!(
+            "Deserialization error: embedded length of 449 can't be larger than the 444 bytes present",
+            unmarshal_user_record(&big[..SERIALIZED_RECORD_SIZE])
+                .unwrap_err()
+                .to_string()
+        );
+    }
 
     #[test]
     fn test_register1() {
@@ -363,7 +478,7 @@ mod test {
         let (response, user_record_out) = recover1(
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(
             response,
@@ -372,7 +487,7 @@ mod test {
                 salt_share: salt_share()
             }
         );
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -383,10 +498,10 @@ mod test {
         let (response, user_record_out) = recover1(
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(response, Recover1Response::NoGuesses);
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -438,10 +553,10 @@ mod test {
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
             request,
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(response, Recover2Response::VersionMismatch,);
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -457,10 +572,10 @@ mod test {
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
             request,
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(response, Recover2Response::NoGuesses);
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -516,10 +631,10 @@ mod test {
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
             request,
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(response, Recover3Response::VersionMismatch,);
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -533,7 +648,7 @@ mod test {
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
             request,
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(
             response,
@@ -541,7 +656,7 @@ mod test {
                 guesses_remaining: 1
             }
         );
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
@@ -582,10 +697,10 @@ mod test {
             &AppContext { hsm_name: "test" },
             &RecordId([0; 32]),
             request,
-            user_record_in,
+            user_record_in.clone(),
         );
         assert_eq!(response, Recover3Response::NoGuesses);
-        assert!(user_record_out.is_none());
+        assert_eq!(Some(user_record_in), user_record_out);
     }
 
     #[test]
