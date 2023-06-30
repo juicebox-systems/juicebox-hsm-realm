@@ -303,7 +303,7 @@ impl Deref for EntryMac {
 
 impl fmt::Debug for EntryMac {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        self.0.fmt(f)
     }
 }
 
@@ -446,7 +446,7 @@ impl Deref for GroupConfigurationStatement {
 
 impl fmt::Debug for GroupConfigurationStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        self.0.fmt(f)
     }
 }
 
@@ -472,7 +472,7 @@ impl Deref for HsmRealmStatement {
 
 impl fmt::Debug for HsmRealmStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        self.0.fmt(f)
     }
 }
 
@@ -512,7 +512,7 @@ impl Deref for CapturedStatement {
 
 impl fmt::Debug for CapturedStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        self.0.fmt(f)
     }
 }
 
@@ -568,7 +568,7 @@ impl Deref for TransferStatement {
 
 impl fmt::Debug for TransferStatement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0)
+        self.0.fmt(f)
     }
 }
 
