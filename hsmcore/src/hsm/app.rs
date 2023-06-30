@@ -380,7 +380,7 @@ mod test {
     use crate::hsm::{
         app::{
             marshal_user_record, unmarshal_user_record, RegisteredState, RegistrationState,
-            UserRecord, SERIALIZED_RECORD_SIZE,
+            UserRecord, SERIALIZED_RECORD_SIZE, TRAILER_LEN,
         },
         types::RecordId,
     };
@@ -390,6 +390,14 @@ mod test {
     #[test]
     fn test_user_record_marshalling() {
         let registered = registered_record(5);
+        let unpadded = juicebox_sdk_marshalling::to_vec(&registered).unwrap();
+        println!(
+            "unpadded length {}, SERIALIZED_RECORD_SIZE: {SERIALIZED_RECORD_SIZE}",
+            unpadded.len()
+        );
+        assert!(unpadded.len() < SERIALIZED_RECORD_SIZE - TRAILER_LEN);
+        assert!(SERIALIZED_RECORD_SIZE - TRAILER_LEN - unpadded.len() < 32);
+
         let s = marshal_user_record(&registered).unwrap();
         assert_eq!(SERIALIZED_RECORD_SIZE, s.len());
         let d = unmarshal_user_record(&s).unwrap();
