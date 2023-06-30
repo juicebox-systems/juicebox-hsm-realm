@@ -13,10 +13,13 @@ cd ..
 
 REMOTE_HOST="$1"
 
-cargo build --release --workspace --package entrust_agent
+cargo build --release \
+    --package entrust_agent \
+    --package entrust_init \
+    --workspace
 ./entrust_hsm/compile_linux.sh --features insecure
 
-rsync --archive --compress --delete --mkpath --progress --relative \
+rsync --archive --compress --mkpath --progress --relative \
     secrets-demo.json \
     scripts/ \
     target/powerpc-unknown-linux-gnu/release/entrust-hsm.elf \
@@ -25,6 +28,7 @@ rsync --archive --compress --delete --mkpath --progress --relative \
     target/release/cluster_manager \
     target/release/demo_runner \
     target/release/entrust_agent \
+    target/release/entrust_init \
     target/release/hsm_bench \
     target/release/load_balancer \
     target/release/software_agent \
