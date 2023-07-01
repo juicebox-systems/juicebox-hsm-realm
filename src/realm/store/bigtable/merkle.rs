@@ -90,7 +90,7 @@ impl StoreClient {
         &self,
         realm: &RealmId,
         group: &GroupId,
-        add: HsmHashMap<NodeKey<DataHash>, Node<DataHash>, NotRandomized>,
+        add: &HsmHashMap<NodeKey<DataHash>, Node<DataHash>, NotRandomized>,
     ) -> Result<(), MutateRowsError> {
         if add.is_empty() {
             return Ok(());
@@ -175,7 +175,7 @@ impl StoreClient {
         &self,
         realm: &RealmId,
         group: &GroupId,
-        remove: HsmHashSet<NodeKey<DataHash>, NotRandomized>,
+        remove: &HsmHashSet<NodeKey<DataHash>, NotRandomized>,
     ) -> Result<(), MutateRowsError> {
         if remove.is_empty() {
             return Ok(());
@@ -206,7 +206,7 @@ impl StoreClient {
 
         let cache_stats = {
             let mut locked_cache = self.merkle_cache.0.lock().unwrap();
-            for key in &remove {
+            for key in remove {
                 locked_cache.remove(&key.store_key());
             }
             locked_cache.stats()
