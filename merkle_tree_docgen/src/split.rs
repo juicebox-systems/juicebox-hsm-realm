@@ -23,15 +23,13 @@ pub async fn doc_splits_intro(dir: &Path) {
         .unwrap()
         .1
         .set("fillcolor", "gold1");
-    dot.write(&dir.join("intro_before.dot")).unwrap();
+    dot.write(&dir, "intro_before.dot").unwrap();
 
     let (left_tree, right_tree) = tree.split(rec_id(&[0b00001011])).await;
 
-    left_tree.write_dot(&dir.join("intro_after_left.dot")).await;
+    left_tree.write_dot(&dir, "intro_after_left.dot").await;
 
-    right_tree
-        .write_dot(&dir.join("intro_after_right.dot"))
-        .await;
+    right_tree.write_dot(&dir, "intro_after_right.dot").await;
 
     super::dot_to_png(&dir);
 }
@@ -62,7 +60,7 @@ pub async fn doc_splits_details(dir: &Path) {
         .unwrap()
         .1
         .set("fillcolor", "gold1");
-    dot.write(&dir.join("1_same_side.dot")).unwrap();
+    dot.write(&dir, "1_same_side.dot").unwrap();
 
     let mut dot = tree.as_dot().await;
     let prefix = bitvec![0, 0, 0, 0, 1];
@@ -71,7 +69,7 @@ pub async fn doc_splits_details(dir: &Path) {
         .unwrap()
         .1
         .set("fillcolor", "gold1");
-    dot.write(&dir.join("2_start.dot")).unwrap();
+    dot.write(&dir, "2_start.dot").unwrap();
 
     let mut dot = tree.as_dot().await;
     let split_key = bitvec![0, 0, 0, 0, 1, 0, 1, 1];
@@ -86,14 +84,14 @@ pub async fn doc_splits_details(dir: &Path) {
         &split_key,
     )
     .await;
-    dot.write(&dir.join("3_split_1.dot")).unwrap();
+    dot.write(&dir, "3_split_1.dot").unwrap();
 
     // split the parents, write a file for each step up the tree.
     let mut file_num = 4;
     let mut hashes = vec![*split_hash];
     while let Some(parent) = index.parents.get(split_hash) {
         split_dot_tree_at(&tree, &index, &mut dot, &parent.0, &parent.1, &split_key).await;
-        dot.write(&dir.join(format!("{file_num}_split_{}.dot", file_num - 2)))
+        dot.write(&dir, format!("{file_num}_split_{}.dot", file_num - 2))
             .unwrap();
         split_hash = &parent.1;
         hashes.push(*split_hash);
@@ -106,7 +104,10 @@ pub async fn doc_splits_details(dir: &Path) {
         highlight_if_compressible(hash_id(&hash), &mut dot);
         highlight_if_compressible(format!("{}_2", hash_id(&hash)), &mut dot);
     }
-    dot.write(&dir.join("7_split_collapse.dot")).unwrap();
+    // Remove the dotted edges connect the split nodes.
+    // These edges are all in their own subgraphs called split_{hash}, so we can just delete those graphs.
+    dot.graphs.retain(|g| !g.name.starts_with("split_"));
+    dot.write(&dir, "7_split_collapse.dot").unwrap();
 
     // Show the 2 trees with the right hashes and the 3 recalculated nodes highlighted.
     // We'll do an actual split and show the results rather than trying to mutate
@@ -143,7 +144,7 @@ pub async fn doc_splits_details(dir: &Path) {
         .set("fillcolor", "gold1");
 
     left.merge(right);
-    left.write(&dir.join("8_finished.dot")).unwrap();
+    left.write(&dir, "8_finished.dot").unwrap();
 
     super::dot_to_png(&dir);
 }

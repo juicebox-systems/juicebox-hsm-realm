@@ -1,0 +1,158 @@
+Digraph overlay {
+newrank=true
+
+hd985ad38e62cc9ee -> phd985ad38e62cc9ee [arrowsize=0.7 style=dotted ];
+heea52d348fd0d673 -> oheea52d348fd0d673 [arrowsize=0.7 style=dotted ];
+
+Subgraph cluster_roots {
+label="root hashes"
+rank=same
+
+hf992181de3a6f26a [fillcolor=darkseagreen label="root\nf992181de3a6f26a" shape=box style=filled ];
+hd985ad38e62cc9ee [fillcolor=darkseagreen label="root\nd985ad38e62cc9ee" shape=box style=filled ];
+h81849f8310751cf4 [fillcolor=darkseagreen label="root\n81849f8310751cf4" shape=box style=filled ];
+hd483f15f30ca835a [fillcolor=darkseagreen label="root\nd483f15f30ca835a" shape=box style=filled ];
+heea52d348fd0d673 [fillcolor=darkseagreen label="root\neea52d348fd0d673" shape=box style=filled ];
+hf992181de3a6f26a -> hd985ad38e62cc9ee [];
+hd985ad38e62cc9ee -> h81849f8310751cf4 [];
+h81849f8310751cf4 -> hd483f15f30ca835a [];
+hd483f15f30ca835a -> heea52d348fd0d673 [];
+}
+
+
+Subgraph cluster_proof {
+label=proof
+
+phd985ad38e62cc9ee -> ph24233970fd9673c2 [arrowsize=0.7 label="Left: 0" nojustify=true ];
+ph24233970fd9673c2 -> phcf1490b75a90623d [arrowsize=0.7 label="Left: 0" nojustify=true ];
+phcf1490b75a90623d -> phdfdd9958472ddbae [arrowsize=0.7 label="Left: 0" nojustify=true ];
+phcf1490b75a90623d -> ph4c0b9201d2b9b36b [arrowsize=0.7 label="Right: 10" nojustify=true ];
+ph4c0b9201d2b9b36b -> ph2159e5c8e7e8b68c [arrowsize=0.7 label="Left: 0110" nojustify=true ];
+ph4c0b9201d2b9b36b -> ph186bb9af80bdb880 [arrowsize=0.7 label="Right: 1100" nojustify=true ];
+ph24233970fd9673c2 -> ph59418e7352273236 [arrowsize=0.7 label="Right: 1" nojustify=true ];
+phd985ad38e62cc9ee -> ph004bfe3e31803344 [arrowsize=0.7 label="Right: 10000000" nojustify=true ];
+
+Subgraph depth_0 {
+rank=same
+
+phd985ad38e62cc9ee [fillcolor=darkseagreen label="root\nd985ad38e62cc9ee" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_1 {
+rank=same
+
+ph24233970fd9673c2 [fillcolor=azure3 label="24233970fd9673c2" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_2 {
+rank=same
+
+phcf1490b75a90623d [fillcolor=azure3 label="cf1490b75a90623d" ordering=out shape=box style=filled ];
+ph59418e7352273236 [label="59418e7352273236" ordering=out shape=box style=dotted ];
+}
+
+
+Subgraph depth_3 {
+rank=same
+
+phdfdd9958472ddbae [label="dfdd9958472ddbae" ordering=out shape=box style=dotted ];
+}
+
+
+Subgraph depth_4 {
+rank=same
+
+ph4c0b9201d2b9b36b [fillcolor=azure3 label="4c0b9201d2b9b36b" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_256 {
+rank=same
+
+ph2159e5c8e7e8b68c [label="2159e5c8e7e8b68c" ordering=out shape=box style=dotted ];
+ph186bb9af80bdb880 [fillcolor=lightblue1 label="186bb9af80bdb880\nvalue: A" ordering=out shape=box style=filled ];
+ph004bfe3e31803344 [label="004bfe3e31803344" ordering=out shape=box style=dotted ];
+}
+
+}
+
+
+Subgraph cluster_overlay {
+label="overlay nodes"
+
+oheea52d348fd0d673 -> oh67054da17dcc2394 [arrowsize=0.7 color=black fontcolor=black label="Left: 0" nojustify=true ];
+oh67054da17dcc2394 -> oh4c44dd7d105ecd36 [arrowsize=0.7 color=black fontcolor=black label="Left: 0" nojustify=true ];
+oh4c44dd7d105ecd36 -> ohdfdd9958472ddbae [arrowsize=0.7 color=gray75 fontcolor=gray75 label="Left: 0" nojustify=true ];
+oh4c44dd7d105ecd36 -> ohd8fa2bb22b05378e [arrowsize=0.7 color=black fontcolor=black label="Right: 10" nojustify=true ];
+ohd8fa2bb22b05378e -> oh2159e5c8e7e8b68c [arrowsize=0.7 color=gray75 fontcolor=gray75 label="Left: 0110" nojustify=true ];
+ohd8fa2bb22b05378e -> ohf0981faca6cb510c [arrowsize=0.7 color=black fontcolor=black label="Right: 110" nojustify=true ];
+ohf0981faca6cb510c -> oh18fb2b0b6886f66c [arrowsize=0.7 color=black fontcolor=black label="Left: 0" nojustify=true ];
+ohf0981faca6cb510c -> oh79990db7d800a9e1 [arrowsize=0.7 color=gray75 fontcolor=gray75 label="Right: 1" nojustify=true ];
+oh67054da17dcc2394 -> oh59418e7352273236 [arrowsize=0.7 color=gray75 fontcolor=gray75 label="Right: 1" nojustify=true ];
+oh59418e7352273236 -> ohef3f40cea4cd4cba [arrowsize=0.7 color=gray75 fontcolor=gray75 label="Left: 001000" nojustify=true ];
+oh59418e7352273236 -> oh61db2df834096acb [arrowsize=0.7 color=gray75 fontcolor=gray75 label="Right: 110000" nojustify=true ];
+oheea52d348fd0d673 -> oha7e7130f86e0fe04 [arrowsize=0.7 color=gray75 fontcolor=gray75 label="Right: 1" nojustify=true ];
+oha7e7130f86e0fe04 -> oh004bfe3e31803344 [arrowsize=0.7 color=gray75 fontcolor=gray75 label="Left: 0000000" nojustify=true ];
+oha7e7130f86e0fe04 -> oh96fdca7163e314e1 [arrowsize=0.7 color=gray75 fontcolor=gray75 label="Right: 1001000" nojustify=true ];
+
+Subgraph depth_0 {
+rank=same
+
+oheea52d348fd0d673 [fillcolor=gold1 label="root\neea52d348fd0d673" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_1 {
+rank=same
+
+oh67054da17dcc2394 [fillcolor=gold1 label="67054da17dcc2394" ordering=out shape=box style=filled ];
+oha7e7130f86e0fe04 [fillcolor=azure3 label="a7e7130f86e0fe04" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_2 {
+rank=same
+
+oh4c44dd7d105ecd36 [fillcolor=gold1 label="4c44dd7d105ecd36" ordering=out shape=box style=filled ];
+oh59418e7352273236 [fillcolor=azure3 label="59418e7352273236" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_3 {
+rank=same
+
+ohdfdd9958472ddbae [label="dfdd9958472ddbae" ordering=out shape=box style=dotted ];
+}
+
+
+Subgraph depth_4 {
+rank=same
+
+ohd8fa2bb22b05378e [fillcolor=gold1 label="d8fa2bb22b05378e" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_256 {
+rank=same
+
+oh2159e5c8e7e8b68c [label="2159e5c8e7e8b68c" ordering=out shape=box style=dotted ];
+oh18fb2b0b6886f66c [fillcolor=gold1 label="18fb2b0b6886f66c\nvalue: D" ordering=out shape=box style=filled ];
+oh79990db7d800a9e1 [fillcolor=lightblue1 label="79990db7d800a9e1\nvalue: C" ordering=out shape=box style=filled ];
+ohef3f40cea4cd4cba [fillcolor=lightblue1 label="ef3f40cea4cd4cba\nvalue: B" ordering=out shape=box style=filled ];
+oh61db2df834096acb [label="61db2df834096acb" ordering=out shape=box style=dotted ];
+oh004bfe3e31803344 [label="004bfe3e31803344" ordering=out shape=box style=dotted ];
+oh96fdca7163e314e1 [fillcolor=lightblue1 label="96fdca7163e314e1\nvalue: D" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_7 {
+rank=same
+
+ohf0981faca6cb510c [fillcolor=gold1 label="f0981faca6cb510c" ordering=out shape=box style=filled ];
+}
+
+}
+
+}

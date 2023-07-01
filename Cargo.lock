@@ -1835,8 +1835,10 @@ dependencies = [
 name = "merkle_tree_docgen"
 version = "0.1.0"
 dependencies = [
+ "clap 4.3.0",
  "hsmcore",
  "juicebox-sdk-core",
+ "rand_core",
  "tokio",
 ]
 

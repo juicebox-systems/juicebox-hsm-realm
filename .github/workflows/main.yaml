@@ -294,6 +294,33 @@ jobs:
       with:
         command: audit
 
+    - name: Install graphviz
+      run: sudo apt install graphviz
+
+    - name: Delete Merkle tree paper outputs
+      run: |
+        rm -r docs/merkle_tree/
+        git restore --source HEAD \
+          docs/merkle_tree/intro/system.dot \
+          docs/merkle_tree/intro/stacked_box.png \
+          docs/merkle_tree/storage/base128.dot \
+          docs/merkle_tree/merkle.typ \
+          docs/merkle_tree/references.bib \
+          docs/merkle_tree/template.typ \
+          docs/merkle_tree/to_tree.py
+
+    - name: Compile Merkle tree paper
+      uses: actions-rs/cargo@v1
+      with:
+        command: run
+        args: --package merkle_tree_docgen
+
+    - name: Check Merkle tree paper outputs
+      run: git diff --exit-code -- docs/merkle_tree
+
+    - name: Run Merkle tree paper Python
+      run: python3 docs/merkle_tree/to_tree.py
+
   wasm_demo:
     name: WASM Demo
     runs-on: ubuntu-20.04

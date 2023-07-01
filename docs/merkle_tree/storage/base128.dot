@@ -1,0 +1,31 @@
+digraph g {
+    node [shape=record,height=0.1];
+    prefix0[label="<f0>1|<f1>1|<f2>0|<f3>1|<f4>1|<f5>1|<f6>0|<f7>0|<f8>1|<f9>1",xlabel="Prefix"];
+
+    edge [arrowsize=0.7];
+    prefix0:f0 -> encoded0:f1;
+    prefix0:f1 -> encoded0:f2;
+    prefix0:f2 -> encoded0:f3;
+    prefix0:f3 -> encoded0:f4;
+    prefix0:f4 -> encoded0:f5;
+    prefix0:f5 -> encoded0:f6;
+    prefix0:f6 -> encoded0:f7;
+    prefix0:f7 -> encoded1:f1;
+    prefix0:f8 -> encoded1:f2;
+    prefix0:f9:s -> encoded1:f3;
+
+subgraph c1 {
+    rank = same;
+    encoded0[label="<f0>0|<f1>1|<f2>1|<f3>0|<f4>1|<f5>1|<f6>1|<f7>0" xlabel="Encoded"];
+    encoded1[label="<f0>0|<f1>0|<f2>1|<f3>1|<f4>0|<f5>0|<f6>0|<f7>0"];
+    encoded2[label="<f0>1|<f1>0|<f2>0|<f3>0|<f4>0|<f5>0|<f6>1|<f7>1"];
+}
+    node [shape=plaintext]
+    t [label="Terminator"];
+    t -> encoded2:f0;
+    c [label="Number of bits used in last byte"];
+    c -> encoded2:f5;
+    c -> encoded2:f6;
+    c -> encoded2:f7;
+
+}

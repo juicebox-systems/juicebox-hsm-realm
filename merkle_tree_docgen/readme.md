@@ -7,5 +7,9 @@ generate the PNGs.
 
 `dot` should be installed and on the path. (`apt install graphviz` on Linux)
 
+It will also run `typst` to generate a new version of the merkle.pdf output.
+
+typst needs to be installed and on the path. see https://github.com/typst/typst
+
 From the root of the overall repo, run `cargo run -p merkle_tree_docgen` to regenerate
-the .dot and .png files.
+the .dot, .png and .pdf files.

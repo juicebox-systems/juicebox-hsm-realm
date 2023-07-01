@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use hsmcore::bitvec;
 use hsmcore::bitvec::Bits;
 use hsmcore::merkle::dot::{hash_id, DotGraph};
 use hsmcore::merkle::testing::rec_id;
@@ -19,13 +20,13 @@ pub async fn doc_merge(dir: &Path) {
     // 00001010 is the right most key in the left tree, highlight every node that's on the path.
     let left_proof_key = rec_id(&[0b00001010]);
     left_tree
-        .highlight_record_id_to_dot(left_proof_key.clone(), &dir.join("merge_left_proof.dot"))
+        .highlight_record_id_to_dot(left_proof_key.clone(), &dir, "merge_left_proof.dot")
         .await;
 
     // 00001111 is the left most key in the right tree, highlight every node that's on the path.
     let right_proof_key = rec_id(&[0b00001111]);
     right_tree
-        .highlight_record_id_to_dot(right_proof_key.clone(), &dir.join("merge_right_proof.dot"))
+        .highlight_record_id_to_dot(right_proof_key.clone(), &dir, "merge_right_proof.dot")
         .await;
 
     // highlight the branches of interest
@@ -46,7 +47,7 @@ pub async fn doc_merge(dir: &Path) {
                 edge.set("fontcolor", "gray54");
             }
         }
-        dot.write(&dir.join(filename)).unwrap();
+        dot.write(&dir, filename).unwrap();
     };
 
     let left_index = TreeIndex::build(&left_tree).await;
@@ -66,7 +67,23 @@ pub async fn doc_merge(dir: &Path) {
     );
 
     let tree = super::split::make_split_tree().await;
-    tree.write_dot(&dir.join("final.dot")).await;
+    let colors = [
+        (bitvec![0, 0, 0, 0, 1, 0], "\"#FFAC53\""),
+        (bitvec![0, 0, 0, 0, 1], "\"#b1f2eb\""),
+        (bitvec![0, 0, 0, 0], "\"#F259FF\""),
+        (bitvec![0, 0], "\"#4680DC\""),
+        (bitvec![], "\"#00c000\""),
+    ];
+    let index = TreeIndex::build(&tree).await;
+    let mut dot = tree.as_dot().await;
+    for (prefix, color) in colors {
+        let hash = index.prefixes.get(&prefix).unwrap();
+        dot.node_mut(&hash_id(hash))
+            .unwrap()
+            .1
+            .set("fillcolor", color);
+    }
+    dot.write(&dir, "final.dot").unwrap();
 
     super::dot_to_png(&dir);
 }
