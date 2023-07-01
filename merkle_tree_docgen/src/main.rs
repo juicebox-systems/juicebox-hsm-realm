@@ -38,6 +38,8 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
+    hsmcore::hash::set_global_rng_owned(rand_core::OsRng);
+
     let o = PathBuf::from("docs/merkle_tree");
     doc_intro(&o).await;
     doc_mutation(&o).await;
