@@ -191,7 +191,6 @@ above:
 - `codegen` generates bindings from Google's Protocol Buffers definitions.
 - `entrust_init` is used to set up Entrust HSMs before they can participate in
   a realm.
-- `src/bin/demo` is a "hello world" client.
 - `src/bin/demo_runner` runs a large realm on localhost and, by default, runs
   the demo against it.
 - `src/bin/hsm_bench` runs a small realm on localhost and, by default, runs a
@@ -213,7 +212,13 @@ System dependencies:
 Then:
 
 * `cargo test --all` to run the unit tests
-* `cargo build && cargo run --bin demo_runner -- --demo target/debug/demo` to run the rust demo aka "integration test"
+* to run the rust demo aka "integration test":
+```sh
+cd sdk
+cargo build -p juicebox-sdk-demo
+cd ..
+cargo run --bin demo_runner -- --demo sdk/target/debug/juicebox_sdk_demo
+```
 * to run the swift demo:
 ```sh
 cd sdk/swift
