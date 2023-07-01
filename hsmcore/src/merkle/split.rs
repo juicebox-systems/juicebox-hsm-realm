@@ -225,6 +225,8 @@ impl<H: NodeHasher> Tree<H> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use crate::merkle::dot::tree_to_dot;
     use crate::merkle::testing::{
         check_delta_invariants, check_tree_invariants, new_empty_tree, read, read_tree_side,
@@ -403,32 +405,57 @@ mod tests {
         check_tree_invariants::<TestHasher>(&s.left.range, &TEST_REALM, root_l, &store_l).await;
         check_tree_invariants::<TestHasher>(&s.right.range, &TEST_REALM, root_r, &store_r).await;
 
+        let dir = Path::new(".");
         if root_l != s.left.root_hash {
-            tree_to_dot(&TEST_REALM, &store_l, root_l, "expected_left.dot")
+            tree_to_dot(&TEST_REALM, &store_l, root_l, dir, "expected_left.dot")
                 .await
                 .unwrap();
-            tree_to_dot(&TEST_REALM, &store, s.left.root_hash, "actual_left.dot")
-                .await
-                .unwrap();
-            tree_to_dot(&TEST_REALM, &store, s.right.root_hash, "actual_right.dot")
-                .await
-                .unwrap();
-            tree_to_dot(&TEST_REALM, &pre_split_store, root, "before_split.dot")
+            tree_to_dot(
+                &TEST_REALM,
+                &store,
+                s.left.root_hash,
+                dir,
+                "actual_left.dot",
+            )
+            .await
+            .unwrap();
+            tree_to_dot(
+                &TEST_REALM,
+                &store,
+                s.right.root_hash,
+                dir,
+                "actual_right.dot",
+            )
+            .await
+            .unwrap();
+            tree_to_dot(&TEST_REALM, &pre_split_store, root, dir, "before_split.dot")
                 .await
                 .unwrap();
             panic!("left tree after split at {split:?} not as expected, see expected_left.dot & actual_left.dot for details");
         }
         if root_r != s.right.root_hash {
-            tree_to_dot(&TEST_REALM, &store_r, root_r, "expected_right.dot")
+            tree_to_dot(&TEST_REALM, &store_r, root_r, dir, "expected_right.dot")
                 .await
                 .unwrap();
-            tree_to_dot(&TEST_REALM, &store, s.left.root_hash, "actual_left.dot")
-                .await
-                .unwrap();
-            tree_to_dot(&TEST_REALM, &store, s.right.root_hash, "actual_right.dot")
-                .await
-                .unwrap();
-            tree_to_dot(&TEST_REALM, &pre_split_store, root, "before_split.dot")
+            tree_to_dot(
+                &TEST_REALM,
+                &store,
+                s.left.root_hash,
+                dir,
+                "actual_left.dot",
+            )
+            .await
+            .unwrap();
+            tree_to_dot(
+                &TEST_REALM,
+                &store,
+                s.right.root_hash,
+                dir,
+                "actual_right.dot",
+            )
+            .await
+            .unwrap();
+            tree_to_dot(&TEST_REALM, &pre_split_store, root, dir, "before_split.dot")
                 .await
                 .unwrap();
             panic!("right tree after split at {split:?} not as expected, see expected_right.dot & actual_right.dot for details");
@@ -449,13 +476,20 @@ mod tests {
                 &TEST_REALM,
                 &pre_split_store,
                 pre_split_root_hash,
+                dir,
                 "before_split.dot",
             )
             .await
             .unwrap();
-            tree_to_dot(&TEST_REALM, &store_l, merged.root_hash, "after_merge.dot")
-                .await
-                .unwrap();
+            tree_to_dot(
+                &TEST_REALM,
+                &store_l,
+                merged.root_hash,
+                dir,
+                "after_merge.dot",
+            )
+            .await
+            .unwrap();
             assert_eq!(
                 pre_split_root_hash, merged.root_hash,
                 "tree after split then merge should be the same as before the initial split"

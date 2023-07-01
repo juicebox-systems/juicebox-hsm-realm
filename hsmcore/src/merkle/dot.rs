@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use async_recursion::async_recursion;
 use async_trait::async_trait;
 use core::fmt::{Display, Write};
+use core::marker::PhantomData;
 use std::path::Path;
 use std::{fs, io};
 
@@ -39,11 +40,12 @@ pub async fn tree_to_dot<HO: HashOutput>(
     realm_id: &RealmId,
     reader: &impl TreeStoreReader<HO>,
     root: HO,
-    output_file: impl AsRef<Path>,
+    dir: &Path,
+    output_filename: impl AsRef<Path>,
 ) -> std::io::Result<()> {
     tree_to_dot_document(realm_id, reader, root)
         .await
-        .write(output_file.as_ref())
+        .write(dir, output_filename)
 }
 
 pub async fn tree_to_dot_document<HO: HashOutput>(
@@ -58,6 +60,9 @@ pub async fn tree_to_dot_document<HO: HashOutput>(
 
 pub trait Visitor<HO: HashOutput>: Sync {
     fn visit_node(&mut self, prefix: &KeyVec, node_hash: &HO, node: &Node<HO>);
+    fn visit_missing_node(&mut self, _prefix: &KeyVec, node_hash: &HO) {
+        panic!("node with hash {node_hash:?} should exist");
+    }
     fn visit_branch(&mut self, prefix: &KeyVec, node_hash: &HO, dir: Dir, branch: &Branch<HO>);
 }
 
@@ -69,20 +74,22 @@ pub async fn visit_tree_at<HO: HashOutput>(
     h: HO,
     visitor: &mut (impl Visitor<HO> + Send),
 ) {
-    let node = reader
-        .read_node(realm_id, StoreKey::new(&prefix, &h))
-        .await
-        .unwrap_or_else(|_| panic!("node with hash {h:?} should exist"));
-
-    visitor.visit_node(&prefix, &h, &node);
-    if let Node::Interior(int) = node {
-        if let Some(ref b) = int.left {
-            visitor.visit_branch(&prefix, &h, Dir::Left, b);
-            visit_tree_at(realm_id, reader, prefix.concat(&b.prefix), b.hash, visitor).await;
-        }
-        if let Some(ref b) = int.right {
-            visitor.visit_branch(&prefix, &h, Dir::Right, b);
-            visit_tree_at(realm_id, reader, prefix.concat(&b.prefix), b.hash, visitor).await;
+    match reader.read_node(realm_id, StoreKey::new(&prefix, &h)).await {
+        Err(_) => visitor.visit_missing_node(&prefix, &h),
+        Ok(node) => {
+            visitor.visit_node(&prefix, &h, &node);
+            if let Node::Interior(int) = node {
+                if let Some(ref b) = int.left {
+                    visitor.visit_branch(&prefix, &h, Dir::Left, b);
+                    visit_tree_at(realm_id, reader, prefix.concat(&b.prefix), b.hash, visitor)
+                        .await;
+                }
+                if let Some(ref b) = int.right {
+                    visitor.visit_branch(&prefix, &h, Dir::Right, b);
+                    visit_tree_at(realm_id, reader, prefix.concat(&b.prefix), b.hash, visitor)
+                        .await;
+                }
+            }
         }
     }
 }
@@ -120,6 +127,11 @@ impl DotGraph {
         self.nodes.extend(other.nodes);
         self.edges.extend(other.edges);
         self.graphs.extend(other.graphs);
+    }
+
+    pub fn add_graph(&mut self, mut g: DotGraph) {
+        g.graph = GraphType::Subgraph;
+        self.graphs.push(g);
     }
 
     pub fn add_node(&mut self, name: impl Into<String>, attr: DotAttributes) {
@@ -183,8 +195,9 @@ impl DotGraph {
         &mut self.graphs[idx]
     }
 
-    pub fn write(&self, output_file: &Path) -> io::Result<()> {
-        fs::write(output_file, format!("{self}"))
+    pub fn write(&self, dir: &Path, name: impl AsRef<Path>) -> io::Result<()> {
+        fs::create_dir_all(dir)?;
+        fs::write(dir.join(name), format!("{self}"))
     }
 }
 
@@ -230,73 +243,102 @@ impl Display for DotAttributes {
     }
 }
 
-pub struct DotVisitor {
+pub struct DotVisitor<HO> {
     pub dot: DotGraph,
+    pub id_builder: fn(&HO) -> String,
+    pub branch_builder: fn(&KeyVec, Dir, &Branch<HO>) -> String,
+    phantom_data: PhantomData<HO>,
 }
 
-impl DotVisitor {
+impl<HO: HashOutput> DotVisitor<HO> {
     pub fn new(name: impl Into<String>) -> Self {
         DotVisitor {
             dot: DotGraph::new(name),
+            id_builder: hash_id,
+            branch_builder: format_branch_label,
+            phantom_data: PhantomData,
         }
     }
-}
 
-impl<HO: HashOutput> Visitor<HO> for DotVisitor {
-    fn visit_node(&mut self, prefix: &BitVec, hash: &HO, node: &Node<HO>) {
-        let mut attr = DotAttributes::default();
-        if prefix.is_empty() {
-            attr.set("fillcolor", "darkseagreen");
-        } else if matches!(node, Node::Leaf(_)) {
-            attr.set("fillcolor", "lightblue1");
-        } else {
-            attr.set("fillcolor", "azure3");
-        }
-        attr.set("style", "filled");
-        attr.set("ordering", "out");
-        attr.set("shape", "box");
-        fn format_leaf_value(v: &[u8]) -> String {
-            if v.len() == 1 && v[0] <= 26 {
-                ((b'A' + v[0] - 1) as char).into()
-            } else {
-                format!("{:?}", v)
-            }
-        }
-        match node {
-            Node::Interior(_) if prefix.is_empty() => {
-                attr.set("label", format!("\"root\\n{:?}\"", hash))
-            }
-            Node::Interior(_) => attr.set("label", format!("\"{:?}\"", hash)),
-            Node::Leaf(l) => attr.set(
-                "label",
-                format!("\"{:?}\\nvalue: {}\"", hash, format_leaf_value(&l.value)),
-            ),
-        };
+    fn depth_graph(&mut self, prefix: &KeyVec) -> &mut DotGraph {
         // We create a subgraph for each prefix bit depth so that we can force
         // the layout to put nodes at the same bit depth at the same vertical
         // position in the output.
         let cluster_name = format!("depth_{}", prefix.len());
         let depth_graph = self.dot.graph_mut(&cluster_name);
         depth_graph.attributes.set("rank", "same");
-        depth_graph.add_node(hash_id(hash), attr);
+        depth_graph
+    }
+}
+
+impl<HO: HashOutput> Visitor<HO> for DotVisitor<HO> {
+    fn visit_node(&mut self, prefix: &BitVec, hash: &HO, node: &Node<HO>) {
+        let n = node_to_dot(prefix, hash, node);
+        let id = (self.id_builder)(hash);
+        self.depth_graph(prefix).add_node(id, n);
     }
 
-    fn visit_branch(&mut self, _prefix: &BitVec, node_hash: &HO, dir: Dir, branch: &Branch<HO>) {
+    fn visit_missing_node(&mut self, prefix: &KeyVec, node_hash: &HO) {
+        let mut node = DotAttributes::default();
+        node.set("style", "dotted");
+        node.set("ordering", "out");
+        node.set("shape", "box");
+        node.set("label", format!("\"{:?}\"", node_hash));
+        let id = (self.id_builder)(node_hash);
+        self.depth_graph(prefix).add_node(id, node);
+    }
+
+    fn visit_branch(&mut self, prefix: &BitVec, node_hash: &HO, dir: Dir, branch: &Branch<HO>) {
         let mut attr = DotAttributes::default();
         attr.set("nojustify", "true");
         attr.set("arrowsize", "0.7");
 
-        attr.set("label", format_branch_label(dir, branch));
-        self.dot
-            .add_edge(hash_id(node_hash), hash_id(&branch.hash), attr);
+        attr.set("label", (self.branch_builder)(prefix, dir, branch));
+        self.dot.add_edge(
+            (self.id_builder)(node_hash),
+            (self.id_builder)(&branch.hash),
+            attr,
+        );
     }
+}
+
+pub fn node_to_dot<HO: HashOutput>(prefix: &BitVec, hash: &HO, node: &Node<HO>) -> DotAttributes {
+    let mut attr = DotAttributes::default();
+    if prefix.is_empty() {
+        attr.set("fillcolor", "darkseagreen");
+    } else if matches!(node, Node::Leaf(_)) {
+        attr.set("fillcolor", "lightblue1");
+    } else {
+        attr.set("fillcolor", "azure3");
+    }
+    attr.set("style", "filled");
+    attr.set("ordering", "out");
+    attr.set("shape", "box");
+    fn format_leaf_value(v: &[u8]) -> String {
+        if v.len() == 1 && v[0] <= 26 {
+            ((b'A' + v[0] - 1) as char).into()
+        } else {
+            format!("{:?}", v)
+        }
+    }
+    match node {
+        Node::Interior(_) if prefix.is_empty() => {
+            attr.set("label", format!("\"root\\n{:?}\"", hash))
+        }
+        Node::Interior(_) => attr.set("label", format!("\"{:?}\"", hash)),
+        Node::Leaf(l) => attr.set(
+            "label",
+            format!("\"{:?}\\nvalue: {}\"", hash, format_leaf_value(&l.value)),
+        ),
+    };
+    attr
 }
 
 pub fn hash_id<HO: HashOutput>(h: &HO) -> String {
     format!("h{h:?}")
 }
 
-fn format_branch_label<HO>(dir: Dir, branch: &Branch<HO>) -> String {
+fn format_branch_label<HO>(_prefix: &KeyVec, dir: Dir, branch: &Branch<HO>) -> String {
     let lb = if branch.prefix.len() > 8 { "\\n" } else { " " };
     format!(
         "\"{}:{}{}\\l\"",

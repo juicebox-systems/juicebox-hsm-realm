@@ -7,7 +7,6 @@ use juicebox_sdk_marshalling::bytes;
 use serde::{Deserialize, Serialize};
 
 use self::agent::{DeltaBuilder, Node, NodeKey, StoreDelta};
-use self::overlay::TreeOverlay;
 use self::proof::{ProofError, ReadProof, VerifiedProof};
 use super::bitvec::{BitSlice, BitVec, Bits};
 use super::hsm::types::{OwnedRange, RecordId};
@@ -26,6 +25,7 @@ pub mod testing;
 
 pub type KeyVec = BitVec;
 pub type KeySlice<'a> = BitSlice<'a>;
+pub type TreeOverlay<HO> = self::overlay::TreeOverlay<HO>;
 
 // TODO
 //  docs
@@ -69,6 +69,11 @@ impl<H: NodeHasher> Tree<H> {
     ) -> Result<VerifiedProof<H::Output>, ProofError> {
         rp.verify::<H>(&self.overlay)
     }
+
+    // Returns the tree overlay.
+    pub fn overlay(&self) -> &TreeOverlay<H::Output> {
+        &self.overlay
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -110,7 +115,7 @@ impl<HO: HashOutput> InteriorNode<HO> {
             }
         }
     }
-    fn calc_hash<H: NodeHasher<Output = HO>>(
+    pub fn calc_hash<H: NodeHasher<Output = HO>>(
         key_range: &OwnedRange,
         is_root: bool,
         left: &Option<Branch<H::Output>>,
@@ -182,7 +187,8 @@ impl LeafNode {
         let h = Self::calc_hash::<H>(k, &v);
         (h, LeafNode { value: v })
     }
-    fn calc_hash<H: NodeHasher>(k: &RecordId, v: &[u8]) -> H::Output {
+
+    pub fn calc_hash<H: NodeHasher>(k: &RecordId, v: &[u8]) -> H::Output {
         NodeHashBuilder::<H>::Leaf(k, v).build()
     }
 }

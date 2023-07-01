@@ -1,40 +1,40 @@
 Digraph merkletree {
 
-h201e810ae0e4b76f -> hc767cf620d663ec8 [arrowsize=0.7 label="Left: 0000\l" nojustify=true ];
-hc767cf620d663ec8 -> hc054fba26029cf03 [arrowsize=0.7 label="Left: 0000" nojustify=true ];
-hc767cf620d663ec8 -> hacdbe159e86e8eea [arrowsize=0.7 label="Right: 10\l" nojustify=true ];
-hacdbe159e86e8eea -> h2a9967cd63409150 [arrowsize=0.7 label="Left: 00" nojustify=true ];
-hacdbe159e86e8eea -> he5e4ab147ab51e31 [arrowsize=0.7 label="Right: 10" nojustify=true ];
-h201e810ae0e4b76f -> hb5a225683a96b22d [arrowsize=0.7 label="Right: 11001000" nojustify=true ];
+he6286ff8963bcd97 -> h171992b30b53798e [arrowsize=0.7 label="Left: 0000" nojustify=true ];
+h171992b30b53798e -> h3b6720ff03b68954 [arrowsize=0.7 label="Left: 0000" nojustify=true ];
+h171992b30b53798e -> h7d391da9964d4e1d [arrowsize=0.7 label="Right: 10" nojustify=true ];
+h7d391da9964d4e1d -> h2ebfa7357a6b50e5 [arrowsize=0.7 label="Left: 00" nojustify=true ];
+h7d391da9964d4e1d -> h64a238e0bd4398c1 [arrowsize=0.7 label="Right: 10" nojustify=true ];
+he6286ff8963bcd97 -> h470c05793f35ae36 [arrowsize=0.7 label="Right: 11001000" nojustify=true ];
 
 Subgraph depth_0 {
 rank=same
 
-h201e810ae0e4b76f [fillcolor=darkseagreen label="root\n201e810ae0e4b76f" ordering=out shape=box style=filled ];
+he6286ff8963bcd97 [fillcolor=darkseagreen label="root\ne6286ff8963bcd97" ordering=out shape=box style=filled ];
 }
 
 
 Subgraph depth_4 {
 rank=same
 
-hc767cf620d663ec8 [fillcolor=azure3 label="c767cf620d663ec8" ordering=out shape=box style=filled ];
+h171992b30b53798e [fillcolor=azure3 label="171992b30b53798e" ordering=out shape=box style=filled ];
 }
 
 
 Subgraph depth_256 {
 rank=same
 
-hc054fba26029cf03 [fillcolor=lightblue1 label="c054fba26029cf03\nvalue: A" ordering=out shape=box style=filled ];
-h2a9967cd63409150 [fillcolor=lightblue1 label="2a9967cd63409150\nvalue: B" ordering=out shape=box style=filled ];
-he5e4ab147ab51e31 [fillcolor=lightblue1 label="e5e4ab147ab51e31\nvalue: D" ordering=out shape=box style=filled ];
-hb5a225683a96b22d [fillcolor=lightblue1 label="b5a225683a96b22d\nvalue: C" ordering=out shape=box style=filled ];
+h3b6720ff03b68954 [fillcolor=lightblue1 label="3b6720ff03b68954\nvalue: A" ordering=out shape=box style=filled ];
+h2ebfa7357a6b50e5 [fillcolor=lightblue1 label="2ebfa7357a6b50e5\nvalue: B" ordering=out shape=box style=filled ];
+h64a238e0bd4398c1 [fillcolor=lightblue1 label="64a238e0bd4398c1\nvalue: D" ordering=out shape=box style=filled ];
+h470c05793f35ae36 [fillcolor=lightblue1 label="470c05793f35ae36\nvalue: C" ordering=out shape=box style=filled ];
 }
 
 
 Subgraph depth_6 {
 rank=same
 
-hacdbe159e86e8eea [fillcolor=azure3 label="acdbe159e86e8eea" ordering=out shape=box style=filled ];
+h7d391da9964d4e1d [fillcolor=azure3 label="7d391da9964d4e1d" ordering=out shape=box style=filled ];
 }
 
 }

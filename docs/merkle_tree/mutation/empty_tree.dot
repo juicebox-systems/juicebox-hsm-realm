@@ -4,7 +4,7 @@ Digraph merkletree {
 Subgraph depth_0 {
 rank=same
 
-h8a8990a24073c3e9 [fillcolor=darkseagreen label="root\n8a8990a24073c3e9" ordering=out shape=box style=filled ];
+hd7b2fa3f50443567 [fillcolor=darkseagreen label="root\nd7b2fa3f50443567" ordering=out shape=box style=filled ];
 }
 
 }
