@@ -1,17 +1,17 @@
 use clap::Parser;
 
-use reqwest::Certificate;
+use ::reqwest::Certificate;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tracing::info;
 
-use juicebox_hsm::http_client;
 use juicebox_hsm::logging;
 use juicebox_sdk::{
-    AuthToken, Client, Configuration, Pin, Policy, RealmId, RecoverError, TokioSleeper, UserInfo,
-    UserSecret,
+    AuthToken, Client, ClientBuilder, Configuration, Pin, Policy, RealmId, RecoverError,
+    TokioSleeper, UserInfo, UserSecret,
 };
+use juicebox_sdk_networking::reqwest::{self, ClientOptions};
 use juicebox_sdk_networking::rpc::LoadBalancerService;
 
 /// A Rust demo of the SDK.
@@ -59,16 +59,16 @@ async fn main() {
 
     let client: Client<
         TokioSleeper,
-        http_client::Client<LoadBalancerService>,
+        reqwest::Client<LoadBalancerService>,
         HashMap<RealmId, AuthToken>,
-    > = Client::with_tokio(
-        configuration,
-        vec![],
-        auth_tokens,
-        http_client::Client::new(http_client::ClientOptions {
+    > = ClientBuilder::new()
+        .configuration(configuration)
+        .auth_token_manager(auth_tokens)
+        .reqwest_with_options(ClientOptions {
             additional_root_certs: lb_certs,
-        }),
-    );
+        })
+        .tokio_sleeper()
+        .build();
 
     info!("Starting register (allowing 2 guesses)");
     client

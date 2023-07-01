@@ -3,13 +3,13 @@ use thiserror::Error;
 use tracing::{debug, info};
 use url::Url;
 
-use crate::http_client::Client;
 use crate::realm::agent::types::{
     AgentService, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse,
     NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, StatusRequest,
 };
 use hsmcore::hsm::types::{GroupId, HsmId, HsmRealmStatement, GROUPS_LIMIT};
 use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self, RpcError};
 
 #[derive(Debug, Error)]

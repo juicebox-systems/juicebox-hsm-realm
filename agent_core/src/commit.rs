@@ -15,7 +15,6 @@ use hsmcore::hsm::types::{
     Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole, HsmId, LogIndex,
     PersistStateRequest, PersistStateResponse,
 };
-use juicebox_hsm::http_client::Client;
 use juicebox_hsm::logging::{Spew, TracingSource};
 use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::agent::types::AgentService;
@@ -24,6 +23,7 @@ use juicebox_hsm::realm::hsm::client::Transport;
 use juicebox_hsm::realm::store::bigtable::StoreClient;
 use juicebox_sdk_core::requests::NoiseResponse;
 use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc;
 
 #[derive(Debug, Eq, PartialEq)]

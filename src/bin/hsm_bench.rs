@@ -10,12 +10,12 @@ use tracing::{debug, info, warn};
 
 use juicebox_hsm::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use juicebox_hsm::exec::hsm_gen::{Entrust, MetricsParticipants};
-use juicebox_hsm::http_client::{self};
 use juicebox_hsm::logging;
 use juicebox_hsm::process_group::ProcessGroup;
 use juicebox_hsm::realm::store::bigtable;
 use juicebox_sdk::{Client, Pin, UserInfo, UserSecret};
 use juicebox_sdk_core::types::Policy;
+use juicebox_sdk_networking::reqwest;
 use juicebox_sdk_networking::rpc::LoadBalancerService;
 
 /// An end-to-end benchmark to stress an HSM.
@@ -102,8 +102,8 @@ async fn main() {
         .unwrap();
 
     info!(clients = args.concurrency, "creating clients");
-    let clients: Vec<Arc<Mutex<Client<_, http_client::Client<LoadBalancerService>, _>>>> = (0
-        ..args.concurrency)
+    let clients: Vec<Arc<Mutex<Client<_, reqwest::Client<LoadBalancerService>, _>>>> = (0..args
+        .concurrency)
         .map(|i| Arc::new(Mutex::new(cluster.client_for_user(format!("mario{i}")))))
         .collect();
 

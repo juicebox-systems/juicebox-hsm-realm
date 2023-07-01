@@ -4,7 +4,6 @@ pub mod client_auth;
 pub mod exec;
 pub mod future_task;
 pub mod google_auth;
-pub mod http_client;
 pub mod logging;
 pub mod metrics;
 pub mod process_group;

@@ -6,11 +6,11 @@ use tokio::time::sleep;
 use tracing::{debug, info};
 use url::Url;
 
-use super::super::http_client::Client;
 use super::agent::types::{AgentService, StatusRequest};
 use hsm_types::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex};
 use hsmcore::hsm::types as hsm_types;
 use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self, RpcError};
 
 mod leader;

@@ -6,11 +6,11 @@ use url::Url;
 use super::{ManagementGrant, Manager};
 use hsm_types::{GroupId, HsmId, LogIndex};
 use hsmcore::hsm::types as hsm_types;
-use juicebox_hsm::http_client::Client;
 use juicebox_hsm::realm::agent::types::{AgentService, BecomeLeaderRequest, BecomeLeaderResponse};
 use juicebox_hsm::realm::cluster::{get_hsm_statuses, Error};
 use juicebox_hsm::realm::store::bigtable::ServiceKind;
 use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self, RpcError};
 
 impl Manager {

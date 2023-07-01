@@ -21,13 +21,13 @@ use url::Url;
 
 use hsm_types::GroupId;
 use hsmcore::hsm::types as hsm_types;
-use juicebox_hsm::http_client::{Client, ClientOptions};
 use juicebox_hsm::realm::agent::types::AgentService;
 use juicebox_hsm::realm::cluster::types;
 use juicebox_hsm::realm::rpc::handle_rpc;
 use juicebox_hsm::realm::store::bigtable::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
 use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
 use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_networking::rpc::Rpc;
 
 mod leader;

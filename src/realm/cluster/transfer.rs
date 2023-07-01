@@ -3,7 +3,6 @@ use thiserror::Error;
 use tokio::time::sleep;
 use tracing::info;
 
-use super::super::super::http_client::{Client, ClientOptions};
 use super::super::agent::types::{
     CompleteTransferRequest, CompleteTransferResponse, TransferInRequest, TransferInResponse,
     TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
@@ -13,6 +12,7 @@ use super::super::store::bigtable::StoreClient;
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
 use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_networking::rpc;
 
 #[derive(Debug, Error)]
