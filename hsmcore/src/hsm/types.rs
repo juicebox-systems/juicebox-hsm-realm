@@ -1238,10 +1238,8 @@ pub struct TransferOutRequest {
     /// range.
     ///
     /// If the source group's entire partition is being transferred, then this
-    /// is ignored.
-    ///
-    /// TODO: make the proof optional instead of required but ignored?
-    pub proof: ReadProof<DataHash>,
+    /// should be `None`.
+    pub proof: Option<ReadProof<DataHash>>,
 }
 
 /// Response type for the HSM TransferOut RPC (see [`TransferOutRequest`]).

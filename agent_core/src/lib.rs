@@ -835,33 +835,31 @@ impl<T: Transport + 'static> Agent<T> {
                 return Ok(Response::NotOwner);
             };
 
-            // If we're moving everything then any proof from the partition is fine.
             // if we're splitting, then we need the proof for the split point.
-            let rec_id = if partition.range == request.range {
-                request.range.start.clone()
+            let proof = if partition.range == request.range {
+                None
             } else {
-                match partition.range.split_at(&request.range) {
+                let rec_id = match partition.range.split_at(&request.range) {
                     Some(id) => id,
                     None => return Ok(Response::NotOwner),
-                }
-            };
-
-            let proof = match merkle::agent::read(
-                &request.realm,
-                store,
-                &partition.range,
-                &partition.root_hash,
-                &rec_id,
-                &self.0.metrics,
-                &[tag!(?realm), tag!(group: "{source:?}")],
-            )
-            .await
-            {
-                Ok(proof) => proof,
-                Err(TreeStoreError::MissingNode) => todo!(),
-                Err(TreeStoreError::Network(e)) => {
-                    warn!(error = ?e, "handle_transfer_out: error reading proof");
-                    return Ok(Response::NoStore);
+                };
+                match merkle::agent::read(
+                    &request.realm,
+                    store,
+                    &partition.range,
+                    &partition.root_hash,
+                    &rec_id,
+                    &self.0.metrics,
+                    &[tag!(?realm), tag!(group: "{source:?}")],
+                )
+                .await
+                {
+                    Ok(proof) => Some(proof),
+                    Err(TreeStoreError::MissingNode) => todo!(),
+                    Err(TreeStoreError::Network(e)) => {
+                        warn!(error = ?e, "handle_transfer_out: error reading proof");
+                        return Ok(Response::NoStore);
+                    }
                 }
             };
 

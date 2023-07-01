@@ -1181,10 +1181,13 @@ impl<P: Platform> Hsm<P> {
                 transferring_partition = owned_partition.clone();
                 delta = StoreDelta::default();
             } else {
+                let Some(request_proof) = request.proof else {
+                    return Response::MissingProof;
+                };
                 match owned_partition.range.split_at(&request.range) {
                     None => return Response::NotOwner,
                     Some(key) => {
-                        if key != request.proof.key {
+                        if key != request_proof.key {
                             return Response::MissingProof;
                         }
                     }
@@ -1193,7 +1196,7 @@ impl<P: Platform> Hsm<P> {
                     .tree
                     .take()
                     .expect("tree must be set if leader owns a partition");
-                let (keeping, transferring, split_delta) = match tree.range_split(request.proof) {
+                let (keeping, transferring, split_delta) = match tree.range_split(request_proof) {
                     Err(ProofError::Stale) => return Response::StaleProof,
                     Err(ProofError::Invalid) => return Response::InvalidProof,
                     Ok(split) => {
