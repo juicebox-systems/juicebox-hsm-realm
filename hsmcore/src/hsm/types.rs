@@ -959,8 +959,6 @@ pub enum CaptureNextResponse {
     /// not sequential.
     MissingPrev,
     /// The given `entries` was empty, so the HSM did nothing.
-    ///
-    /// TODO: drop this and just return Ok?
     MissingEntries,
 }
 

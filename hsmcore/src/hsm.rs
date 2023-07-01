@@ -1169,9 +1169,9 @@ impl<P: Platform> Hsm<P> {
                 return Response::StaleIndex;
             }
 
-            // This support two options: moving out the entire owned range or
-            // splitting the range in 2 at some key and moving out one of the
-            // halves.
+            // This supports two options: moving out the entire owned range or
+            // splitting the range in two at some key and moving out one of the
+            // resulting trees.
             let keeping_partition: Option<Partition>;
             let transferring_partition: Partition;
             let delta;
@@ -1189,10 +1189,10 @@ impl<P: Platform> Hsm<P> {
                         }
                     }
                 }
-                let Some(tree) = leader.tree.take() else {
-                    // TODO: panic here? seems like this was already checked
-                    return Response::NotLeader;
-                };
+                let tree = leader
+                    .tree
+                    .take()
+                    .expect("tree must be set if leader owns a partition");
                 let (keeping, transferring, split_delta) = match tree.range_split(request.proof) {
                     Err(ProofError::Stale) => return Response::StaleProof,
                     Err(ProofError::Invalid) => return Response::InvalidProof,
@@ -1814,7 +1814,6 @@ impl<'a> MerkleHelper<'a> {
                 }
             },
 
-            // TODO: does a non-update leak useful information to an adversary?
             None => (*self.latest_proof.root_hash(), StoreDelta::default()),
         }
     }

@@ -507,7 +507,9 @@ impl<T: Transport + 'static> Agent<T> {
             Err(bigtable::AppendError::Grpc(_)) => Ok(Response::NoStore),
             Err(bigtable::AppendError::MerkleWrites(_)) => todo!(),
             Err(bigtable::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
-            Err(bigtable::AppendError::MerkleDeletes(_)) => todo!(),
+            Err(bigtable::AppendError::MerkleDeletes(_)) => {
+                unreachable!("no merkle nodes to delete")
+            }
         }
     }
 
@@ -614,9 +616,9 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(Response::Ok { group, statement })
             }
             Err(bigtable::AppendError::Grpc(_)) => Ok(Response::NoStore),
-            Err(bigtable::AppendError::MerkleWrites(_)) => todo!(),
+            Err(bigtable::AppendError::MerkleWrites(_)) => unreachable!("no merkle writes"),
             Err(bigtable::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
-            Err(bigtable::AppendError::MerkleDeletes(_)) => todo!(),
+            Err(bigtable::AppendError::MerkleDeletes(_)) => unreachable!("no merkle deletes"),
         }
     }
 

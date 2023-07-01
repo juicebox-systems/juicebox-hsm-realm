@@ -107,7 +107,6 @@ impl StoreClient {
                             family_name: String::from("f"),
                             column_qualifier: b"n".to_vec(),
                             timestamp_micros: -1,
-                            // TODO: unnecessarily wraps the leaf node values.
                             value: marshalling::to_vec(value).expect("TODO"),
                         })),
                     }],

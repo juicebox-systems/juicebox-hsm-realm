@@ -92,13 +92,14 @@ impl Client {
         })
     }
 
+    // To go beyond the 25,000 maximum, this would have to deal with pagination.
     async fn list_secrets(&self) -> Result<Vec<SecretResource>, Error> {
         Ok(self
             .inner
             .clone()
             .list_secrets(ListSecretsRequest {
                 parent: self.project.0.clone(),
-                page_size: 25000, // TODO: deal with pagination beyond the 25,000 maximum
+                page_size: 25000,
                 page_token: String::new(),
                 filter: self.list_secrets_filter.clone(),
             })
@@ -110,6 +111,7 @@ impl Client {
             .collect())
     }
 
+    // To go beyond the 25,000 maximum, this would have to deal with pagination.
     async fn list_secret_versions(
         &self,
         secret: &SecretResource,
@@ -119,7 +121,7 @@ impl Client {
             .clone()
             .list_secret_versions(ListSecretVersionsRequest {
                 parent: secret.0.clone(),
-                page_size: 25000, // TODO: deal with pagination beyond the 25,000 maximum
+                page_size: 25000,
                 page_token: String::new(),
                 filter: String::new(),
             })
@@ -148,7 +150,7 @@ impl Client {
     }
 }
 
-// TODO: This fetches all the secrets every time. Using a notification system
+// This fetches all the secrets every time. Using a notification system
 // to fetch only changed secrets would be more efficient at scale.
 #[async_trait]
 impl BulkLoad for Client {
