@@ -37,9 +37,9 @@ impl<HO: HashOutput> TreeOverlay<HO> {
         // from nodes.
         let mut c = DeltaCleanup {
             root,
-            to_remove: Vec::with_capacity(d.add.len()),
+            to_remove: Vec::with_capacity(d.adds().len()),
         };
-        for (k, n) in &d.add {
+        for (k, n) in d.adds() {
             c.to_remove.push(k.clone());
             self.nodes.insert(k.hash, n.clone());
         }

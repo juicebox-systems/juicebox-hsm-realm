@@ -129,14 +129,14 @@ async fn check_tree_node_invariants<H: NodeHasher>(
 
 pub fn check_delta_invariants<HO: HashOutput>(root: HO, delta: &StoreDelta<HO>) {
     let add_by_hash: HashMap<HO, (&NodeKey<HO>, &Node<HO>)> =
-        delta.add.iter().map(|(k, n)| (k.hash, (k, n))).collect();
+        delta.adds().iter().map(|(k, n)| (k.hash, (k, n))).collect();
     assert_eq!(
         add_by_hash.len(),
-        delta.add.len(),
+        delta.adds().len(),
         "hash is repeated in delta.add"
     );
 
-    for k in &delta.remove {
+    for k in delta.removes() {
         let added = add_by_hash.get(&k.hash);
         if added.is_some() {
             panic!("add & remove contains same hash");
@@ -242,11 +242,11 @@ impl<HO: HashOutput> MemStore<HO> {
 
     pub fn apply_store_delta(&mut self, new_root: HO, d: StoreDelta<HO>) {
         check_delta_invariants(new_root, &d);
-        for (k, n) in d.add {
+        for (k, n) in d.adds() {
             let enc = k.store_key();
-            self.nodes.insert(enc.into_bytes(), (k.hash, n));
+            self.nodes.insert(enc.into_bytes(), (k.hash, n.clone()));
         }
-        for k in d.remove {
+        for k in d.removes() {
             let enc = k.store_key();
             self.nodes.remove(&enc.into_bytes());
         }

@@ -428,8 +428,8 @@ impl StoreClient {
             group = ?group,
             first_index = ?entries[0].index,
             entries = entries.len(),
-            merkle_nodes_new = delta.add.len(),
-            merkle_nodes_remove = delta.remove.len(),
+            merkle_nodes_new = delta.adds().len(),
+            merkle_nodes_remove = delta.removes().len(),
             "append starting",
         );
         let start = Instant::now();
@@ -477,7 +477,7 @@ impl StoreClient {
         }
 
         // Write new Merkle nodes.
-        self.write_merkle_nodes(realm, group, delta.add)
+        self.write_merkle_nodes(realm, group, delta.adds())
             .await
             .map_err(|e| match e {
                 MutateRowsError::Tonic(e) => AppendError::Grpc(e),
@@ -507,14 +507,14 @@ impl StoreClient {
 
         // Delete obsolete Merkle nodes. These deletes are deferred a bit so
         // that slow concurrent readers can still access them.
-        let delete_handle = if !delta.remove.is_empty() {
+        let delete_handle = if !delta.removes().is_empty() {
             let store = self.clone();
             let realm = *realm;
             let group = *group;
             Some(tokio::spawn(async move {
                 delete_waiter.await;
                 store
-                    .remove_merkle_nodes(&realm, &group, delta.remove)
+                    .remove_merkle_nodes(&realm, &group, delta.removes())
                     .await
                     .expect("TODO");
             }))

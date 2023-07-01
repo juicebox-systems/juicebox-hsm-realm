@@ -159,9 +159,9 @@ mod tests {
         let (new_root, d) = tree
             .insert(tree.latest_proof(rp).unwrap(), [42].to_vec())
             .unwrap();
-        assert_eq!(2, d.add.len());
+        assert_eq!(2, d.adds().len());
         let (leaf_key, leaf_node) = d
-            .add
+            .adds()
             .iter()
             .find(|(_, n)| matches!(n, Node::Leaf(_)))
             .unwrap();
@@ -169,7 +169,7 @@ mod tests {
             assert_eq!([42].to_vec(), leaf.value);
         }
         assert_eq!(leaf_key.prefix, rec_id(&[1, 2, 3]).to_bitvec());
-        assert!(d.remove.contains(&NodeKey::new(KeyVec::new(), root)));
+        assert!(d.removes().contains(&NodeKey::new(KeyVec::new(), root)));
         store.apply_store_delta(new_root, d);
         check_tree_invariants::<TestHasher>(&range, &TEST_REALM, new_root, &store).await;
 

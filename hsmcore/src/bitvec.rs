@@ -68,8 +68,8 @@ pub trait Bits<'a>: Sized {
 /// BitVec owns a sequence of bits with a maximum size of 256 bits. It is fixed
 /// sized, and unlike Vec does not use a heap allocation to store the bits.
 ///
-/// TODO: Serialize writes out the full 256 bits even if only 3 are used. That
-/// can be made more efficient
+/// Note: `Serialize` writes out the full 256 bits even if only 3 are used.
+/// That could be made more efficient.
 #[derive(Clone, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct BitVec {
     len: usize,
@@ -224,8 +224,8 @@ impl<'a, B: Bits<'a>> Iterator for BitIter<'a, B> {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // TODO: This could be optimized to track the byte index and mask here
-        // and increment them. With this impl they get recalculated every time.
+        // This could be optimized to track the byte index and mask here and
+        // increment them. With this impl they get recalculated every time.
         if self.pos < self.src.len() {
             let r = self.src.at(self.pos);
             self.pos += 1;

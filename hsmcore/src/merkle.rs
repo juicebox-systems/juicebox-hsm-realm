@@ -27,9 +27,6 @@ pub type KeyVec = BitVec;
 pub type KeySlice<'a> = BitSlice<'a>;
 pub type TreeOverlay<HO> = self::overlay::TreeOverlay<HO>;
 
-// TODO
-//  docs
-//  more tests
 pub struct Tree<H: NodeHasher> {
     overlay: TreeOverlay<H::Output>,
 }
@@ -94,9 +91,9 @@ impl<HO: HashOutput> InteriorNode<HO> {
         let hash = Self::calc_hash::<H>(key_range, is_root, &left, &right);
         (hash, InteriorNode { left, right })
     }
+
     // construct returns a new InteriorNode with the supplied children. It will determine
     // which should be left and right. If you know which should be left & right use new instead.
-    // TODO: get rid of new and always use this?
     fn construct<H: NodeHasher<Output = HO>>(
         key_range: &OwnedRange,
         is_root: bool,

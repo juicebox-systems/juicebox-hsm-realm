@@ -55,8 +55,6 @@ pub enum HsmHttpTransportError {
     HttpStatus(reqwest::StatusCode),
     Serialization(marshalling::SerializationError),
     Deserialization(marshalling::DeserializationError),
-    // TODO, HsmClient should probably not force this into the transport error, but rather have
-    // its own error type.
     HsmRpcError,
 }
 

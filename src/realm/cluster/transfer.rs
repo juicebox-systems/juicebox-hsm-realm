@@ -21,7 +21,7 @@ pub enum TransferError {
     NoSourceLeader,
     #[error("destination missing leader")]
     NoDestinationLeader,
-    // TODO: more error cases hidden in todo!()s.
+    // more error cases hidden in todo!()s.
 }
 
 pub async fn transfer(

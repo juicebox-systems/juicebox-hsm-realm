@@ -959,8 +959,6 @@ pub enum CaptureNextResponse {
     /// not sequential.
     MissingPrev,
     /// The given `entries` was empty, so the HSM did nothing.
-    ///
-    /// TODO: drop this and just return Ok?
     MissingEntries,
 }
 
@@ -1240,10 +1238,8 @@ pub struct TransferOutRequest {
     /// range.
     ///
     /// If the source group's entire partition is being transferred, then this
-    /// is ignored.
-    ///
-    /// TODO: make the proof optional instead of required but ignored?
-    pub proof: ReadProof<DataHash>,
+    /// should be `None`.
+    pub proof: Option<ReadProof<DataHash>>,
 }
 
 /// Response type for the HSM TransferOut RPC (see [`TransferOutRequest`]).
@@ -1730,39 +1726,6 @@ pub enum AppRequestType {
     Recover2,
     Recover3,
     Delete,
-}
-
-/// The error types from [`AppResponse`], used internally in the HSM
-/// processing.
-// TODO: move to HSM-only module
-pub enum AppError {
-    InvalidRealm,
-    InvalidGroup,
-    StaleProof,
-    InvalidProof,
-    NotOwner,
-    NotLeader,
-    InvalidRecordData,
-    MissingSession,
-    SessionError,
-    DecodingError,
-}
-
-impl From<AppError> for AppResponse {
-    fn from(e: AppError) -> Self {
-        match e {
-            AppError::InvalidRealm => Self::InvalidRealm,
-            AppError::InvalidGroup => Self::InvalidGroup,
-            AppError::StaleProof => Self::StaleProof,
-            AppError::InvalidProof => Self::InvalidProof,
-            AppError::NotOwner => Self::NotOwner,
-            AppError::NotLeader => Self::NotLeader,
-            AppError::InvalidRecordData => Self::InvalidRecordData,
-            AppError::MissingSession => Self::MissingSession,
-            AppError::SessionError => Self::SessionError,
-            AppError::DecodingError => Self::DecodingError,
-        }
-    }
 }
 
 #[cfg(test)]
