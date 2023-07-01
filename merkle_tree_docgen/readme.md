@@ -9,7 +9,10 @@ generate the PNGs.
 
 It will also run `typst` to generate a new version of the merkle.pdf output.
 
-typst needs to be installed and on the path. see https://github.com/typst/typst
+typst is run from a docker container by default. This can be overridden with the
+`--typst` command line flag.
+
+See https://github.com/typst/typst for more information on typst.
 
 From the root of the overall repo, run `cargo run -p merkle_tree_docgen` to regenerate
 the .dot, .png and .pdf files.
