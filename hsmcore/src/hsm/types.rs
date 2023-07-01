@@ -1728,39 +1728,6 @@ pub enum AppRequestType {
     Delete,
 }
 
-/// The error types from [`AppResponse`], used internally in the HSM
-/// processing.
-// TODO: move to HSM-only module
-pub enum AppError {
-    InvalidRealm,
-    InvalidGroup,
-    StaleProof,
-    InvalidProof,
-    NotOwner,
-    NotLeader,
-    InvalidRecordData,
-    MissingSession,
-    SessionError,
-    DecodingError,
-}
-
-impl From<AppError> for AppResponse {
-    fn from(e: AppError) -> Self {
-        match e {
-            AppError::InvalidRealm => Self::InvalidRealm,
-            AppError::InvalidGroup => Self::InvalidGroup,
-            AppError::StaleProof => Self::StaleProof,
-            AppError::InvalidProof => Self::InvalidProof,
-            AppError::NotOwner => Self::NotOwner,
-            AppError::NotLeader => Self::NotLeader,
-            AppError::InvalidRecordData => Self::InvalidRecordData,
-            AppError::MissingSession => Self::MissingSession,
-            AppError::SessionError => Self::SessionError,
-            AppError::DecodingError => Self::DecodingError,
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use juicebox_sdk_marshalling as marshalling;

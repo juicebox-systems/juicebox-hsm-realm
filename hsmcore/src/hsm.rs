@@ -45,7 +45,7 @@ use juicebox_sdk_marshalling::{self as marshalling, bytes, DeserializationError}
 use juicebox_sdk_noise::server as noise;
 use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use types::{
-    AppError, AppRequest, AppRequestType, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
+    AppRequest, AppRequestType, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CaptureNextRequest, CaptureNextResponse, Captured, CompleteTransferRequest,
     CompleteTransferResponse, DataHash, EntryMac, GroupId, GroupMemberRole, GroupStatus,
     HandshakeRequest, HandshakeResponse, HsmId, HsmRealmStatement, JoinGroupRequest,
@@ -1914,6 +1914,29 @@ impl NoiseHelper {
 
         sessions.insert((self.record_id, self.session_id), transport);
         response
+    }
+}
+
+// Some of the error types from [`AppResponse`].
+enum AppError {
+    StaleProof,
+    InvalidProof,
+    InvalidRecordData,
+    MissingSession,
+    SessionError,
+    DecodingError,
+}
+
+impl From<AppError> for AppResponse {
+    fn from(e: AppError) -> Self {
+        match e {
+            AppError::StaleProof => Self::StaleProof,
+            AppError::InvalidProof => Self::InvalidProof,
+            AppError::InvalidRecordData => Self::InvalidRecordData,
+            AppError::MissingSession => Self::MissingSession,
+            AppError::SessionError => Self::SessionError,
+            AppError::DecodingError => Self::DecodingError,
+        }
     }
 }
 
