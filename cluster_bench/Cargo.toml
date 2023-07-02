@@ -14,6 +14,7 @@ hdrhistogram = { workspace = true }
 juicebox_hsm = { path = ".." }
 juicebox-sdk = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
+juicebox-sdk-util = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

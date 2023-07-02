@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Context};
 
-use juicebox_hsm::client_auth::{creation::create_token, tenant_secret_name, AuthKey, Claims};
-use juicebox_hsm::secret_manager::SecretManager;
+use juicebox_hsm::secret_manager::{tenant_secret_name, SecretManager};
 use juicebox_sdk::RealmId;
+use juicebox_sdk_util::realm_auth::{creation::create_token, Claims};
 
 pub async fn mint_auth_token(
     secret_manager: &impl SecretManager,
@@ -19,7 +19,7 @@ pub async fn mint_auth_token(
         .await
         .context("failed to get test tenant auth key")?
         .into_iter()
-        .map(|(version, key)| (version, AuthKey::from(key)))
+        .map(|(version, secret)| (version.into(), secret.into()))
         .next()
         .ok_or_else(|| anyhow!("tenant has no secrets"))?;
 

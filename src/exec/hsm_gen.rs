@@ -7,6 +7,7 @@ use juicebox_sdk_networking::{
     reqwest::{self, ClientOptions},
     rpc,
 };
+use juicebox_sdk_util::process_group::ProcessGroup;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::fmt::{Display, Write};
@@ -20,7 +21,6 @@ use url::Url;
 
 use super::PortIssuer;
 use crate::{
-    process_group::ProcessGroup,
     realm::agent::types::{AgentService, StatusRequest},
     realm::store::bigtable,
 };

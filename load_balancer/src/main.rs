@@ -8,13 +8,14 @@ use std::thread;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use juicebox_hsm::client_auth::new_google_secret_manager;
 use juicebox_hsm::exec::panic;
 use juicebox_hsm::google_auth;
 use juicebox_hsm::logging;
 use juicebox_hsm::metrics;
 use juicebox_hsm::realm::store::bigtable;
-use juicebox_hsm::secret_manager::{Periodic, SecretManager, SecretsFile};
+use juicebox_hsm::secret_manager::{
+    new_google_secret_manager, Periodic, SecretManager, SecretsFile,
+};
 
 mod cert;
 mod load_balancer;

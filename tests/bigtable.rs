@@ -15,12 +15,12 @@ use hsmcore::{
 };
 use juicebox_hsm::exec::{bigtable::BigtableRunner, PortIssuer};
 use juicebox_hsm::metrics;
-use juicebox_hsm::process_group::ProcessGroup;
 use juicebox_hsm::realm::merkle::agent::{self, TreeStoreReader};
 use juicebox_hsm::realm::store::bigtable::{
     self, AppendError::LogPrecondition, ServiceKind, StoreAdminClient, StoreClient,
 };
 use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_util::process_group::ProcessGroup;
 
 const REALM: RealmId = RealmId([200; 16]);
 const GROUP_1: GroupId = GroupId([1; 16]);
