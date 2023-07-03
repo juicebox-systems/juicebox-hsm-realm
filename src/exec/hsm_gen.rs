@@ -7,7 +7,7 @@ use juicebox_sdk_networking::{
     reqwest::{self, ClientOptions},
     rpc,
 };
-use juicebox_sdk_util::process_group::ProcessGroup;
+use juicebox_sdk_process_group::ProcessGroup;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::fmt::{Display, Write};

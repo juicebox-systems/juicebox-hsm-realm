@@ -1,4 +1,4 @@
-use juicebox_sdk_util::process_group::ProcessGroup;
+use juicebox_sdk_process_group::ProcessGroup;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;

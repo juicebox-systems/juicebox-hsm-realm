@@ -15,9 +15,9 @@ use juicebox_sdk::{
 };
 use juicebox_sdk_networking::reqwest;
 use juicebox_sdk_networking::rpc::{self, LoadBalancerService};
-use juicebox_sdk_util::process_group::ProcessGroup;
-use juicebox_sdk_util::realm_auth::creation::create_token;
-use juicebox_sdk_util::realm_auth::{AuthKey, AuthKeyVersion, Claims};
+use juicebox_sdk_process_group::ProcessGroup;
+use juicebox_sdk_realm_auth::creation::create_token;
+use juicebox_sdk_realm_auth::{AuthKey, AuthKeyVersion, Claims};
 
 use super::bigtable::BigtableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};

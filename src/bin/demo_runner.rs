@@ -22,8 +22,8 @@ use juicebox_hsm::realm::store::bigtable;
 use juicebox_hsm::secret_manager::{tenant_secret_name, BulkLoad, SecretManager, SecretsFile};
 use juicebox_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
-use juicebox_sdk_util::process_group::ProcessGroup;
-use juicebox_sdk_util::realm_auth::{creation::create_token, Claims};
+use juicebox_sdk_process_group::ProcessGroup;
+use juicebox_sdk_realm_auth::{creation::create_token, Claims};
 
 #[derive(Parser)]
 #[command(

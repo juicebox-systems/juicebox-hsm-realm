@@ -43,7 +43,7 @@ use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_networking::rpc;
-use juicebox_sdk_util::realm_auth::validation::Validator as AuthTokenValidator;
+use juicebox_sdk_realm_auth::validation::Validator as AuthTokenValidator;
 
 #[derive(Clone)]
 pub struct LoadBalancer(Arc<State>);

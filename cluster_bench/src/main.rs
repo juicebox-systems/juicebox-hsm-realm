@@ -25,7 +25,7 @@ use juicebox_sdk::{
 };
 use juicebox_sdk_networking::reqwest;
 use juicebox_sdk_networking::rpc::LoadBalancerService;
-use juicebox_sdk_util::realm_auth::{creation::create_token, AuthKey, AuthKeyVersion, Claims};
+use juicebox_sdk_realm_auth::{creation::create_token, AuthKey, AuthKeyVersion, Claims};
 
 type Client = juicebox_sdk::Client<
     TokioSleeper,
