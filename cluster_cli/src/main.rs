@@ -123,9 +123,10 @@ enum Command {
 
     /// Ask an HSM to step down as leader for any groups that it's leading.
     Stepdown {
-        /// URL to a cluster manager, which will execute the request.
-        #[arg(short, long, default_value = "http://localhost:8079")]
-        cluster: Url,
+        /// URL to a cluster manager, which will execute the request. By
+        /// default it will find a cluster manager using service discovery.
+        #[arg(short, long)]
+        cluster: Option<Url>,
 
         /// A full HSM ID or an unambiguous prefix of an HSM ID.
         hsm: String,
@@ -321,7 +322,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
         Command::Stepdown { cluster, hsm } => {
             let hsm = resolve_hsm_id(&store, &agents_client, &hsm).await?;
-            commands::stepdown::stepdown(&cluster, hsm).await
+            commands::stepdown::stepdown(&store, &cluster, hsm).await
         }
     }
 }

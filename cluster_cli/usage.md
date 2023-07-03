@@ -223,7 +223,7 @@ Arguments:
   <HSM>  A full HSM ID or an unambiguous prefix of an HSM ID
 
 Options:
-  -c, --cluster <CLUSTER>  URL to a cluster manager, which will execute the request [default: http://localhost:8079]
+  -c, --cluster <CLUSTER>  URL to a cluster manager, which will execute the request. By default it will find a cluster manager using service discovery
   -h, --help               Print help
 
 ```
