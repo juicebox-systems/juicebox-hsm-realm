@@ -17,12 +17,12 @@ use std::iter::zip;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::time;
+use tokio::time::{self, sleep};
 use tokio_rustls::{rustls, TlsAcceptor};
-use tracing::{instrument, span, trace, warn, Instrument, Level, Span};
+use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
@@ -39,6 +39,7 @@ use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::agent::types::{
     AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse,
 };
+use juicebox_hsm::realm::store::bigtable::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
 use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
 use juicebox_hsm::secret_manager::SecretManager;
 use juicebox_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
@@ -95,6 +96,23 @@ impl LoadBalancer {
             .with_no_client_auth()
             .with_cert_resolver(cert_resolver);
         let acceptor = TlsAcceptor::from(Arc::new(config));
+
+        let disco_url = url.clone();
+        let store = self.0.store.clone();
+        tokio::spawn(async move {
+            info!(%disco_url, "registering load balancer with service discovery");
+            loop {
+                if let Err(e) = store
+                    .set_address(&disco_url, ServiceKind::LoadBalancer, SystemTime::now())
+                    .await
+                {
+                    warn!(err = ?e, "failed to register with service discovery");
+                    sleep(REGISTER_FAILURE_DELAY).await;
+                } else {
+                    sleep(REGISTER_INTERVAL).await;
+                }
+            }
+        });
 
         Ok((
             url,
