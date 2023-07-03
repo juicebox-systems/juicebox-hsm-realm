@@ -2,7 +2,6 @@ use anyhow::Context;
 use bytes::Bytes;
 use futures::channel::oneshot;
 use futures::Future;
-use hsmcore::hsm::types::{AppRequestType, LogEntry};
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -31,19 +30,22 @@ use hsm_types::{
     TransferInProofs,
 };
 use hsmcore::hsm::types as hsm_types;
+use hsmcore::hsm::types::{AppRequestType, LogEntry};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
-use juicebox_hsm::http_client::{Client, ClientOptions};
+use juicebox_hsm::http_client::{self, Client, ClientOptions};
 use juicebox_hsm::logging::TracingSource;
 use juicebox_hsm::metrics::{self};
 use juicebox_hsm::metrics_tag as tag;
+use juicebox_hsm::realm::cluster::types as cluster_types;
+use juicebox_hsm::realm::cluster::types::ClusterService;
 use juicebox_hsm::realm::hsm::client::{HsmClient, Transport};
 use juicebox_hsm::realm::merkle;
 use juicebox_hsm::realm::rpc::{handle_rpc, HandlerError};
 use juicebox_hsm::realm::store::bigtable::{self, LogEntriesIter, ServiceKind};
 use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use juicebox_sdk_core::types::RealmId;
-use juicebox_sdk_networking::rpc::Rpc;
+use juicebox_sdk_networking::rpc::{self, Rpc};
 use types::{
     AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
@@ -271,30 +273,52 @@ impl<T: Transport + 'static> Agent<T> {
     }
 
     /// Attempt a graceful shutdown, this includes having the HSM stepdown as leader
-    /// if its leading and wait for all the pending responses to be sent to the
-    /// client. Blocks until the shutdown is complete.
+    /// if its leading and waiting for all the pending responses to be sent to the
+    /// client. Blocks until the shutdown is complete or timeout expires.
     pub async fn shutdown(&self, timeout: Duration) {
-        let leading = {
+        let get_leading = || {
             let state = self.0.state.lock().unwrap();
-            if state.leader.is_empty() {
-                // easy case, we're not leader, job done.
-                return;
-            }
             state.leader.keys().copied().collect::<Vec<_>>()
         };
+        let leading = get_leading();
+        if leading.is_empty() {
+            // easy case, we're not leader, job done.
+            return;
+        }
         info!("Starting graceful agent shutdown");
         let start = Instant::now();
-        for (realm, group) in leading {
-            if let Err(err) = self
-                .handle_stepdown_as_leader(StepDownRequest { realm, group })
-                .await
-            {
-                warn!(
-                    ?group,
-                    ?realm,
-                    ?err,
-                    "failed to request leadership stepdown"
-                )
+
+        let maybe_hsm_id = self
+            .0
+            .hsm
+            .send(hsm_types::StatusRequest {})
+            .await
+            .ok()
+            .map(|s| s.id);
+
+        // If there's a cluster manager available via service discovery, ask
+        // that to perform the step down. The cluster manager can handle the
+        // hand-off such that clients don't see an availability gap. If there
+        // isn't one we'll step down gracefully but there may be an availability
+        // gap until a new leader is appointed.
+        if let Some(hsm_id) = maybe_hsm_id {
+            self.stepdown_with_cluster_manager(hsm_id).await;
+        }
+        let leading = get_leading();
+        if !leading.is_empty() {
+            // We're still leader after trying with the cluster manager, force a local stepdown.
+            for (realm, group) in leading {
+                if let Err(err) = self
+                    .handle_stepdown_as_leader(StepDownRequest { realm, group })
+                    .await
+                {
+                    warn!(
+                        ?group,
+                        ?realm,
+                        ?err,
+                        "failed to request leadership stepdown"
+                    )
+                }
             }
         }
         // now wait til we're done stepping down.
@@ -308,6 +332,38 @@ impl<T: Transport + 'static> Agent<T> {
                 return;
             }
             sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    // Find a cluster manager and ask it to stepdown all the groups we're leading.
+    async fn stepdown_with_cluster_manager(&self, id: HsmId) {
+        match self
+            .0
+            .store
+            .get_addresses(Some(ServiceKind::ClusterManager))
+            .await
+        {
+            Ok(managers) if !managers.is_empty() => {
+                let mc = http_client::Client::<ClusterService>::new(ClientOptions::default());
+                for manager in &managers {
+                    let req = cluster_types::StepDownRequest::Hsm(id);
+                    match rpc::send(&mc, &manager.0, req).await {
+                        Ok(cluster_types::StepDownResponse::Ok) => return,
+                        Ok(res) => {
+                            warn!(?res, url=%manager.0, "stepdown not ok");
+                        }
+                        Err(err) => {
+                            warn!(?err, url=%manager.0, "stepdown reported error");
+                        }
+                    }
+                }
+            }
+            Ok(_) => {
+                warn!("Unable to find cluster manager in service discovery.");
+            }
+            Err(err) => {
+                warn!(?err, "error reading from service discovery.")
+            }
         }
     }
 
