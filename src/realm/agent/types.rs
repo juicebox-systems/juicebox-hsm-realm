@@ -13,7 +13,8 @@ use juicebox_sdk_core::{
 use juicebox_sdk_networking::rpc::{Rpc, Service};
 
 #[derive(Clone, Debug)]
-pub struct AgentService();
+pub struct AgentService;
+
 impl Service for AgentService {}
 
 impl Rpc<AgentService> for StatusRequest {

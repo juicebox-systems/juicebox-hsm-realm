@@ -9,15 +9,16 @@ use hsmcore::hsm::types as hsm_types;
 use juicebox_hsm::http_client::Client;
 use juicebox_hsm::realm::agent::types::{AgentService, BecomeLeaderRequest, BecomeLeaderResponse};
 use juicebox_hsm::realm::cluster::{get_hsm_statuses, Error};
+use juicebox_hsm::realm::store::bigtable::ServiceKind;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::rpc::{self, RpcError};
 
 impl Manager {
     pub(super) async fn ensure_groups_have_leader(&self) -> Result<(), Error> {
         trace!("checking that all groups have a leader");
-        let addresses = self.0.store.get_addresses().await?;
+        let addresses = self.0.store.get_addresses(Some(ServiceKind::Agent)).await?;
         let hsm_status =
-            get_hsm_statuses(&self.0.agents, addresses.iter().map(|(_, url)| url)).await;
+            get_hsm_statuses(&self.0.agents, addresses.iter().map(|(url, _)| url)).await;
 
         let mut groups: HashMap<GroupId, (Vec<HsmId>, RealmId, Option<HsmId>)> = HashMap::new();
         for (hsm, _url) in hsm_status.values() {

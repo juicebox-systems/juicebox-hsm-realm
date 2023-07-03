@@ -18,7 +18,7 @@ mod realm;
 mod transfer;
 pub mod types;
 
-pub use leader::find_leaders;
+pub use leader::{discover_hsm_ids, find_leaders};
 pub use realm::{join_realm, new_group, new_realm, JoinRealmError, NewGroupError, NewRealmError};
 pub use transfer::{transfer, TransferError};
 

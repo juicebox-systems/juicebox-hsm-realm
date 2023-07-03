@@ -9,7 +9,7 @@ use super::{ManagementGrant, Manager};
 use hsm_types::{GroupId, HsmId, LogIndex};
 use hsmcore::hsm::types as hsm_types;
 use juicebox_hsm::realm::agent::types as agent_types;
-use juicebox_hsm::realm::cluster::{get_hsm_statuses, types};
+use juicebox_hsm::realm::cluster::{discover_hsm_ids, get_hsm_statuses, types};
 use juicebox_hsm::realm::rpc::HandlerError;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::rpc::{self, RpcError};
@@ -21,10 +21,11 @@ impl Manager {
     ) -> Result<types::StepDownResponse, HandlerError> {
         type Response = types::StepDownResponse;
 
-        let addresses: HashMap<HsmId, Url> = match self.0.store.get_addresses().await {
-            Ok(a) => a.into_iter().collect(),
-            Err(_err) => return Ok(Response::NoStore),
-        };
+        let addresses: HashMap<HsmId, Url> =
+            match discover_hsm_ids(&self.0.store, &self.0.agents).await {
+                Ok(it) => it.collect(),
+                Err(_) => return Ok(Response::NoStore),
+            };
 
         // Calculate the exact set of step downs needed.
         let stepdowns = match self.resolve_stepdowns(&req, &addresses).await {

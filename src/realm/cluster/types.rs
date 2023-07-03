@@ -5,7 +5,8 @@ use juicebox_sdk::RealmId;
 use juicebox_sdk_networking::rpc::{Rpc, RpcError, Service};
 
 #[derive(Clone, Debug)]
-pub struct ClusterService();
+pub struct ClusterService;
+
 impl Service for ClusterService {}
 
 impl Rpc<ClusterService> for StepDownRequest {

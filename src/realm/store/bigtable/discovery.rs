@@ -2,19 +2,21 @@ use crate::autogen::google;
 
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
+use google::bigtable::v2::row_range::{EndKey, StartKey};
 use google::bigtable::v2::{
-    mutate_rows_request, mutation, read_rows_request, row_filter, MutateRowRequest,
-    MutateRowResponse, MutateRowsRequest, Mutation, ReadRowsRequest, RowFilter,
+    mutate_rows_request, mutation, read_rows_request, MutateRowRequest, MutateRowResponse,
+    MutateRowsRequest, Mutation, ReadRowsRequest, RowRange, RowSet,
 };
 use std::collections::HashMap;
 use std::str;
 use std::time::{Duration, SystemTime};
-use tracing::{debug, trace, warn};
+use tracing::{debug, warn};
 use url::Url;
 
-use super::{mutate_rows, read_rows, BigtableClient, BigtableTableAdminClient, Instance, RowKey};
+use super::{
+    mutate_rows, read_rows, BigtableClient, BigtableTableAdminClient, Instance, RowKey, ServiceKind,
+};
 use crate::logging::Spew;
-use hsmcore::hsm::types::HsmId;
 
 /// Agents should register themselves with service discovery this often.
 pub const REGISTER_INTERVAL: Duration = Duration::from_secs(60 * 10);
@@ -77,16 +79,24 @@ pub(super) async fn initialize(
 pub(super) async fn get_addresses(
     mut bigtable: BigtableClient,
     instance: &Instance,
-) -> Result<Vec<(HsmId, Url)>, tonic::Status> {
+    kind: Option<ServiceKind>,
+) -> Result<Vec<(Url, ServiceKind)>, tonic::Status> {
+    let row_set = kind.map(|s| RowSet {
+        row_keys: Vec::new(),
+        row_ranges: vec![RowRange {
+            start_key: Some(StartKey::StartKeyClosed(vec![service_kind_key(s)])),
+            end_key: Some(EndKey::EndKeyOpen(vec![service_kind_key(s)
+                .checked_add(1)
+                .unwrap()])),
+        }],
+    });
     let rows = match read_rows(
         &mut bigtable,
         ReadRowsRequest {
             table_name: discovery_table(instance),
             app_profile_id: String::new(),
-            rows: None, // read all rows
-            filter: Some(RowFilter {
-                filter: Some(row_filter::Filter::CellsPerColumnLimitFilter(1)),
-            }),
+            rows: row_set,
+            filter: None,
             rows_limit: 0,
             request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
         },
@@ -108,23 +118,23 @@ pub(super) async fn get_addresses(
         Err(e) => return Err(e),
     };
 
-    let mut addresses: Vec<(HsmId, Url)> = Vec::with_capacity(rows.len());
+    let mut addresses: Vec<(Url, ServiceKind)> = Vec::with_capacity(rows.len());
     let mut expired: Vec<RowKey> = Vec::new();
     let expire_when_before = SystemTime::now() - EXPIRY_AGE;
-    for (row_key, cells) in rows {
-        for cell in cells {
-            if cell.family == "f" && cell.qualifier == b"a" {
+    'outer: for (row_key, cells) in rows {
+        for cell in &cells {
+            if cell.family == "f" {
                 let written_at =
                     SystemTime::UNIX_EPOCH + Duration::from_micros(cell.timestamp as u64);
                 if written_at < expire_when_before {
-                    expired.push(row_key.clone());
-                } else if let Some((hsm, url)) = deserialize_hsm_id(&row_key.0)
-                    .ok()
-                    .zip(url_from_bytes(&cell.value))
-                {
-                    addresses.push((hsm, url))
+                    expired.push(row_key);
+                    continue 'outer;
                 }
+                break;
             }
+        }
+        if let Some((address, svc_kind)) = parse_row_key(&row_key.0) {
+            addresses.push((address, svc_kind))
         }
     }
 
@@ -158,27 +168,17 @@ pub(super) async fn get_addresses(
         });
     }
 
-    trace!(
-        num_addresses = addresses.len(),
-        first_address = ?addresses
-            .first()
-            .map(|(hsm, url)| (hsm, url.as_str())),
-        "get_addresses completed"
-    );
-
     Ok(addresses)
 }
 
 pub(super) async fn set_address(
     mut bigtable: BigtableClient,
     instance: &Instance,
-    hsm: &HsmId,
     address: &Url,
+    kind: ServiceKind,
     // timestamp of the registration, typically SystemTime::now()
     timestamp: SystemTime,
 ) -> Result<(), tonic::Status> {
-    trace!(?hsm, address = address.as_str(), "set_address starting");
-
     // Timestamps are in microseconds, but need to be rounded to milliseconds
     // (or coarser depending on table schema). Come back before April 11, 2262
     // to fix this.
@@ -190,56 +190,71 @@ pub(super) async fn set_address(
         .try_into()
         .unwrap();
 
+    // Row keys are service_kind_key || url. There's one empty cell that has the timestamp.
+    let mut row_key = Vec::with_capacity(1 + address.as_str().as_bytes().len());
+    row_key.push(service_kind_key(kind));
+    row_key.extend_from_slice(address.as_ref().as_bytes());
+
     let MutateRowResponse { /* empty */ } =
             bigtable
             .mutate_row(MutateRowRequest {
                 table_name: discovery_table(instance),
                 app_profile_id: String::new(),
-                row_key: serialize_hsm_id(hsm),
+                row_key,
                 mutations: vec![Mutation {
-                    mutation: Some(mutation::Mutation::DeleteFromColumn(mutation::DeleteFromColumn {
+                    mutation: Some(mutation::Mutation::DeleteFromFamily(mutation::DeleteFromFamily {
                         family_name: String::from("f"),
-                        column_qualifier: b"a".to_vec(),
-                        time_range:None,
                     })),
                 },
                 Mutation {
                     mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
                         family_name: String::from("f"),
-                        column_qualifier: b"a".to_vec(),
+                        column_qualifier: b"t".to_vec(),
                         timestamp_micros,
-                        value: address.as_str().as_bytes().to_vec(),
+                        value: Vec::new(),
                     })),
-                }],
+               }],
             })
             .await?
             .into_inner();
-    trace!(?hsm, address = address.as_str(), "set_address completed");
     Ok(())
+}
+
+fn parse_row_key(b: &[u8]) -> Option<(Url, ServiceKind)> {
+    // smallest valid row key is
+    // [k]http://1.1.1.1
+    if b.len() < 15 {
+        return None;
+    }
+    let (kind, url) = b.split_at(1);
+    if let Some(kind) = parse_service_kind(kind[0]) {
+        if let Some(url) = url_from_bytes(url) {
+            return Some((url, kind));
+        }
+    }
+    None
+}
+
+fn service_kind_key(k: ServiceKind) -> u8 {
+    match k {
+        ServiceKind::Agent => b'a',
+        ServiceKind::ClusterManager => b'c',
+        ServiceKind::LoadBalancer => b'l',
+    }
+}
+
+fn parse_service_kind(b: u8) -> Option<ServiceKind> {
+    match b {
+        b'a' => Some(ServiceKind::Agent),
+        b'c' => Some(ServiceKind::ClusterManager),
+        b'l' => Some(ServiceKind::LoadBalancer),
+        _ => None,
+    }
 }
 
 fn url_from_bytes(bytes: &[u8]) -> Option<Url> {
     let s = str::from_utf8(bytes).ok()?;
     Url::parse(s).ok()
-}
-
-/// Converts an HSM ID to a human-readable hex representation.
-///
-/// This is useful to allow inspecting the service discovery table with
-/// Google's `cbt` tool, which doesn't deal with binary well.
-fn serialize_hsm_id(id: &HsmId) -> Vec<u8> {
-    let mut buf = vec![0u8; id.0.len() * 2];
-    hex::encode_to_slice(id.0, &mut buf).unwrap();
-    buf
-}
-
-/// Parses an HSM ID from a human-readable hex representation.
-fn deserialize_hsm_id(buf: &[u8]) -> Result<HsmId, hex::FromHexError> {
-    let id = hex::decode(buf)?;
-    Ok(HsmId(
-        id.try_into()
-            .map_err(|_| hex::FromHexError::InvalidStringLength)?,
-    ))
 }
 
 #[cfg(test)]
@@ -261,36 +276,30 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_hsm_id() {
+    fn can_parse_row_key() {
         assert_eq!(
-            serialize_hsm_id(&HsmId(*b"abcdefghijklmnop")),
-            b"6162636465666768696a6b6c6d6e6f70"
+            Some((
+                "http://localhost:1234/".parse().unwrap(),
+                ServiceKind::Agent
+            )),
+            parse_row_key(b"ahttp://localhost:1234/")
         );
-    }
-
-    #[test]
-    fn test_deserialize_hsm_id() {
         assert_eq!(
-            deserialize_hsm_id(b"6162636465666768696a6b6c6d6e6f70"),
-            Ok(HsmId(*b"abcdefghijklmnop"))
+            Some((
+                "http://127.0.0.1/".parse().unwrap(),
+                ServiceKind::ClusterManager
+            )),
+            parse_row_key(b"chttp://127.0.0.1/")
         );
-    }
-
-    #[test]
-    #[should_panic = "InvalidStringLength"]
-    fn test_deserialize_hsm_id_short() {
-        deserialize_hsm_id(b"6162636465666768696a6b6c6d6e6f").unwrap();
-    }
-
-    #[test]
-    #[should_panic = "OddLength"]
-    fn test_deserialize_hsm_id_long_odd() {
-        deserialize_hsm_id(b"6162636465666768696a6b6c6d6e6f70a").unwrap();
-    }
-
-    #[test]
-    #[should_panic = "InvalidHex"]
-    fn test_deserialize_hsm_id_not_hex() {
-        deserialize_hsm_id(b"qwerty").unwrap();
+        assert_eq!(
+            Some((
+                "https://10.0.0.1/".parse().unwrap(),
+                ServiceKind::LoadBalancer
+            )),
+            parse_row_key(b"lhttps://10.0.0.1/")
+        );
+        assert_eq!(None, parse_row_key(b"ahttp:"));
+        assert_eq!(None, parse_row_key(b"zhttps://lb.juicebox.xyz"));
+        assert_eq!(None, parse_row_key(b"l/lb.juicebox.xyz/some/req"));
     }
 }

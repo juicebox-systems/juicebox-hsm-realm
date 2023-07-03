@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -25,7 +25,8 @@ use juicebox_hsm::http_client::{Client, ClientOptions};
 use juicebox_hsm::realm::agent::types::AgentService;
 use juicebox_hsm::realm::cluster::types;
 use juicebox_hsm::realm::rpc::handle_rpc;
-use juicebox_hsm::realm::store::bigtable::StoreClient;
+use juicebox_hsm::realm::store::bigtable::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
+use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::rpc::Rpc;
 
@@ -85,6 +86,22 @@ impl Manager {
             .with_context(|| format!("failed to bind to {address}"))?;
         let url = Url::parse(&format!("http://{address}")).unwrap();
 
+        let store = self.0.store.clone();
+        let disco_url = url.clone();
+        tokio::spawn(async move {
+            info!(%disco_url, "registering cluster manager with service discovery");
+            loop {
+                if let Err(e) = store
+                    .set_address(&disco_url, ServiceKind::ClusterManager, SystemTime::now())
+                    .await
+                {
+                    warn!(err = ?e, "failed to register with service discovery");
+                    sleep(REGISTER_FAILURE_DELAY).await;
+                } else {
+                    sleep(REGISTER_INTERVAL).await;
+                }
+            }
+        });
         Ok((
             url,
             tokio::spawn(async move {

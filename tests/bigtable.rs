@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 use hsmcore::{
     bitvec::BitVec,
     hsm::{
-        types::{EntryMac, GroupId, HsmId, LogEntry, LogIndex, OwnedRange, RecordId},
+        types::{EntryMac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId},
         MerkleHasher,
     },
     merkle::{
@@ -13,14 +13,12 @@ use hsmcore::{
         Tree,
     },
 };
-use juicebox_hsm::{
-    exec::{bigtable::BigtableRunner, PortIssuer},
-    metrics,
-    process_group::ProcessGroup,
-    realm::{
-        merkle::agent::{self, TreeStoreReader},
-        store::bigtable::{self, AppendError::LogPrecondition, StoreAdminClient, StoreClient},
-    },
+use juicebox_hsm::exec::{bigtable::BigtableRunner, PortIssuer};
+use juicebox_hsm::metrics;
+use juicebox_hsm::process_group::ProcessGroup;
+use juicebox_hsm::realm::merkle::agent::{self, TreeStoreReader};
+use juicebox_hsm::realm::store::bigtable::{
+    self, AppendError::LogPrecondition, ServiceKind, StoreAdminClient, StoreClient,
 };
 use juicebox_sdk_core::types::RealmId;
 
@@ -488,40 +486,68 @@ async fn service_discovery() {
     let (admin, data) = init_bt(&mut pg, emulator()).await;
 
     admin.initialize_discovery().await.unwrap();
-    assert!(data.get_addresses().await.unwrap().is_empty());
+    assert!(data.get_addresses(None).await.unwrap().is_empty());
 
     let url1: Url = "http://localhost:9999".parse().unwrap();
-    let hsm1 = HsmId([5; 16]);
     let url2: Url = "http://localhost:9998".parse().unwrap();
-    let hsm2 = HsmId([1; 16]);
 
     // Should be able to read what we just wrote.
-    data.set_address(&hsm1, &url1, SystemTime::now())
+    data.set_address(&url1, ServiceKind::Agent, SystemTime::now())
         .await
         .unwrap();
     assert_eq!(
-        vec![(hsm1, url1.clone())],
-        data.get_addresses().await.unwrap()
+        vec![(url1.clone(), ServiceKind::Agent)],
+        data.get_addresses(Some(ServiceKind::Agent)).await.unwrap()
     );
 
-    data.set_address(&hsm2, &url2, SystemTime::now())
+    data.set_address(&url2, ServiceKind::Agent, SystemTime::now())
         .await
         .unwrap();
-    let addresses = data.get_addresses().await.unwrap();
+    let addresses = data.get_addresses(None).await.unwrap();
     assert_eq!(2, addresses.len());
-    // addresses are returned in HSM Id order.
-    assert_eq!(vec![(hsm2, url2.clone()), (hsm1, url1.clone())], addresses);
+    // addresses are returned in Url order.
+    assert_eq!(
+        vec![
+            (url2.clone(), ServiceKind::Agent),
+            (url1.clone(), ServiceKind::Agent)
+        ],
+        addresses
+    );
 
     // reading with an old timestamp should result in it being expired.
     data.set_address(
-        &hsm1,
         &url1,
+        ServiceKind::Agent,
         SystemTime::now() - bigtable::discovery::EXPIRY_AGE - Duration::from_secs(1),
     )
     .await
     .unwrap();
     assert_eq!(
-        vec![(hsm2, url2.clone())],
-        data.get_addresses().await.unwrap()
+        vec![(url2.clone(), ServiceKind::Agent)],
+        data.get_addresses(None).await.unwrap()
+    );
+
+    // reads should filter based on service type
+    let cm_url = "http://10.10.10.10:1234".parse().unwrap();
+    data.set_address(&cm_url, ServiceKind::ClusterManager, SystemTime::now())
+        .await
+        .unwrap();
+    assert_eq!(
+        vec![(url2.clone(), ServiceKind::Agent)],
+        data.get_addresses(Some(ServiceKind::Agent)).await.unwrap()
+    );
+    assert_eq!(
+        vec![(cm_url.clone(), ServiceKind::ClusterManager)],
+        data.get_addresses(Some(ServiceKind::ClusterManager))
+            .await
+            .unwrap()
+    );
+    // With a filter of None, should see all service types
+    assert_eq!(
+        vec![
+            (url2.clone(), ServiceKind::Agent),
+            (cm_url.clone(), ServiceKind::ClusterManager),
+        ],
+        data.get_addresses(None).await.unwrap()
     );
 }

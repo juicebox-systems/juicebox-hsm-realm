@@ -8,12 +8,12 @@ use std::time::Duration;
 use hsmcore::hsm::types::{GroupStatus, HsmId, OwnedRange};
 use juicebox_hsm::http_client::Client;
 use juicebox_hsm::realm::agent::types::{AgentService, StatusRequest, StatusResponse};
-use juicebox_hsm::realm::store::bigtable::StoreClient;
+use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
 use juicebox_sdk_networking::rpc::{self, RpcError};
 
 pub async fn list_agents(c: &Client<AgentService>, store: &StoreClient) -> anyhow::Result<()> {
-    let addresses: Vec<(HsmId, Url)> = store
-        .get_addresses()
+    let addresses: Vec<(Url, _)> = store
+        .get_addresses(Some(ServiceKind::Agent))
         .await
         .context("failed to get agent addresses from Bigtable")?;
 
@@ -23,15 +23,15 @@ pub async fn list_agents(c: &Client<AgentService>, store: &StoreClient) -> anyho
     }
     let mut futures = addresses
         .iter()
-        .map(|(hsm_id, url)| async move {
+        .map(|(url, _)| async move {
             let result = rpc::send(c, url, StatusRequest {}).await;
-            ((hsm_id, url), result)
+            (url, result)
         })
         .collect::<FuturesUnordered<_>>();
 
     println!();
-    while let Some(((hsm_id, url), result)) = futures.next().await {
-        print_agent_status(hsm_id, url, result)
+    while let Some((url, result)) = futures.next().await {
+        print_agent_status(url, result)
     }
 
     Ok(())
@@ -39,25 +39,16 @@ pub async fn list_agents(c: &Client<AgentService>, store: &StoreClient) -> anyho
 
 const TAB: &str = "    ";
 
-fn print_agent_status(hsm_id: &HsmId, url: &Url, status: Result<StatusResponse, RpcError>) {
+fn print_agent_status(url: &Url, status: Result<StatusResponse, RpcError>) {
     println!("agent:");
     println!("{TAB}discovery URL: {url}");
-    println!("{TAB}discovery HSM ID: {hsm_id}");
 
     match status {
         Ok(StatusResponse { uptime, hsm }) => {
             println!("{TAB}uptime: {}", Uptime(uptime));
             match hsm {
                 Some(status) => {
-                    println!(
-                        "{TAB}reported HSM ID:  {} ({})",
-                        status.id,
-                        if &status.id == hsm_id {
-                            "matches"
-                        } else {
-                            "differs"
-                        }
-                    );
+                    println!("{TAB}HSM ID:  {}", status.id);
                     println!("{TAB}public key: {:?}", status.public_key);
 
                     match status.realm {
