@@ -39,7 +39,7 @@ use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::agent::types::{
     AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse,
 };
-use juicebox_hsm::realm::store::bigtable::StoreClient;
+use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
 use juicebox_hsm::secret_manager::SecretManager;
 use juicebox_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use juicebox_sdk_core::types::RealmId;
@@ -171,18 +171,18 @@ async fn refresh(
     store: &StoreClient,
     agent_client: &Client<AgentService>,
 ) -> HashMap<RealmId, Vec<Partition>> {
-    match store.get_addresses().await {
+    match store.get_addresses(Some(ServiceKind::Agent)).await {
         Err(err) => todo!("{err:?}"),
         Ok(addresses) => {
             let responses = join_all(
                 addresses
                     .iter()
-                    .map(|(_, address)| rpc::send(agent_client, address, StatusRequest {})),
+                    .map(|(address, _)| rpc::send(agent_client, address, StatusRequest {})),
             )
             .await;
 
             let mut realms: HashMap<RealmId, Vec<Partition>> = HashMap::new();
-            for ((_, agent), response) in zip(addresses, responses) {
+            for ((agent, _), response) in zip(addresses, responses) {
                 match response {
                     Ok(StatusResponse {
                         hsm:

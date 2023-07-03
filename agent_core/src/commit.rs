@@ -1,7 +1,4 @@
 use futures::future::join_all;
-use hsmcore::hsm::types::{Captured, EntryMac, GroupMemberRole};
-use juicebox_sdk_core::requests::NoiseResponse;
-use juicebox_sdk_networking::rpc;
 use reqwest::Url;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -13,17 +10,21 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::types::{ReadCapturedRequest, ReadCapturedResponse};
 use super::Agent;
-use hsmcore::hsm::{
-    commit::HsmElection,
-    types::{
-        CommitRequest, CommitResponse, GroupId, HsmId, LogIndex, PersistStateRequest,
-        PersistStateResponse,
-    },
+use hsmcore::hsm::commit::HsmElection;
+use hsmcore::hsm::types::{
+    Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole, HsmId, LogIndex,
+    PersistStateRequest, PersistStateResponse,
 };
+use juicebox_hsm::http_client::Client;
 use juicebox_hsm::logging::{Spew, TracingSource};
 use juicebox_hsm::metrics_tag as tag;
-use juicebox_hsm::realm::{hsm::client::Transport, store::bigtable::StoreClient};
+use juicebox_hsm::realm::agent::types::AgentService;
+use juicebox_hsm::realm::cluster::discover_hsm_ids;
+use juicebox_hsm::realm::hsm::client::Transport;
+use juicebox_hsm::realm::store::bigtable::StoreClient;
+use juicebox_sdk_core::requests::NoiseResponse;
 use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::rpc;
 
 #[derive(Debug, Eq, PartialEq)]
 enum CommitterStatus {
@@ -75,7 +76,12 @@ impl<T: Transport + 'static> Agent<T> {
         tokio::spawn(async move {
             let interval = Duration::from_millis(2);
             let mut last_committed: Option<LogIndex> = None;
-            let peers = PeerCache::new(agent.0.store.clone(), Duration::from_secs(10)).await;
+            let peers = PeerCache::new(
+                agent.0.store.clone(),
+                agent.0.peer_client.clone(),
+                Duration::from_secs(10),
+            )
+            .await;
 
             let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
 
@@ -275,13 +281,16 @@ struct PeerCache {
     tasks: JoinSet<()>,
 }
 impl PeerCache {
-    async fn new(store: StoreClient, interval: Duration) -> Self {
-        let init_peers: HashMap<HsmId, Url> = store
-            .get_addresses()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
+    async fn new(
+        store: StoreClient,
+        agent_client: Client<AgentService>,
+        interval: Duration,
+    ) -> Self {
+        let init_peers: HashMap<HsmId, Url> = match discover_hsm_ids(&store, &agent_client).await {
+            Ok(it) => it.collect(),
+            Err(_) => HashMap::new(),
+        };
+
         let mut c = Self {
             peers: Arc::new(Mutex::new(init_peers)),
             tasks: JoinSet::new(),
@@ -291,12 +300,11 @@ impl PeerCache {
             let mut next_interval = interval;
             loop {
                 sleep(next_interval).await;
-                match store.get_addresses().await {
-                    Ok(a) => {
+                match discover_hsm_ids(&store, &agent_client).await {
+                    Ok(it) => {
+                        let new_peers: HashMap<HsmId, Url> = it.collect();
                         let mut locked = peers.lock().unwrap();
-                        for (id, url) in a {
-                            locked.insert(id, url);
-                        }
+                        *locked = new_peers;
                         next_interval = interval;
                     }
                     Err(err) => {

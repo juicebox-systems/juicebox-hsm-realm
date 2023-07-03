@@ -27,7 +27,7 @@ use url::Url;
 use crate::google_auth::AuthMiddleware;
 use crate::metrics;
 use crate::metrics_tag as tag;
-use hsmcore::hsm::types::{DataHash, EntryMac, GroupId, HsmId, LogEntry, LogIndex};
+use hsmcore::hsm::types::{DataHash, EntryMac, GroupId, LogEntry, LogIndex};
 use hsmcore::merkle::agent::StoreDelta;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
@@ -894,25 +894,35 @@ impl LogEntriesIter {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServiceKind {
+    Agent,
+    LoadBalancer,
+    ClusterManager,
+}
+
 impl StoreClient {
     #[instrument(level = "trace", skip(self))]
-    pub async fn get_addresses(&self) -> Result<Vec<(HsmId, Url)>, tonic::Status> {
-        discovery::get_addresses(self.bigtable.clone(), &self.instance).await
+    pub async fn get_addresses(
+        &self,
+        kind: Option<ServiceKind>,
+    ) -> Result<Vec<(Url, ServiceKind)>, tonic::Status> {
+        discovery::get_addresses(self.bigtable.clone(), &self.instance, kind).await
     }
 
     #[instrument(level = "trace", skip(self, address), fields(address = %address))]
     pub async fn set_address(
         &self,
-        hsm: &HsmId,
         address: &Url,
+        kind: ServiceKind,
         // timestamp of the registration, typically SystemTime::now()
         timestamp: SystemTime,
     ) -> Result<(), tonic::Status> {
         discovery::set_address(
             self.bigtable.clone(),
             &self.instance,
-            hsm,
             address,
+            kind,
             timestamp,
         )
         .await

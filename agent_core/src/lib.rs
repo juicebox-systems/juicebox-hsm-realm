@@ -40,7 +40,7 @@ use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::hsm::client::{HsmClient, Transport};
 use juicebox_hsm::realm::merkle;
 use juicebox_hsm::realm::rpc::{handle_rpc, HandlerError};
-use juicebox_hsm::realm::store::bigtable::{self, LogEntriesIter};
+use juicebox_hsm::realm::store::bigtable::{self, LogEntriesIter, ServiceKind};
 use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::rpc::Rpc;
@@ -330,7 +330,7 @@ impl<T: Transport + 'static> Agent<T> {
             loop {
                 if let Err(e) = agent
                     .store
-                    .set_address(&hsm_id, &url, SystemTime::now())
+                    .set_address(&url, ServiceKind::Agent, SystemTime::now())
                     .await
                 {
                     warn!(err = ?e, "failed to register with service discovery");
