@@ -33,7 +33,6 @@ use hsmcore::hsm::types as hsm_types;
 use hsmcore::hsm::types::{AppRequestType, LogEntry};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
-use juicebox_hsm::http_client::{self, Client, ClientOptions};
 use juicebox_hsm::logging::TracingSource;
 use juicebox_hsm::metrics::{self};
 use juicebox_hsm::metrics_tag as tag;
@@ -45,6 +44,7 @@ use juicebox_hsm::realm::rpc::{handle_rpc, HandlerError};
 use juicebox_hsm::realm::store::bigtable::{self, LogEntriesIter, ServiceKind};
 use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::reqwest::{self, Client, ClientOptions};
 use juicebox_sdk_networking::rpc::{self, Rpc};
 use types::{
     AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
@@ -344,7 +344,7 @@ impl<T: Transport + 'static> Agent<T> {
             .await
         {
             Ok(managers) if !managers.is_empty() => {
-                let mc = http_client::Client::<ClusterService>::new(ClientOptions::default());
+                let mc = reqwest::Client::<ClusterService>::new(ClientOptions::default());
                 for manager in &managers {
                     let req = cluster_types::StepDownRequest::Hsm(id);
                     match rpc::send(&mc, &manager.0, req).await {

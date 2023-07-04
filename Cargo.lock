@@ -1652,6 +1652,7 @@ dependencies = [
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
  "opentelemetry",
+ "reqwest",
  "serde",
  "thiserror",
  "tracing 0.2.0",

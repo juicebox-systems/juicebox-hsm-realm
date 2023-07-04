@@ -117,6 +117,12 @@ jobs:
     - name: Use Rust Cache
       uses: Swatinem/rust-cache@v2
 
+    - name: Build demo
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --manifest-path sdk/rust/sdk/demo/Cargo.toml
+
     - name: Run cargo build
       uses: actions-rs/cargo@v1
       with:
@@ -124,7 +130,7 @@ jobs:
 
     - name: Run demo
       run: |
-        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo target/debug/demo
+        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/target/debug/juicebox_sdk_demo
       shell: bash
 
   swift_demo:

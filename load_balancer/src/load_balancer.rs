@@ -32,7 +32,6 @@ use hsmcore::hsm::types::{self as hsm_types, RecordId};
 use juicebox_hsm::client_auth::{
     tenant_secret_name, validation::Validator as AuthTokenValidator, AuthKey,
 };
-use juicebox_hsm::http_client::{Client, ClientOptions};
 use juicebox_hsm::logging::{Spew, TracingSource};
 use juicebox_hsm::metrics::{self, Tag};
 use juicebox_hsm::metrics_tag as tag;
@@ -45,6 +44,7 @@ use juicebox_hsm::secret_manager::SecretManager;
 use juicebox_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
+use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_networking::rpc;
 
 #[derive(Clone)]

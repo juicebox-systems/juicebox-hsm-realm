@@ -8,7 +8,6 @@ use juicebox_hsm::{
         hsm_gen::{Entrust, MetricsParticipants},
         PortIssuer,
     },
-    http_client::{self, ClientOptions},
     process_group::ProcessGroup,
     realm::{
         cluster::{self, types::StepDownRequest},
@@ -16,6 +15,7 @@ use juicebox_hsm::{
     },
 };
 use juicebox_sdk::Policy;
+use juicebox_sdk_networking::reqwest::{self, ClientOptions};
 use juicebox_sdk_networking::rpc;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
@@ -117,7 +117,7 @@ async fn leader_handover() {
         }
     }
 
-    let agents = http_client::Client::new(ClientOptions::default());
+    let agents = reqwest::Client::new(ClientOptions::default());
     let cluster_realm = cluster.realms[0].realm;
     let cluster_group = cluster.realms[0].groups[1]; // first non-trivial group
 

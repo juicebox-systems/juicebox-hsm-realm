@@ -77,12 +77,13 @@ http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
 jsonwebtoken = { version = "8.3.0", default-features = false }
 libc = { version = "0.2.139", default-features = false }
-juicebox-sdk = { path = "sdk/rust/sdk/client", features = ["tokio"] }
+juicebox-sdk = { path = "sdk/rust/sdk/client", features = ["reqwest", "tokio"] }
 juicebox-sdk-core = { path = "sdk/rust/sdk/core" }
 juicebox-sdk-marshalling = { path = "sdk/rust/sdk/marshalling" }
 juicebox-sdk-networking = { path = "sdk/rust/sdk/networking", features = [
-    "threadsafe-futures",
     "distributed-tracing",
+    "reqwest",
+    "threadsafe-futures",
 ] }
 juicebox-sdk-noise = { path = "sdk/rust/sdk/noise" }
 nix = { version = "0.26.2", default-features = false, features = ["signal"] }
@@ -95,11 +96,11 @@ prost-types = "0.11.6"
 rand = { version = "0.8.5", default-features = false, features = ["alloc"] }
 rand_core = "0.6.4"
 rand_chacha = "0.3.1"
-rustls = "0.20.8"
-rustls-pemfile = "1.0"
 reqwest = { version = "0.11.14", default-features = false, features = [
     "rustls-tls",
 ] }
+rustls = "0.20.8"
+rustls-pemfile = "1.0"
 secrecy = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.152", default-features = false, features = [
     "alloc",

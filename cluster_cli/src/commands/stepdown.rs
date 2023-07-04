@@ -3,9 +3,9 @@ use anyhow::Context;
 use reqwest::Url;
 
 use hsmcore::hsm::types::HsmId;
-use juicebox_hsm::http_client::{Client, ClientOptions};
 use juicebox_hsm::realm::cluster::types::{ClusterService, StepDownRequest, StepDownResponse};
 use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
+use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_networking::rpc;
 
 pub async fn stepdown(

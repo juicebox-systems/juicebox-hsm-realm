@@ -6,9 +6,9 @@ use std::fmt;
 use std::time::Duration;
 
 use hsmcore::hsm::types::{GroupStatus, HsmId, OwnedRange};
-use juicebox_hsm::http_client::Client;
 use juicebox_hsm::realm::agent::types::{AgentService, StatusRequest, StatusResponse};
 use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
+use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self, RpcError};
 
 pub async fn list_agents(c: &Client<AgentService>, store: &StoreClient) -> anyhow::Result<()> {

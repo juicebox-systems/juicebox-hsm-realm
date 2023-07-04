@@ -1,8 +1,8 @@
 use reqwest::Url;
 
-use juicebox_hsm::http_client::Client;
 use juicebox_hsm::realm::agent::types::AgentService;
 use juicebox_hsm::realm::cluster;
+use juicebox_sdk_networking::reqwest::Client;
 
 pub async fn new_realm(
     agent_address: &Url,

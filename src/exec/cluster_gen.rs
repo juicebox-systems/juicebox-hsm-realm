@@ -1,5 +1,5 @@
+use ::reqwest::{Certificate, Url};
 use futures::future::join_all;
-use reqwest::{Certificate, Url};
 use std::collections::HashMap;
 use std::fs;
 use std::net::SocketAddr;
@@ -11,8 +11,9 @@ use tracing::{debug, info};
 
 use hsmcore::hsm::types::{GroupId, OwnedRange, PublicKey};
 use juicebox_sdk::{
-    AuthToken, Client, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper,
+    AuthToken, Client, ClientBuilder, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper,
 };
+use juicebox_sdk_networking::reqwest;
 use juicebox_sdk_networking::rpc::{self, LoadBalancerService};
 
 use super::bigtable::BigtableRunner;
@@ -22,7 +23,6 @@ use super::PortIssuer;
 use crate::client_auth::creation::create_token;
 use crate::client_auth::{new_google_secret_manager, tenant_secret_name, AuthKey, Claims};
 use crate::google_auth;
-use crate::http_client::{self, ClientOptions};
 use crate::process_group::ProcessGroup;
 use crate::realm::agent::types::{AgentService, StatusRequest};
 use crate::realm::cluster::{self, NewRealmError};
@@ -87,7 +87,7 @@ impl ClusterResult {
     pub fn client_for_user(
         &self,
         user_id: String,
-    ) -> Client<TokioSleeper, http_client::Client<LoadBalancerService>, HashMap<RealmId, AuthToken>>
+    ) -> Client<TokioSleeper, reqwest::Client<LoadBalancerService>, HashMap<RealmId, AuthToken>>
     {
         let auth_tokens: HashMap<RealmId, AuthToken> = self
             .realms
@@ -108,14 +108,14 @@ impl ClusterResult {
             })
             .collect();
 
-        Client::with_tokio(
-            self.configuration(),
-            Vec::new(),
-            auth_tokens,
-            http_client::Client::<LoadBalancerService>::new(http_client::ClientOptions {
+        ClientBuilder::new()
+            .configuration(self.configuration())
+            .auth_token_manager(auth_tokens)
+            .tokio_sleeper()
+            .reqwest_with_options(reqwest::ClientOptions {
                 additional_root_certs: vec![self.lb_cert()],
-            }),
-        )
+            })
+            .build()
     }
 }
 
@@ -300,7 +300,7 @@ async fn create_realm(
         )
         .await;
 
-    let agents_client = http_client::Client::<AgentService>::new(ClientOptions::default());
+    let agents_client = reqwest::Client::<AgentService>::new(reqwest::ClientOptions::default());
 
     match cluster::new_realm(&agents_client, &agents[0]).await {
         Ok((realm, group_id)) => {

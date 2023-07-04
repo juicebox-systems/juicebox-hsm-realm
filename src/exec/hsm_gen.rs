@@ -3,7 +3,10 @@
 //! This module exists in part to encapsulate the secret shared between the HSMs.
 
 use futures::future::join_all;
-use juicebox_sdk_networking::rpc;
+use juicebox_sdk_networking::{
+    reqwest::{self, ClientOptions},
+    rpc,
+};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::fmt::{Display, Write};
@@ -17,14 +20,13 @@ use url::Url;
 
 use super::PortIssuer;
 use crate::{
-    http_client::{self, ClientOptions},
     process_group::ProcessGroup,
     realm::agent::types::{AgentService, StatusRequest},
     realm::store::bigtable,
 };
 use hsmcore::hsm::types::PublicKey;
 
-type AgentClient = http_client::Client<AgentService>;
+type AgentClient = reqwest::Client<AgentService>;
 
 #[derive(Debug)]
 pub struct Entrust(pub bool);

@@ -1,11 +1,9 @@
+use ::reqwest::Certificate;
 use anyhow::{anyhow, Context};
 use clap::{Parser, ValueEnum};
 use dogstatsd::{ServiceCheckOptions, ServiceStatus};
 use futures::StreamExt;
 use hdrhistogram::Histogram;
-use juicebox_sdk::{AuthToken, Policy, RealmId, TokioSleeper, UserInfo};
-use juicebox_sdk_networking::rpc::LoadBalancerService;
-use reqwest::Certificate;
 use std::collections::HashMap;
 use std::fs;
 use std::ops::Range;
@@ -18,16 +16,20 @@ use tracing::{debug, error, info, warn, Level};
 use juicebox_hsm::client_auth::{
     creation::create_token, new_google_secret_manager, tenant_secret_name, AuthKey, Claims,
 };
-use juicebox_hsm::http_client;
 use juicebox_hsm::logging;
 use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
 use juicebox_hsm::{google_auth, metrics};
-use juicebox_sdk::{Configuration, Pin, PinHashingMode, RecoverError, UserSecret};
+use juicebox_sdk::{
+    AuthToken, Configuration, Pin, PinHashingMode, Policy, RealmId, RecoverError, TokioSleeper,
+    UserInfo, UserSecret,
+};
+use juicebox_sdk_networking::reqwest;
+use juicebox_sdk_networking::rpc::LoadBalancerService;
 
 type Client = juicebox_sdk::Client<
     TokioSleeper,
-    http_client::Client<LoadBalancerService>,
+    reqwest::Client<LoadBalancerService>,
     HashMap<RealmId, AuthToken>,
 >;
 
@@ -153,7 +155,7 @@ async fn run(args: Args) -> anyhow::Result<usize> {
         .collect::<anyhow::Result<_>>()?;
 
     let shared_http_client = if args.share_http_connections {
-        Some(http_client::Client::new(http_client::ClientOptions {
+        Some(reqwest::Client::new(reqwest::ClientOptions {
             additional_root_certs: certs.clone(),
         }))
     } else {
@@ -349,7 +351,7 @@ async fn run_op(op: Operation, i: u64, client_builder: Arc<ClientBuilder>) -> Re
 }
 
 struct ClientBuilder {
-    shared_http_client: Option<http_client::Client<LoadBalancerService>>,
+    shared_http_client: Option<reqwest::Client<LoadBalancerService>>,
     certs: Vec<Certificate>,
     configuration: Configuration,
     tenant: String,
@@ -389,17 +391,17 @@ impl ClientBuilder {
             })
             .collect();
 
-        Client::with_tokio(
-            self.configuration.clone(),
-            vec![],
-            auth_tokens,
-            match &self.shared_http_client {
+        juicebox_sdk::ClientBuilder::new()
+            .configuration(self.configuration.clone())
+            .auth_token_manager(auth_tokens)
+            .http(match &self.shared_http_client {
                 Some(client) => client.clone(),
-                None => http_client::Client::new(http_client::ClientOptions {
+                None => reqwest::Client::new(reqwest::ClientOptions {
                     additional_root_certs: self.certs.clone(),
                 }),
-            },
-        )
+            })
+            .tokio_sleeper()
+            .build()
     }
 }
 

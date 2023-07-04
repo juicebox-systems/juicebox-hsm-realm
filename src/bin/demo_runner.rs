@@ -16,7 +16,6 @@ use juicebox_hsm::client_auth::{creation::create_token, tenant_secret_name, Auth
 use juicebox_hsm::exec::bigtable::BigtableRunner;
 use juicebox_hsm::exec::certs::create_localhost_key_and_cert;
 use juicebox_hsm::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
-use juicebox_hsm::http_client::{Client, ClientOptions};
 use juicebox_hsm::logging;
 use juicebox_hsm::metrics;
 use juicebox_hsm::process_group::ProcessGroup;
@@ -24,6 +23,7 @@ use juicebox_hsm::realm::cluster;
 use juicebox_hsm::realm::store::bigtable;
 use juicebox_hsm::secret_manager::{BulkLoad, SecretManager, SecretsFile};
 use juicebox_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
+use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 
 #[derive(Parser)]
 #[command(
