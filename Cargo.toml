@@ -86,6 +86,8 @@ juicebox-sdk-networking = { path = "sdk/rust/sdk/networking", features = [
     "threadsafe-futures",
 ] }
 juicebox-sdk-noise = { path = "sdk/rust/sdk/noise" }
+juicebox-sdk-process-group = { path = "sdk/rust/sdk/process_group" }
+juicebox-sdk-realm-auth = { path = "sdk/rust/sdk/realm_auth" }
 nix = { version = "0.26.2", default-features = false, features = ["signal"] }
 once_cell = "1.17.1"
 opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
@@ -172,6 +174,8 @@ juicebox-sdk = { workspace = true }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
+juicebox-sdk-process-group = { workspace = true }
+juicebox-sdk-realm-auth = { workspace = true }
 nix = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }

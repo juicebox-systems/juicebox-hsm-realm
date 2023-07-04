@@ -13,12 +13,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn, Level};
 
-use juicebox_hsm::client_auth::{
-    creation::create_token, new_google_secret_manager, tenant_secret_name, AuthKey, Claims,
-};
 use juicebox_hsm::logging;
 use juicebox_hsm::metrics_tag as tag;
-use juicebox_hsm::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
+use juicebox_hsm::secret_manager::{
+    new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
+};
 use juicebox_hsm::{google_auth, metrics};
 use juicebox_sdk::{
     AuthToken, Configuration, Pin, PinHashingMode, Policy, RealmId, RecoverError, TokioSleeper,
@@ -26,6 +25,7 @@ use juicebox_sdk::{
 };
 use juicebox_sdk_networking::reqwest;
 use juicebox_sdk_networking::rpc::LoadBalancerService;
+use juicebox_sdk_realm_auth::{creation::create_token, AuthKey, AuthKeyVersion, Claims};
 
 type Client = juicebox_sdk::Client<
     TokioSleeper,
@@ -286,7 +286,11 @@ async fn run_op(op: Operation, i: u64, client_builder: Arc<ClientBuilder>) -> Re
     // is set, the clients will share TCP, HTTP, and TLS connections, which is
     // also cheating with respect to network behavior and load balancer load.
     let client = if op == Operation::AuthError {
-        client_builder.build_with_auth_key(i, &AuthKey::from(b"invalid".to_vec()), SecretVersion(1))
+        client_builder.build_with_auth_key(
+            i,
+            &AuthKey::from(b"invalid".to_vec()),
+            AuthKeyVersion(1),
+        )
     } else {
         client_builder.build(i)
     };
@@ -355,7 +359,7 @@ struct ClientBuilder {
     certs: Vec<Certificate>,
     configuration: Configuration,
     tenant: String,
-    auth_key_version: SecretVersion,
+    auth_key_version: AuthKeyVersion,
     auth_key: AuthKey,
     user_prefix: String,
 }
@@ -369,7 +373,7 @@ impl ClientBuilder {
         &self,
         user_num: u64,
         auth_key: &AuthKey,
-        auth_key_version: SecretVersion,
+        auth_key_version: AuthKeyVersion,
     ) -> Client {
         let auth_tokens: HashMap<RealmId, AuthToken> = self
             .configuration
@@ -409,7 +413,7 @@ async fn get_auth_key(
     tenant: &str,
     secrets_file: &Option<PathBuf>,
     gcp_project: &Option<String>,
-) -> anyhow::Result<(AuthKey, SecretVersion)> {
+) -> anyhow::Result<(AuthKey, AuthKeyVersion)> {
     if !tenant.starts_with("test-") {
         return Err(anyhow!("tenant must start with 'test-'"));
     }
@@ -449,7 +453,7 @@ async fn get_auth_key(
         .into_iter()
         .next()
         .ok_or_else(|| anyhow!("could not find any secret versions for tenant"))?;
-    Ok((AuthKey::from(secret), version))
+    Ok((secret.into(), version.into()))
 }
 
 fn report_service_check(r: &anyhow::Result<usize>) {

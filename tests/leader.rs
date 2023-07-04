@@ -8,7 +8,6 @@ use juicebox_hsm::{
         hsm_gen::{Entrust, MetricsParticipants},
         PortIssuer,
     },
-    process_group::ProcessGroup,
     realm::{
         cluster::{self, types::StepDownRequest},
         store::bigtable,
@@ -17,6 +16,7 @@ use juicebox_hsm::{
 use juicebox_sdk::Policy;
 use juicebox_sdk_networking::reqwest::{self, ClientOptions};
 use juicebox_sdk_networking::rpc;
+use juicebox_sdk_process_group::ProcessGroup;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8333));

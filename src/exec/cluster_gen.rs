@@ -15,19 +15,21 @@ use juicebox_sdk::{
 };
 use juicebox_sdk_networking::reqwest;
 use juicebox_sdk_networking::rpc::{self, LoadBalancerService};
+use juicebox_sdk_process_group::ProcessGroup;
+use juicebox_sdk_realm_auth::creation::create_token;
+use juicebox_sdk_realm_auth::{AuthKey, AuthKeyVersion, Claims};
 
 use super::bigtable::BigtableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use super::PortIssuer;
-use crate::client_auth::creation::create_token;
-use crate::client_auth::{new_google_secret_manager, tenant_secret_name, AuthKey, Claims};
 use crate::google_auth;
-use crate::process_group::ProcessGroup;
 use crate::realm::agent::types::{AgentService, StatusRequest};
 use crate::realm::cluster::{self, NewRealmError};
 use crate::realm::store::bigtable::{self, StoreClient};
-use crate::secret_manager::{BulkLoad, SecretManager, SecretVersion, SecretsFile};
+use crate::secret_manager::{
+    new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
+};
 
 #[derive(Debug)]
 pub struct ClusterConfig {
@@ -52,7 +54,7 @@ pub struct ClusterResult {
     pub realms: Vec<RealmResult>,
 
     pub tenant: String,
-    pub auth_key_version: SecretVersion,
+    pub auth_key_version: AuthKeyVersion,
     pub auth_key: AuthKey,
 
     pub store: StoreClient,
@@ -195,7 +197,7 @@ pub async fn create_cluster(
         .await
         .unwrap_or_else(|e| panic!("failed to get tenant {tenant:?} auth key: {e}"))
         .into_iter()
-        .map(|(version, key)| (version, AuthKey::from(key)))
+        .map(|(version, key)| (version.into(), key.into()))
         .next()
         .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 

@@ -1,9 +1,9 @@
+use juicebox_sdk_process_group::ProcessGroup;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::info;
 
-use crate::process_group::ProcessGroup;
 use crate::realm::store::bigtable::{Args, Options};
 
 pub struct BigtableRunner;

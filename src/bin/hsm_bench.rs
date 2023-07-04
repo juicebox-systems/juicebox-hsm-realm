@@ -11,12 +11,12 @@ use tracing::{debug, info, warn};
 use juicebox_hsm::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use juicebox_hsm::exec::hsm_gen::{Entrust, MetricsParticipants};
 use juicebox_hsm::logging;
-use juicebox_hsm::process_group::ProcessGroup;
 use juicebox_hsm::realm::store::bigtable;
 use juicebox_sdk::{Client, Pin, UserInfo, UserSecret};
 use juicebox_sdk_core::types::Policy;
 use juicebox_sdk_networking::reqwest;
 use juicebox_sdk_networking::rpc::LoadBalancerService;
+use juicebox_sdk_process_group::ProcessGroup;
 
 /// An end-to-end benchmark to stress an HSM.
 #[derive(Debug, Parser)]
