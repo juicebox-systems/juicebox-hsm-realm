@@ -83,7 +83,6 @@ juicebox-sdk-marshalling = { path = "sdk/rust/sdk/marshalling" }
 juicebox-sdk-networking = { path = "sdk/rust/sdk/networking", features = [
     "distributed-tracing",
     "reqwest",
-    "threadsafe-futures",
 ] }
 juicebox-sdk-noise = { path = "sdk/rust/sdk/noise" }
 juicebox-sdk-process-group = { path = "sdk/rust/sdk/process_group" }
