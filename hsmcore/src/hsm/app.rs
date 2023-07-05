@@ -777,11 +777,11 @@ mod test {
     }
 
     fn salt_share() -> SaltShare {
-        SaltShare::from([1; 17])
+        SaltShare::from([1; 16])
     }
 
     fn masked_unlock_key_share() -> MaskedUnlockKeyShare {
-        MaskedUnlockKeyShare::try_from(vec![1; 33]).unwrap()
+        MaskedUnlockKeyShare::try_from(vec![1; 32]).unwrap()
     }
 
     fn unlock_tag() -> UnlockTag {
@@ -789,7 +789,7 @@ mod test {
     }
 
     fn user_secret_share() -> UserSecretShare {
-        UserSecretShare::try_from(vec![1; 146]).unwrap()
+        UserSecretShare::try_from(vec![1; 145]).unwrap()
     }
 
     fn policy() -> Policy {
