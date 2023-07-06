@@ -6,7 +6,6 @@ use cluster_api::StepDownRequest;
 use juicebox_hsm::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use juicebox_hsm::exec::hsm_gen::{Entrust, MetricsParticipants};
 use juicebox_hsm::exec::PortIssuer;
-use juicebox_hsm::realm::cluster::{self};
 use juicebox_sdk::Policy;
 use juicebox_sdk_networking::reqwest::{self, ClientOptions};
 use juicebox_sdk_networking::rpc;
@@ -117,7 +116,7 @@ async fn leader_handover() {
 
     for _ in 1..10 {
         // Find out the current leader HSM and ask the cluster manager it have it stepdown.
-        let leader1 = cluster::find_leaders(&cluster.store, &agents)
+        let leader1 = cluster_core::find_leaders(&cluster.store, &agents)
             .await
             .unwrap()
             .remove(&(cluster_realm, cluster_group));
@@ -134,7 +133,7 @@ async fn leader_handover() {
         .unwrap();
 
         // See who the new leader is and make sure its a different HSM.
-        let leader2 = cluster::find_leaders(&cluster.store, &agents)
+        let leader2 = cluster_core::find_leaders(&cluster.store, &agents)
             .await
             .unwrap()
             .remove(&(cluster_realm, cluster_group));
@@ -168,7 +167,7 @@ async fn leader_handover() {
         .unwrap();
 
         // check that the leadership moved.
-        let leader3 = cluster::find_leaders(&cluster.store, &agents)
+        let leader3 = cluster_core::find_leaders(&cluster.store, &agents)
             .await
             .unwrap()
             .remove(&(cluster_realm, cluster_group));

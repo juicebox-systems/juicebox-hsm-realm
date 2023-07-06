@@ -6,7 +6,6 @@ use std::collections::HashSet;
 
 use agent_api::AgentService;
 use hsmcore::hsm::types::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
-use juicebox_hsm::realm::cluster;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
 use store::StoreClient;
@@ -39,7 +38,7 @@ pub async fn assimilate(
         None => match get_unique_realm(&hsm_statuses)? {
             Some(realm) => realm,
             None => {
-                let realm = cluster::new_realm(agents_client, &hsm_statuses[0].0)
+                let realm = cluster_core::new_realm(agents_client, &hsm_statuses[0].0)
                     .await?
                     .0;
                 // We need to update the status for this HSM, since it now owns
@@ -69,7 +68,7 @@ pub async fn assimilate(
                 .filter(|(_, status)| status.realm.is_none())
                 .map(|(url, _)| url.clone())
                 .collect();
-            cluster::join_realm(agents_client, realm, &new, existing).await?;
+            cluster_core::join_realm(agents_client, realm, &new, existing).await?;
             hsm_statuses = get_checked_hsm_statuses().await?;
         }
     }
@@ -136,7 +135,7 @@ pub async fn assimilate(
                     transfer = format_owned_range(&transfer)
                 );
 
-                cluster::transfer(realm, old_group, new_group, transfer, store).await?;
+                cluster_core::transfer(realm, old_group, new_group, transfer, store).await?;
             }
 
             if end == &new_range.end {
@@ -217,7 +216,7 @@ async fn nominal_groups(
                 match group {
                     Group::Existing { id } => Ok(id),
                     Group::New { agent_urls } => {
-                        cluster::new_group(agents_client, realm, &agent_urls).await
+                        cluster_core::new_group(agents_client, realm, &agent_urls).await
                     }
                 }
             }

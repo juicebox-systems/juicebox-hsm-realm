@@ -1,0 +1,21 @@
+[package]
+name = "cluster_core"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+agent_api = { path = "../agent_api" }
+futures = { workspace = true }
+hsmcore = { workspace = true }
+juicebox-sdk = { workspace = true }
+juicebox-sdk-core = { workspace = true }
+juicebox-sdk-networking = { workspace = true }
+serde = { workspace = true }
+store = { path = "../store" }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }

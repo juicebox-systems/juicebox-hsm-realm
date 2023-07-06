@@ -15,7 +15,6 @@ use hsmcore::hsm::types::{OwnedRange, RecordId};
 use juicebox_hsm::exec::bigtable::BigtableRunner;
 use juicebox_hsm::exec::certs::create_localhost_key_and_cert;
 use juicebox_hsm::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
-use juicebox_hsm::realm::cluster;
 use juicebox_hsm::secret_manager::{tenant_secret_name, BulkLoad, SecretManager, SecretsFile};
 use juicebox_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
@@ -135,7 +134,7 @@ async fn main() {
             None,
         )
         .await;
-    let (realm_id, group_id1) = cluster::new_realm(&agents_client, &group1[0])
+    let (realm_id, group_id1) = cluster_core::new_realm(&agents_client, &group1[0])
         .await
         .unwrap();
     info!(?realm_id, group_id = ?group_id1, "initialized cluster");
@@ -160,7 +159,7 @@ async fn main() {
         )
         .await;
 
-    cluster::join_realm(
+    cluster_core::join_realm(
         &agents_client,
         realm_id,
         group1
@@ -177,9 +176,9 @@ async fn main() {
     .unwrap();
 
     let mut groups = try_join_all([
-        cluster::new_group(&agents_client, realm_id, &group2),
-        cluster::new_group(&agents_client, realm_id, &group3),
-        cluster::new_group(&agents_client, realm_id, &group1),
+        cluster_core::new_group(&agents_client, realm_id, &group2),
+        cluster_core::new_group(&agents_client, realm_id, &group3),
+        cluster_core::new_group(&agents_client, realm_id, &group1),
     ])
     .await
     .unwrap();
@@ -191,12 +190,12 @@ async fn main() {
         destination = ?groups[1],
         "transferring ownership of entire uid-space"
     );
-    cluster::transfer(realm_id, groups[0], groups[1], OwnedRange::full(), &store)
+    cluster_core::transfer(realm_id, groups[0], groups[1], OwnedRange::full(), &store)
         .await
         .unwrap();
 
     info!("growing the cluster to 4 partitions");
-    cluster::transfer(
+    cluster_core::transfer(
         realm_id,
         groups[1],
         groups[2],
@@ -209,7 +208,7 @@ async fn main() {
     .await
     .unwrap();
 
-    cluster::transfer(
+    cluster_core::transfer(
         realm_id,
         groups[1],
         groups[0],
@@ -222,7 +221,7 @@ async fn main() {
     .await
     .unwrap();
 
-    cluster::transfer(
+    cluster_core::transfer(
         realm_id,
         groups[2],
         groups[3],
@@ -236,7 +235,7 @@ async fn main() {
     .unwrap();
 
     // moving part of a partition to another group.
-    cluster::transfer(
+    cluster_core::transfer(
         realm_id,
         groups[2],
         groups[3],
@@ -265,7 +264,7 @@ async fn main() {
                     None,
                 )
                 .await;
-            let realm_id = cluster::new_realm(&agents_client, &agents[0])
+            let realm_id = cluster_core::new_realm(&agents_client, &agents[0])
                 .await
                 .unwrap()
                 .0;

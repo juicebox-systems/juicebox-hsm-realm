@@ -7,9 +7,9 @@ use thiserror::Error;
 use tracing::{info, Level};
 
 use agent_api::AgentService;
+use cluster_core::discover_hsm_ids;
 use google::auth;
 use hsmcore::hsm::types::{GroupId, HsmId, OwnedRange, RecordId};
-use juicebox_hsm::realm::cluster::discover_hsm_ids;
 use juicebox_hsm::secret_manager::new_google_secret_manager;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};

@@ -23,11 +23,11 @@ use super::bigtable::BigtableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use super::PortIssuer;
-use crate::realm::cluster::{self, NewRealmError};
 use crate::secret_manager::{
     new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
 };
 use agent_api::{AgentService, StatusRequest};
+use cluster_core::{self, NewRealmError};
 use google::auth;
 use store::{self, StoreClient};
 
@@ -304,9 +304,9 @@ async fn create_realm(
 
     let agents_client = reqwest::Client::<AgentService>::new(reqwest::ClientOptions::default());
 
-    match cluster::new_realm(&agents_client, &agents[0]).await {
+    match cluster_core::new_realm(&agents_client, &agents[0]).await {
         Ok((realm, group_id)) => {
-            cluster::join_realm(&agents_client, realm, &agents[1..], &agents[0])
+            cluster_core::join_realm(&agents_client, realm, &agents[1..], &agents[0])
                 .await
                 .unwrap();
 
@@ -319,7 +319,7 @@ async fn create_realm(
 
             // Create additional groups.
             for _ in 0..r.groups {
-                let group_id = cluster::new_group(&agents_client, realm, &res.agents)
+                let group_id = cluster_core::new_group(&agents_client, realm, &res.agents)
                     .await
                     .unwrap();
                 res.groups.push(group_id);
@@ -328,7 +328,7 @@ async fn create_realm(
             if r.groups > 0 {
                 // Transfer everything from the original group to the next one,
                 // because the original group isn't fault-tolerant.
-                cluster::transfer(
+                cluster_core::transfer(
                     res.realm,
                     res.groups[0],
                     res.groups[1],

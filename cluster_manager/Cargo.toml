@@ -11,6 +11,7 @@ anyhow = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 cluster_api = { path = "../cluster_api" }
+cluster_core = { path = "../cluster_core" }
 ctrlc = { workspace = true }
 futures = { workspace = true }
 google = { path = "../google" }

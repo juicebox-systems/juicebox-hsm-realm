@@ -10,6 +10,6 @@ pub async fn transfer(
     store: &StoreClient,
 ) -> anyhow::Result<()> {
     println!("Transferring range {range:?} from group {source:?} to {destination:?}");
-    juicebox_hsm::realm::cluster::transfer(realm, source, destination, range, store).await?;
+    cluster_core::transfer(realm, source, destination, range, store).await?;
     Ok(())
 }

@@ -15,6 +15,7 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 cli-table = { workspace = true }
 cluster_api = { path = "../cluster_api" }
+cluster_core = { path = "../cluster_core" }
 futures = { workspace = true }
 hex = { workspace = true }
 hsmcore = { workspace = true }

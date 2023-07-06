@@ -5,6 +5,7 @@ members = [
     "cluster_api",
     "cluster_bench",
     "cluster_cli",
+    "cluster_core",
     "cluster_manager",
     "codegen",
     "entrust_agent",
@@ -27,6 +28,7 @@ default-members = [
     "cluster_api",
     "cluster_bench",
     "cluster_cli",
+    "cluster_core",
     "cluster_manager",
     "codegen",
     "google",
@@ -166,6 +168,7 @@ blake2 = { workspace = true }
 bytes = { workspace = true }
 ciborium = { workspace = true }
 clap = { workspace = true }
+cluster_core = { path = "cluster_core" }
 ctrlc = { workspace = true, features = ["termination"] }
 digest = { workspace = true }
 futures = { workspace = true }

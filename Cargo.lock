@@ -33,6 +33,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "cluster_api",
+ "cluster_core",
  "dogstatsd",
  "expect-test",
  "futures",
@@ -571,6 +572,7 @@ dependencies = [
  "clap 4.3.0",
  "cli-table",
  "cluster_api",
+ "cluster_core",
  "expect-test",
  "futures",
  "google",
@@ -591,6 +593,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cluster_core"
+version = "0.1.0"
+dependencies = [
+ "agent_api",
+ "futures",
+ "hsmcore",
+ "juicebox-sdk",
+ "juicebox-sdk-core",
+ "juicebox-sdk-networking",
+ "serde",
+ "store",
+ "thiserror",
+ "tokio",
+ "tonic",
+ "tracing 0.2.0",
+ "url",
+]
+
+[[package]]
 name = "cluster_manager"
 version = "0.0.0"
 dependencies = [
@@ -599,6 +620,7 @@ dependencies = [
  "bytes",
  "clap 4.3.0",
  "cluster_api",
+ "cluster_core",
  "ctrlc",
  "expect-test",
  "futures",
@@ -1780,6 +1802,7 @@ dependencies = [
  "ciborium",
  "clap 4.3.0",
  "cluster_api",
+ "cluster_core",
  "criterion",
  "ctrlc",
  "digest",

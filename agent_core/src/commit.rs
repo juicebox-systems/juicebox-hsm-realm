@@ -11,12 +11,12 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use super::hsm::Transport;
 use super::Agent;
 use agent_api::{AgentService, ReadCapturedRequest, ReadCapturedResponse};
+use cluster_core::discover_hsm_ids;
 use hsmcore::hsm::commit::HsmElection;
 use hsmcore::hsm::types::{
     Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole, HsmId, LogIndex,
     PersistStateRequest, PersistStateResponse,
 };
-use juicebox_hsm::realm::cluster::discover_hsm_ids;
 use juicebox_sdk_core::requests::NoiseResponse;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;

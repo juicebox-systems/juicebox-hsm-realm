@@ -5,9 +5,9 @@ use url::Url;
 
 use super::{ManagementGrant, Manager};
 use agent_api::{AgentService, BecomeLeaderRequest, BecomeLeaderResponse};
+use cluster_core::{get_hsm_statuses, Error};
 use hsm_types::{GroupId, HsmId, LogIndex};
 use hsmcore::hsm::types as hsm_types;
-use juicebox_hsm::realm::cluster::{get_hsm_statuses, Error};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self, RpcError};
