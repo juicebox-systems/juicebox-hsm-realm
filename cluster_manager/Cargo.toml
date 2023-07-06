@@ -10,6 +10,7 @@ agent_api = { path = "../agent_api" }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
+cluster_api = { path = "../cluster_api" }
 ctrlc = { workspace = true }
 futures = { workspace = true }
 google = { path = "../google" }

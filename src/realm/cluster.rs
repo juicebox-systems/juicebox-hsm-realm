@@ -16,7 +16,6 @@ use juicebox_sdk_networking::rpc::{self, RpcError};
 mod leader;
 mod realm;
 mod transfer;
-pub mod types;
 
 pub use leader::{discover_hsm_ids, find_leaders};
 pub use realm::{join_realm, new_group, new_realm, JoinRealmError, NewGroupError, NewRealmError};

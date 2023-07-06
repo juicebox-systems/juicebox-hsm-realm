@@ -14,6 +14,7 @@ agent_api = { path = "../agent_api" }
 anyhow = { workspace = true }
 clap = { workspace = true }
 cli-table = { workspace = true }
+cluster_api = { path = "../cluster_api" }
 futures = { workspace = true }
 hex = { workspace = true }
 hsmcore = { workspace = true }

@@ -2,6 +2,7 @@
 members = [
     "agent_api",
     "agent_core",
+    "cluster_api",
     "cluster_bench",
     "cluster_cli",
     "cluster_manager",
@@ -23,6 +24,7 @@ default-members = [
     ".",
     "agent_api",
     "agent_core",
+    "cluster_api",
     "cluster_bench",
     "cluster_cli",
     "cluster_manager",
@@ -203,6 +205,7 @@ voprf = { workspace = true }
 
 [dev-dependencies]
 async-recursion = { workspace = true }
+cluster_api = { path = "cluster_api" }
 criterion = { workspace = true }
 expect-test = { workspace = true }
 hex-literal = { workspace = true }

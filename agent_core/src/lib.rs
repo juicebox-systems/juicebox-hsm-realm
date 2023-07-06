@@ -34,6 +34,7 @@ use agent_api::{
     TransferStatementResponse,
 };
 use append::{Append, AppendingState};
+use cluster_api::ClusterService;
 use hsm::{HsmClient, Transport};
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId, LogIndex,
@@ -43,8 +44,6 @@ use hsmcore::hsm::types as hsm_types;
 use hsmcore::hsm::types::{AppRequestType, LogEntry};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
-use juicebox_hsm::realm::cluster::types as cluster_types;
-use juicebox_hsm::realm::cluster::types::ClusterService;
 use juicebox_hsm::realm::rpc::{handle_rpc, HandlerError};
 use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use juicebox_sdk_core::types::RealmId;
@@ -345,9 +344,9 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(managers) if !managers.is_empty() => {
                 let mc = reqwest::Client::<ClusterService>::new(ClientOptions::default());
                 for manager in &managers {
-                    let req = cluster_types::StepDownRequest::Hsm(id);
+                    let req = cluster_api::StepDownRequest::Hsm(id);
                     match rpc::send(&mc, &manager.0, req).await {
-                        Ok(cluster_types::StepDownResponse::Ok) => return,
+                        Ok(cluster_api::StepDownResponse::Ok) => return,
                         Ok(res) => {
                             warn!(?res, url=%manager.0, "stepdown not ok");
                         }

@@ -32,6 +32,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bytes",
+ "cluster_api",
  "dogstatsd",
  "expect-test",
  "futures",
@@ -530,6 +531,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cluster_api"
+version = "0.1.0"
+dependencies = [
+ "hsmcore",
+ "juicebox-sdk",
+ "juicebox-sdk-networking",
+ "serde",
+]
+
+[[package]]
 name = "cluster_bench"
 version = "0.0.0"
 dependencies = [
@@ -559,6 +570,7 @@ dependencies = [
  "anyhow",
  "clap 4.3.0",
  "cli-table",
+ "cluster_api",
  "expect-test",
  "futures",
  "google",
@@ -586,6 +598,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "clap 4.3.0",
+ "cluster_api",
  "ctrlc",
  "expect-test",
  "futures",
@@ -1766,6 +1779,7 @@ dependencies = [
  "bytes",
  "ciborium",
  "clap 4.3.0",
+ "cluster_api",
  "criterion",
  "ctrlc",
  "digest",

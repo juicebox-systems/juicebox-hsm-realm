@@ -2,14 +2,11 @@ use once_cell::sync::Lazy;
 use std::{path::PathBuf, sync::mpsc::channel};
 use tokio::task::JoinSet;
 
-use juicebox_hsm::{
-    exec::{
-        cluster_gen::{create_cluster, ClusterConfig, RealmConfig},
-        hsm_gen::{Entrust, MetricsParticipants},
-        PortIssuer,
-    },
-    realm::cluster::{self, types::StepDownRequest},
-};
+use cluster_api::StepDownRequest;
+use juicebox_hsm::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
+use juicebox_hsm::exec::hsm_gen::{Entrust, MetricsParticipants};
+use juicebox_hsm::exec::PortIssuer;
+use juicebox_hsm::realm::cluster::{self};
 use juicebox_sdk::Policy;
 use juicebox_sdk_networking::reqwest::{self, ClientOptions};
 use juicebox_sdk_networking::rpc;

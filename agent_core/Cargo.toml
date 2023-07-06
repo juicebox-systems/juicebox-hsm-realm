@@ -10,6 +10,7 @@ agent_api = { path = "../agent_api" }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
+cluster_api = { path = "../cluster_api" }
 dogstatsd = { workspace = true }
 futures = { workspace = true }
 hdrhistogram = { workspace = true }
