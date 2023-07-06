@@ -1,13 +1,16 @@
 #!/bin/bash -eux
 set -o pipefail
 
-# cd to script's directory
-cd -P -- "$(dirname -- "$0")"
+# cd to repo root directory
+cd -P -- "$(dirname -- "$0")/.."
 
 TARGET=e5500-entrust-ncipherxc-gnu
 
 # Compile Rust code
-cargo +nightly build --target $TARGET.json --release -Z build-std=core,alloc $@
+cargo +nightly build --target entrust_hsm/$TARGET.json --release -Z build-std=core,alloc -p entrust_hsm $@
+
+# cd to project dir
+cd entrust_hsm
 
 # Compile C code
 /opt/nfast/gcc/bin/powerpc-codesafe-linux-gnu-gcc \
