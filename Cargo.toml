@@ -18,6 +18,7 @@ members = [
     "load_balancer",
     "merkle_tree_docgen",
     "observability",
+    "secret_manager",
     "software_agent",
     "store",
 ]
@@ -35,6 +36,7 @@ default-members = [
     "hsmcore",
     "load_balancer",
     "observability",
+    "secret_manager",
     "software_agent",
     "store",
 ]
@@ -115,6 +117,7 @@ reqwest = { version = "0.11.14", default-features = false, features = [
 rustls = "0.20.8"
 rustls-pemfile = "1.0"
 secrecy = { version = "0.8.0", features = ["serde"] }
+secret_manager = { path = "secret_manager" }
 serde = { version = "1.0.152", default-features = false, features = [
     "alloc",
     "derive",
@@ -193,6 +196,7 @@ observability = { path = "observability" }
 rand = { workspace = true }
 reqwest = { workspace = true }
 secrecy = { workspace = true }
+secret_manager = { path = "secret_manager" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 store = { path = "store" }

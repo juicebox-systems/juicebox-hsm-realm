@@ -29,6 +29,7 @@ opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
+secret_manager = { workspace = true }
 serde = { workspace = true }
 signal-hook = { workspace = true }
 store = { path = "../store" }

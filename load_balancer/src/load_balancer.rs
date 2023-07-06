@@ -30,7 +30,6 @@ use agent_api::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResp
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::mac::DigestWriter;
 use hsmcore::hsm::types::{self as hsm_types, RecordId};
-use juicebox_hsm::secret_manager::{tenant_secret_name, SecretManager};
 use juicebox_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
@@ -40,6 +39,7 @@ use juicebox_sdk_realm_auth::validation::Validator as AuthTokenValidator;
 use observability::logging::{Spew, TracingSource};
 use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
+use secret_manager::{tenant_secret_name, SecretManager};
 use store::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
 use store::{ServiceKind, StoreClient};
 

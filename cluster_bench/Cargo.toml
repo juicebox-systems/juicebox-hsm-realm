@@ -19,6 +19,7 @@ juicebox-sdk-process-group = { workspace = true }
 juicebox-sdk-realm-auth = { workspace = true }
 observability = { path = "../observability" }
 reqwest = { workspace = true }
+secret_manager = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

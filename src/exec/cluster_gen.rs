@@ -23,12 +23,12 @@ use super::bigtable::BigtableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use super::PortIssuer;
-use crate::secret_manager::{
-    new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
-};
 use agent_api::{AgentService, StatusRequest};
 use cluster_core::{self, NewRealmError};
 use google::auth;
+use secret_manager::{
+    new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
+};
 use store::{self, StoreClient};
 
 #[derive(Debug)]

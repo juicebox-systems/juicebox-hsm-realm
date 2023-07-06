@@ -558,6 +558,7 @@ dependencies = [
  "juicebox_hsm",
  "observability",
  "reqwest",
+ "secret_manager",
  "serde_json",
  "tokio",
  "tracing 0.2.0",
@@ -585,6 +586,7 @@ dependencies = [
  "juicebox_hsm",
  "observability",
  "reqwest",
+ "secret_manager",
  "serde_json",
  "store",
  "thiserror",
@@ -1833,6 +1835,7 @@ dependencies = [
  "rand_core",
  "reqwest",
  "secrecy",
+ "secret_manager",
  "serde",
  "serde_json",
  "sharks",
@@ -1901,6 +1904,7 @@ dependencies = [
  "opentelemetry-http",
  "rustls 0.20.8",
  "rustls-pemfile",
+ "secret_manager",
  "serde",
  "signal-hook",
  "store",
@@ -2718,6 +2722,26 @@ source = "git+ssh://git@github.com/juicebox-systems/secrecy.git?branch=loam-main
 dependencies = [
  "serde",
  "zeroize",
+]
+
+[[package]]
+name = "secret_manager"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "gcp_auth",
+ "google",
+ "http",
+ "juicebox-sdk-core",
+ "juicebox-sdk-realm-auth",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tonic",
+ "tracing 0.2.0",
 ]
 
 [[package]]
