@@ -4,9 +4,9 @@ use tracing::{info, trace, warn};
 use url::Url;
 
 use super::{ManagementGrant, Manager};
+use agent_api::{AgentService, BecomeLeaderRequest, BecomeLeaderResponse};
 use hsm_types::{GroupId, HsmId, LogIndex};
 use hsmcore::hsm::types as hsm_types;
-use juicebox_hsm::realm::agent::types::{AgentService, BecomeLeaderRequest, BecomeLeaderResponse};
 use juicebox_hsm::realm::cluster::{get_hsm_statuses, Error};
 use juicebox_hsm::realm::store::bigtable::ServiceKind;
 use juicebox_sdk_core::types::RealmId;

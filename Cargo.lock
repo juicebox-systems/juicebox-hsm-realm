@@ -13,9 +13,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent_api"
+version = "0.1.0"
+dependencies = [
+ "hsmcore",
+ "juicebox-sdk-core",
+ "juicebox-sdk-networking",
+ "serde",
+]
+
+[[package]]
 name = "agent_core"
 version = "0.1.0"
 dependencies = [
+ "agent_api",
  "anyhow",
  "async-trait",
  "bytes",
@@ -537,6 +548,7 @@ dependencies = [
 name = "cluster_cli"
 version = "0.1.0"
 dependencies = [
+ "agent_api",
  "anyhow",
  "clap 4.3.0",
  "cli-table",
@@ -560,6 +572,7 @@ dependencies = [
 name = "cluster_manager"
 version = "0.0.0"
 dependencies = [
+ "agent_api",
  "anyhow",
  "bytes",
  "clap 4.3.0",
@@ -1715,6 +1728,7 @@ dependencies = [
 name = "juicebox_hsm"
 version = "0.0.0"
 dependencies = [
+ "agent_api",
  "anyhow",
  "async-recursion",
  "async-trait",
@@ -1800,6 +1814,7 @@ checksum = "d59d8c75012853d2e872fb56bc8a2e53718e2cafe1a4c823143141c6d90c322f"
 name = "load_balancer"
 version = "0.0.0"
 dependencies = [
+ "agent_api",
  "anyhow",
  "blake2",
  "bytes",

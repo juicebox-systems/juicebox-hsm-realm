@@ -5,8 +5,8 @@ use std::iter::zip;
 use tracing::{trace, warn};
 use url::Url;
 
-use super::super::agent::types::{AgentService, StatusRequest, StatusResponse};
 use super::super::store::bigtable::{ServiceKind, StoreClient};
+use agent_api::{AgentService, StatusRequest, StatusResponse};
 use hsm_types::{GroupId, HsmId};
 use hsmcore::hsm::types as hsm_types;
 use juicebox_sdk_core::types::RealmId;

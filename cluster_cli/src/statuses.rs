@@ -3,8 +3,8 @@ use futures::future::join_all;
 use reqwest::Url;
 use tracing::debug;
 
+use agent_api::{AgentService, StatusRequest};
 use hsmcore::hsm::types::StatusResponse;
-use juicebox_hsm::realm::agent::types::{AgentService, StatusRequest};
 use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc;

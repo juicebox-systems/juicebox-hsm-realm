@@ -24,12 +24,12 @@ use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use super::PortIssuer;
 use crate::google_auth;
-use crate::realm::agent::types::{AgentService, StatusRequest};
 use crate::realm::cluster::{self, NewRealmError};
 use crate::realm::store::bigtable::{self, StoreClient};
 use crate::secret_manager::{
     new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
 };
+use agent_api::{AgentService, StatusRequest};
 
 #[derive(Debug)]
 pub struct ClusterConfig {

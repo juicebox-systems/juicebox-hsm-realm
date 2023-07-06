@@ -26,15 +26,13 @@ use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
+use agent_api::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::mac::DigestWriter;
 use hsmcore::hsm::types::{self as hsm_types, RecordId};
 use juicebox_hsm::logging::{Spew, TracingSource};
 use juicebox_hsm::metrics::{self, Tag};
 use juicebox_hsm::metrics_tag as tag;
-use juicebox_hsm::realm::agent::types::{
-    AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse,
-};
 use juicebox_hsm::realm::store::bigtable::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
 use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
 use juicebox_hsm::secret_manager::{tenant_secret_name, SecretManager};

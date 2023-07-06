@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+agent_api = { path = "../agent_api" }
 anyhow = { workspace = true }
 blake2 = { workspace = true }
 bytes = { workspace = true }

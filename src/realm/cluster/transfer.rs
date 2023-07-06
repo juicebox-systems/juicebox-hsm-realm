@@ -3,12 +3,12 @@ use thiserror::Error;
 use tokio::time::sleep;
 use tracing::info;
 
-use super::super::agent::types::{
+use super::super::store::bigtable::StoreClient;
+use agent_api::{
     CompleteTransferRequest, CompleteTransferResponse, TransferInRequest, TransferInResponse,
     TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
     TransferStatementRequest, TransferStatementResponse,
 };
-use super::super::store::bigtable::StoreClient;
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::types as hsm_types;
 use juicebox_sdk_core::types::RealmId;

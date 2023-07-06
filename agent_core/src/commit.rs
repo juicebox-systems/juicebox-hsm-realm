@@ -9,8 +9,8 @@ use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::hsm::Transport;
-use super::types::{ReadCapturedRequest, ReadCapturedResponse};
 use super::Agent;
+use agent_api::{AgentService, ReadCapturedRequest, ReadCapturedResponse};
 use hsmcore::hsm::commit::HsmElection;
 use hsmcore::hsm::types::{
     Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole, HsmId, LogIndex,
@@ -18,7 +18,6 @@ use hsmcore::hsm::types::{
 };
 use juicebox_hsm::logging::{Spew, TracingSource};
 use juicebox_hsm::metrics_tag as tag;
-use juicebox_hsm::realm::agent::types::AgentService;
 use juicebox_hsm::realm::cluster::discover_hsm_ids;
 use juicebox_hsm::realm::store::bigtable::StoreClient;
 use juicebox_sdk_core::requests::NoiseResponse;

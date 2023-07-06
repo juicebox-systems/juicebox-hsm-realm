@@ -10,6 +10,7 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+agent_api = { path = "../agent_api" }
 anyhow = { workspace = true }
 clap = { workspace = true }
 cli-table = { workspace = true }

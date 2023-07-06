@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "agent_api",
     "agent_core",
     "cluster_bench",
     "cluster_cli",
@@ -17,6 +18,7 @@ members = [
 ]
 default-members = [
     ".",
+    "agent_api",
     "agent_core",
     "cluster_bench",
     "cluster_cli",
@@ -149,6 +151,7 @@ tracing-subscriber = { git = "https://github.com/tokio-rs/tracing" }
 
 
 [dependencies]
+agent_api = { path = "agent_api" }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 blake2 = { workspace = true }

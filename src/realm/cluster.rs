@@ -6,7 +6,7 @@ use tokio::time::sleep;
 use tracing::{debug, info};
 use url::Url;
 
-use super::agent::types::{AgentService, StatusRequest};
+use agent_api::{AgentService, StatusRequest};
 use hsm_types::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex};
 use hsmcore::hsm::types as hsm_types;
 use juicebox_sdk_core::types::RealmId;

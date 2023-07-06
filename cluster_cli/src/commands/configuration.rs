@@ -2,8 +2,8 @@ use anyhow::anyhow;
 use reqwest::Url;
 use std::collections::HashMap;
 
+use agent_api::AgentService;
 use hsmcore::hsm::types::PublicKey;
-use juicebox_hsm::realm::agent::types::AgentService;
 use juicebox_hsm::realm::store::bigtable::StoreClient;
 use juicebox_sdk::Configuration;
 use juicebox_sdk::PinHashingMode;

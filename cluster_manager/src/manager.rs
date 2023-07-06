@@ -19,9 +19,9 @@ use tracing::{info, instrument, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
+use agent_api::AgentService;
 use hsm_types::GroupId;
 use hsmcore::hsm::types as hsm_types;
-use juicebox_hsm::realm::agent::types::AgentService;
 use juicebox_hsm::realm::cluster::types;
 use juicebox_hsm::realm::rpc::handle_rpc;
 use juicebox_hsm::realm::store::bigtable::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};

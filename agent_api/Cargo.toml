@@ -1,0 +1,13 @@
+[package]
+name = "agent_api"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hsmcore = { workspace = true }
+juicebox-sdk-core = { workspace = true }
+juicebox-sdk-networking = { workspace = true }
+serde = { workspace = true }
+

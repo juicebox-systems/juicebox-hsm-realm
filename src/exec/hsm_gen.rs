@@ -20,10 +20,8 @@ use tokio::time::sleep;
 use url::Url;
 
 use super::PortIssuer;
-use crate::{
-    realm::agent::types::{AgentService, StatusRequest},
-    realm::store::bigtable,
-};
+use crate::realm::store::bigtable;
+use agent_api::{AgentService, StatusRequest};
 use hsmcore::hsm::types::PublicKey;
 
 type AgentClient = reqwest::Client<AgentService>;

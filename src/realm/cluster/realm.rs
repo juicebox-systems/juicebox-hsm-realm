@@ -3,7 +3,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 use url::Url;
 
-use crate::realm::agent::types::{
+use agent_api::{
     AgentService, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse,
     NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, StatusRequest,
 };

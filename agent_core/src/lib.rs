@@ -23,8 +23,15 @@ mod append;
 mod commit;
 pub mod hsm;
 
-pub use juicebox_hsm::realm::agent::types;
-
+use agent_api::{
+    AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
+    CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
+    JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest,
+    NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse,
+    StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
+    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
+    TransferStatementResponse,
+};
 use append::{Append, AppendingState};
 use hsm::{HsmClient, Transport};
 use hsm_types::{
@@ -47,15 +54,6 @@ use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::{self, Client, ClientOptions};
 use juicebox_sdk_networking::rpc::{self, Rpc};
-use types::{
-    AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
-    JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest,
-    NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse,
-    StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
-    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
-    TransferStatementResponse,
-};
 
 #[derive(Debug)]
 pub struct Agent<T>(Arc<AgentInner<T>>);
