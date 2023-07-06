@@ -1,0 +1,16 @@
+[package]
+name = "service_core"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytes = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+juicebox-sdk-marshalling = { workspace = true }
+juicebox-sdk-networking = { workspace = true }
+tracing = { workspace = true }

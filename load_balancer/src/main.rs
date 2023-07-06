@@ -9,9 +9,9 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use google::auth;
-use juicebox_hsm::exec::panic;
 use observability::{logging, metrics};
 use secret_manager::{new_google_secret_manager, Periodic, SecretManager, SecretsFile};
+use service_core::panic;
 
 mod cert;
 mod load_balancer;

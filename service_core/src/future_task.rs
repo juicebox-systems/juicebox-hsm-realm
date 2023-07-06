@@ -1,9 +1,6 @@
-use std::{
-    pin::Pin,
-    sync::{Arc, Mutex},
-};
-
 use futures::{future::join_all, Future};
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 
 pub type FutureTask<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 

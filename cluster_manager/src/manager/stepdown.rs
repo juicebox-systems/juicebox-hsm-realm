@@ -9,9 +9,9 @@ use super::{ManagementGrant, Manager};
 use cluster_core::{discover_hsm_ids, get_hsm_statuses};
 use hsm_types::{GroupId, HsmId, LogIndex};
 use hsmcore::hsm::types as hsm_types;
-use juicebox_hsm::realm::rpc::HandlerError;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::rpc::{self, RpcError};
+use service_core::rpc::HandlerError;
 
 impl Manager {
     pub(super) async fn handle_leader_stepdown(

@@ -32,11 +32,11 @@ use entrust_nfast::{
     Status_SEEWorldFailed, TicketDestination_AnySEEWorld,
 };
 use google::auth;
-use juicebox_hsm::clap_parsers::parse_duration;
-use juicebox_hsm::exec::panic;
-use juicebox_hsm::future_task::FutureTasks;
 use juicebox_sdk_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use observability::{logging, metrics, metrics_tag as tag};
+use service_core::clap_parsers::parse_duration;
+use service_core::future_task::FutureTasks;
+use service_core::panic;
 
 /// A host agent for use with an Entrust nCipherXC HSM.
 #[derive(Parser)]

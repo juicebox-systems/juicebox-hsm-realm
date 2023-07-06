@@ -46,11 +46,11 @@ dependencies = [
  "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
  "juicebox-sdk-process-group",
- "juicebox_hsm",
  "observability",
  "opentelemetry",
  "opentelemetry-http",
  "reqwest",
+ "service_core",
  "store",
  "tokio",
  "tracing 0.2.0",
@@ -632,10 +632,10 @@ dependencies = [
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
- "juicebox_hsm",
  "observability",
  "opentelemetry",
  "opentelemetry-http",
+ "service_core",
  "store",
  "tokio",
  "tonic",
@@ -966,9 +966,9 @@ dependencies = [
  "google",
  "hsmcore",
  "juicebox-sdk-marshalling",
- "juicebox_hsm",
  "observability",
  "rand_core",
+ "service_core",
  "store",
  "tokio",
  "tracing 0.2.0",
@@ -1887,7 +1887,6 @@ dependencies = [
  "ciborium",
  "clap 4.3.0",
  "digest",
- "dogstatsd",
  "expect-test",
  "futures",
  "google",
@@ -1898,7 +1897,6 @@ dependencies = [
  "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
  "juicebox-sdk-realm-auth",
- "juicebox_hsm",
  "observability",
  "opentelemetry",
  "opentelemetry-http",
@@ -1906,6 +1904,7 @@ dependencies = [
  "rustls-pemfile",
  "secret_manager",
  "serde",
+ "service_core",
  "signal-hook",
  "store",
  "tokio",
@@ -2817,6 +2816,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "service_core"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "http",
+ "http-body-util",
+ "hyper 1.0.0-rc.3",
+ "juicebox-sdk-marshalling",
+ "juicebox-sdk-networking",
+ "tracing 0.2.0",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2913,10 +2926,10 @@ dependencies = [
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-marshalling",
- "juicebox_hsm",
  "observability",
  "rand",
  "reqwest",
+ "service_core",
  "store",
  "tokio",
  "tracing 0.2.0",

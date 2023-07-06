@@ -22,11 +22,11 @@ hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-juicebox_hsm = { path = ".." }
 juicebox-sdk-marshalling = { workspace = true }
 observability = { path = "../observability" }
 rand = { workspace = true }
 reqwest = { workspace = true }
+service_core = { workspace = true }
 store = { path = "../store" }
 tokio = { workspace = true }
 tracing = { workspace = true }

@@ -14,10 +14,10 @@ entrust_api = { path = "../entrust_api" }
 entrust_nfast = { path = "../entrust_nfast" }
 google = { path = "../google" }
 hsmcore = { workspace = true }
-juicebox_hsm = { path = ".." }
 juicebox-sdk-marshalling = { workspace = true }
 observability = { path = "../observability" }
 rand_core = { workspace = true, features = ["getrandom"] }
+service_core = { workspace = true }
 store = { path = "../store" }
 tokio = { workspace = true }
 tracing = { workspace = true }

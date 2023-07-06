@@ -19,6 +19,7 @@ members = [
     "merkle_tree_docgen",
     "observability",
     "secret_manager",
+    "service_core",
     "software_agent",
     "store",
 ]
@@ -37,6 +38,7 @@ default-members = [
     "load_balancer",
     "observability",
     "secret_manager",
+    "service_core",
     "software_agent",
     "store",
 ]
@@ -123,6 +125,7 @@ serde = { version = "1.0.152", default-features = false, features = [
     "derive",
 ] }
 serde_json = "1.0.94"
+service_core = { path = "service_core" }
 sharks = "0.5.0"
 signal-hook = "0.3.15"
 spin = { version = "0.9.8", default-features = false, features = [

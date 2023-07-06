@@ -12,14 +12,12 @@ blake2 = { workspace = true }
 bytes = { workspace = true }
 ciborium = { workspace = true }
 clap = { workspace = true }
-dogstatsd = { workspace = true }
 digest = { workspace = true }
 futures = { workspace = true }
 google = { path = "../google" }
 hsmcore = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-juicebox_hsm = { path = ".." }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
@@ -31,6 +29,7 @@ rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 secret_manager = { workspace = true }
 serde = { workspace = true }
+service_core = { workspace = true }
 signal-hook = { workspace = true }
 store = { path = "../store" }
 tokio = { workspace = true }

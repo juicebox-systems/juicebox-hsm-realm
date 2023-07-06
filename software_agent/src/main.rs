@@ -19,10 +19,10 @@ use agent_core::hsm::HsmClient;
 use agent_core::Agent;
 use google::auth;
 use hsmcore::hsm::mac::MacKey;
-use juicebox_hsm::clap_parsers::{parse_duration, parse_listen};
-use juicebox_hsm::exec::panic;
-use juicebox_hsm::future_task::FutureTasks;
 use observability::{logging, metrics};
+use service_core::clap_parsers::{parse_duration, parse_listen};
+use service_core::future_task::FutureTasks;
+use service_core::panic;
 
 mod http_hsm;
 

@@ -3,10 +3,10 @@ use std::{net::SocketAddr, time::Duration};
 use tracing::info;
 
 use google::auth;
-use juicebox_hsm::clap_parsers::{parse_duration, parse_listen};
-use juicebox_hsm::exec::panic;
 use manager::Manager;
 use observability::{logging, metrics};
+use service_core::clap_parsers::{parse_duration, parse_listen};
+use service_core::panic;
 
 mod manager;
 
