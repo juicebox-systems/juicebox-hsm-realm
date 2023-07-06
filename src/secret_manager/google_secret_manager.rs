@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tonic::transport::Endpoint;
 
 use super::{periodic::BulkLoad, Error, Secret, SecretName, SecretVersion};
-use crate::google_auth::AuthMiddleware;
+use google::auth::AuthMiddleware;
 
 /// Like `projects/myproject`.
 #[derive(Debug, Clone)]

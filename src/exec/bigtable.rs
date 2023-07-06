@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::info;
 
-use crate::realm::store::bigtable::{Args, Options};
+use store::{Args, Options};
 
 pub struct BigtableRunner;
 

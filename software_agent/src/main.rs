@@ -17,12 +17,11 @@ use tracing::info;
 
 use agent_core::hsm::HsmClient;
 use agent_core::Agent;
+use google::auth;
 use hsmcore::hsm::mac::MacKey;
 use juicebox_hsm::clap_parsers::{parse_duration, parse_listen};
 use juicebox_hsm::exec::panic;
 use juicebox_hsm::future_task::FutureTasks;
-use juicebox_hsm::google_auth;
-use juicebox_hsm::realm::store::bigtable;
 use observability::{logging, metrics};
 
 mod http_hsm;
@@ -34,10 +33,10 @@ use http_hsm::host::HttpHsm;
 #[derive(Parser)]
 struct Args {
     #[command(flatten)]
-    bigtable: bigtable::Args,
+    bigtable: store::Args,
 
     #[command(flatten)]
-    agent_bigtable: bigtable::AgentArgs,
+    agent_bigtable: store::AgentArgs,
 
     /// Derive realm keys from this input (insecure).
     #[arg(short, long)]
@@ -105,7 +104,7 @@ async fn main() {
 
     let auth_manager = if args.bigtable.needs_auth() {
         Some(
-            google_auth::from_adc()
+            auth::from_adc()
                 .await
                 .expect("failed to initialize Google Cloud auth"),
         )
@@ -117,7 +116,7 @@ async fn main() {
         .bigtable
         .connect_data(
             auth_manager.clone(),
-            bigtable::Options {
+            store::Options {
                 metrics: metrics.clone(),
                 ..args.agent_bigtable.to_options()
             },

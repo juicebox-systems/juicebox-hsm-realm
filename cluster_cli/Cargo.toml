@@ -17,6 +17,7 @@ cli-table = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 hsmcore = { workspace = true }
+google = { path="../google" }
 juicebox_hsm = { path = ".." }
 juicebox-sdk = { workspace = true }
 juicebox-sdk-core = { workspace = true }
@@ -25,6 +26,7 @@ juicebox-sdk-realm-auth = { workspace = true }
 observability = { path = "../observability" }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
+store = { path = "../store" }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

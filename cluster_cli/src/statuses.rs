@@ -5,9 +5,9 @@ use tracing::debug;
 
 use agent_api::{AgentService, StatusRequest};
 use hsmcore::hsm::types::StatusResponse;
-use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc;
+use store::{ServiceKind, StoreClient};
 
 /// Returns the status of every available HSM, sorted by HSM ID.
 pub async fn get_hsm_statuses(

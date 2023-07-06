@@ -7,9 +7,9 @@ use std::collections::HashSet;
 use agent_api::AgentService;
 use hsmcore::hsm::types::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
 use juicebox_hsm::realm::cluster;
-use juicebox_hsm::realm::store::bigtable::StoreClient;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
+use store::StoreClient;
 
 use crate::get_hsm_statuses;
 

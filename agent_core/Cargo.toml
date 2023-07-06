@@ -21,10 +21,12 @@ juicebox_hsm = { path = ".." }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
+juicebox-sdk-process-group = { workspace = true }
 observability = { path = "../observability" }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 reqwest = { workspace = true }
+store = { path = "../store" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }

@@ -17,13 +17,13 @@ use hsmcore::hsm::types::{
     PersistStateRequest, PersistStateResponse,
 };
 use juicebox_hsm::realm::cluster::discover_hsm_ids;
-use juicebox_hsm::realm::store::bigtable::StoreClient;
 use juicebox_sdk_core::requests::NoiseResponse;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc;
 use observability::logging::{Spew, TracingSource};
 use observability::metrics_tag as tag;
+use store::StoreClient;
 
 #[derive(Debug, Eq, PartialEq)]
 enum CommitterStatus {

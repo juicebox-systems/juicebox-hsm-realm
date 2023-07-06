@@ -5,13 +5,13 @@ use std::iter::zip;
 use tracing::{trace, warn};
 use url::Url;
 
-use super::super::store::bigtable::{ServiceKind, StoreClient};
 use agent_api::{AgentService, StatusRequest, StatusResponse};
 use hsm_types::{GroupId, HsmId};
 use hsmcore::hsm::types as hsm_types;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self};
+use store::{ServiceKind, StoreClient};
 
 pub async fn find_leaders(
     store: &StoreClient,

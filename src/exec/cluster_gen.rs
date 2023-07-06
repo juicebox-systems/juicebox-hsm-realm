@@ -23,19 +23,19 @@ use super::bigtable::BigtableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use super::PortIssuer;
-use crate::google_auth;
 use crate::realm::cluster::{self, NewRealmError};
-use crate::realm::store::bigtable::{self, StoreClient};
 use crate::secret_manager::{
     new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
 };
 use agent_api::{AgentService, StatusRequest};
+use google::auth;
+use store::{self, StoreClient};
 
 #[derive(Debug)]
 pub struct ClusterConfig {
     pub load_balancers: u8,
     pub realms: Vec<RealmConfig>,
-    pub bigtable: bigtable::Args,
+    pub bigtable: store::Args,
     pub secrets_file: Option<PathBuf>,
     pub entrust: Entrust,
 }
@@ -137,7 +137,7 @@ pub async fn create_cluster(
     let ports = ports.into();
     let auth_manager = if args.bigtable.needs_auth() || args.secrets_file.is_none() {
         Some(
-            google_auth::from_adc()
+            auth::from_adc()
                 .await
                 .expect("failed to initialize Google Cloud auth"),
         )
@@ -162,7 +162,7 @@ pub async fn create_cluster(
 
     let store = args
         .bigtable
-        .connect_data(auth_manager.clone(), bigtable::Options::default())
+        .connect_data(auth_manager.clone(), store::Options::default())
         .await
         .expect("failed to connect to bigtable data service");
 
@@ -263,7 +263,7 @@ fn create_load_balancers(
 }
 
 fn start_cluster_manager(
-    args: &bigtable::Args,
+    args: &store::Args,
     process_group: &mut ProcessGroup,
     ports: &PortIssuer,
 ) -> Url {
@@ -287,7 +287,7 @@ async fn create_realm(
     hsm_gen: &mut HsmGenerator,
     process_group: &mut ProcessGroup,
     r: &RealmConfig,
-    bigtable: &bigtable::Args,
+    bigtable: &store::Args,
     store: &StoreClient,
 ) -> RealmResult {
     assert_ne!(r.hsms, 0);

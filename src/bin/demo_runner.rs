@@ -16,7 +16,6 @@ use juicebox_hsm::exec::bigtable::BigtableRunner;
 use juicebox_hsm::exec::certs::create_localhost_key_and_cert;
 use juicebox_hsm::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use juicebox_hsm::realm::cluster;
-use juicebox_hsm::realm::store::bigtable;
 use juicebox_hsm::secret_manager::{tenant_secret_name, BulkLoad, SecretManager, SecretsFile};
 use juicebox_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
@@ -59,7 +58,7 @@ async fn main() {
     })
     .expect("error setting signal handler");
 
-    let bt_args = bigtable::Args {
+    let bt_args = store::Args {
         instance: String::from("inst"),
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),
@@ -85,9 +84,9 @@ async fn main() {
     let store = bt_args
         .connect_data(
             None,
-            bigtable::Options {
+            store::Options {
                 metrics,
-                ..bigtable::Options::default()
+                ..store::Options::default()
             },
         )
         .await

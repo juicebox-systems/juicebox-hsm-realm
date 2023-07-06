@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn, Level};
 
-use juicebox_hsm::google_auth;
+use google::auth;
 use juicebox_hsm::secret_manager::{
     new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
 };
@@ -431,7 +431,7 @@ async fn get_auth_key(
 
         None => {
             info!("connecting to Google Cloud Secret Manager");
-            let auth_manager = google_auth::from_adc()
+            let auth_manager = auth::from_adc()
                 .await
                 .context("failed to initialize Google Cloud auth")?;
             Box::new(

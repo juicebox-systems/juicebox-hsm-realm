@@ -16,9 +16,11 @@ dependencies = [
 name = "agent_api"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "hsmcore",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
+ "observability",
  "serde",
 ]
 
@@ -41,11 +43,13 @@ dependencies = [
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
+ "juicebox-sdk-process-group",
  "juicebox_hsm",
  "observability",
  "opentelemetry",
  "opentelemetry-http",
  "reqwest",
+ "store",
  "tokio",
  "tracing 0.2.0",
  "tracing-opentelemetry",
@@ -533,6 +537,7 @@ dependencies = [
  "clap 4.3.0",
  "dogstatsd",
  "futures",
+ "google",
  "hdrhistogram",
  "juicebox-sdk",
  "juicebox-sdk-networking",
@@ -556,6 +561,7 @@ dependencies = [
  "cli-table",
  "expect-test",
  "futures",
+ "google",
  "hex",
  "hsmcore",
  "juicebox-sdk",
@@ -566,6 +572,7 @@ dependencies = [
  "observability",
  "reqwest",
  "serde_json",
+ "store",
  "thiserror",
  "tokio",
  "tracing 0.2.0",
@@ -582,6 +589,7 @@ dependencies = [
  "ctrlc",
  "expect-test",
  "futures",
+ "google",
  "hsmcore",
  "http-body-util",
  "hyper 1.0.0-rc.3",
@@ -591,6 +599,7 @@ dependencies = [
  "observability",
  "opentelemetry",
  "opentelemetry-http",
+ "store",
  "tokio",
  "tonic",
  "tracing 0.2.0",
@@ -917,11 +926,13 @@ dependencies = [
  "entrust_api",
  "entrust_nfast",
  "expect-test",
+ "google",
  "hsmcore",
  "juicebox-sdk-marshalling",
  "juicebox_hsm",
  "observability",
  "rand_core",
+ "store",
  "tokio",
  "tracing 0.2.0",
 ]
@@ -1186,9 +1197,14 @@ dependencies = [
 name = "google"
 version = "0.1.0"
 dependencies = [
+ "gcp_auth",
+ "http",
  "prost",
  "prost-types",
+ "secrecy",
  "tonic",
+ "tower",
+ "tracing 0.2.0",
 ]
 
 [[package]]
@@ -1783,6 +1799,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sharks",
+ "store",
  "tempfile",
  "thiserror",
  "tokio",
@@ -1833,6 +1850,7 @@ dependencies = [
  "dogstatsd",
  "expect-test",
  "futures",
+ "google",
  "hsmcore",
  "http-body-util",
  "hyper 1.0.0-rc.3",
@@ -1848,6 +1866,7 @@ dependencies = [
  "rustls-pemfile",
  "serde",
  "signal-hook",
+ "store",
  "tokio",
  "tokio-rustls 0.23.4",
  "tracing 0.2.0",
@@ -2824,6 +2843,7 @@ dependencies = [
  "ctrlc",
  "expect-test",
  "futures",
+ "google",
  "hex",
  "hkdf",
  "hmac",
@@ -2836,6 +2856,7 @@ dependencies = [
  "observability",
  "rand",
  "reqwest",
+ "store",
  "tokio",
  "tracing 0.2.0",
  "url",
@@ -2859,6 +2880,33 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "store"
+version = "0.1.0"
+dependencies = [
+ "agent_api",
+ "agent_core",
+ "async-trait",
+ "clap 4.3.0",
+ "futures",
+ "gcp_auth",
+ "google",
+ "hsmcore",
+ "http",
+ "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
+ "juicebox-sdk-process-group",
+ "juicebox_hsm",
+ "observability",
+ "once_cell",
+ "rand_core",
+ "reqwest",
+ "tokio",
+ "tonic",
+ "tracing 0.2.0",
+ "url",
+]
 
 [[package]]
 name = "strsim"

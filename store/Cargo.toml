@@ -1,0 +1,31 @@
+[package]
+name = "store"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+agent_api = { path = "../agent_api" }
+async-trait = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+gcp_auth = { workspace = true }
+google = { path = "../google" }
+hsmcore = { path = "../hsmcore" }
+http = { workspace = true }
+juicebox-sdk-core = { workspace = true }
+juicebox-sdk-marshalling = { workspace = true }
+observability = { path = "../observability" }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+once_cell = { workspace = true }
+rand_core = { workspace = true, features = ["getrandom"] }
+reqwest = { workspace = true }
+juicebox-sdk-process-group = { workspace = true }
+juicebox_hsm = { path = ".." }
+agent_core = { path = "../agent_core" }

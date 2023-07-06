@@ -15,6 +15,7 @@ clap = { workspace = true }
 dogstatsd = { workspace = true }
 digest = { workspace = true }
 futures = { workspace = true }
+google = { path = "../google" }
 hsmcore = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
@@ -30,6 +31,7 @@ rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true }
 signal-hook = { workspace = true }
+store = { path = "../store" }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tracing = { workspace = true }

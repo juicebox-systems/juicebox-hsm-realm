@@ -14,6 +14,7 @@ bytes = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
 futures = { workspace = true }
+google = { path = "../google" }
 hex = { workspace = true }
 hkdf = { workspace = true }
 hmac = { workspace = true }
@@ -26,6 +27,7 @@ juicebox-sdk-marshalling = { workspace = true }
 observability = { path = "../observability" }
 rand = { workspace = true }
 reqwest = { workspace = true }
+store = { path = "../store" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }

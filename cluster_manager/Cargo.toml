@@ -12,6 +12,7 @@ bytes = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true }
 futures = { workspace = true }
+google = { path = "../google" }
 hsmcore = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
@@ -21,6 +22,7 @@ observability = { path = "../observability" }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
+store = { path = "../store" }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }

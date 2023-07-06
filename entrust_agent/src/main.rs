@@ -31,11 +31,10 @@ use entrust_nfast::{
     NFastApp_Wait, NFastConn, NFastError, Reply, SEEInitStatus_OK, Status_OK, Status_ObjectInUse,
     Status_SEEWorldFailed, TicketDestination_AnySEEWorld,
 };
+use google::auth;
 use juicebox_hsm::clap_parsers::parse_duration;
 use juicebox_hsm::exec::panic;
 use juicebox_hsm::future_task::FutureTasks;
-use juicebox_hsm::google_auth;
-use juicebox_hsm::realm::store::bigtable;
 use juicebox_sdk_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use observability::{logging, metrics, metrics_tag as tag};
 
@@ -43,10 +42,10 @@ use observability::{logging, metrics, metrics_tag as tag};
 #[derive(Parser)]
 struct Args {
     #[command(flatten)]
-    bigtable: bigtable::Args,
+    bigtable: store::Args,
 
     #[command(flatten)]
-    agent_bigtable: bigtable::AgentArgs,
+    agent_bigtable: store::AgentArgs,
 
     /// The IP/port to listen on.
     #[arg(
@@ -133,7 +132,7 @@ async fn main() {
 
     let auth_manager = if args.bigtable.needs_auth() {
         Some(
-            google_auth::from_adc()
+            auth::from_adc()
                 .await
                 .expect("failed to initialize Google Cloud auth"),
         )
@@ -144,7 +143,7 @@ async fn main() {
         .bigtable
         .connect_data(
             auth_manager.clone(),
-            bigtable::Options {
+            store::Options {
                 metrics: metrics.clone(),
                 ..args.agent_bigtable.to_options()
             },

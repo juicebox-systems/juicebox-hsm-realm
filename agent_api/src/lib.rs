@@ -1,3 +1,5 @@
+pub mod merkle;
+
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 

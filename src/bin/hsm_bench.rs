@@ -10,7 +10,6 @@ use tracing::{debug, info, warn};
 
 use juicebox_hsm::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use juicebox_hsm::exec::hsm_gen::{Entrust, MetricsParticipants};
-use juicebox_hsm::realm::store::bigtable;
 use juicebox_sdk::{Client, Pin, UserInfo, UserSecret};
 use juicebox_sdk_core::types::Policy;
 use juicebox_sdk_networking::reqwest;
@@ -22,7 +21,7 @@ use observability::logging;
 #[derive(Debug, Parser)]
 struct Args {
     #[command(flatten)]
-    bigtable: bigtable::Args,
+    bigtable: store::Args,
 
     /// Number of secret registrations to do at a time.
     #[arg(long, value_name = "N", default_value_t = 3)]

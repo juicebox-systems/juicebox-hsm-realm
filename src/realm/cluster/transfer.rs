@@ -3,7 +3,6 @@ use thiserror::Error;
 use tokio::time::sleep;
 use tracing::info;
 
-use super::super::store::bigtable::StoreClient;
 use agent_api::{
     CompleteTransferRequest, CompleteTransferResponse, TransferInRequest, TransferInResponse,
     TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
@@ -14,6 +13,7 @@ use hsmcore::hsm::types as hsm_types;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_networking::rpc;
+use store::StoreClient;
 
 #[derive(Debug, Error)]
 pub enum TransferError {

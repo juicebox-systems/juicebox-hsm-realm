@@ -22,7 +22,7 @@ use tonic::Code;
 use tracing::{info, instrument, trace, warn, Span};
 use url::Url;
 
-use crate::google_auth::AuthMiddleware;
+use google::auth::AuthMiddleware;
 use hsmcore::hsm::types::{DataHash, EntryMac, GroupId, LogEntry, LogIndex};
 use hsmcore::merkle::agent::StoreDelta;
 use juicebox_sdk_core::types::RealmId;

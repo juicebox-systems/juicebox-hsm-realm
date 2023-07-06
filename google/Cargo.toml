@@ -6,9 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+gcp_auth = { workspace = true }
+http = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
+secrecy = { workspace = true }
 tonic = { workspace = true }
+tower = { workspace = true }
+tracing = { workspace = true }
 
 [lib]
 doctest = false

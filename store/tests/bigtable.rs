@@ -1,26 +1,19 @@
 use once_cell::sync::Lazy;
 use reqwest::Url;
 use std::time::{Duration, SystemTime};
+use store::discovery;
 
-use hsmcore::{
-    bitvec::BitVec,
-    hsm::{
-        types::{EntryMac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId},
-        MerkleHasher,
-    },
-    merkle::{
-        agent::{StoreDelta, StoreKey},
-        Tree,
-    },
-};
+use agent_api::merkle::TreeStoreReader;
+use hsmcore::bitvec::BitVec;
+use hsmcore::hsm::types::{EntryMac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId};
+use hsmcore::hsm::MerkleHasher;
+use hsmcore::merkle::agent::{StoreDelta, StoreKey};
+use hsmcore::merkle::Tree;
 use juicebox_hsm::exec::{bigtable::BigtableRunner, PortIssuer};
-use juicebox_hsm::realm::merkle::agent::{self, TreeStoreReader};
-use juicebox_hsm::realm::store::bigtable::{
-    self, AppendError::LogPrecondition, ServiceKind, StoreAdminClient, StoreClient,
-};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_process_group::ProcessGroup;
 use observability::metrics;
+use store::{self, AppendError::LogPrecondition, ServiceKind, StoreAdminClient, StoreClient};
 
 const REALM: RealmId = RealmId([200; 16]);
 const GROUP_1: GroupId = GroupId([1; 16]);
@@ -30,16 +23,16 @@ const GROUP_3: GroupId = GroupId([15; 16]);
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8222));
 
-fn emulator() -> bigtable::Args {
+fn emulator() -> store::Args {
     let u = format!("http://localhost:{}", PORT.next()).parse().unwrap();
-    bigtable::Args {
+    store::Args {
         project: String::from("prj"),
         instance: String::from("inst"),
         url: Some(u),
     }
 }
 
-async fn init_bt(pg: &mut ProcessGroup, args: bigtable::Args) -> (StoreAdminClient, StoreClient) {
+async fn init_bt(pg: &mut ProcessGroup, args: store::Args) -> (StoreAdminClient, StoreClient) {
     BigtableRunner::run(pg, &args).await;
 
     let store_admin = args
@@ -53,7 +46,7 @@ async fn init_bt(pg: &mut ProcessGroup, args: bigtable::Args) -> (StoreAdminClie
         .expect("failed to initialize realm tables");
 
     let store = args
-        .connect_data(None, bigtable::Options::default())
+        .connect_data(None, store::Options::default())
         .await
         .expect("failed to connect to bigtable data service");
 
@@ -383,7 +376,7 @@ async fn append_store_delta() {
         .unwrap();
 
     // get a readproof, mutate the merkle tree and append the changes to the store.
-    let rp = agent::read(
+    let rp = agent_core::merkle::read(
         &REALM,
         &data,
         &OwnedRange::full(),
@@ -518,7 +511,7 @@ async fn service_discovery() {
     data.set_address(
         &url1,
         ServiceKind::Agent,
-        SystemTime::now() - bigtable::discovery::EXPIRY_AGE - Duration::from_secs(1),
+        SystemTime::now() - discovery::EXPIRY_AGE - Duration::from_secs(1),
     )
     .await
     .unwrap();

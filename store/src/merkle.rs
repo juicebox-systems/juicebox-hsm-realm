@@ -12,7 +12,7 @@ use tonic::Code;
 use tracing::{instrument, trace, warn, Span};
 
 use super::{mutate_rows, read_rows, Instance, MutateRowsError, StoreClient};
-use crate::realm::merkle::agent::TreeStoreReader;
+use agent_api::merkle::TreeStoreReader;
 use hsmcore::bitvec::Bits;
 use hsmcore::hash::{HashMap as HsmHashMap, HashSet as HsmHashSet, NotRandomized};
 use hsmcore::hsm::cache;

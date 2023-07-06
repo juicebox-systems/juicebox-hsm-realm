@@ -20,7 +20,6 @@ use tokio::time::sleep;
 use url::Url;
 
 use super::PortIssuer;
-use crate::realm::store::bigtable;
 use agent_api::{AgentService, StatusRequest};
 use hsmcore::hsm::types::PublicKey;
 
@@ -61,7 +60,7 @@ impl HsmGenerator {
         mut count: usize,
         metrics: MetricsParticipants,
         process_group: &mut ProcessGroup,
-        bigtable: &bigtable::Args,
+        bigtable: &store::Args,
         hsm_dir: Option<PathBuf>,
     ) -> (Vec<Url>, PublicKey) {
         let mode = if cfg!(debug_assertions) {

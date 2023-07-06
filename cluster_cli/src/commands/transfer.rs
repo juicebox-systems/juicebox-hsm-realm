@@ -1,6 +1,6 @@
 use hsmcore::hsm::types::{GroupId, OwnedRange};
-use juicebox_hsm::realm::store::bigtable::StoreClient;
 use juicebox_sdk_core::types::RealmId;
+use store::StoreClient;
 
 pub async fn transfer(
     realm: RealmId,
