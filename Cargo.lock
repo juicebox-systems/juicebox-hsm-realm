@@ -1178,6 +1178,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "google"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "prost-types",
+ "tonic",
+]
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1743,6 +1752,7 @@ dependencies = [
  "expect-test",
  "futures",
  "gcp_auth",
+ "google",
  "hashbrown 0.14.0",
  "hdrhistogram",
  "hex",

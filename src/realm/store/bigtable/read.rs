@@ -1,4 +1,3 @@
-use crate::autogen::google;
 use google::bigtable::v2::read_rows_response::cell_chunk::RowStatus;
 use google::bigtable::v2::read_rows_response::CellChunk;
 use google::bigtable::v2::ReadRowsRequest;

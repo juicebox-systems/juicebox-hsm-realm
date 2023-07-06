@@ -1,5 +1,3 @@
-use crate::autogen::google;
-
 use futures::Future;
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};

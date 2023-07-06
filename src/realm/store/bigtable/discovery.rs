@@ -1,5 +1,3 @@
-use crate::autogen::google;
-
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
 use google::bigtable::v2::row_range::{EndKey, StartKey};

@@ -1,4 +1,4 @@
-use crate::autogen::google::cloud::secretmanager::v1 as secretmanager;
+use google::cloud::secretmanager::v1 as secretmanager;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;

@@ -11,6 +11,7 @@ members = [
     "entrust_hsm",
     "entrust_init",
     "entrust_nfast",
+    "google",
     "hsmcore",
     "load_balancer",
     "merkle_tree_docgen",
@@ -24,6 +25,7 @@ default-members = [
     "cluster_cli",
     "cluster_manager",
     "codegen",
+    "google",
     "hsmcore",
     "load_balancer",
     "software_agent",
@@ -162,6 +164,7 @@ ctrlc = { workspace = true, features = ["termination"] }
 digest = { workspace = true }
 dogstatsd = { workspace = true }
 futures = { workspace = true }
+google = { path = "google" }
 gcp_auth = { workspace = true }
 hashbrown = { workspace = true }
 hdrhistogram = { workspace = true }
