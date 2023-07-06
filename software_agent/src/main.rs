@@ -15,6 +15,7 @@ use std::time::Duration;
 use tokio::runtime::Handle;
 use tracing::info;
 
+use agent_core::hsm::HsmClient;
 use agent_core::Agent;
 use hsmcore::hsm::mac::MacKey;
 use juicebox_hsm::clap_parsers::{parse_duration, parse_listen};
@@ -23,7 +24,6 @@ use juicebox_hsm::future_task::FutureTasks;
 use juicebox_hsm::google_auth;
 use juicebox_hsm::logging;
 use juicebox_hsm::metrics;
-use juicebox_hsm::realm::hsm::client::HsmClient;
 use juicebox_hsm::realm::store::bigtable;
 
 mod http_hsm;

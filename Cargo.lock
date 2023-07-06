@@ -17,15 +17,18 @@ name = "agent_core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bytes",
  "dogstatsd",
  "expect-test",
  "futures",
+ "hdrhistogram",
  "hsmcore",
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
  "juicebox_hsm",
  "opentelemetry",

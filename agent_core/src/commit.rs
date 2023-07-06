@@ -8,6 +8,7 @@ use tokio::time::sleep;
 use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+use super::hsm::Transport;
 use super::types::{ReadCapturedRequest, ReadCapturedResponse};
 use super::Agent;
 use hsmcore::hsm::commit::HsmElection;
@@ -19,7 +20,6 @@ use juicebox_hsm::logging::{Spew, TracingSource};
 use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::agent::types::AgentService;
 use juicebox_hsm::realm::cluster::discover_hsm_ids;
-use juicebox_hsm::realm::hsm::client::Transport;
 use juicebox_hsm::realm::store::bigtable::StoreClient;
 use juicebox_sdk_core::requests::NoiseResponse;
 use juicebox_sdk_core::types::RealmId;

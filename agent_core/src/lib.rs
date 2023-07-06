@@ -21,10 +21,12 @@ use url::Url;
 
 mod append;
 mod commit;
+pub mod hsm;
 
 pub use juicebox_hsm::realm::agent::types;
 
 use append::{Append, AppendingState};
+use hsm::{HsmClient, Transport};
 use hsm_types::{
     CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId, LogIndex,
     TransferInProofs,
@@ -38,7 +40,6 @@ use juicebox_hsm::metrics::{self};
 use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::cluster::types as cluster_types;
 use juicebox_hsm::realm::cluster::types::ClusterService;
-use juicebox_hsm::realm::hsm::client::{HsmClient, Transport};
 use juicebox_hsm::realm::merkle;
 use juicebox_hsm::realm::rpc::{handle_rpc, HandlerError};
 use juicebox_hsm::realm::store::bigtable::{self, LogEntriesIter, ServiceKind};

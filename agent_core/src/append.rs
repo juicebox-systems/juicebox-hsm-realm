@@ -1,12 +1,12 @@
 use std::time::{Duration, Instant};
 use tracing::warn;
 
+use super::hsm::Transport;
 use hsmcore::hsm::types::{DataHash, GroupId, LogEntry, LogIndex};
 use hsmcore::merkle::agent::StoreDelta;
 use juicebox_hsm::metrics::Tag;
 use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::agent::types::StepDownRequest;
-use juicebox_hsm::realm::hsm::client::Transport;
 use juicebox_hsm::realm::store::bigtable;
 use juicebox_sdk_core::types::RealmId;
 

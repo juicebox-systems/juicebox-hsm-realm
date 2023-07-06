@@ -7,15 +7,18 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 bytes = { workspace = true }
 dogstatsd = { workspace = true }
 futures = { workspace = true }
+hdrhistogram = { workspace = true }
 hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 juicebox_hsm = { path = ".." }
 juicebox-sdk-core = { workspace = true }
+juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }

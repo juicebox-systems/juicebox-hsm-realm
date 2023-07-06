@@ -13,6 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use tracing::{debug, info, instrument, warn, Span};
 
+use agent_core::hsm::{HsmClient, HsmRpcError, Transport};
 use agent_core::Agent;
 use entrust_api::{
     NvRamState, SEEJobRequestType, SEEJobResponseType, StartRequest, StartResponse, Ticket,
@@ -35,7 +36,6 @@ use juicebox_hsm::exec::panic;
 use juicebox_hsm::future_task::FutureTasks;
 use juicebox_hsm::google_auth;
 use juicebox_hsm::logging;
-use juicebox_hsm::realm::hsm::client::{HsmClient, HsmRpcError, Transport};
 use juicebox_hsm::realm::store::bigtable;
 use juicebox_hsm::{metrics, metrics_tag as tag};
 use juicebox_sdk_marshalling::{self as marshalling, DeserializationError, SerializationError};
