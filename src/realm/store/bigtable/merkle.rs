@@ -12,8 +12,6 @@ use tonic::Code;
 use tracing::{instrument, trace, warn, Span};
 
 use super::{mutate_rows, read_rows, Instance, MutateRowsError, StoreClient};
-use crate::metrics;
-use crate::metrics_tag as tag;
 use crate::realm::merkle::agent::TreeStoreReader;
 use hsmcore::bitvec::Bits;
 use hsmcore::hash::{HashMap as HsmHashMap, HashSet as HsmHashSet, NotRandomized};
@@ -23,6 +21,8 @@ use hsmcore::merkle::agent::{all_store_key_starts, Node, NodeKey, StoreKey, Tree
 use hsmcore::merkle::Dir;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
+use observability::metrics;
+use observability::metrics_tag as tag;
 
 /// Wrapper for [`Instant`] used in the Merkle node cache.
 ///

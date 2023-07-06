@@ -17,6 +17,7 @@ http-body-util = { workspace = true }
 hyper = { workspace = true }
 juicebox_hsm = { path = ".." }
 juicebox-sdk-core = { workspace = true }
+observability = { path = "../observability" }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 juicebox-sdk-networking = { workspace = true }

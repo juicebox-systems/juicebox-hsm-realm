@@ -5,10 +5,10 @@ use super::hsm::Transport;
 use agent_api::StepDownRequest;
 use hsmcore::hsm::types::{DataHash, GroupId, LogEntry, LogIndex};
 use hsmcore::merkle::agent::StoreDelta;
-use juicebox_hsm::metrics::Tag;
-use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::store::bigtable;
 use juicebox_sdk_core::types::RealmId;
+use observability::metrics::Tag;
+use observability::metrics_tag as tag;
 
 use super::Agent;
 use AppendingState::*;

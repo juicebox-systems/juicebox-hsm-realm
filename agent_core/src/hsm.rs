@@ -9,9 +9,9 @@ use tracing::info;
 use tracing::{instrument, span::Span, trace, warn};
 
 use hsmcore::hsm::rpc::{HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
-use juicebox_hsm::{metrics, metrics_tag as tag};
 use juicebox_sdk_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use juicebox_sdk_networking::rpc::RpcError;
+use observability::{metrics, metrics_tag as tag};
 
 /// The HSM signalled that the request processing failed, likely due to
 /// serialization or deserialization issues.

@@ -7,7 +7,7 @@ use tonic::Code;
 use tracing::{instrument, trace, warn, Span};
 
 use super::BigtableClient;
-use crate::logging::Spew;
+use observability::logging::Spew;
 
 #[derive(Clone, Hash, Eq, PartialEq)]
 pub struct RowKey(pub Vec<u8>);

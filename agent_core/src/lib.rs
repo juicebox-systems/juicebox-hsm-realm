@@ -42,9 +42,6 @@ use hsmcore::hsm::types as hsm_types;
 use hsmcore::hsm::types::{AppRequestType, LogEntry};
 use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
 use hsmcore::merkle::Dir;
-use juicebox_hsm::logging::TracingSource;
-use juicebox_hsm::metrics::{self};
-use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::cluster::types as cluster_types;
 use juicebox_hsm::realm::cluster::types::ClusterService;
 use juicebox_hsm::realm::merkle;
@@ -54,6 +51,9 @@ use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::{self, Client, ClientOptions};
 use juicebox_sdk_networking::rpc::{self, Rpc};
+use observability::logging::TracingSource;
+use observability::metrics::{self};
+use observability::metrics_tag as tag;
 
 #[derive(Debug)]
 pub struct Agent<T>(Arc<AgentInner<T>>);

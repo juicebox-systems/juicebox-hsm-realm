@@ -35,10 +35,9 @@ use juicebox_hsm::clap_parsers::parse_duration;
 use juicebox_hsm::exec::panic;
 use juicebox_hsm::future_task::FutureTasks;
 use juicebox_hsm::google_auth;
-use juicebox_hsm::logging;
 use juicebox_hsm::realm::store::bigtable;
-use juicebox_hsm::{metrics, metrics_tag as tag};
 use juicebox_sdk_marshalling::{self as marshalling, DeserializationError, SerializationError};
+use observability::{logging, metrics, metrics_tag as tag};
 
 /// A host agent for use with an Entrust nCipherXC HSM.
 #[derive(Parser)]

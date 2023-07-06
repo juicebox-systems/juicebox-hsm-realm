@@ -13,12 +13,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn, Level};
 
-use juicebox_hsm::logging;
-use juicebox_hsm::metrics_tag as tag;
+use juicebox_hsm::google_auth;
 use juicebox_hsm::secret_manager::{
     new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
 };
-use juicebox_hsm::{google_auth, metrics};
 use juicebox_sdk::{
     AuthToken, Configuration, Pin, PinHashingMode, Policy, RealmId, RecoverError, TokioSleeper,
     UserInfo, UserSecret,
@@ -26,6 +24,8 @@ use juicebox_sdk::{
 use juicebox_sdk_networking::reqwest;
 use juicebox_sdk_networking::rpc::LoadBalancerService;
 use juicebox_sdk_realm_auth::{creation::create_token, AuthKey, AuthKeyVersion, Claims};
+use observability::metrics_tag as tag;
+use observability::{logging, metrics};
 
 type Client = juicebox_sdk::Client<
     TokioSleeper,

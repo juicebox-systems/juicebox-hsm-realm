@@ -23,12 +23,12 @@ use tracing::{info, instrument, trace, warn, Span};
 use url::Url;
 
 use crate::google_auth::AuthMiddleware;
-use crate::metrics;
-use crate::metrics_tag as tag;
 use hsmcore::hsm::types::{DataHash, EntryMac, GroupId, LogEntry, LogIndex};
 use hsmcore::merkle::agent::StoreDelta;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
+use observability::metrics;
+use observability::metrics_tag as tag;
 
 pub mod discovery;
 mod merkle;

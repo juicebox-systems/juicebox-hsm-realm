@@ -22,9 +22,8 @@ use juicebox_hsm::clap_parsers::{parse_duration, parse_listen};
 use juicebox_hsm::exec::panic;
 use juicebox_hsm::future_task::FutureTasks;
 use juicebox_hsm::google_auth;
-use juicebox_hsm::logging;
-use juicebox_hsm::metrics;
 use juicebox_hsm::realm::store::bigtable;
+use observability::{logging, metrics};
 
 mod http_hsm;
 

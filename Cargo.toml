@@ -15,6 +15,7 @@ members = [
     "hsmcore",
     "load_balancer",
     "merkle_tree_docgen",
+    "observability",
     "software_agent",
 ]
 default-members = [
@@ -28,6 +29,7 @@ default-members = [
     "google",
     "hsmcore",
     "load_balancer",
+    "observability",
     "software_agent",
 ]
 # This allows the sdk packages to reference their workspace (for dependencies
@@ -162,12 +164,10 @@ ciborium = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
 digest = { workspace = true }
-dogstatsd = { workspace = true }
 futures = { workspace = true }
 google = { path = "google" }
 gcp_auth = { workspace = true }
 hashbrown = { workspace = true }
-hdrhistogram = { workspace = true }
 hex = { workspace = true }
 hsmcore = { workspace = true }
 http = { workspace = true }
@@ -182,11 +182,7 @@ juicebox-sdk-networking = { workspace = true }
 juicebox-sdk-process-group = { workspace = true }
 juicebox-sdk-realm-auth = { workspace = true }
 nix = { workspace = true }
-opentelemetry = { workspace = true }
-opentelemetry-http = { workspace = true }
-opentelemetry-otlp = { workspace = true }
-prost = { workspace = true }
-prost-types = { workspace = true }
+observability = { path = "observability" }
 rand = { workspace = true }
 reqwest = { workspace = true }
 secrecy = { workspace = true }

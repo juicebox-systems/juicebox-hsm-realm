@@ -22,6 +22,7 @@ juicebox-sdk = { workspace = true }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
 juicebox-sdk-realm-auth = { workspace = true }
+observability = { path = "../observability" }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

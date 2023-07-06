@@ -10,12 +10,11 @@ use tracing::{info, warn};
 
 use juicebox_hsm::exec::panic;
 use juicebox_hsm::google_auth;
-use juicebox_hsm::logging;
-use juicebox_hsm::metrics;
 use juicebox_hsm::realm::store::bigtable;
 use juicebox_hsm::secret_manager::{
     new_google_secret_manager, Periodic, SecretManager, SecretsFile,
 };
+use observability::{logging, metrics};
 
 mod cert;
 mod load_balancer;

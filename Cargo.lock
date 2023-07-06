@@ -42,6 +42,7 @@ dependencies = [
  "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
  "juicebox_hsm",
+ "observability",
  "opentelemetry",
  "opentelemetry-http",
  "reqwest",
@@ -538,6 +539,7 @@ dependencies = [
  "juicebox-sdk-process-group",
  "juicebox-sdk-realm-auth",
  "juicebox_hsm",
+ "observability",
  "reqwest",
  "serde_json",
  "tokio",
@@ -561,6 +563,7 @@ dependencies = [
  "juicebox-sdk-networking",
  "juicebox-sdk-realm-auth",
  "juicebox_hsm",
+ "observability",
  "reqwest",
  "serde_json",
  "thiserror",
@@ -585,6 +588,7 @@ dependencies = [
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
  "juicebox_hsm",
+ "observability",
  "opentelemetry",
  "opentelemetry-http",
  "tokio",
@@ -916,6 +920,7 @@ dependencies = [
  "hsmcore",
  "juicebox-sdk-marshalling",
  "juicebox_hsm",
+ "observability",
  "rand_core",
  "tokio",
  "tracing 0.2.0",
@@ -1748,13 +1753,11 @@ dependencies = [
  "criterion",
  "ctrlc",
  "digest",
- "dogstatsd",
  "expect-test",
  "futures",
  "gcp_auth",
  "google",
  "hashbrown 0.14.0",
- "hdrhistogram",
  "hex",
  "hex-literal",
  "hsmcore",
@@ -1770,12 +1773,8 @@ dependencies = [
  "juicebox-sdk-realm-auth",
  "libc",
  "nix",
+ "observability",
  "once_cell",
- "opentelemetry",
- "opentelemetry-http",
- "opentelemetry-otlp",
- "prost",
- "prost-types",
  "rand",
  "rand_chacha",
  "rand_core",
@@ -1842,6 +1841,7 @@ dependencies = [
  "juicebox-sdk-networking",
  "juicebox-sdk-realm-auth",
  "juicebox_hsm",
+ "observability",
  "opentelemetry",
  "opentelemetry-http",
  "rustls 0.20.8",
@@ -2018,6 +2018,18 @@ checksum = "0fac9e2da13b5eb447a6ce3d392f23a29d8694bff781bf03a16cd9ac8697593b"
 dependencies = [
  "hermit-abi 0.2.6",
  "libc",
+]
+
+[[package]]
+name = "observability"
+version = "0.1.0"
+dependencies = [
+ "dogstatsd",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "tracing 0.2.0",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -2821,6 +2833,7 @@ dependencies = [
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-marshalling",
  "juicebox_hsm",
+ "observability",
  "rand",
  "reqwest",
  "tokio",

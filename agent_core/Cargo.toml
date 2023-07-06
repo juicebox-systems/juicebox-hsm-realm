@@ -21,6 +21,7 @@ juicebox_hsm = { path = ".." }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
+observability = { path = "../observability" }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 reqwest = { workspace = true }

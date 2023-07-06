@@ -30,9 +30,6 @@ use agent_api::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResp
 use hsm_types::{GroupId, OwnedRange};
 use hsmcore::hsm::mac::DigestWriter;
 use hsmcore::hsm::types::{self as hsm_types, RecordId};
-use juicebox_hsm::logging::{Spew, TracingSource};
-use juicebox_hsm::metrics::{self, Tag};
-use juicebox_hsm::metrics_tag as tag;
 use juicebox_hsm::realm::store::bigtable::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
 use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
 use juicebox_hsm::secret_manager::{tenant_secret_name, SecretManager};
@@ -42,6 +39,9 @@ use juicebox_sdk_marshalling as marshalling;
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_networking::rpc;
 use juicebox_sdk_realm_auth::validation::Validator as AuthTokenValidator;
+use observability::logging::{Spew, TracingSource};
+use observability::metrics::{self, Tag};
+use observability::metrics_tag as tag;
 
 #[derive(Clone)]
 pub struct LoadBalancer(Arc<State>);

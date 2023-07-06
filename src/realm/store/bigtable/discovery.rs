@@ -14,7 +14,7 @@ use url::Url;
 use super::{
     mutate_rows, read_rows, BigtableClient, BigtableTableAdminClient, Instance, RowKey, ServiceKind,
 };
-use crate::logging::Spew;
+use observability::logging::Spew;
 
 /// Agents should register themselves with service discovery this often.
 pub const REGISTER_INTERVAL: Duration = Duration::from_secs(60 * 10);

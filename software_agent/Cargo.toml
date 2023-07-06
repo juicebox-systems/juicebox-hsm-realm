@@ -23,6 +23,7 @@ http-body-util = { workspace = true }
 hyper = { workspace = true }
 juicebox_hsm = { path = ".." }
 juicebox-sdk-marshalling = { workspace = true }
+observability = { path = "../observability" }
 rand = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
