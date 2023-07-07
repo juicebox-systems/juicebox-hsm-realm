@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "agent_api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "hsmcore",
@@ -26,7 +26,7 @@ dependencies = [
 
 [[package]]
 name = "agent_core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agent_api",
  "anyhow",
@@ -34,7 +34,6 @@ dependencies = [
  "bytes",
  "cluster_api",
  "cluster_core",
- "dogstatsd",
  "expect-test",
  "futures",
  "hdrhistogram",
@@ -45,7 +44,6 @@ dependencies = [
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
- "juicebox-sdk-process-group",
  "observability",
  "opentelemetry",
  "opentelemetry-http",
@@ -533,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "cluster_api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hsmcore",
  "juicebox-sdk",
@@ -543,7 +541,7 @@ dependencies = [
 
 [[package]]
 name = "cluster_bench"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap 4.3.0",
@@ -553,7 +551,6 @@ dependencies = [
  "hdrhistogram",
  "juicebox-sdk",
  "juicebox-sdk-networking",
- "juicebox-sdk-process-group",
  "juicebox-sdk-realm-auth",
  "observability",
  "reqwest",
@@ -565,7 +562,7 @@ dependencies = [
 
 [[package]]
 name = "cluster_cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agent_api",
  "anyhow",
@@ -594,12 +591,11 @@ dependencies = [
 
 [[package]]
 name = "cluster_core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agent_api",
  "futures",
  "hsmcore",
- "juicebox-sdk",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
  "serde",
@@ -613,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "cluster_manager"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "agent_api",
  "anyhow",
@@ -644,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "codegen"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "tonic-build",
 ]
@@ -952,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agent_core",
  "async-trait",
@@ -974,7 +970,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "juicebox-sdk-marshalling",
  "serde",
@@ -982,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_hsm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "entrust_api",
  "hsmcore",
@@ -993,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_init"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap 4.3.0",
@@ -1007,7 +1003,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_nfast"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex",
  "thiserror",
@@ -1230,7 +1226,7 @@ dependencies = [
 
 [[package]]
 name = "google"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "gcp_auth",
  "http",
@@ -1384,7 +1380,7 @@ dependencies = [
 
 [[package]]
 name = "hsmcore"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ahash 0.8.3",
  "async-recursion",
@@ -1815,7 +1811,7 @@ checksum = "d59d8c75012853d2e872fb56bc8a2e53718e2cafe1a4c823143141c6d90c322f"
 
 [[package]]
 name = "load_balancer"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "agent_api",
  "anyhow",
@@ -1893,7 +1889,7 @@ dependencies = [
 
 [[package]]
 name = "merkle_tree_docgen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap 4.3.0",
  "hsmcore",
@@ -2018,7 +2014,7 @@ dependencies = [
 
 [[package]]
 name = "observability"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dogstatsd",
  "opentelemetry",
@@ -2662,7 +2658,7 @@ dependencies = [
 
 [[package]]
 name = "secret_manager"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2754,7 +2750,7 @@ dependencies = [
 
 [[package]]
 name = "service_core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytes",
  "futures",
@@ -2843,7 +2839,7 @@ dependencies = [
 
 [[package]]
 name = "software_agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agent_core",
  "anyhow",
@@ -2894,7 +2890,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agent_api",
  "agent_core",
@@ -2994,7 +2990,7 @@ dependencies = [
 
 [[package]]
 name = "testing"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agent_api",
  "agent_core",

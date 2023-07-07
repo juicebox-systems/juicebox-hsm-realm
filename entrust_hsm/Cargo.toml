@@ -1,13 +1,13 @@
 [package]
 name = "entrust_hsm"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-entrust_api = { path = "../entrust_api" }
-hsmcore = { path = "../hsmcore" }
+entrust_api = { workspace = true }
+hsmcore = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
 rand_core = { workspace = true }
 x25519-dalek = { workspace = true }

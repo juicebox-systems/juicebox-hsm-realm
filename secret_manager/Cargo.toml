@@ -1,6 +1,6 @@
 [package]
 name = "secret_manager"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -10,7 +10,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 gcp_auth = { workspace = true }
-google = { path = "../google" }
+google = { workspace = true }
 http = { workspace = true }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-realm-auth = { workspace = true }

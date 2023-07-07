@@ -1,4 +1,5 @@
 [workspace]
+
 members = [
     "agent_api",
     "agent_core",
@@ -24,6 +25,7 @@ members = [
     "store",
     "testing",
 ]
+
 default-members = [
     "agent_api",
     "agent_core",
@@ -43,16 +45,11 @@ default-members = [
     "store",
     "testing",
 ]
+
 # This allows the sdk packages to reference their workspace (for dependencies
 # and such), rather than this one.
 exclude = ["sdk"]
 resolver = "2"
-
-#[package]
-##name = "juicebox_hsm"
-#version = "0.0.0"
-#edition = "2021"
-
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
@@ -78,6 +75,8 @@ criterion = "0.4.0"
 ctrlc = "3.2.5"
 digest = "0.10.6"
 dogstatsd = "0.8.1"
+entrust_api = { path = "entrust_api" }
+entrust_nfast = { path = "entrust_nfast" }
 expect-test = "1.4.1"
 futures = "0.3.25"
 gcp_auth = "0.8.0"
@@ -172,15 +171,3 @@ secrecy = { git = "ssh://git@github.com/juicebox-systems/secrecy.git", branch = 
 tracing = { git = "https://github.com/tokio-rs/tracing" }
 tracing-opentelemetry = { git = "https://github.com/tokio-rs/tracing" }
 tracing-subscriber = { git = "https://github.com/tokio-rs/tracing" }
-
-
-#[lib]
-#doctest = false
-
-#[[bench]]
-#name = "voprf_benchmark"
-#harness = false
-
-#[[bench]]
-#name = "sharks_benchmark"
-#harness = false
