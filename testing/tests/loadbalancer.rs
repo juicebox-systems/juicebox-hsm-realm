@@ -4,11 +4,11 @@ use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use juicebox_hsm::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
-use juicebox_hsm::exec::hsm_gen::{Entrust, MetricsParticipants};
-use juicebox_hsm::exec::PortIssuer;
 use juicebox_sdk_networking::rpc::Rpc;
 use juicebox_sdk_process_group::ProcessGroup;
+use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
+use testing::exec::hsm_gen::{Entrust, MetricsParticipants};
+use testing::exec::PortIssuer;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8444));
@@ -36,8 +36,9 @@ async fn request_bodysize_check() {
             state_dir: None,
         }],
         bigtable: bt_args,
-        secrets_file: Some(PathBuf::from("secrets-demo.json")),
+        secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
+        path_to_target: PathBuf::from(".."),
     };
 
     let cluster = create_cluster(cluster_args, &mut processes, PORT.clone())

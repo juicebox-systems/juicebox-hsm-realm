@@ -27,5 +27,4 @@ once_cell = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }
 reqwest = { workspace = true }
 juicebox-sdk-process-group = { workspace = true }
-juicebox_hsm = { path = ".." }
 agent_core = { path = "../agent_core" }

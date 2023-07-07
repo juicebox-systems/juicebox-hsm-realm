@@ -1,11 +1,11 @@
 use ::reqwest::{Certificate, Url};
 use futures::future::join_all;
 use std::collections::HashMap;
-use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
+use std::{env, fs};
 use tokio::time::sleep;
 use tracing::{debug, info};
 
@@ -38,6 +38,8 @@ pub struct ClusterConfig {
     pub bigtable: store::Args,
     pub secrets_file: Option<PathBuf>,
     pub entrust: Entrust,
+    // relative path from $PWD to the directory containing the target directory.
+    pub path_to_target: PathBuf,
 }
 
 #[derive(Debug)]
@@ -202,12 +204,25 @@ pub async fn create_cluster(
         .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 
     let (lb_urls, certificates) = create_load_balancers(&args, process_group, &ports);
-    let cluster_manager = start_cluster_manager(&args.bigtable, process_group, &ports);
+    let cluster_manager = start_cluster_manager(
+        &args.bigtable,
+        args.path_to_target.clone(),
+        process_group,
+        &ports,
+    );
 
     let mut realms = Vec::with_capacity(args.realms.len());
     let mut hsm_gen = HsmGenerator::new(args.entrust, ports);
     for realm in &args.realms {
-        let res = create_realm(&mut hsm_gen, process_group, realm, &args.bigtable, &store).await;
+        let res = create_realm(
+            &mut hsm_gen,
+            process_group,
+            realm,
+            &args.bigtable,
+            args.path_to_target.clone(),
+            &store,
+        )
+        .await;
         realms.push(res);
     }
 
@@ -228,7 +243,8 @@ fn create_load_balancers(
     process_group: &mut ProcessGroup,
     port: &PortIssuer,
 ) -> (Vec<Url>, Certificates) {
-    let certificates = create_localhost_key_and_cert("target".into())
+    println!("{:?}", env::current_dir());
+    let certificates = create_localhost_key_and_cert(args.path_to_target.join("target"))
         .expect("Failed to create TLS key/cert for load balancer");
 
     info!("creating load balancer(s)");
@@ -236,14 +252,16 @@ fn create_load_balancers(
         .map(|_| {
             let p = port.next();
             let address = SocketAddr::from(([127, 0, 0, 1], p));
-            let mut cmd = Command::new(format!(
-                "target/{}/load_balancer",
-                if cfg!(debug_assertions) {
-                    "debug"
-                } else {
-                    "release"
-                }
-            ));
+            let mut cmd = Command::new(
+                args.path_to_target
+                    .join("target")
+                    .join(if cfg!(debug_assertions) {
+                        "debug"
+                    } else {
+                        "release"
+                    })
+                    .join("load_balancer"),
+            );
             cmd.arg("--tls-cert")
                 .arg(certificates.cert_file_pem.clone())
                 .arg("--tls-key")
@@ -264,19 +282,22 @@ fn create_load_balancers(
 
 fn start_cluster_manager(
     args: &store::Args,
+    path_to_target: PathBuf,
     process_group: &mut ProcessGroup,
     ports: &PortIssuer,
 ) -> Url {
     let port = ports.next();
     let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let mut cmd = Command::new(format!(
-        "target/{}/cluster_manager",
-        if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        }
-    ));
+    let mut cmd = Command::new(
+        path_to_target
+            .join("target")
+            .join(if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            })
+            .join("cluster_manager"),
+    );
     cmd.arg("--listen").arg(address.to_string());
     args.add_to_cmd(&mut cmd);
     process_group.spawn(&mut cmd);
@@ -288,6 +309,7 @@ async fn create_realm(
     process_group: &mut ProcessGroup,
     r: &RealmConfig,
     bigtable: &store::Args,
+    path_to_target: PathBuf,
     store: &StoreClient,
 ) -> RealmResult {
     assert_ne!(r.hsms, 0);
@@ -297,6 +319,7 @@ async fn create_realm(
             r.hsms.into(),
             r.metrics,
             process_group,
+            path_to_target,
             bigtable,
             r.state_dir.clone(),
         )

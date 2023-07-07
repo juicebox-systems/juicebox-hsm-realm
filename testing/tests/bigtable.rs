@@ -9,11 +9,11 @@ use hsmcore::hsm::types::{EntryMac, GroupId, LogEntry, LogIndex, OwnedRange, Rec
 use hsmcore::hsm::MerkleHasher;
 use hsmcore::merkle::agent::{StoreDelta, StoreKey};
 use hsmcore::merkle::Tree;
-use juicebox_hsm::exec::{bigtable::BigtableRunner, PortIssuer};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_process_group::ProcessGroup;
 use observability::metrics;
 use store::{self, AppendError::LogPrecondition, ServiceKind, StoreAdminClient, StoreClient};
+use testing::exec::{bigtable::BigtableRunner, PortIssuer};
 
 const REALM: RealmId = RealmId([200; 16]);
 const GROUP_1: GroupId = GroupId([1; 16]);

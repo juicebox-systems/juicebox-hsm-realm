@@ -60,6 +60,7 @@ impl HsmGenerator {
         mut count: usize,
         metrics: MetricsParticipants,
         process_group: &mut ProcessGroup,
+        path_to_target: PathBuf,
         bigtable: &store::Args,
         hsm_dir: Option<PathBuf>,
     ) -> (Vec<Url>, PublicKey) {
@@ -76,7 +77,7 @@ impl HsmGenerator {
             let agent_port = self.port.next();
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
-            let mut cmd = Command::new(format!("target/{mode}/entrust_agent"));
+            let mut cmd = Command::new(path_to_target.join(mode).join("entrust_agent"));
             if metrics.report_metrics(next_is_leader) {
                 cmd.arg("--metrics").arg("1000");
             };
@@ -98,7 +99,12 @@ impl HsmGenerator {
             let agent_port = self.port.next();
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
-            let mut cmd = Command::new(format!("target/{mode}/software_agent"));
+            let mut cmd = Command::new(
+                path_to_target
+                    .join("target")
+                    .join(mode)
+                    .join("software_agent"),
+            );
             cmd.arg("--key")
                 .arg(&self.secret)
                 .arg("--listen")

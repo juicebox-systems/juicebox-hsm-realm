@@ -12,7 +12,6 @@ dogstatsd = { workspace = true }
 futures = { workspace = true }
 hdrhistogram = { workspace = true }
 google = { path = "../google" }
-juicebox_hsm = { path = ".." }
 juicebox-sdk = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
 juicebox-sdk-process-group = { workspace = true }

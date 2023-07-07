@@ -22,9 +22,9 @@ members = [
     "service_core",
     "software_agent",
     "store",
+    "testing",
 ]
 default-members = [
-    ".",
     "agent_api",
     "agent_core",
     "cluster_api",
@@ -41,20 +41,23 @@ default-members = [
     "service_core",
     "software_agent",
     "store",
+    "testing",
 ]
 # This allows the sdk packages to reference their workspace (for dependencies
 # and such), rather than this one.
 exclude = ["sdk"]
 resolver = "2"
 
-[package]
-name = "juicebox_hsm"
-version = "0.0.0"
-edition = "2021"
+#[package]
+##name = "juicebox_hsm"
+#version = "0.0.0"
+#edition = "2021"
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
+agent_api = { path = "agent_api" }
+agent_core = { path = "agent_core" }
 ahash = { version = "0.8.3", default-features = false }
 anyhow = "1.0.70"
 async-recursion = "1.0.2"
@@ -69,6 +72,8 @@ ciborium = { version = "0.2.0", default-features = false }
 ciborium-io = { version = "0.2.0", default-features = false }
 clap = { version = "4.3.0", features = ["derive"] }
 cli-table = { version = "0.4.7", default-features = false }
+cluster_api = { path = "cluster_api" }
+cluster_core = { path = "cluster_core" }
 criterion = "0.4.0"
 ctrlc = "3.2.5"
 digest = "0.10.6"
@@ -77,6 +82,7 @@ expect-test = "1.4.1"
 futures = "0.3.25"
 gcp_auth = "0.8.0"
 generic-array = { version = "0.14.7", features = ["serde", "zeroize"] }
+google = { path = "google" }
 hashbrown = { version = "0.14.0", default-features = false, features = [
     "inline-more",
     "serde",
@@ -104,6 +110,7 @@ juicebox-sdk-noise = { path = "sdk/rust/sdk/noise" }
 juicebox-sdk-process-group = { path = "sdk/rust/sdk/process_group" }
 juicebox-sdk-realm-auth = { path = "sdk/rust/sdk/realm_auth" }
 nix = { version = "0.26.2", default-features = false, features = ["signal"] }
+observability = { path = "observability" }
 once_cell = "1.17.1"
 opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
 opentelemetry-http = "0.7.0"
@@ -133,6 +140,7 @@ spin = { version = "0.9.8", default-features = false, features = [
     "mutex",
     "spin_mutex",
 ] }
+store = { path = "store" }
 subtle = { version = "2.4.1", default-features = false }
 tempfile = "3.5.0"
 thiserror = "1.0.40"
@@ -166,73 +174,13 @@ tracing-opentelemetry = { git = "https://github.com/tokio-rs/tracing" }
 tracing-subscriber = { git = "https://github.com/tokio-rs/tracing" }
 
 
-[dependencies]
-agent_api = { path = "agent_api" }
-anyhow = { workspace = true }
-async-trait = { workspace = true }
-blake2 = { workspace = true }
-bytes = { workspace = true }
-ciborium = { workspace = true }
-clap = { workspace = true }
-cluster_core = { path = "cluster_core" }
-ctrlc = { workspace = true, features = ["termination"] }
-digest = { workspace = true }
-futures = { workspace = true }
-google = { path = "google" }
-gcp_auth = { workspace = true }
-hashbrown = { workspace = true }
-hex = { workspace = true }
-hsmcore = { workspace = true }
-http = { workspace = true }
-http-body-util = { workspace = true }
-hyper = { workspace = true }
-jsonwebtoken = { workspace = true }
-libc = { workspace = true }
-juicebox-sdk = { workspace = true }
-juicebox-sdk-core = { workspace = true }
-juicebox-sdk-marshalling = { workspace = true }
-juicebox-sdk-networking = { workspace = true }
-juicebox-sdk-process-group = { workspace = true }
-juicebox-sdk-realm-auth = { workspace = true }
-nix = { workspace = true }
-observability = { path = "observability" }
-rand = { workspace = true }
-reqwest = { workspace = true }
-secrecy = { workspace = true }
-secret_manager = { path = "secret_manager" }
-serde = { workspace = true }
-serde_json = { workspace = true }
-store = { path = "store" }
-thiserror = { workspace = true }
-tokio = { workspace = true }
-tonic = { workspace = true }
-tower = { workspace = true }
-tracing = { workspace = true }
-tracing-opentelemetry = { workspace = true }
-tracing-subscriber = { workspace = true }
-url = { workspace = true }
-voprf = { workspace = true }
+#[lib]
+#doctest = false
 
-[dev-dependencies]
-async-recursion = { workspace = true }
-cluster_api = { path = "cluster_api" }
-criterion = { workspace = true }
-expect-test = { workspace = true }
-hex-literal = { workspace = true }
-once_cell = { workspace = true }
-rand_core = { workspace = true, features = ["getrandom"] }
-rand_chacha = { workspace = true }
-sharks = { workspace = true }
-tempfile = { workspace = true }
-tokio = { workspace = true, features = ["test-util"] }
+#[[bench]]
+#name = "voprf_benchmark"
+#harness = false
 
-[lib]
-doctest = false
-
-[[bench]]
-name = "voprf_benchmark"
-harness = false
-
-[[bench]]
-name = "sharks_benchmark"
-harness = false
+#[[bench]]
+#name = "sharks_benchmark"
+#harness = false

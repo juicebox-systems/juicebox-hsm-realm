@@ -12,15 +12,15 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use hsmcore::hsm::types::{OwnedRange, RecordId};
-use juicebox_hsm::exec::bigtable::BigtableRunner;
-use juicebox_hsm::exec::certs::create_localhost_key_and_cert;
-use juicebox_hsm::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 use juicebox_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_process_group::ProcessGroup;
 use juicebox_sdk_realm_auth::{creation::create_token, Claims};
 use observability::{logging, metrics};
 use secret_manager::{tenant_secret_name, BulkLoad, SecretManager, SecretsFile};
+use testing::exec::bigtable::BigtableRunner;
+use testing::exec::certs::create_localhost_key_and_cert;
+use testing::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
 
 #[derive(Parser)]
 #[command(
@@ -130,6 +130,7 @@ async fn main() {
             1,
             MetricsParticipants::None,
             &mut process_group,
+            PathBuf::new(),
             &bt_args,
             None,
         )
@@ -145,6 +146,7 @@ async fn main() {
             5,
             MetricsParticipants::None,
             &mut process_group,
+            PathBuf::new(),
             &bt_args,
             None,
         )
@@ -154,6 +156,7 @@ async fn main() {
             4,
             MetricsParticipants::None,
             &mut process_group,
+            PathBuf::new(),
             &bt_args,
             None,
         )
@@ -260,6 +263,7 @@ async fn main() {
                     1,
                     MetricsParticipants::None,
                     &mut process_group,
+                    PathBuf::new(),
                     &bigtable,
                     None,
                 )

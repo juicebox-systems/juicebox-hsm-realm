@@ -3,13 +3,13 @@ use std::{path::PathBuf, sync::mpsc::channel};
 use tokio::task::JoinSet;
 
 use cluster_api::StepDownRequest;
-use juicebox_hsm::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
-use juicebox_hsm::exec::hsm_gen::{Entrust, MetricsParticipants};
-use juicebox_hsm::exec::PortIssuer;
 use juicebox_sdk::Policy;
 use juicebox_sdk_networking::reqwest::{self, ClientOptions};
 use juicebox_sdk_networking::rpc;
 use juicebox_sdk_process_group::ProcessGroup;
+use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
+use testing::exec::hsm_gen::{Entrust, MetricsParticipants};
+use testing::exec::PortIssuer;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8333));
@@ -42,8 +42,9 @@ async fn leader_handover() {
             state_dir: None,
         }],
         bigtable: bt_args,
-        secrets_file: Some(PathBuf::from("secrets-demo.json")),
+        secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
+        path_to_target: PathBuf::from(".."),
     };
 
     let cluster = create_cluster(cluster_args, &mut processes, 3000)
