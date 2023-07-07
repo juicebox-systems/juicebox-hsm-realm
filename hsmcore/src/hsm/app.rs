@@ -16,8 +16,9 @@ use juicebox_sdk_core::{
         SecretsResponse,
     },
     types::{
-        MaskedUnlockKeyShare, OprfBlindedResult, OprfSeed, OprfServer, Policy, RegistrationVersion,
-        SaltShare, UnlockTag, UserSecretShare, OPRF_KEY_INFO,
+        EncryptedUserSecret, EncryptedUserSecretCommitment, MaskedUnlockKeyScalarShare,
+        OprfBlindedResult, OprfSeed, OprfServer, Policy, RegistrationVersion, UnlockKeyCommitment,
+        UnlockKeyTag, UserSecretEncryptionKeyScalarShare, OPRF_KEY_INFO,
     },
 };
 use juicebox_sdk_marshalling as marshalling;
@@ -47,14 +48,16 @@ enum RegistrationState {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct RegisteredState {
-    oprf_seed: OprfSeed,
     version: RegistrationVersion,
-    salt_share: SaltShare,
+    oprf_seed: OprfSeed,
+    masked_unlock_key_scalar_share: MaskedUnlockKeyScalarShare,
+    unlock_key_commitment: UnlockKeyCommitment,
+    unlock_key_tag: UnlockKeyTag,
+    user_secret_encryption_key_scalar_share: UserSecretEncryptionKeyScalarShare,
+    encrypted_user_secret: EncryptedUserSecret,
+    encrypted_user_secret_commitment: EncryptedUserSecretCommitment,
     guess_count: u16,
     policy: Policy,
-    masked_unlock_key_share: MaskedUnlockKeyShare,
-    tag: UnlockTag,
-    secret_share: UserSecretShare,
 }
 
 fn register1(ctx: &AppContext, record_id: &RecordId) -> Register1Response {
@@ -71,14 +74,16 @@ fn register2(
     trace!(hsm = ctx.hsm_name, ?record_id, "register2 request",);
 
     user_record.registration_state = RegistrationState::Registered(Box::new(RegisteredState {
-        oprf_seed: request.oprf_seed,
         version: request.version,
-        salt_share: request.salt_share,
+        oprf_seed: request.oprf_seed,
+        masked_unlock_key_scalar_share: request.masked_unlock_key_scalar_share,
+        unlock_key_commitment: request.unlock_key_commitment,
+        unlock_key_tag: request.unlock_key_tag,
+        user_secret_encryption_key_scalar_share: request.user_secret_encryption_key_scalar_share,
+        encrypted_user_secret: request.encrypted_user_secret,
+        encrypted_user_secret_commitment: request.encrypted_user_secret_commitment,
         guess_count: 0,
         policy: request.policy,
-        masked_unlock_key_share: request.masked_unlock_key_share,
-        tag: request.tag,
-        secret_share: request.secret_share,
     }));
 
     (Register2Response::Ok, Some(user_record))
@@ -110,7 +115,6 @@ fn recover1(
         RegistrationState::Registered(state) => (
             Recover1Response::Ok {
                 version: state.version.clone(),
-                salt_share: state.salt_share.clone(),
             },
             Some(user_record),
         ),
@@ -137,7 +141,9 @@ fn recover2(
 ) -> (Recover2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
-    let (oprf_seed, masked_unlock_key_share) = match &mut user_record.registration_state {
+    let (oprf_seed, masked_unlock_key_scalar_share, unlock_key_commitment) = match &mut user_record
+        .registration_state
+    {
         RegistrationState::Registered(state) if state.version != request.version => {
             trace!(
                 hsm = ctx.hsm_name,
@@ -159,7 +165,8 @@ fn recover2(
             state.guess_count += 1;
             (
                 state.oprf_seed.clone(),
-                state.masked_unlock_key_share.clone(),
+                state.masked_unlock_key_scalar_share.clone(),
+                state.unlock_key_commitment.clone(),
             )
         }
         RegistrationState::NoGuesses => {
@@ -178,15 +185,16 @@ fn recover2(
 
     let server = OprfServer::new_from_seed(oprf_seed.expose_secret(), OPRF_KEY_INFO)
         .expect("error constructing OprfServer");
-    let blinded_oprf_result: OprfBlindedResult = server
-        .blind_evaluate(&request.blinded_oprf_input.expose_secret())
+    let oprf_blinded_result: OprfBlindedResult = server
+        .blind_evaluate(&request.oprf_blinded_input.expose_secret())
         .into();
 
     trace!(?record_id, "recover2 completed");
     (
         Recover2Response::Ok {
-            blinded_oprf_result,
-            masked_unlock_key_share,
+            oprf_blinded_result,
+            masked_unlock_key_scalar_share,
+            unlock_key_commitment,
         },
         Some(user_record),
     )
@@ -217,7 +225,9 @@ fn recover3(
             );
             (Recover3Response::VersionMismatch, Some(user_record))
         }
-        RegistrationState::Registered(state) if !bool::from(request.tag.ct_eq(&state.tag)) => {
+        RegistrationState::Registered(state)
+            if !bool::from(request.unlock_key_tag.ct_eq(&state.unlock_key_tag)) =>
+        {
             trace!(
                 hsm = ctx.hsm_name,
                 ?record_id,
@@ -230,7 +240,7 @@ fn recover3(
             }
 
             (
-                Recover3Response::BadUnlockTag { guesses_remaining },
+                Recover3Response::BadUnlockKeyTag { guesses_remaining },
                 Some(user_record),
             )
         }
@@ -247,7 +257,13 @@ fn recover3(
             );
             (
                 Recover3Response::Ok {
-                    secret_share: state.secret_share.clone(),
+                    encrypted_user_secret: state.encrypted_user_secret.clone(),
+                    user_secret_encryption_key_scalar_share: state
+                        .user_secret_encryption_key_scalar_share
+                        .clone(),
+                    encrypted_user_secret_commitment: state
+                        .encrypted_user_secret_commitment
+                        .clone(),
                 },
                 Some(user_record),
             )
@@ -320,7 +336,7 @@ pub fn process(
 // that side channel. There's no need to pad NotRegistered, as the only way that
 // gets written is with the delete call. This size includes the bytes needed to
 // store the size in the trailer.
-const SERIALIZED_RECORD_SIZE: usize = 448;
+const SERIALIZED_RECORD_SIZE: usize = 590;
 const TRAILER_LEN: usize = u32::BITS as usize / 8;
 
 fn marshal_user_record(u: &UserRecord) -> Result<Vec<u8>, SerializationError> {
@@ -376,8 +392,9 @@ mod test {
             Recover3Response, Register1Response, Register2Request, Register2Response,
         },
         types::{
-            MaskedUnlockKeyShare, OprfBlindedInput, OprfBlindedResult, OprfSeed, Policy,
-            RegistrationVersion, SaltShare, UnlockTag, UserSecretShare,
+            EncryptedUserSecret, EncryptedUserSecretCommitment, MaskedUnlockKeyScalarShare,
+            OprfBlindedInput, OprfBlindedResult, OprfSeed, Policy, RegistrationVersion,
+            UnlockKeyCommitment, UnlockKeyTag, UserSecretEncryptionKeyScalarShare,
         },
     };
 
@@ -431,12 +448,12 @@ mod test {
             unmarshal_user_record(&[]).unwrap_err().to_string()
         );
         let mut big: Vec<u8> = vec![0u8; SERIALIZED_RECORD_SIZE + 1];
-        assert_eq!("Deserialization error: user record data is too large. got 449 bytes, but should be no more than 448", unmarshal_user_record(&big).unwrap_err().to_string());
+        assert_eq!("Deserialization error: user record data is too large. got 591 bytes, but should be no more than 590", unmarshal_user_record(&big).unwrap_err().to_string());
 
         big[SERIALIZED_RECORD_SIZE - 4..SERIALIZED_RECORD_SIZE]
             .copy_from_slice(&((SERIALIZED_RECORD_SIZE + 1) as u32).to_be_bytes());
         assert_eq!(
-            "Deserialization error: embedded length of 449 can't be larger than the 444 bytes present",
+            "Deserialization error: embedded length of 591 can't be larger than the 586 bytes present",
             unmarshal_user_record(&big[..SERIALIZED_RECORD_SIZE])
                 .unwrap_err()
                 .to_string()
@@ -453,11 +470,13 @@ mod test {
     fn test_register2() {
         let request = Register2Request {
             version: version(),
-            salt_share: salt_share(),
             oprf_seed: oprf_seed(),
-            tag: unlock_tag(),
-            masked_unlock_key_share: masked_unlock_key_share(),
-            secret_share: user_secret_share(),
+            masked_unlock_key_scalar_share: masked_unlock_key_scalar_share(),
+            unlock_key_commitment: unlock_key_commitment(),
+            unlock_key_tag: unlock_key_tag(),
+            user_secret_encryption_key_scalar_share: user_secret_encryption_key_scalar_share(),
+            encrypted_user_secret: encrypted_user_secret(),
+            encrypted_user_secret_commitment: encrypted_user_secret_commitment(),
             policy: policy(),
         };
         let user_record_in = UserRecord::new();
@@ -480,13 +499,7 @@ mod test {
             &RecordId([0; 32]),
             user_record_in.clone(),
         );
-        assert_eq!(
-            response,
-            Recover1Response::Ok {
-                version: version(),
-                salt_share: salt_share()
-            }
-        );
+        assert_eq!(response, Recover1Response::Ok { version: version() });
         assert_eq!(Some(user_record_in), user_record_out);
     }
 
@@ -522,7 +535,7 @@ mod test {
     fn test_recover2_registered() {
         let request = Recover2Request {
             version: version(),
-            blinded_oprf_input: oprf_blinded_input(),
+            oprf_blinded_input: oprf_blinded_input(),
         };
         let user_record_in = registered_record(0);
         let expected_user_record_out = registered_record(1);
@@ -535,8 +548,9 @@ mod test {
         assert_eq!(
             response,
             Recover2Response::Ok {
-                blinded_oprf_result: oprf_blinded_result(),
-                masked_unlock_key_share: masked_unlock_key_share()
+                oprf_blinded_result: oprf_blinded_result(),
+                masked_unlock_key_scalar_share: masked_unlock_key_scalar_share(),
+                unlock_key_commitment: unlock_key_commitment(),
             }
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
@@ -546,7 +560,7 @@ mod test {
     fn test_recover2_wrong_version() {
         let request = Recover2Request {
             version: RegistrationVersion::from([1; 16]),
-            blinded_oprf_input: oprf_blinded_input(),
+            oprf_blinded_input: oprf_blinded_input(),
         };
         let user_record_in = registered_record(0);
         let (response, user_record_out) = recover2(
@@ -563,7 +577,7 @@ mod test {
     fn test_recover2_no_guesses() {
         let request = Recover2Request {
             version: version(),
-            blinded_oprf_input: oprf_blinded_input(),
+            oprf_blinded_input: oprf_blinded_input(),
         };
         let user_record_in = UserRecord {
             registration_state: RegistrationState::NoGuesses,
@@ -582,7 +596,7 @@ mod test {
     fn test_recover2_not_registered() {
         let request = Recover2Request {
             version: version(),
-            blinded_oprf_input: oprf_blinded_input(),
+            oprf_blinded_input: oprf_blinded_input(),
         };
         let user_record_in = UserRecord {
             registration_state: RegistrationState::NotRegistered,
@@ -601,7 +615,7 @@ mod test {
     fn test_recover3_correct_unlock_tag() {
         let request = Recover3Request {
             version: version(),
-            tag: unlock_tag(),
+            unlock_key_tag: unlock_key_tag(),
         };
         let user_record_in = registered_record(1);
         let expected_user_record_out = registered_record(0);
@@ -614,7 +628,9 @@ mod test {
         assert_eq!(
             response,
             Recover3Response::Ok {
-                secret_share: user_secret_share()
+                encrypted_user_secret: encrypted_user_secret(),
+                encrypted_user_secret_commitment: encrypted_user_secret_commitment(),
+                user_secret_encryption_key_scalar_share: user_secret_encryption_key_scalar_share(),
             }
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
@@ -624,7 +640,7 @@ mod test {
     fn test_recover3_wrong_version() {
         let request = Recover3Request {
             version: RegistrationVersion::from([1; 16]),
-            tag: unlock_tag(),
+            unlock_key_tag: unlock_key_tag(),
         };
         let user_record_in = registered_record(0);
         let (response, user_record_out) = recover3(
@@ -641,7 +657,7 @@ mod test {
     fn test_recover3_wrong_unlock_tag_guesses_remaining() {
         let request = Recover3Request {
             version: version(),
-            tag: UnlockTag::from([5; 32]),
+            unlock_key_tag: UnlockKeyTag::from([5; 16]),
         };
         let user_record_in = registered_record(1);
         let (response, user_record_out) = recover3(
@@ -652,7 +668,7 @@ mod test {
         );
         assert_eq!(
             response,
-            Recover3Response::BadUnlockTag {
+            Recover3Response::BadUnlockKeyTag {
                 guesses_remaining: 1
             }
         );
@@ -663,7 +679,7 @@ mod test {
     fn test_recover3_wrong_unlock_tag_no_guesses_remaining() {
         let request = Recover3Request {
             version: version(),
-            tag: UnlockTag::from([5; 32]),
+            unlock_key_tag: UnlockKeyTag::from([5; 16]),
         };
         let user_record_in = registered_record(2);
         let expected_user_record_out = UserRecord {
@@ -677,7 +693,7 @@ mod test {
         );
         assert_eq!(
             response,
-            Recover3Response::BadUnlockTag {
+            Recover3Response::BadUnlockKeyTag {
                 guesses_remaining: 0
             }
         );
@@ -688,7 +704,7 @@ mod test {
     fn test_recover3_no_guesses() {
         let request = Recover3Request {
             version: version(),
-            tag: unlock_tag(),
+            unlock_key_tag: unlock_key_tag(),
         };
         let user_record_in = UserRecord {
             registration_state: RegistrationState::NoGuesses,
@@ -707,7 +723,7 @@ mod test {
     fn test_recover3_not_registered() {
         let request = Recover3Request {
             version: version(),
-            tag: unlock_tag(),
+            unlock_key_tag: unlock_key_tag(),
         };
         let user_record_in = UserRecord {
             registration_state: RegistrationState::NotRegistered,
@@ -740,16 +756,22 @@ mod test {
     fn registered_record(guess_count: u16) -> UserRecord {
         UserRecord {
             registration_state: RegistrationState::Registered(Box::new(RegisteredState {
-                oprf_seed: oprf_seed(),
                 version: version(),
-                salt_share: salt_share(),
+                oprf_seed: oprf_seed(),
+                masked_unlock_key_scalar_share: masked_unlock_key_scalar_share(),
+                unlock_key_commitment: unlock_key_commitment(),
+                unlock_key_tag: unlock_key_tag(),
+                user_secret_encryption_key_scalar_share: user_secret_encryption_key_scalar_share(),
+                encrypted_user_secret: encrypted_user_secret(),
+                encrypted_user_secret_commitment: encrypted_user_secret_commitment(),
                 guess_count,
                 policy: policy(),
-                masked_unlock_key_share: masked_unlock_key_share(),
-                tag: unlock_tag(),
-                secret_share: user_secret_share(),
             })),
         }
+    }
+
+    fn version() -> RegistrationVersion {
+        RegistrationVersion::from([0; 16])
     }
 
     fn oprf_seed() -> OprfSeed {
@@ -772,24 +794,28 @@ mod test {
         ])
     }
 
-    fn version() -> RegistrationVersion {
-        RegistrationVersion::from([0; 16])
+    fn masked_unlock_key_scalar_share() -> MaskedUnlockKeyScalarShare {
+        MaskedUnlockKeyScalarShare::from([1; 32])
     }
 
-    fn salt_share() -> SaltShare {
-        SaltShare::from([1; 16])
+    fn unlock_key_commitment() -> UnlockKeyCommitment {
+        UnlockKeyCommitment::from([2; 32])
     }
 
-    fn masked_unlock_key_share() -> MaskedUnlockKeyShare {
-        MaskedUnlockKeyShare::try_from(vec![1; 32]).unwrap()
+    fn unlock_key_tag() -> UnlockKeyTag {
+        UnlockKeyTag::from([3; 16])
     }
 
-    fn unlock_tag() -> UnlockTag {
-        UnlockTag::from([3; 32])
+    fn user_secret_encryption_key_scalar_share() -> UserSecretEncryptionKeyScalarShare {
+        UserSecretEncryptionKeyScalarShare::from([4; 32])
     }
 
-    fn user_secret_share() -> UserSecretShare {
-        UserSecretShare::try_from(vec![1; 145]).unwrap()
+    fn encrypted_user_secret() -> EncryptedUserSecret {
+        EncryptedUserSecret::from([5; 145])
+    }
+
+    fn encrypted_user_secret_commitment() -> EncryptedUserSecretCommitment {
+        EncryptedUserSecretCommitment::from([6; 16])
     }
 
     fn policy() -> Policy {
