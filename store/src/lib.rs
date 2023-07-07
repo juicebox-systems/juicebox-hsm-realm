@@ -30,6 +30,7 @@ use juicebox_sdk_marshalling as marshalling;
 use observability::metrics;
 use observability::metrics_tag as tag;
 
+mod base128;
 pub mod discovery;
 mod merkle;
 mod mutate;

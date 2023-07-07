@@ -12,7 +12,6 @@ use super::hsm::types::{OwnedRange, RecordId};
 use bitvec::{BitSlice, BitVec, Bits};
 
 pub mod agent;
-mod base128;
 #[cfg(feature = "dot")]
 pub mod dot;
 mod insert;
@@ -351,21 +350,17 @@ impl<'a, H: NodeHasher> NodeHashBuilder<'a, H> {
 
 #[cfg(test)]
 mod tests {
-    use async_recursion::async_recursion;
 
-    use super::agent::{Node, StoreKey, TreeStoreError};
-    use super::dot::TreeStoreReader;
+    use super::agent::{Node, TreeStoreError};
     use super::testing::{
-        check_tree_invariants, new_empty_tree, read, rec_id, TestHash, TestHasher,
+        check_tree_invariants, new_empty_tree, rec_id, MemStore, TestHash, TestHasher,
     };
     use super::{BitVec, Branch, HashOutput, InteriorNode, KeyVec, LeafNode};
     use crate::hsm::types::OwnedRange;
+    use crate::merkle::NodeHashBuilder;
     use bitvec::bitvec;
     use bitvec::Bits;
-    use juicebox_sdk_core::types::RealmId;
     use juicebox_sdk_marshalling as marshalling;
-
-    pub const TEST_REALM: RealmId = RealmId([42u8; 16]);
 
     #[test]
     fn test_leaf_serialization() {
@@ -438,16 +433,14 @@ mod tests {
         });
     }
 
-    #[tokio::test]
-    async fn get_nothing() {
+    #[test]
+    fn get_nothing() {
         let range = OwnedRange::full();
-        let (_tree, root, store) = new_empty_tree(&range).await;
-        let p = read(&TEST_REALM, &store, &range, &root, &rec_id(&[1, 2, 3]))
-            .await
-            .unwrap();
+        let (_tree, root, store) = new_empty_tree(&range);
+        let p = store.read(&range, &root, &rec_id(&[1, 2, 3])).unwrap();
         assert_eq!(1, p.path.len());
         assert!(p.leaf.is_none());
-        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, root, &store).await;
+        check_tree_invariants::<TestHasher>(&range, root, &store);
     }
 
     #[test]
@@ -505,29 +498,25 @@ mod tests {
         let v = vec![1, 2, 3, 4, 5, 6, 8, 9];
         let k1 = rec_id(&[1, 2]);
         let k2 = rec_id(&[1, 4]);
-        let ha = LeafNode::calc_hash::<TestHasher>(&k1, &v);
-        let hb = LeafNode::calc_hash::<TestHasher>(&k2, &v);
+        let ha = NodeHashBuilder::<TestHasher>::Leaf(&k1, &v).build();
+        let hb = NodeHashBuilder::<TestHasher>::Leaf(&k2, &v).build();
         assert_ne!(ha, hb);
     }
 
-    #[async_recursion]
-    pub async fn tree_size<HO: HashOutput>(
+    pub fn tree_size<HO: HashOutput>(
         prefix: KeyVec,
         root: HO,
-        store: &impl TreeStoreReader<HO>,
+        store: &MemStore<HO>,
     ) -> Result<usize, TreeStoreError> {
-        match store
-            .read_node(&TEST_REALM, StoreKey::new(&prefix, &root))
-            .await?
-        {
+        match store.get_node(&root)? {
             Node::Interior(int) => {
                 let lc = match &int.left {
                     None => 0,
-                    Some(b) => tree_size(prefix.concat(&b.prefix), b.hash, store).await?,
+                    Some(b) => tree_size(prefix.concat(&b.prefix), b.hash, store)?,
                 };
                 let rc = match &int.right {
                     None => 0,
-                    Some(b) => tree_size(prefix.concat(&b.prefix), b.hash, store).await?,
+                    Some(b) => tree_size(prefix.concat(&b.prefix), b.hash, store)?,
                 };
                 Ok(lc + rc + 1)
             }

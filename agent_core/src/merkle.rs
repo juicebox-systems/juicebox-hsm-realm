@@ -1,7 +1,7 @@
 use agent_api::merkle::TreeStoreReader;
 use bitvec::Bits;
 use hsmcore::hsm::types::{OwnedRange, RecordId};
-use hsmcore::merkle::agent::{Node, StoreKey, TreeStoreError};
+use hsmcore::merkle::agent::{Node, NodeKey, TreeStoreError};
 use hsmcore::merkle::proof::ReadProof;
 use hsmcore::merkle::{Dir, HashOutput, KeyVec};
 use juicebox_sdk_core::types::RealmId;
@@ -78,7 +78,7 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     let mut current = *root_hash;
     loop {
         match store
-            .read_node(realm_id, StoreKey::new(&key, &current), tags)
+            .read_node(realm_id, NodeKey::new(key.clone(), current), tags)
             .await?
         {
             Node::Interior(int) => match int.branch(side) {

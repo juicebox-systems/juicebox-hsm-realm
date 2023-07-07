@@ -1,21 +1,15 @@
 extern crate alloc;
 
-use alloc::collections::BTreeMap;
-use async_recursion::async_recursion;
-use async_trait::async_trait;
 use core::{fmt::Debug, hash::Hasher};
-use juicebox_sdk_core::types::RealmId;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 
-use super::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreError};
-use super::dot::TreeStoreReader;
+use super::agent::{Node, StoreDelta, TreeStoreError};
 use super::proof::ReadProof;
-use super::{Dir, HashOutput, LeafNode, NodeHasher, Tree};
-use crate::hash::{HashExt, HashMap};
+use super::{Dir, HashOutput, NodeHashBuilder, NodeHasher, Tree};
+use crate::hash::{HashExt, HashMap, NotRandomized};
 use crate::hsm::types::{OwnedRange, RecordId};
-use crate::merkle::InteriorNode;
-use crate::merkle::{agent::NodeKey, KeyVec};
+use crate::merkle::{InteriorNode, KeyVec, NodeKey};
 use bitvec::Bits;
 use juicebox_sdk_marshalling::bytes;
 
@@ -25,25 +19,21 @@ pub fn rec_id(bytes: &[u8]) -> RecordId {
     r
 }
 
-pub async fn new_empty_tree(
-    range: &OwnedRange,
-) -> (Tree<TestHasher>, TestHash, MemStore<TestHash>) {
+pub fn new_empty_tree(range: &OwnedRange) -> (Tree<TestHasher>, TestHash, MemStore<TestHash>) {
     let (root_hash, delta) = Tree::<TestHasher>::new_tree(range);
     let mut store = MemStore::new();
     store.apply_store_delta(root_hash, delta);
     assert_eq!(1, store.nodes.len());
-    check_tree_invariants::<TestHasher>(range, &RealmId([0; 16]), root_hash, &store).await;
+    check_tree_invariants::<TestHasher>(range, root_hash, &store);
     let t = Tree::with_existing_root(root_hash, 15);
     (t, root_hash, store)
 }
 
 // helper to insert a value into the tree and update the store
-#[allow(clippy::too_many_arguments)]
-pub async fn tree_insert(
+pub fn tree_insert(
     tree: &mut Tree<TestHasher>,
     store: &mut MemStore<TestHash>,
     range: &OwnedRange,
-    realm: &RealmId,
     root: TestHash,
     key: &RecordId,
     val: Vec<u8>,
@@ -51,13 +41,13 @@ pub async fn tree_insert(
 ) -> TestHash {
     // spot stupid test bugs
     assert!(range.contains(key), "test bug, key not inside key range");
-    let rp = read(realm, store, range, &root, key).await.unwrap();
+    let rp = store.read(range, &root, key).unwrap();
     let vp = tree.latest_proof(rp).unwrap();
     let (new_root, d) = tree.insert(vp, val).unwrap();
     store.apply_store_delta(new_root, d);
 
     if !skip_tree_check {
-        check_tree_invariants::<TestHasher>(range, realm, new_root, store).await;
+        check_tree_invariants::<TestHasher>(range, new_root, store);
     }
     new_root
 }
@@ -67,32 +57,29 @@ pub async fn tree_insert(
 //      2. the left branch prefix always starts with a 0
 //      3. the right branch prefix always starts with a 1
 //      5. the leaf -> root hashes are verified.
-pub async fn check_tree_invariants<H: NodeHasher>(
+pub fn check_tree_invariants<H: NodeHasher>(
     range: &OwnedRange,
-    realm: &RealmId,
     root: H::Output,
-    store: &impl TreeStoreReader<H::Output>,
+    store: &MemStore<H::Output>,
 ) {
-    let root_hash =
-        check_tree_node_invariants::<H>(range, realm, true, root, KeyVec::new(), store).await;
+    let root_hash = check_tree_node_invariants::<H>(range, true, root, KeyVec::new(), store);
     assert_eq!(root_hash, root);
 }
 
-#[async_recursion]
-async fn check_tree_node_invariants<H: NodeHasher>(
+fn check_tree_node_invariants<H: NodeHasher>(
     range: &OwnedRange,
-    realm: &RealmId,
     is_at_root: bool,
     node: H::Output,
     path: KeyVec,
-    store: &impl TreeStoreReader<H::Output>,
+    store: &MemStore<H::Output>,
 ) -> H::Output {
     match store
-        .read_node(realm, StoreKey::new(&path, &node))
-        .await
+        .get_node(&node)
         .unwrap_or_else(|_| panic!("node with hash {node:?} should exist"))
     {
-        Node::Leaf(l) => LeafNode::calc_hash::<H>(&RecordId::from_bitvec(&path), &l.value),
+        Node::Leaf(l) => {
+            NodeHashBuilder::<H>::Leaf(&RecordId::from_bitvec(&path), &l.value).build()
+        }
         Node::Interior(int) => {
             match &int.left {
                 None => assert!(is_at_root),
@@ -100,10 +87,8 @@ async fn check_tree_node_invariants<H: NodeHasher>(
                     assert!(!b.prefix.is_empty());
                     assert!(!b.prefix[0]);
                     let new_path = path.concat(&b.prefix);
-                    let exp_child_hash = check_tree_node_invariants::<H>(
-                        range, realm, false, b.hash, new_path, store,
-                    )
-                    .await;
+                    let exp_child_hash =
+                        check_tree_node_invariants::<H>(range, false, b.hash, new_path, store);
                     assert_eq!(exp_child_hash, b.hash);
                 }
             }
@@ -113,10 +98,8 @@ async fn check_tree_node_invariants<H: NodeHasher>(
                     assert!(!b.prefix.is_empty());
                     assert!(b.prefix[0]);
                     let new_path = path.concat(&b.prefix);
-                    let exp_child_hash = check_tree_node_invariants::<H>(
-                        range, realm, false, b.hash, new_path, store,
-                    )
-                    .await;
+                    let exp_child_hash =
+                        check_tree_node_invariants::<H>(range, false, b.hash, new_path, store);
                     assert_eq!(exp_child_hash, b.hash);
                 }
             }
@@ -217,14 +200,14 @@ impl Debug for TestHash {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MemStore<HO> {
-    nodes: BTreeMap<Vec<u8>, (HO, Node<HO>)>,
+pub struct MemStore<HO: core::hash::Hash + Eq> {
+    nodes: HashMap<HO, Node<HO>, NotRandomized>,
 }
 
 impl<HO: HashOutput> MemStore<HO> {
     fn new() -> Self {
         MemStore {
-            nodes: BTreeMap::new(),
+            nodes: HashMap::new(),
         }
     }
 
@@ -243,148 +226,117 @@ impl<HO: HashOutput> MemStore<HO> {
     pub fn apply_store_delta(&mut self, new_root: HO, d: StoreDelta<HO>) {
         check_delta_invariants(new_root, &d);
         for (k, n) in d.adds() {
-            let enc = k.store_key();
-            self.nodes.insert(enc.into_bytes(), (k.hash, n.clone()));
+            self.nodes.insert(k.hash, n.clone());
         }
         for k in d.removes() {
-            let enc = k.store_key();
-            self.nodes.remove(&enc.into_bytes());
+            self.nodes.remove(&k.hash);
         }
     }
-}
 
-#[async_trait]
-impl<HO: HashOutput> TreeStoreReader<HO> for MemStore<HO> {
-    async fn path_lookup(
-        &self,
-        _realm_id: &RealmId,
-        record_id: &RecordId,
-    ) -> Result<HashMap<HO, Node<HO>>, TreeStoreError> {
-        let mut results = HashMap::new();
-        for start in all_store_key_starts(record_id) {
-            let end = start.next();
-            results.extend(
-                self.nodes
-                    .range(start.into_bytes()..end.into_bytes())
-                    .map(|i| (i.1 .0, i.1 .1.clone())),
-            );
-        }
-        Ok(results)
-    }
-    async fn read_node(
-        &self,
-        _realm_id: &RealmId,
-        key: StoreKey,
-    ) -> Result<Node<HO>, TreeStoreError> {
-        match self.nodes.get(&key.into_bytes()) {
-            Some((_hash, n)) => Ok(n.clone()),
+    pub fn get_node(&self, hash: &HO) -> Result<Node<HO>, TreeStoreError> {
+        match self.nodes.get(hash) {
+            Some(n) => Ok(n.clone()),
             None => Err(TreeStoreError::MissingNode),
         }
     }
-}
 
-pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
-    realm_id: &RealmId,
-    store: &R,
-    range: &OwnedRange,
-    root_hash: &HO,
-    k: &RecordId,
-) -> Result<ReadProof<HO>, TreeStoreError> {
-    let mut nodes = store.path_lookup(realm_id, k).await?;
-    let root = match nodes.remove(root_hash) {
-        None => return Err(TreeStoreError::MissingNode),
-        Some(Node::Leaf(_)) => panic!("found unexpected leaf node"),
-        Some(Node::Interior(int)) => int,
-    };
-    let mut res = ReadProof::new(k.clone(), range.clone(), *root_hash, root);
-    let keyv = k.to_bitvec();
-    let mut key = keyv.as_ref();
-    loop {
-        let n = res.path.last().unwrap();
-        let d = Dir::from(key[0]);
-        match n.branch(d) {
-            None => return Ok(res),
-            Some(b) => {
-                if !key.starts_with(&b.prefix) {
-                    return Ok(res);
-                }
-                key = key.slice(b.prefix.len()..);
-                match nodes.remove(&b.hash) {
-                    None => return Err(TreeStoreError::MissingNode),
-                    Some(Node::Interior(int)) => {
-                        res.path.push(int);
-                        continue;
-                    }
-                    Some(Node::Leaf(v)) => {
-                        assert!(key.is_empty());
-                        res.leaf = Some(v);
+    pub fn read(
+        &self,
+        range: &OwnedRange,
+        root_hash: &HO,
+        k: &RecordId,
+    ) -> Result<ReadProof<HO>, TreeStoreError> {
+        let root = match self.get_node(root_hash)? {
+            Node::Leaf(_) => panic!("found unexpected leaf node"),
+            Node::Interior(int) => int,
+        };
+        let mut res = ReadProof::new(k.clone(), range.clone(), *root_hash, root);
+        let keyv = k.to_bitvec();
+        let mut key = keyv.as_ref();
+        loop {
+            let n = res.path.last().unwrap();
+            let d = Dir::from(key[0]);
+            match n.branch(d) {
+                None => return Ok(res),
+                Some(b) => {
+                    if !key.starts_with(&b.prefix) {
                         return Ok(res);
+                    }
+                    key = key.slice(b.prefix.len()..);
+                    match self.nodes.get(&b.hash) {
+                        None => return Err(TreeStoreError::MissingNode),
+                        Some(Node::Interior(int)) => {
+                            res.path.push(int.clone());
+                            continue;
+                        }
+                        Some(Node::Leaf(v)) => {
+                            assert!(key.is_empty());
+                            res.leaf = Some(v.clone());
+                            return Ok(res);
+                        }
                     }
                 }
             }
         }
     }
-}
 
-// Reads down the tree from the root always following one side until a leaf is reached.
-// Needed for merge.
-pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
-    realm_id: &RealmId,
-    store: &R,
-    range: &OwnedRange,
-    root_hash: &HO,
-    side: Dir,
-) -> Result<ReadProof<HO>, TreeStoreError> {
-    let mut path = Vec::new();
-    let mut key = KeyVec::new();
-    let mut current = *root_hash;
-    loop {
-        match store
-            .read_node(realm_id, StoreKey::new(&key, &current))
-            .await?
-        {
-            Node::Interior(int) => match int.branch(side) {
-                None => match int.branch(side.opposite()) {
-                    None => {
-                        path.push(int);
-                        let k = if side == Dir::Right {
-                            &range.end
-                        } else {
-                            &range.start
-                        };
-                        // TODO, should we remove key from ReadProof?
-                        // this key is not a full key in this event.
-                        // this can only happen for the root node.
-                        return Ok(ReadProof {
-                            key: k.clone(),
-                            range: range.clone(),
-                            root_hash: *root_hash,
-                            leaf: None,
-                            path,
-                        });
-                    }
+    // Reads down the tree from the root always following one side until a leaf is reached.
+    // Needed for merge.
+    pub fn read_tree_side(
+        &self,
+        range: &OwnedRange,
+        root_hash: &HO,
+        side: Dir,
+    ) -> Result<ReadProof<HO>, TreeStoreError> {
+        let mut path = Vec::new();
+        let mut key = KeyVec::new();
+        let mut current = *root_hash;
+        loop {
+            match self.nodes.get(&current) {
+                None => panic!("node with hash {current:?} should exist"),
+                Some(Node::Interior(int)) => match int.branch(side) {
+                    None => match int.branch(side.opposite()) {
+                        None => {
+                            path.push(int.clone());
+                            let k = if side == Dir::Right {
+                                &range.end
+                            } else {
+                                &range.start
+                            };
+                            // TODO, should we remove key from ReadProof?
+                            // this key is not a full key in this event.
+                            // this can only happen for the root node.
+                            return Ok(ReadProof {
+                                key: k.clone(),
+                                range: range.clone(),
+                                root_hash: *root_hash,
+                                leaf: None,
+                                path,
+                            });
+                        }
+                        Some(b) => {
+                            current = b.hash;
+                            key.extend(&b.prefix);
+                            path.push(int.clone());
+                            continue;
+                        }
+                    },
                     Some(b) => {
                         current = b.hash;
                         key.extend(&b.prefix);
-                        path.push(int);
+                        path.push(int.clone());
                         continue;
                     }
                 },
-                Some(b) => {
-                    current = b.hash;
-                    key.extend(&b.prefix);
-                    path.push(int);
-                    continue;
+                Some(Node::Leaf(l)) => {
+                    return Ok(ReadProof {
+                        key: RecordId::from_bitvec(&key),
+                        range: range.clone(),
+                        root_hash: *root_hash,
+                        leaf: Some(l.clone()),
+                        path,
+                    });
                 }
-            },
-            Node::Leaf(l) => {
-                return Ok(ReadProof {
-                    key: RecordId::from_bitvec(&key),
-                    range: range.clone(),
-                    root_hash: *root_hash,
-                    leaf: Some(l),
-                    path,
-                });
             }
         }
     }

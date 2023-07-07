@@ -1947,26 +1947,8 @@ mod test {
     use juicebox_sdk_marshalling as marshalling;
 
     use super::super::hal::MAX_NVRAM_SIZE;
-    use super::super::merkle::agent::StoreKey;
-    use super::super::merkle::testing::rec_id;
-    use super::super::merkle::NodeHashBuilder;
-    use super::types::{DataHash, EntryMac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT};
+    use super::types::{EntryMac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT};
     use super::*;
-    use bitvec::bitvec;
-
-    #[test]
-    fn test_store_key_parse_data_hash() {
-        let prefix = bitvec![0, 1, 1, 1];
-        let hash = NodeHashBuilder::<MerkleHasher>::Leaf(&rec_id(&[1]), &[1, 2, 3, 4]).build();
-
-        let sk = StoreKey::new(&prefix, &hash);
-        match StoreKey::parse::<DataHash>(&sk.into_bytes()) {
-            None => panic!("should have decoded store key"),
-            Some((_p, h)) => {
-                assert_eq!(h, hash);
-            }
-        }
-    }
 
     fn array_big<const N: usize>(i: u8) -> [u8; N] {
         let mut r = [0xff; N];

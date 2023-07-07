@@ -7,15 +7,14 @@ use std::process::Command;
 
 use bitvec::{BitVec, Bits};
 use hsmcore::hsm::types::{OwnedRange, RecordId};
-use hsmcore::merkle::agent::{Node, StoreKey};
-use hsmcore::merkle::dot::{
-    hash_id, visit_tree_at, DotGraph, DotVisitor, TreeStoreReader, Visitor,
-};
+use hsmcore::merkle::agent::Node;
+use hsmcore::merkle::dot::{hash_id, visit_tree_at, DotGraph, DotVisitor, Visitor};
 use hsmcore::merkle::proof::ReadProof;
 use hsmcore::merkle::testing::{
-    new_empty_tree, read, rec_id, tree_insert, MemStore, TestHash, TestHasher,
+    new_empty_tree, rec_id, tree_insert, MemStore, TestHash, TestHasher,
 };
-use hsmcore::merkle::{Branch, Dir, HashOutput, KeyVec, Tree};
+use hsmcore::merkle::Tree;
+use hsmcore::merkle::{Branch, Dir, HashOutput, KeyVec};
 use juicebox_sdk_core::types::RealmId;
 
 const REALM: RealmId = RealmId([1; 16]);
@@ -41,64 +40,62 @@ async fn main() {
     hsmcore::hash::set_global_rng_owned(rand_core::OsRng);
 
     let o = PathBuf::from("docs/merkle_tree");
-    doc_intro(&o).await;
-    doc_mutation(&o).await;
-    doc_proofs(&o).await;
-    split::doc_splits_intro(&o).await;
-    split::doc_splits_details(&o).await;
-    merge::doc_merge(&o).await;
-    overlay::tree_overlay(&o).await;
+    doc_intro(&o);
+    doc_mutation(&o);
+    doc_proofs(&o);
+    split::doc_splits_intro(&o);
+    split::doc_splits_details(&o);
+    merge::doc_merge(&o);
+    overlay::tree_overlay(&o);
     dot_to_png(&o.join("storage"));
     // generate the PDF.
     args.typst.compile();
 }
 
-async fn doc_intro(dir: &Path) {
+fn doc_intro(dir: &Path) {
     let dir = dir.join("intro");
 
-    let mut tree = DocTree::new(OwnedRange::full()).await;
-    tree.insert(rec_id(&[0b00000000]), vec![1]).await;
-    tree.insert(rec_id(&[0b00001000]), vec![2]).await;
-    tree.insert(rec_id(&[0b00001011]), vec![3]).await;
-    tree.insert(rec_id(&[0b11001000]), vec![4]).await;
-    tree.write_dot(&dir, "first_example.dot").await;
+    let mut tree = DocTree::new(OwnedRange::full());
+    tree.insert(rec_id(&[0b00000000]), vec![1]);
+    tree.insert(rec_id(&[0b00001000]), vec![2]);
+    tree.insert(rec_id(&[0b00001011]), vec![3]);
+    tree.insert(rec_id(&[0b11001000]), vec![4]);
+    tree.write_dot(&dir, "first_example.dot");
     dot_to_png(&dir);
 }
 
-async fn doc_mutation(dir: &Path) {
+fn doc_mutation(dir: &Path) {
     let dir = dir.join("mutation");
 
-    let mut tree = DocTree::new(OwnedRange::full()).await;
-    tree.write_dot(&dir, "empty_tree.dot").await;
+    let mut tree = DocTree::new(OwnedRange::full());
+    tree.write_dot(&dir, "empty_tree.dot");
 
-    tree.insert(rec_id(&[0b00001000]), vec![2]).await;
-    tree.write_dot(&dir, "1_leaf.dot").await;
+    tree.insert(rec_id(&[0b00001000]), vec![2]);
+    tree.write_dot(&dir, "1_leaf.dot");
 
-    tree.insert(rec_id(&[0]), vec![1]).await;
-    tree.write_dot(&dir, "2_leaves.dot").await;
+    tree.insert(rec_id(&[0]), vec![1]);
+    tree.write_dot(&dir, "2_leaves.dot");
 
-    tree.insert(rec_id(&[0b11001000]), vec![3]).await;
-    tree.write_dot(&dir, "3_leaves.dot").await;
+    tree.insert(rec_id(&[0b11001000]), vec![3]);
+    tree.write_dot(&dir, "3_leaves.dot");
 
-    tree.insert(rec_id(&[0b00001010]), vec![4]).await;
-    tree.write_dot(&dir, "4_leaves.dot").await;
+    tree.insert(rec_id(&[0b00001010]), vec![4]);
+    tree.write_dot(&dir, "4_leaves.dot");
 
     dot_to_png(&dir);
 }
 
-async fn doc_proofs(dir: &Path) {
+fn doc_proofs(dir: &Path) {
     let dir = dir.join("proofs");
 
-    let mut tree = DocTree::new(OwnedRange::full()).await;
-    tree.insert(rec_id(&[0]), vec![1]).await;
-    tree.insert(rec_id(&[8]), vec![2]).await;
-    tree.insert(rec_id(&[255]), vec![3]).await;
+    let mut tree = DocTree::new(OwnedRange::full());
+    tree.insert(rec_id(&[0]), vec![1]);
+    tree.insert(rec_id(&[8]), vec![2]);
+    tree.insert(rec_id(&[255]), vec![3]);
 
-    tree.highlight_record_id_to_dot(rec_id(&[8]), &dir, "inclusion_proof.dot")
-        .await;
+    tree.highlight_record_id_to_dot(rec_id(&[8]), &dir, "inclusion_proof.dot");
 
-    tree.highlight_record_id_to_dot(rec_id(&[1]), &dir, "noninclusion_proof.dot")
-        .await;
+    tree.highlight_record_id_to_dot(rec_id(&[1]), &dir, "noninclusion_proof.dot");
 
     dot_to_png(&dir);
 }
@@ -113,8 +110,8 @@ struct DocTree {
 }
 
 impl DocTree {
-    async fn new(part: OwnedRange) -> Self {
-        let (tree, root, store) = new_empty_tree(&part).await;
+    fn new(part: OwnedRange) -> Self {
+        let (tree, root, store) = new_empty_tree(&part);
         DocTree {
             realm: REALM,
             tree,
@@ -125,82 +122,56 @@ impl DocTree {
         }
     }
 
-    async fn get_node(&self, prefix: &KeyVec, hash: &TestHash) -> Node<TestHash> {
-        self.store
-            .read_node(&self.realm, StoreKey::new(prefix, hash))
-            .await
-            .unwrap()
+    fn get_node(&self, _prefix: &KeyVec, hash: &TestHash) -> Node<TestHash> {
+        self.store.get_node(hash).unwrap()
     }
 
-    async fn insert(&mut self, k: RecordId, v: Vec<u8>) {
+    fn insert(&mut self, k: RecordId, v: Vec<u8>) {
         self.root = tree_insert(
             &mut self.tree,
             &mut self.store,
             &self.partition,
-            &self.realm,
             self.root,
             &k,
             v,
             false,
-        )
-        .await;
+        );
         self.roots.push(self.root);
     }
 
-    async fn proof(&self, k: &RecordId) -> ReadProof<TestHash> {
-        read(&self.realm, &self.store, &self.partition, &self.root, k)
-            .await
-            .unwrap()
+    fn proof(&self, k: &RecordId) -> ReadProof<TestHash> {
+        self.store.read(&self.partition, &self.root, k).unwrap()
     }
 
-    async fn as_dot(&self) -> DotGraph {
+    fn as_dot(&self) -> DotGraph {
         let mut dot_visitor = DotVisitor::new("merkletree");
         dot_visitor.branch_builder = format_branch_label;
-        visit_tree_at(
-            &self.realm,
-            &self.store,
-            KeyVec::new(),
-            self.root,
-            &mut dot_visitor,
-        )
-        .await;
+        visit_tree_at(&self.store, KeyVec::new(), self.root, &mut dot_visitor);
         dot_visitor.dot
     }
 
-    async fn write_dot(&self, dir: &Path, name: impl AsRef<Path>) {
+    fn write_dot(&self, dir: &Path, name: impl AsRef<Path>) {
         fs::create_dir_all(dir).unwrap();
-        fs::write(dir.join(name), format!("{}", self.as_dot().await)).unwrap();
+        fs::write(dir.join(name), format!("{}", self.as_dot())).unwrap();
     }
 
-    async fn highlight_record_id_to_dot(
+    fn highlight_record_id_to_dot(
         &self,
         record_id: RecordId,
         dir: &Path,
         output_filename: impl AsRef<Path>,
     ) {
-        let mut dot = self.as_dot().await;
+        let mut dot = self.as_dot();
         let mut highligher = RecordIdHighlighter::new(record_id, &mut dot);
-        visit_tree_at(
-            &self.realm,
-            &self.store,
-            KeyVec::new(),
-            self.root,
-            &mut highligher,
-        )
-        .await;
+        visit_tree_at(&self.store, KeyVec::new(), self.root, &mut highligher);
         dot.write(dir, output_filename).unwrap();
     }
 
-    async fn split(mut self, split_key: RecordId) -> (DocTree, DocTree) {
-        let split_proof = read(
-            &self.realm,
-            &self.store,
-            &self.partition,
-            &self.root,
-            &split_key,
-        )
-        .await
-        .unwrap();
+    fn split(mut self, split_key: RecordId) -> (DocTree, DocTree) {
+        let split_proof = self
+            .store
+            .read(&self.partition, &self.root, &split_key)
+            .unwrap();
 
         let split = self.tree.range_split(split_proof).unwrap();
         self.store
@@ -330,12 +301,12 @@ struct TreeIndex {
 }
 
 impl TreeIndex {
-    async fn build(t: &DocTree) -> Self {
+    fn build(t: &DocTree) -> Self {
         let mut index = TreeIndex {
             prefixes: BTreeMap::new(),
             parents: BTreeMap::new(),
         };
-        visit_tree_at(&t.realm, &t.store, KeyVec::new(), t.root, &mut index).await;
+        visit_tree_at(&t.store, KeyVec::new(), t.root, &mut index);
         index
     }
 }

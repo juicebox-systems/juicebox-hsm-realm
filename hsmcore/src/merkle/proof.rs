@@ -366,116 +366,93 @@ impl<HO: HashOutput> VerifiedProof<HO> {
 #[cfg(test)]
 mod tests {
     use super::super::super::hsm::types::OwnedRange;
-    use super::super::testing::{new_empty_tree, read, rec_id, tree_insert, TestHasher};
-    use super::super::tests::TEST_REALM;
+    use super::super::testing::{new_empty_tree, rec_id, tree_insert, TestHasher};
     use super::super::Bits;
     use super::ProofError;
 
-    #[tokio::test]
-    async fn verify() {
+    #[test]
+    fn verify() {
         let range = OwnedRange::full();
-        let (mut tree, mut root, mut store) = new_empty_tree(&range).await;
+        let (mut tree, mut root, mut store) = new_empty_tree(&range);
         let rid1 = rec_id(&[1]);
         let rid5 = rec_id(&[5]);
         root = tree_insert(
             &mut tree,
             &mut store,
             &range,
-            &TEST_REALM,
             root,
             &rid1,
             [1].to_vec(),
             true,
-        )
-        .await;
+        );
         root = tree_insert(
             &mut tree,
             &mut store,
             &range,
-            &TEST_REALM,
             root,
             &rid5,
             [2].to_vec(),
             false,
-        )
-        .await;
+        );
 
-        let p = read(&TEST_REALM, &store, &range, &root, &rid5)
-            .await
-            .unwrap();
+        let p = store.read(&range, &root, &rid5).unwrap();
         assert!(p.verify::<TestHasher>(&tree.overlay).is_ok());
 
         // claim there's no leaf
-        let mut p = read(&TEST_REALM, &store, &range, &root, &rid5)
-            .await
-            .unwrap();
+        let mut p = store.read(&range, &root, &rid5).unwrap();
         p.leaf = None;
         assert!(p.verify::<TestHasher>(&tree.overlay).is_err());
 
-        let mut p = read(&TEST_REALM, &store, &range, &root, &rid5)
-            .await
-            .unwrap();
+        let mut p = store.read(&range, &root, &rid5).unwrap();
         // truncate the tail of the path to claim there's no leaf
         p.leaf = None;
         p.path.pop();
         assert!(p.verify::<TestHasher>(&tree.overlay).is_err());
 
-        let mut p = read(&TEST_REALM, &store, &range, &root, &rid5)
-            .await
-            .unwrap();
+        let mut p = store.read(&range, &root, &rid5).unwrap();
         // futz with the path
         p.key.0[0] = 2;
         assert!(p.verify::<TestHasher>(&tree.overlay).is_err());
 
         // futz with the value (checks the hash)
-        let mut p = read(&TEST_REALM, &store, &range, &root, &rid5)
-            .await
-            .unwrap();
+        let mut p = store.read(&range, &root, &rid5).unwrap();
         if let Some(ref mut l) = p.leaf {
             l.value[0] += 1;
         }
         assert!(p.verify::<TestHasher>(&tree.overlay).is_err());
 
         // futz with a node (checks the hash)
-        let mut p = read(&TEST_REALM, &store, &range, &root, &rid5)
-            .await
-            .unwrap();
+        let mut p = store.read(&range, &root, &rid5).unwrap();
         if let Some(ref mut b) = &mut p.path[0].left {
             b.prefix = b.prefix.slice(..b.prefix.len() - 1).to_bitvec()
         }
         assert!(p.verify::<TestHasher>(&tree.overlay).is_err());
     }
 
-    #[tokio::test]
-    async fn stale_proof() {
+    #[test]
+    fn stale_proof() {
         let range = OwnedRange::full();
-        let (mut tree, mut root, mut store) = new_empty_tree(&range).await;
+        let (mut tree, mut root, mut store) = new_empty_tree(&range);
         root = tree_insert(
             &mut tree,
             &mut store,
             &range,
-            &TEST_REALM,
             root,
             &rec_id(&[0b10000000]),
             [1].to_vec(),
             false,
-        )
-        .await;
-        let rp_1 = read(&TEST_REALM, &store, &range, &root, &rec_id(&[0b10000000]))
-            .await
-            .unwrap();
+        );
+        let rp_1 = store.read(&range, &root, &rec_id(&[0b10000000])).unwrap();
         for i in 0..20 {
             root = tree_insert(
                 &mut tree,
                 &mut store,
                 &range,
-                &TEST_REALM,
                 root,
                 &rec_id(&[0b11000000]),
                 [i].to_vec(),
                 false,
-            )
-            .await;
+            );
         }
         let err = tree
             .latest_proof(rp_1)

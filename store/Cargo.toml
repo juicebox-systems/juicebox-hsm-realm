@@ -25,6 +25,7 @@ url = { workspace = true }
 
 [dev-dependencies]
 once_cell = { workspace = true }
+rand = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }
 reqwest = { workspace = true }
 juicebox-sdk-process-group = { workspace = true }

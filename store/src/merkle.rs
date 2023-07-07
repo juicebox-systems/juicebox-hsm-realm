@@ -11,14 +11,16 @@ use std::time::{Duration, Instant};
 use tonic::Code;
 use tracing::{instrument, trace, warn, Span};
 
+use crate::base128;
+
 use super::{mutate_rows, read_rows, Instance, MutateRowsError, StoreClient};
 use agent_api::merkle::TreeStoreReader;
 use bitvec::Bits;
 use hsmcore::hash::{HashMap as HsmHashMap, HashSet as HsmHashSet, NotRandomized};
 use hsmcore::hsm::cache;
 use hsmcore::hsm::types::{DataHash, GroupId, RecordId};
-use hsmcore::merkle::agent::{all_store_key_starts, Node, NodeKey, StoreKey, TreeStoreError};
-use hsmcore::merkle::Dir;
+use hsmcore::merkle::agent::{Node, NodeKey, TreeStoreError};
+use hsmcore::merkle::{Dir, HashOutput, KeyVec};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
 use observability::metrics;
@@ -99,7 +101,7 @@ impl StoreClient {
         let make_new_merkle_entries = || {
             add.iter()
                 .map(|(key, value)| mutate_rows_request::Entry {
-                    row_key: key.store_key().into_bytes(),
+                    row_key: StoreKey::from(key).into_bytes(),
                     mutations: vec![Mutation {
                         mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
                             family_name: String::from("f"),
@@ -153,7 +155,10 @@ impl StoreClient {
         let cache_stats = {
             let mut locked_cache = self.merkle_cache.0.lock().unwrap();
             for (key, value) in add {
-                locked_cache.insert(key.store_key(), marshalling::to_vec(&value).expect("TODO"))
+                locked_cache.insert(
+                    StoreKey::from(key),
+                    marshalling::to_vec(&value).expect("TODO"),
+                )
             }
             locked_cache.stats()
         };
@@ -190,7 +195,7 @@ impl StoreClient {
                 entries: remove
                     .iter()
                     .map(|k| mutate_rows_request::Entry {
-                        row_key: k.store_key().into_bytes(),
+                        row_key: StoreKey::from(k).into_bytes(),
                         mutations: vec![Mutation {
                             mutation: Some(mutation::Mutation::DeleteFromRow(
                                 mutation::DeleteFromRow {},
@@ -205,7 +210,7 @@ impl StoreClient {
         let cache_stats = {
             let mut locked_cache = self.merkle_cache.0.lock().unwrap();
             for key in remove {
-                locked_cache.remove(&key.store_key());
+                locked_cache.remove(&StoreKey::from(key));
             }
             locked_cache.stats()
         };
@@ -248,7 +253,7 @@ fn cached_path_lookup(
     loop {
         let key = NodeKey::new(full_key.slice(..key_pos).to_bitvec(), next_hash);
 
-        match cache.get(&key.store_key()) {
+        match cache.get(&StoreKey::from(&key)) {
             None => {
                 // Reached a cache miss.
                 return CachedPathLookupResult {
@@ -415,15 +420,16 @@ impl TreeStoreReader<DataHash> for StoreClient {
     async fn read_node(
         &self,
         realm: &RealmId,
-        key: StoreKey,
+        key: NodeKey<DataHash>,
         tags: &[metrics::Tag],
     ) -> Result<Node<DataHash>, TreeStoreError> {
         trace!(realm = ?realm, key = ?key, "read_node starting");
+        let store_key = StoreKey::from(&key);
 
         // Check the Merkle node cache first.
         {
             let mut locked_cache = self.merkle_cache.0.lock().unwrap();
-            if let Some(value) = locked_cache.get(&key) {
+            if let Some(value) = locked_cache.get(&store_key) {
                 let node: Node<DataHash> = marshalling::from_slice(value).expect("TODO");
                 return Ok(node);
             }
@@ -436,7 +442,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
                 table_name: merkle_table(&self.instance, realm),
                 app_profile_id: String::new(),
                 rows: Some(RowSet {
-                    row_keys: vec![key.clone().into_bytes()],
+                    row_keys: vec![store_key.clone().into_bytes()],
                     row_ranges: Vec::new(),
                 }),
                 filter: Some(RowFilter {
@@ -460,7 +466,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
                 trace!(?realm, ?key, "read_node completed");
                 let cache_stats = {
                     let mut locked_cache = self.merkle_cache.0.lock().unwrap();
-                    locked_cache.insert(key, cell.value);
+                    locked_cache.insert(store_key, cell.value);
                     locked_cache.stats()
                 };
                 report_cache_stats(&self.metrics, tags, cache_stats);
@@ -491,9 +497,237 @@ fn report_cache_stats(metrics: &metrics::Client, tags: &[metrics::Tag], stats: C
     );
 }
 
+// The key value for a row in the key value store. Nodes are stored in the Store
+// using these keys.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StoreKey(Vec<u8>);
+
+impl<HO: HashOutput> From<NodeKey<HO>> for StoreKey {
+    fn from(value: NodeKey<HO>) -> Self {
+        StoreKey::new(&value.prefix, &value.hash)
+    }
+}
+
+impl<HO: HashOutput> From<&NodeKey<HO>> for StoreKey {
+    fn from(value: &NodeKey<HO>) -> Self {
+        StoreKey::new(&value.prefix, &value.hash)
+    }
+}
+
+impl From<Vec<u8>> for StoreKey {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value)
+    }
+}
+
+impl StoreKey {
+    pub fn new<HO: HashOutput>(prefix: &KeyVec, hash: &HO) -> StoreKey {
+        // encoded key consists of
+        //   the prefix base128 encoded
+        //   a delimiter which has Msb set and the lower 4 bits indicate the
+        //   number of bits used in the last byte of the prefix (this is part of
+        //   the base128 encoding)
+        //   the hash
+        let prefix_len_bytes = base128::encoded_len(prefix.len());
+        let mut out: Vec<u8> = Vec::with_capacity(prefix_len_bytes + hash.as_slice().len());
+        encode_prefix_into(prefix, &mut out);
+        out.extend(hash.as_slice());
+        StoreKey(out)
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+
+    pub fn parse<HO: HashOutput>(bytes: &[u8]) -> Option<(EncodedRecordPrefix, HO)> {
+        match bytes.iter().position(|b| b & 128 != 0) {
+            None => None,
+            Some(p) => {
+                let ep = EncodedRecordPrefix(&bytes[..=p]);
+                HO::from_slice(&bytes[p + 1..]).map(|h| (ep, h))
+            }
+        }
+    }
+}
+
+pub struct EncodedRecordPrefix<'a>(&'a [u8]);
+// When/If we have a need to decode this back to the prefix, we can write the base128 decoder.
+
+// The beginning part of a StoreKey
+#[derive(Clone)]
+pub struct StoreKeyStart(Vec<u8>);
+impl StoreKeyStart {
+    pub fn next(&self) -> Self {
+        let mut c = self.0.clone();
+        for i in (0..c.len()).rev() {
+            if c[i] < 255 {
+                c[i] += 1;
+                return StoreKeyStart(c);
+            } else {
+                c[i] = 0;
+            }
+        }
+        // The encoding of the recordId prefix means that its impossible to have
+        // a StoreKeyStart value that leads with 0xFF, and so this is unreachable.
+        // The base128 encoding of the prefix leaves the MSB clear. For the empty
+        // prefix the encoding will have the single byte of the terminator, which'll
+        // have the value 128.
+        unreachable!()
+    }
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+// Generates the encoded version of each prefix for this recordId. starts at
+// prefix[..0] and end with at prefix[..=RecordId::NUM_BITS]
+pub fn all_store_key_starts(
+    k: &RecordId,
+) -> impl Iterator<Item = StoreKeyStart> + ExactSizeIterator + '_ {
+    // `ExactSizeIterator` is not implemented for `RangeInclusive<usize>`, so
+    // awkwardly cast back and forth.
+    let range = 0..=u16::try_from(RecordId::NUM_BITS).unwrap();
+    range.map(|i| {
+        let mut enc = Vec::new();
+        base128::encode(&k.0, usize::from(i), &mut enc);
+        StoreKeyStart(enc)
+    })
+}
+
+// Encode the prefix and delimiter into the supplied buffer.
+fn encode_prefix_into(prefix: &KeyVec, dest: &mut Vec<u8>) {
+    base128::encode(prefix.as_bytes(), prefix.len(), dest);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bitvec::bitvec;
+    use hsmcore::hsm::MerkleHasher;
+    use hsmcore::merkle::testing::{rec_id, TestHash};
+    use hsmcore::merkle::NodeHashBuilder;
+
+    #[test]
+    fn store_key_encoding() {
+        let k = NodeKey::new(KeyVec::new(), TestHash([1u8; 8]));
+        assert_eq!(
+            [128u8, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(),
+            StoreKey::from(k).0
+        );
+
+        let k = NodeKey::new(bitvec![0], TestHash([1u8; 8]));
+        assert_eq!(
+            [0u8, 129, 1, 1, 1, 1, 1, 1, 1, 1].to_vec(),
+            StoreKey::from(k).0
+        );
+        let k = NodeKey::new(bitvec![1], TestHash([4u8; 8]));
+        assert_eq!(
+            [64u8, 129, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
+            StoreKey::from(k).0
+        );
+
+        let k = NodeKey::new(bitvec![0, 1], TestHash([4u8; 8]));
+        assert_eq!(
+            [32u8, 130, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
+            StoreKey::from(k).0
+        );
+
+        let k = NodeKey::new(bitvec![1, 1, 1, 1, 1, 1, 1], TestHash([4u8; 8]));
+        assert_eq!(
+            [127u8, 135, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
+            StoreKey::from(k).0
+        );
+        let k = NodeKey::new(bitvec![1, 1, 1, 1, 1, 1, 1, 1], TestHash([4u8; 8]));
+        assert_eq!(
+            [127u8, 64, 129, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
+            StoreKey::from(k).0
+        );
+        let k = NodeKey::new(bitvec![1, 1, 1, 1, 1, 1, 1, 1, 1], TestHash([4u8; 8]));
+        assert_eq!(
+            [127u8, 96, 130, 4, 4, 4, 4, 4, 4, 4, 4].to_vec(),
+            StoreKey::from(k).0
+        );
+    }
+
+    #[test]
+    fn bulk_prefix_encoding() {
+        // cross check the bulk & single encoders
+        let test = |r| {
+            let prefixes = all_store_key_starts(&r);
+            assert_eq!(257, prefixes.len());
+            let k = r.to_bitvec();
+            let mut buff = Vec::with_capacity(64);
+            for (i, prefix) in prefixes.enumerate() {
+                buff.clear();
+                encode_prefix_into(&k.slice(..i).to_bitvec(), &mut buff);
+                assert_eq!(buff, prefix.0, "with prefix len {i}");
+            }
+        };
+        test(RecordId([0x00; RecordId::NUM_BYTES]));
+        test(RecordId([0x01; RecordId::NUM_BYTES]));
+        test(RecordId([0x5a; RecordId::NUM_BYTES]));
+        test(RecordId([0xa5; RecordId::NUM_BYTES]));
+        test(RecordId([0x7F; RecordId::NUM_BYTES]));
+        test(RecordId([0x80; RecordId::NUM_BYTES]));
+        test(RecordId([0xFE; RecordId::NUM_BYTES]));
+        test(RecordId([0xFF; RecordId::NUM_BYTES]));
+    }
+
+    #[test]
+    fn test_store_key_parse() {
+        let prefix = bitvec![1, 0, 1];
+        let hash = TestHash([1, 2, 3, 4, 5, 6, 7, 8]);
+        let sk = StoreKey::new(&prefix, &hash);
+        assert_eq!(vec![0b01010000, 128 | 3, 1, 2, 3, 4, 5, 6, 7, 8], sk.0);
+        match StoreKey::parse::<TestHash>(&sk.0) {
+            None => panic!("should have decoded store key"),
+            Some((p, h)) => {
+                assert_eq!(h, hash);
+                assert_eq!(&[0b01010000, 128 | 3], p.0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_store_key_parse_empty_prefix() {
+        let prefix = bitvec![];
+        let hash = TestHash([1, 2, 3, 4, 5, 6, 7, 8]);
+        let sk = StoreKey::new(&prefix, &hash);
+        assert_eq!(vec![128, 1, 2, 3, 4, 5, 6, 7, 8], sk.0);
+        match StoreKey::parse::<TestHash>(&sk.0) {
+            None => panic!("should have decoded store key"),
+            Some((p, h)) => {
+                assert_eq!(h, hash);
+                assert_eq!(&[128], p.0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_store_key_parse_bad_input() {
+        assert!(StoreKey::parse::<TestHash>(&[0, 0, 128, 1, 2, 3, 4]).is_none());
+        assert!(StoreKey::parse::<TestHash>(&[]).is_none());
+        assert!(StoreKey::parse::<TestHash>(&[1, 2]).is_none());
+        assert!(StoreKey::parse::<TestHash>(&[1, 2, 128 | 1]).is_none());
+    }
+
+    #[test]
+    fn test_store_key_parse_data_hash() {
+        let prefix = bitvec![0, 1, 1, 1];
+        let hash = NodeHashBuilder::<MerkleHasher>::Leaf(&rec_id(&[1]), &[1, 2, 3, 4]).build();
+
+        let sk = StoreKey::new(&prefix, &hash);
+        match StoreKey::parse::<DataHash>(&sk.into_bytes()) {
+            None => panic!("should have decoded store key"),
+            Some((_p, h)) => {
+                assert_eq!(h, hash);
+            }
+        }
+    }
 
     const REALM1: RealmId = RealmId([
         0x66, 0x80, 0x13, 0x4b, 0xf4, 0x5d, 0xc9, 0x3f, 0xce, 0xee, 0xcd, 0x03, 0xe5, 0x38, 0xc8,
