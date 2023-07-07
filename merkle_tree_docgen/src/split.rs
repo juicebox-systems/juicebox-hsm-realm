@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use hsmcore::bitvec;
-use hsmcore::bitvec::Bits;
+use bitvec::bitvec;
+use bitvec::Bits;
 use hsmcore::hsm::types::OwnedRange;
 use hsmcore::merkle::agent::Node;
 use hsmcore::merkle::dot::{hash_id, DotAttributes, DotGraph};

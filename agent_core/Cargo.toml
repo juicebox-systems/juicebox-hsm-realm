@@ -9,6 +9,7 @@ edition = "2021"
 agent_api = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+bitvec = { workspace = true }
 bytes = { workspace = true }
 cluster_api = { workspace = true }
 cluster_core = { workspace = true }

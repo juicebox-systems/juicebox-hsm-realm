@@ -1,6 +1,8 @@
 //! [`BitVec`] and [`BitSlice`] are types that have `Vec<bool>` and
 //! `&[bool]`-like operations but have a more efficient representation.
 
+#![no_std]
+
 extern crate alloc;
 
 use core::{
@@ -20,7 +22,7 @@ macro_rules! bitvec {
     ( $( $x:expr ),* ) => {
         {
             #[allow(unused_mut)]
-            let mut temp_vec = $crate::bitvec::BitVec::new();
+            let mut temp_vec = $crate::BitVec::new();
             $(
                 temp_vec.push($x!=0);
             )*
@@ -437,8 +439,11 @@ impl<'a> From<BitSlice<'a>> for BitVec {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
     use core::cmp::Ordering;
+
+    use super::*;
 
     #[test]
     fn vec_push() {

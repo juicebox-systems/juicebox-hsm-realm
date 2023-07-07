@@ -1946,13 +1946,13 @@ mod test {
     use juicebox_sdk_core::types::RealmId;
     use juicebox_sdk_marshalling as marshalling;
 
-    use super::super::bitvec;
     use super::super::hal::MAX_NVRAM_SIZE;
     use super::super::merkle::agent::StoreKey;
     use super::super::merkle::testing::rec_id;
     use super::super::merkle::NodeHashBuilder;
     use super::types::{DataHash, EntryMac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT};
     use super::*;
+    use bitvec::bitvec;
 
     #[test]
     fn test_store_key_parse_data_hash() {

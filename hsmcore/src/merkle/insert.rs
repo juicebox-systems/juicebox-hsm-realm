@@ -3,11 +3,11 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use super::{
-    super::bitvec::Bits,
     agent::{DeltaBuilder, Node, NodeKey, StoreDelta},
     proof::{ProofError, VerifiedProof},
     Branch, InteriorNode, LeafNode, NodeHasher, Tree,
 };
+use bitvec::Bits;
 
 impl<H: NodeHasher> Tree<H> {
     // Insert a new value for the leaf described by the read proof. Returns the

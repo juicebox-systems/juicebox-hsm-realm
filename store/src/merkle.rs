@@ -13,7 +13,7 @@ use tracing::{instrument, trace, warn, Span};
 
 use super::{mutate_rows, read_rows, Instance, MutateRowsError, StoreClient};
 use agent_api::merkle::TreeStoreReader;
-use hsmcore::bitvec::Bits;
+use bitvec::Bits;
 use hsmcore::hash::{HashMap as HsmHashMap, HashSet as HsmHashSet, NotRandomized};
 use hsmcore::hsm::cache;
 use hsmcore::hsm::types::{DataHash, GroupId, RecordId};

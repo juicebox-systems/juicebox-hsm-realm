@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime};
 use store::discovery;
 
 use agent_api::merkle::TreeStoreReader;
-use hsmcore::bitvec::BitVec;
+use bitvec::BitVec;
 use hsmcore::hsm::types::{EntryMac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId};
 use hsmcore::hsm::MerkleHasher;
 use hsmcore::merkle::agent::{StoreDelta, StoreKey};

@@ -5,11 +5,11 @@ use tracing::{info, trace};
 
 use super::super::hsm::types::OwnedRange;
 use super::{
-    super::bitvec::Bits,
     agent::{DeltaBuilder, Node, NodeKey},
     proof::{PathStep, ReadProof},
     Branch, HashOutput, InteriorNode, KeyVec, MergeError, MergeResult, NodeHasher, Tree,
 };
+use bitvec::Bits;
 
 impl<H: NodeHasher> Tree<H> {
     // Merge an adjacent tree into this tree. Requires a read proof from both

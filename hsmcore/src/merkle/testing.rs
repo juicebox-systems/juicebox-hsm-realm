@@ -12,11 +12,11 @@ use super::agent::{all_store_key_starts, Node, StoreDelta, StoreKey, TreeStoreEr
 use super::dot::TreeStoreReader;
 use super::proof::ReadProof;
 use super::{Dir, HashOutput, LeafNode, NodeHasher, Tree};
-use crate::bitvec::Bits;
 use crate::hash::{HashExt, HashMap};
 use crate::hsm::types::{OwnedRange, RecordId};
 use crate::merkle::InteriorNode;
 use crate::merkle::{agent::NodeKey, KeyVec};
+use bitvec::Bits;
 use juicebox_sdk_marshalling::bytes;
 
 pub fn rec_id(bytes: &[u8]) -> RecordId {

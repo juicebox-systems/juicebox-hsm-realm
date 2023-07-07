@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use hsmcore::bitvec::{BitVec, Bits};
+use bitvec::{BitVec, Bits};
 use hsmcore::hsm::types::{OwnedRange, RecordId};
 use hsmcore::merkle::agent::{Node, StoreKey};
 use hsmcore::merkle::dot::{

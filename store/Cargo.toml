@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 agent_api = { workspace = true }
 async-trait = { workspace = true }
+bitvec = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 gcp_auth = { workspace = true }

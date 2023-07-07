@@ -2,11 +2,11 @@ use tracing::info;
 
 use super::super::hsm::types::{OwnedRange, RecordId};
 use super::{
-    super::bitvec::Bits,
     agent::{DeltaBuilder, Node, NodeKey},
     proof::{ProofError, ReadProof},
     Branch, Dir, InteriorNode, KeyVec, NodeHasher, SplitResult, SplitRoot, Tree,
 };
+use bitvec::Bits;
 
 impl<H: NodeHasher> Tree<H> {
     // Splits the current tree into two at the key in the proof. This key

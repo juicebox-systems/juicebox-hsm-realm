@@ -1,5 +1,5 @@
 use agent_api::merkle::TreeStoreReader;
-use hsmcore::bitvec::Bits;
+use bitvec::Bits;
 use hsmcore::hsm::types::{OwnedRange, RecordId};
 use hsmcore::merkle::agent::{Node, StoreKey, TreeStoreError};
 use hsmcore::merkle::proof::ReadProof;

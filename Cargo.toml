@@ -3,6 +3,7 @@
 members = [
     "agent_api",
     "agent_core",
+    "bitvec",
     "cluster_api",
     "cluster_bench",
     "cluster_cli",
@@ -29,6 +30,7 @@ members = [
 default-members = [
     "agent_api",
     "agent_core",
+    "bitvec",
     "cluster_api",
     "cluster_bench",
     "cluster_cli",
@@ -59,6 +61,7 @@ ahash = { version = "0.8.3", default-features = false }
 anyhow = "1.0.70"
 async-recursion = "1.0.2"
 async-trait = "0.1.64"
+bitvec = { path = "bitvec" }
 blake2 = { version = "0.10.6", default-features = false }
 bytes = { version = "1.4.0", default-features = false }
 cbor-diag = { version = "0.1.11" }
@@ -92,6 +95,7 @@ hex = "0.4.3"
 hex-literal = "0.3.4"
 hkdf = "0.12.3"
 hmac = "0.12.1"
+hsm_api = { path = "hsm_api" }
 hsmcore = { path = "hsmcore" }
 http = "0.2.8"
 http-body-util = "0.1.0-rc.2"

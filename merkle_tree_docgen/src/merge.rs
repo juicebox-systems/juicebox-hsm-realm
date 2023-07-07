@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use hsmcore::bitvec;
-use hsmcore::bitvec::Bits;
+use bitvec::bitvec;
+use bitvec::Bits;
 use hsmcore::merkle::dot::{hash_id, DotGraph};
 use hsmcore::merkle::testing::rec_id;
 use hsmcore::merkle::KeyVec;

@@ -31,6 +31,7 @@ dependencies = [
  "agent_api",
  "anyhow",
  "async-trait",
+ "bitvec",
  "bytes",
  "cluster_api",
  "cluster_core",
@@ -299,6 +300,14 @@ name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
+
+[[package]]
+name = "bitvec"
+version = "0.2.0"
+dependencies = [
+ "juicebox-sdk-marshalling",
+ "serde",
+]
 
 [[package]]
 name = "blake2"
@@ -1385,6 +1394,7 @@ dependencies = [
  "ahash 0.8.3",
  "async-recursion",
  "async-trait",
+ "bitvec",
  "blake2",
  "cbor-diag",
  "chacha20poly1305",
@@ -1891,6 +1901,7 @@ dependencies = [
 name = "merkle_tree_docgen"
 version = "0.2.0"
 dependencies = [
+ "bitvec",
  "clap 4.3.0",
  "hsmcore",
  "juicebox-sdk-core",
@@ -2895,6 +2906,7 @@ dependencies = [
  "agent_api",
  "agent_core",
  "async-trait",
+ "bitvec",
  "clap 4.3.0",
  "futures",
  "gcp_auth",
@@ -2994,6 +3006,7 @@ version = "0.2.0"
 dependencies = [
  "agent_api",
  "agent_core",
+ "bitvec",
  "clap 4.3.0",
  "cluster_api",
  "cluster_core",

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::{dot_to_png, format_branch_label, DocTree, RecordIdHighlighter};
-use hsmcore::bitvec::Bits;
+use bitvec::Bits;
 use hsmcore::hsm::types::{OwnedRange, RecordId};
 use hsmcore::merkle::agent::Node;
 use hsmcore::merkle::dot::{hash_id, DotAttributes, DotGraph, DotVisitor, Visitor};

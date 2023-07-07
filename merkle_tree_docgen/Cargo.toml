@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bitvec = { workspace = true }
 clap = { workspace = true }
 hsmcore = { workspace = true, features = ["dot"] }
 juicebox-sdk-core = { workspace = true }

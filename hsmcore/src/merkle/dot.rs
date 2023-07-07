@@ -14,9 +14,9 @@ use std::{fs, io};
 
 use super::agent::{Node, StoreKey, TreeStoreError};
 use super::{Bits, Branch, Dir, HashOutput, KeyVec};
-use crate::bitvec::{BitVec, DisplayBits};
 use crate::hash::HashMap;
 use crate::hsm::types::RecordId;
+use bitvec::{BitVec, DisplayBits};
 use juicebox_sdk_core::types::RealmId;
 
 #[async_trait]

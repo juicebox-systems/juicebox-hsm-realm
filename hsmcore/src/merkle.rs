@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use self::agent::{DeltaBuilder, Node, NodeKey, StoreDelta};
 use self::proof::{ProofError, ReadProof, VerifiedProof};
-use super::bitvec::{BitSlice, BitVec, Bits};
 use super::hsm::types::{OwnedRange, RecordId};
+use bitvec::{BitSlice, BitVec, Bits};
 
 pub mod agent;
 mod base128;
@@ -359,9 +359,9 @@ mod tests {
         check_tree_invariants, new_empty_tree, read, rec_id, TestHash, TestHasher,
     };
     use super::{BitVec, Branch, HashOutput, InteriorNode, KeyVec, LeafNode};
-    use crate::bitvec;
-    use crate::bitvec::Bits;
     use crate::hsm::types::OwnedRange;
+    use bitvec::bitvec;
+    use bitvec::Bits;
     use juicebox_sdk_core::types::RealmId;
     use juicebox_sdk_marshalling as marshalling;
 

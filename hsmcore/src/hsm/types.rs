@@ -9,8 +9,8 @@ use digest::CtOutput;
 use serde::{Deserialize, Serialize};
 use subtle::{Choice, ConstantTimeEq};
 
-use super::super::bitvec::{BitVec, Bits};
 use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
+use bitvec::{BitVec, Bits};
 use juicebox_sdk_core::{
     requests::{NoiseRequest, NoiseResponse},
     types::{RealmId, SessionId},
@@ -1733,8 +1733,8 @@ mod test {
     use juicebox_sdk_marshalling as marshalling;
 
     use super::{DataHash, RecordId};
-    use crate::bitvec::Bits;
     use crate::merkle::HashOutput;
+    use bitvec::Bits;
 
     #[test]
     fn record_id_bitvec() {

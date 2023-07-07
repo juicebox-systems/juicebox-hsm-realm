@@ -229,12 +229,12 @@ pub mod tests {
 
     use crate::merkle::testing::{new_empty_tree, read, TestHash};
 
-    use super::super::super::bitvec;
     use super::super::super::hsm::types::{OwnedRange, RecordId};
     use super::super::tests::TEST_REALM;
     use super::super::{agent::StoreDelta, KeyVec};
-    use super::Bits;
     use super::{all_store_key_starts, encode_prefix_into, NodeKey, StoreKey};
+    use bitvec::bitvec;
+    use bitvec::Bits;
 
     #[test]
     fn store_key_encoding() {
