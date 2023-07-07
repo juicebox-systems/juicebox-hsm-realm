@@ -3,10 +3,11 @@ use cli_table::{print_stdout, Cell, Table};
 use reqwest::Url;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use agent_api::AgentService;
 use hsmcore::hsm::types::{GroupId, GroupStatus, HsmId, LeaderStatus, OwnedRange};
-use juicebox_hsm::realm::{agent::types::AgentService, store::bigtable::StoreClient};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
+use store::StoreClient;
 
 use crate::get_hsm_statuses;
 

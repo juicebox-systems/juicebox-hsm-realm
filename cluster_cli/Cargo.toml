@@ -1,6 +1,6 @@
 [package]
 name = "cluster_cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -10,19 +10,25 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+agent_api = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 cli-table = { workspace = true }
+cluster_api = { workspace = true }
+cluster_core = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 hsmcore = { workspace = true }
-juicebox_hsm = { path = ".." }
+google = { workspace = true }
 juicebox-sdk = { workspace = true }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
 juicebox-sdk-realm-auth = { workspace = true }
+observability = { workspace = true }
 reqwest = { workspace = true }
+secret_manager = { workspace = true }
 serde_json = { workspace = true }
+store = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

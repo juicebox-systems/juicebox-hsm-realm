@@ -13,24 +13,43 @@ dependencies = [
 ]
 
 [[package]]
-name = "agent_core"
-version = "0.1.0"
+name = "agent_api"
+version = "0.2.0"
 dependencies = [
+ "async-trait",
+ "hsmcore",
+ "juicebox-sdk-core",
+ "juicebox-sdk-networking",
+ "observability",
+ "serde",
+]
+
+[[package]]
+name = "agent_core"
+version = "0.2.0"
+dependencies = [
+ "agent_api",
  "anyhow",
+ "async-trait",
  "bytes",
- "dogstatsd",
+ "cluster_api",
+ "cluster_core",
  "expect-test",
  "futures",
+ "hdrhistogram",
  "hsmcore",
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
- "juicebox_hsm",
+ "observability",
  "opentelemetry",
  "opentelemetry-http",
  "reqwest",
+ "service_core",
+ "store",
  "tokio",
  "tracing 0.2.0",
  "tracing-opentelemetry",
@@ -439,9 +458,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.2.23"
+version = "3.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71655c45cb9845d3270c9d6df84ebe72b4dad3c2ba3f7023ad47c144e4e473a5"
+checksum = "4ea181bf566f71cb9a5d17a59e1871af638180a18fb0035c92ae62b705207123"
 dependencies = [
  "bitflags",
  "clap_lex 0.2.4",
@@ -511,20 +530,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "cluster_api"
+version = "0.2.0"
+dependencies = [
+ "hsmcore",
+ "juicebox-sdk",
+ "juicebox-sdk-networking",
+ "serde",
+]
+
+[[package]]
 name = "cluster_bench"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap 4.3.0",
  "dogstatsd",
  "futures",
+ "google",
  "hdrhistogram",
  "juicebox-sdk",
  "juicebox-sdk-networking",
- "juicebox-sdk-process-group",
  "juicebox-sdk-realm-auth",
- "juicebox_hsm",
+ "observability",
  "reqwest",
+ "secret_manager",
  "serde_json",
  "tokio",
  "tracing 0.2.0",
@@ -532,45 +562,75 @@ dependencies = [
 
 [[package]]
 name = "cluster_cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "agent_api",
  "anyhow",
  "clap 4.3.0",
  "cli-table",
+ "cluster_api",
+ "cluster_core",
  "expect-test",
  "futures",
+ "google",
  "hex",
  "hsmcore",
  "juicebox-sdk",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
  "juicebox-sdk-realm-auth",
- "juicebox_hsm",
+ "observability",
  "reqwest",
+ "secret_manager",
  "serde_json",
+ "store",
  "thiserror",
  "tokio",
  "tracing 0.2.0",
 ]
 
 [[package]]
-name = "cluster_manager"
-version = "0.0.0"
+name = "cluster_core"
+version = "0.2.0"
 dependencies = [
+ "agent_api",
+ "futures",
+ "hsmcore",
+ "juicebox-sdk-core",
+ "juicebox-sdk-networking",
+ "serde",
+ "store",
+ "thiserror",
+ "tokio",
+ "tonic",
+ "tracing 0.2.0",
+ "url",
+]
+
+[[package]]
+name = "cluster_manager"
+version = "0.2.0"
+dependencies = [
+ "agent_api",
  "anyhow",
  "bytes",
  "clap 4.3.0",
+ "cluster_api",
+ "cluster_core",
  "ctrlc",
  "expect-test",
  "futures",
+ "google",
  "hsmcore",
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
- "juicebox_hsm",
+ "observability",
  "opentelemetry",
  "opentelemetry-http",
+ "service_core",
+ "store",
  "tokio",
  "tonic",
  "tracing 0.2.0",
@@ -580,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "codegen"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "tonic-build",
 ]
@@ -632,7 +692,7 @@ dependencies = [
  "atty",
  "cast",
  "ciborium",
- "clap 3.2.23",
+ "clap 3.2.25",
  "criterion-plot",
  "itertools",
  "lazy_static",
@@ -681,9 +741,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.14"
+version = "0.9.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46bd5f3f85273295a9d14aedfb86f6aadbff6d8f5295c4a9edb08e819dcf5695"
+checksum = "ae211234986c545741a7dc064309f67ee1e5ad243d0e48335adc0484d960bcc7"
 dependencies = [
  "autocfg",
  "cfg-if",
@@ -888,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agent_core",
  "async-trait",
@@ -897,17 +957,20 @@ dependencies = [
  "entrust_api",
  "entrust_nfast",
  "expect-test",
+ "google",
  "hsmcore",
  "juicebox-sdk-marshalling",
- "juicebox_hsm",
+ "observability",
  "rand_core",
+ "service_core",
+ "store",
  "tokio",
  "tracing 0.2.0",
 ]
 
 [[package]]
 name = "entrust_api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "juicebox-sdk-marshalling",
  "serde",
@@ -915,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_hsm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "entrust_api",
  "hsmcore",
@@ -926,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_init"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap 4.3.0",
@@ -940,7 +1003,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_nfast"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex",
  "thiserror",
@@ -1162,6 +1225,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "google"
+version = "0.2.0"
+dependencies = [
+ "gcp_auth",
+ "http",
+ "prost",
+ "prost-types",
+ "secrecy",
+ "tonic",
+ "tower",
+ "tracing 0.2.0",
+]
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1303,7 +1380,7 @@ dependencies = [
 
 [[package]]
 name = "hsmcore"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ahash 0.8.3",
  "async-recursion",
@@ -1709,67 +1786,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "juicebox_hsm"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "async-recursion",
- "async-trait",
- "blake2",
- "bytes",
- "ciborium",
- "clap 4.3.0",
- "criterion",
- "ctrlc",
- "digest",
- "dogstatsd",
- "expect-test",
- "futures",
- "gcp_auth",
- "hashbrown 0.14.0",
- "hdrhistogram",
- "hex",
- "hex-literal",
- "hsmcore",
- "http",
- "http-body-util",
- "hyper 1.0.0-rc.3",
- "jsonwebtoken",
- "juicebox-sdk",
- "juicebox-sdk-core",
- "juicebox-sdk-marshalling",
- "juicebox-sdk-networking",
- "juicebox-sdk-process-group",
- "juicebox-sdk-realm-auth",
- "libc",
- "nix",
- "once_cell",
- "opentelemetry",
- "opentelemetry-http",
- "opentelemetry-otlp",
- "prost",
- "prost-types",
- "rand",
- "rand_chacha",
- "rand_core",
- "reqwest",
- "secrecy",
- "serde",
- "serde_json",
- "sharks",
- "tempfile",
- "thiserror",
- "tokio",
- "tonic",
- "tower",
- "tracing 0.2.0",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "url",
- "voprf",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1795,17 +1811,18 @@ checksum = "d59d8c75012853d2e872fb56bc8a2e53718e2cafe1a4c823143141c6d90c322f"
 
 [[package]]
 name = "load_balancer"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
+ "agent_api",
  "anyhow",
  "blake2",
  "bytes",
  "ciborium",
  "clap 4.3.0",
  "digest",
- "dogstatsd",
  "expect-test",
  "futures",
+ "google",
  "hsmcore",
  "http-body-util",
  "hyper 1.0.0-rc.3",
@@ -1813,13 +1830,16 @@ dependencies = [
  "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
  "juicebox-sdk-realm-auth",
- "juicebox_hsm",
+ "observability",
  "opentelemetry",
  "opentelemetry-http",
  "rustls 0.20.8",
  "rustls-pemfile",
+ "secret_manager",
  "serde",
+ "service_core",
  "signal-hook",
+ "store",
  "tokio",
  "tokio-rustls 0.23.4",
  "tracing 0.2.0",
@@ -1860,16 +1880,16 @@ checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 
 [[package]]
 name = "memoffset"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d61c719bcfbcf5d62b3a09efa6088de8c54bc0bfcd3ea7ae39fcc186108b8de1"
+checksum = "5a634b1c61a95585bd15607c6ab0c4e5b226e695ff2800ba0cdccddf208c406c"
 dependencies = [
  "autocfg",
 ]
 
 [[package]]
 name = "merkle_tree_docgen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap 4.3.0",
  "hsmcore",
@@ -1993,6 +2013,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "observability"
+version = "0.2.0"
+dependencies = [
+ "dogstatsd",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "tracing 0.2.0",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2110,9 +2142,9 @@ dependencies = [
 
 [[package]]
 name = "os_str_bytes"
-version = "6.4.1"
+version = "6.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b7820b9daea5457c9f21c69448905d723fbd21136ccf521748f23fd49e723ee"
+checksum = "4d5d9eb14b174ee9aa2ef96dc2b94637a2d4b6e7cb873c7e171f0c20c6cf3eac"
 
 [[package]]
 name = "overload"
@@ -2210,9 +2242,9 @@ checksum = "e3d7ddaed09e0eb771a79ab0fd64609ba0afb0a8366421957936ad14cbd13630"
 
 [[package]]
 name = "plotters"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2538b639e642295546c50fcd545198c9d64ee2a38620a628724a3b266d5fbf97"
+checksum = "d2c224ba00d7cadd4d5c660deaf2098e5e80e07846537c51f9cfa4be50c1fd45"
 dependencies = [
  "num-traits",
  "plotters-backend",
@@ -2223,15 +2255,15 @@ dependencies = [
 
 [[package]]
 name = "plotters-backend"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "193228616381fecdc1224c62e96946dfbc73ff4384fba576e052ff8c1bea8142"
+checksum = "9e76628b4d3a7581389a35d5b6e2139607ad7c75b17aed325f210aa91f4a9609"
 
 [[package]]
 name = "plotters-svg"
-version = "0.3.3"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9a81d2759aae1dae668f783c308bc5c8ebd191ff4184aaa1b37f65a6ae5a56f"
+checksum = "38f6d39893cca0701371e3c27294f09797214b86f1fb951b89ade8ec04e2abab"
 dependencies = [
  "plotters-backend",
 ]
@@ -2625,6 +2657,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "secret_manager"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "gcp_auth",
+ "google",
+ "http",
+ "juicebox-sdk-core",
+ "juicebox-sdk-realm-auth",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tonic",
+ "tracing 0.2.0",
+]
+
+[[package]]
 name = "security-framework"
 version = "2.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2694,6 +2746,20 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "service_core"
+version = "0.2.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "http",
+ "http-body-util",
+ "hyper 1.0.0-rc.3",
+ "juicebox-sdk-marshalling",
+ "juicebox-sdk-networking",
+ "tracing 0.2.0",
 ]
 
 [[package]]
@@ -2773,7 +2839,7 @@ dependencies = [
 
 [[package]]
 name = "software_agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agent_core",
  "anyhow",
@@ -2784,6 +2850,7 @@ dependencies = [
  "ctrlc",
  "expect-test",
  "futures",
+ "google",
  "hex",
  "hkdf",
  "hmac",
@@ -2792,9 +2859,11 @@ dependencies = [
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-marshalling",
- "juicebox_hsm",
+ "observability",
  "rand",
  "reqwest",
+ "service_core",
+ "store",
  "tokio",
  "tracing 0.2.0",
  "url",
@@ -2818,6 +2887,32 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "store"
+version = "0.2.0"
+dependencies = [
+ "agent_api",
+ "agent_core",
+ "async-trait",
+ "clap 4.3.0",
+ "futures",
+ "gcp_auth",
+ "google",
+ "hsmcore",
+ "http",
+ "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
+ "juicebox-sdk-process-group",
+ "observability",
+ "once_cell",
+ "rand_core",
+ "reqwest",
+ "tokio",
+ "tonic",
+ "tracing 0.2.0",
+ "url",
+]
 
 [[package]]
 name = "strsim"
@@ -2891,6 +2986,45 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be55cf8942feac5c765c2c993422806843c9a9a45d4d5c407ad6dd2ea95eb9b6"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "testing"
+version = "0.2.0"
+dependencies = [
+ "agent_api",
+ "agent_core",
+ "clap 4.3.0",
+ "cluster_api",
+ "cluster_core",
+ "criterion",
+ "ctrlc",
+ "digest",
+ "futures",
+ "google",
+ "hex",
+ "hex-literal",
+ "hsmcore",
+ "http",
+ "juicebox-sdk",
+ "juicebox-sdk-core",
+ "juicebox-sdk-networking",
+ "juicebox-sdk-process-group",
+ "juicebox-sdk-realm-auth",
+ "observability",
+ "once_cell",
+ "rand",
+ "rand_chacha",
+ "rand_core",
+ "reqwest",
+ "secret_manager",
+ "serde_json",
+ "sharks",
+ "store",
+ "tokio",
+ "tracing 0.2.0",
+ "url",
+ "voprf",
 ]
 
 [[package]]
@@ -3397,12 +3531,11 @@ dependencies = [
 
 [[package]]
 name = "walkdir"
-version = "2.3.2"
+version = "2.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "808cf2735cd4b6866113f648b791c6adc5714537bc222d9347bb203386ffda56"
+checksum = "36df944cda56c7d8d8b7496af378e6b16de9284591917d307c9b4d313c44e698"
 dependencies = [
  "same-file",
- "winapi",
  "winapi-util",
 ]
 

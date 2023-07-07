@@ -6,16 +6,15 @@ use std::time::Duration;
 use thiserror::Error;
 use tracing::{info, Level};
 
+use agent_api::AgentService;
+use cluster_core::discover_hsm_ids;
+use google::auth;
 use hsmcore::hsm::types::{GroupId, HsmId, OwnedRange, RecordId};
-use juicebox_hsm::google_auth;
-use juicebox_hsm::logging;
-use juicebox_hsm::metrics;
-use juicebox_hsm::realm::agent::types::AgentService;
-use juicebox_hsm::realm::cluster::discover_hsm_ids;
-use juicebox_hsm::realm::store::bigtable::{self, StoreClient};
-use juicebox_hsm::secret_manager::new_google_secret_manager;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
+use observability::{logging, metrics};
+use secret_manager::new_google_secret_manager;
+use store::{self, StoreClient};
 
 mod commands;
 mod statuses;
@@ -26,7 +25,7 @@ use statuses::get_hsm_statuses;
 #[derive(Parser)]
 struct Args {
     #[command(flatten)]
-    bigtable: bigtable::Args,
+    bigtable: store::Args,
 
     #[command(subcommand)]
     command: Command,
@@ -227,7 +226,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
     let auth_manager = if args.bigtable.needs_auth() || args.command.needs_secret_manager() {
         Some(
-            google_auth::from_adc()
+            auth::from_adc()
                 .await
                 .context("failed to initialize Google Cloud auth")?,
         )
@@ -254,9 +253,9 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .bigtable
         .connect_data(
             auth_manager,
-            bigtable::Options {
+            store::Options {
                 metrics,
-                ..bigtable::Options::default()
+                ..store::Options::default()
             },
         )
         .await

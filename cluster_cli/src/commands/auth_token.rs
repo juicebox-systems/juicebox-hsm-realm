@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Context};
 
-use juicebox_hsm::secret_manager::{tenant_secret_name, SecretManager};
 use juicebox_sdk::RealmId;
 use juicebox_sdk_realm_auth::{creation::create_token, Claims};
+use secret_manager::{tenant_secret_name, SecretManager};
 
 pub async fn mint_auth_token(
     secret_manager: &impl SecretManager,

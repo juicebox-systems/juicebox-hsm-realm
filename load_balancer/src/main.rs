@@ -8,14 +8,10 @@ use std::thread;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use juicebox_hsm::exec::panic;
-use juicebox_hsm::google_auth;
-use juicebox_hsm::logging;
-use juicebox_hsm::metrics;
-use juicebox_hsm::realm::store::bigtable;
-use juicebox_hsm::secret_manager::{
-    new_google_secret_manager, Periodic, SecretManager, SecretsFile,
-};
+use google::auth;
+use observability::{logging, metrics};
+use secret_manager::{new_google_secret_manager, Periodic, SecretManager, SecretsFile};
+use service_core::panic;
 
 mod cert;
 mod load_balancer;
@@ -27,7 +23,7 @@ use load_balancer::LoadBalancer;
 #[command(about = "An HTTP load balancer for one or more realms")]
 struct Args {
     #[command(flatten)]
-    bigtable: bigtable::Args,
+    bigtable: store::Args,
 
     /// The IP/port to listen on.
     #[arg(
@@ -101,7 +97,7 @@ async fn main() {
 
     let auth_manager = if args.bigtable.needs_auth() || args.secrets_file.is_none() {
         Some(
-            google_auth::from_adc()
+            auth::from_adc()
                 .await
                 .expect("failed to initialize Google Cloud auth"),
         )
@@ -113,9 +109,9 @@ async fn main() {
         .bigtable
         .connect_data(
             auth_manager.clone(),
-            bigtable::Options {
+            store::Options {
                 metrics: metrics.clone(),
-                ..bigtable::Options::default()
+                ..store::Options::default()
             },
         )
         .await

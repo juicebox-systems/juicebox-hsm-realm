@@ -1,25 +1,32 @@
 [package]
 name = "agent_core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+agent_api = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 bytes = { workspace = true }
-dogstatsd = { workspace = true }
+cluster_api = { workspace = true }
+cluster_core = { workspace = true }
 futures = { workspace = true }
+hdrhistogram = { workspace = true }
 hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-juicebox_hsm = { path = ".." }
 juicebox-sdk-core = { workspace = true }
+juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
+observability = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 reqwest = { workspace = true }
+service_core = { workspace = true }
+store = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }

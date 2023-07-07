@@ -5,11 +5,11 @@ use reqwest::Url;
 use std::fmt;
 use std::time::Duration;
 
+use agent_api::{AgentService, StatusRequest, StatusResponse};
 use hsmcore::hsm::types::{GroupStatus, HsmId, OwnedRange};
-use juicebox_hsm::realm::agent::types::{AgentService, StatusRequest, StatusResponse};
-use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self, RpcError};
+use store::{ServiceKind, StoreClient};
 
 pub async fn list_agents(c: &Client<AgentService>, store: &StoreClient) -> anyhow::Result<()> {
     let addresses: Vec<(Url, _)> = store

@@ -1,24 +1,30 @@
 [package]
 name = "cluster_manager"
-version = "0.0.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+agent_api = { workspace = true }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
+cluster_api = { workspace = true }
+cluster_core = { workspace = true }
 ctrlc = { workspace = true }
 futures = { workspace = true }
+google = { workspace = true }
 hsmcore = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-juicebox_hsm = { path = ".." }
 juicebox-sdk-core = { workspace = true }
+observability = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
+service_core = { workspace = true }
+store = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }

@@ -1,12 +1,12 @@
 [package]
 name = "software_agent"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-agent_core = { path = "../agent_core" }
+agent_core = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 blake2 = { workspace = true }
@@ -14,6 +14,7 @@ bytes = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true, features = ["termination"] }
 futures = { workspace = true }
+google = { workspace = true }
 hex = { workspace = true }
 hkdf = { workspace = true }
 hmac = { workspace = true }
@@ -21,10 +22,12 @@ hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-juicebox_hsm = { path = ".." }
 juicebox-sdk-marshalling = { workspace = true }
+observability = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
+service_core = { workspace = true }
+store = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }

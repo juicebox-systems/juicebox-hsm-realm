@@ -11,7 +11,7 @@ use std::path::Path;
 
 fn main() {
     let input = Path::new("googleapis");
-    let output = Path::new("src/autogen");
+    let output = Path::new("google/src/autogen");
 
     if let Err(e) = fs::metadata(input) {
         let cwd = env::current_dir().unwrap();

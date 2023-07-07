@@ -1,11 +1,10 @@
 use anyhow::anyhow;
 use reqwest::Url;
 
-use juicebox_hsm::realm::agent::types::AgentService;
-use juicebox_hsm::realm::cluster;
-use juicebox_hsm::realm::store::bigtable::StoreClient;
+use agent_api::AgentService;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
+use store::StoreClient;
 
 use crate::get_hsm_statuses;
 
@@ -30,7 +29,7 @@ pub async fn join_realm(
         return Err(anyhow!("could not find any available HSM that's already in the realm"));
     };
 
-    cluster::join_realm(agents_client, realm, agent_addresses, &existing).await?;
+    cluster_core::join_realm(agents_client, realm, agent_addresses, &existing).await?;
     println!("HSMs done joining realm");
     Ok(())
 }

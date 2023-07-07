@@ -21,32 +21,10 @@ use url::Url;
 
 mod append;
 mod commit;
+pub mod hsm;
+pub mod merkle;
 
-pub use juicebox_hsm::realm::agent::types;
-
-use append::{Append, AppendingState};
-use hsm_types::{
-    CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId, LogIndex,
-    TransferInProofs,
-};
-use hsmcore::hsm::types as hsm_types;
-use hsmcore::hsm::types::{AppRequestType, LogEntry};
-use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
-use hsmcore::merkle::Dir;
-use juicebox_hsm::logging::TracingSource;
-use juicebox_hsm::metrics::{self};
-use juicebox_hsm::metrics_tag as tag;
-use juicebox_hsm::realm::cluster::types as cluster_types;
-use juicebox_hsm::realm::cluster::types::ClusterService;
-use juicebox_hsm::realm::hsm::client::{HsmClient, Transport};
-use juicebox_hsm::realm::merkle;
-use juicebox_hsm::realm::rpc::{handle_rpc, HandlerError};
-use juicebox_hsm::realm::store::bigtable::{self, LogEntriesIter, ServiceKind};
-use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
-use juicebox_sdk_core::types::RealmId;
-use juicebox_sdk_networking::reqwest::{self, Client, ClientOptions};
-use juicebox_sdk_networking::rpc::{self, Rpc};
-use types::{
+use agent_api::{
     AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
     JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest,
@@ -55,6 +33,26 @@ use types::{
     TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
     TransferStatementResponse,
 };
+use append::{Append, AppendingState};
+use cluster_api::ClusterService;
+use hsm::{HsmClient, Transport};
+use hsm_types::{
+    CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId, LogIndex,
+    TransferInProofs,
+};
+use hsmcore::hsm::types as hsm_types;
+use hsmcore::hsm::types::{AppRequestType, LogEntry};
+use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
+use hsmcore::merkle::Dir;
+use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
+use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_networking::reqwest::{self, Client, ClientOptions};
+use juicebox_sdk_networking::rpc::{self, Rpc};
+use observability::logging::TracingSource;
+use observability::metrics::{self};
+use observability::metrics_tag as tag;
+use service_core::rpc::{handle_rpc, HandlerError};
+use store::{self, discovery, LogEntriesIter, ServiceKind};
 
 #[derive(Debug)]
 pub struct Agent<T>(Arc<AgentInner<T>>);
@@ -64,8 +62,8 @@ struct AgentInner<T> {
     name: String,
     boot_time: Instant,
     hsm: HsmClient<T>,
-    store: bigtable::StoreClient,
-    store_admin: bigtable::StoreAdminClient,
+    store: store::StoreClient,
+    store_admin: store::StoreAdminClient,
     peer_client: Client<AgentService>,
     state: Mutex<State>,
     metrics: metrics::Client,
@@ -128,8 +126,8 @@ impl<T: Transport + 'static> Agent<T> {
     pub fn new(
         name: String,
         hsm: HsmClient<T>,
-        store: bigtable::StoreClient,
-        store_admin: bigtable::StoreAdminClient,
+        store: store::StoreClient,
+        store_admin: store::StoreAdminClient,
         metrics: metrics::Client,
     ) -> Self {
         Self(Arc::new(AgentInner {
@@ -346,9 +344,9 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(managers) if !managers.is_empty() => {
                 let mc = reqwest::Client::<ClusterService>::new(ClientOptions::default());
                 for manager in &managers {
-                    let req = cluster_types::StepDownRequest::Hsm(id);
+                    let req = cluster_api::StepDownRequest::Hsm(id);
                     match rpc::send(&mc, &manager.0, req).await {
-                        Ok(cluster_types::StepDownResponse::Ok) => return,
+                        Ok(cluster_api::StepDownResponse::Ok) => return,
                         Ok(res) => {
                             warn!(?res, url=%manager.0, "stepdown not ok");
                         }
@@ -390,9 +388,9 @@ impl<T: Transport + 'static> Agent<T> {
                     .await
                 {
                     warn!(err = ?e, "failed to register with service discovery");
-                    sleep(bigtable::discovery::REGISTER_FAILURE_DELAY).await;
+                    sleep(discovery::REGISTER_FAILURE_DELAY).await;
                 } else {
-                    sleep(bigtable::discovery::REGISTER_INTERVAL).await;
+                    sleep(discovery::REGISTER_INTERVAL).await;
                 }
             }
         });
@@ -560,10 +558,10 @@ impl<T: Transport + 'static> Agent<T> {
                 self.finish_new_group(realm, group, vec![hsm_id]);
                 Ok(Response::Ok { realm, group })
             }
-            Err(bigtable::AppendError::Grpc(_)) => Ok(Response::NoStore),
-            Err(bigtable::AppendError::MerkleWrites(_)) => todo!(),
-            Err(bigtable::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
-            Err(bigtable::AppendError::MerkleDeletes(_)) => {
+            Err(store::AppendError::Grpc(_)) => Ok(Response::NoStore),
+            Err(store::AppendError::MerkleWrites(_)) => todo!(),
+            Err(store::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
+            Err(store::AppendError::MerkleDeletes(_)) => {
                 unreachable!("no merkle nodes to delete")
             }
         }
@@ -671,10 +669,10 @@ impl<T: Transport + 'static> Agent<T> {
                 self.finish_new_group(realm, group, configuration);
                 Ok(Response::Ok { group, statement })
             }
-            Err(bigtable::AppendError::Grpc(_)) => Ok(Response::NoStore),
-            Err(bigtable::AppendError::MerkleWrites(_)) => unreachable!("no merkle writes"),
-            Err(bigtable::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
-            Err(bigtable::AppendError::MerkleDeletes(_)) => unreachable!("no merkle deletes"),
+            Err(store::AppendError::Grpc(_)) => Ok(Response::NoStore),
+            Err(store::AppendError::MerkleWrites(_)) => unreachable!("no merkle writes"),
+            Err(store::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
+            Err(store::AppendError::MerkleDeletes(_)) => unreachable!("no merkle deletes"),
         }
     }
 
@@ -899,7 +897,7 @@ impl<T: Transport + 'static> Agent<T> {
                     Some(id) => id,
                     None => return Ok(Response::NotOwner),
                 };
-                match merkle::agent::read(
+                match merkle::read(
                     &request.realm,
                     store,
                     &partition.range,
@@ -1053,7 +1051,7 @@ impl<T: Transport + 'static> Agent<T> {
                         }
                     };
 
-                    let transferring_in_proof_req = merkle::agent::read_tree_side(
+                    let transferring_in_proof_req = merkle::read_tree_side(
                         &request.realm,
                         store,
                         &request.transferring.range,
@@ -1061,7 +1059,7 @@ impl<T: Transport + 'static> Agent<T> {
                         proof_dir,
                         &tags,
                     );
-                    let owned_range_proof_req = merkle::agent::read_tree_side(
+                    let owned_range_proof_req = merkle::read_tree_side(
                         &request.realm,
                         store,
                         &partition.range,
@@ -1320,7 +1318,7 @@ impl<T: Transport + 'static> Agent<T> {
                 return Err(Response::NotLeader); // TODO: is that the right error?
             };
 
-            let proof = match merkle::agent::read(
+            let proof = match merkle::read(
                 &request.realm,
                 &self.0.store,
                 &partition.range,

@@ -19,16 +19,15 @@ use tracing::{info, instrument, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
+use agent_api::AgentService;
 use hsm_types::GroupId;
 use hsmcore::hsm::types as hsm_types;
-use juicebox_hsm::realm::agent::types::AgentService;
-use juicebox_hsm::realm::cluster::types;
-use juicebox_hsm::realm::rpc::handle_rpc;
-use juicebox_hsm::realm::store::bigtable::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
-use juicebox_hsm::realm::store::bigtable::{ServiceKind, StoreClient};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_networking::rpc::Rpc;
+use service_core::rpc::handle_rpc;
+use store::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
+use store::{ServiceKind, StoreClient};
 
 mod leader;
 mod stepdown;
@@ -148,7 +147,7 @@ impl Service<Request<IncomingBody>> for Manager {
                         .unwrap());
                 };
                 match path {
-                    types::StepDownRequest::PATH => {
+                    cluster_api::StepDownRequest::PATH => {
                         handle_rpc(&manager, request, Self::handle_leader_stepdown).await
                     }
                     _ => Ok(Response::builder()

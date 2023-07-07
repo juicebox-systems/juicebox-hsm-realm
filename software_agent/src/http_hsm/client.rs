@@ -3,7 +3,7 @@ use juicebox_sdk_marshalling::{self as marshalling, DeserializationError, Serial
 use std::fmt::Debug;
 use url::Url;
 
-use juicebox_hsm::realm::hsm::client::{HsmRpcError, Transport};
+use agent_core::hsm::{HsmRpcError, Transport};
 
 #[derive(Clone)]
 pub struct HsmHttpClient {

@@ -1,14 +1,13 @@
 use std::time::{Duration, Instant};
 use tracing::warn;
 
+use super::hsm::Transport;
+use agent_api::StepDownRequest;
 use hsmcore::hsm::types::{DataHash, GroupId, LogEntry, LogIndex};
 use hsmcore::merkle::agent::StoreDelta;
-use juicebox_hsm::metrics::Tag;
-use juicebox_hsm::metrics_tag as tag;
-use juicebox_hsm::realm::agent::types::StepDownRequest;
-use juicebox_hsm::realm::hsm::client::Transport;
-use juicebox_hsm::realm::store::bigtable;
 use juicebox_sdk_core::types::RealmId;
+use observability::metrics::Tag;
+use observability::metrics_tag as tag;
 
 use super::Agent;
 use AppendingState::*;
@@ -85,7 +84,7 @@ impl<T: Transport + 'static> Agent<T> {
 
             let start = Instant::now();
             match self.0.store.append(&realm, &group, &batch, delta).await {
-                Err(bigtable::AppendError::LogPrecondition) => {
+                Err(store::AppendError::LogPrecondition) => {
                     warn!(
                         name = self.0.name,
                         "detected dueling leaders, stepping down"

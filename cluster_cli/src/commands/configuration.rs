@@ -2,14 +2,14 @@ use anyhow::anyhow;
 use reqwest::Url;
 use std::collections::HashMap;
 
+use agent_api::AgentService;
 use hsmcore::hsm::types::PublicKey;
-use juicebox_hsm::realm::agent::types::AgentService;
-use juicebox_hsm::realm::store::bigtable::StoreClient;
 use juicebox_sdk::Configuration;
 use juicebox_sdk::PinHashingMode;
 use juicebox_sdk::Realm;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
+use store::StoreClient;
 
 use crate::get_hsm_statuses;
 

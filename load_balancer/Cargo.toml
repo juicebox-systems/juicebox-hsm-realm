@@ -1,33 +1,37 @@
 [package]
 name = "load_balancer"
-version = "0.0.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+agent_api = { workspace = true }
 anyhow = { workspace = true }
 blake2 = { workspace = true }
 bytes = { workspace = true }
 ciborium = { workspace = true }
 clap = { workspace = true }
-dogstatsd = { workspace = true }
 digest = { workspace = true }
 futures = { workspace = true }
+google = { workspace = true }
 hsmcore = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-juicebox_hsm = { path = ".." }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
 juicebox-sdk-realm-auth = { workspace = true }
+observability = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
+secret_manager = { workspace = true }
 serde = { workspace = true }
+service_core = { workspace = true }
 signal-hook = { workspace = true }
+store = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tracing = { workspace = true }

@@ -6,20 +6,19 @@ use tracing::{info, warn};
 use url::Url;
 
 use super::{ManagementGrant, Manager};
+use cluster_core::{discover_hsm_ids, get_hsm_statuses};
 use hsm_types::{GroupId, HsmId, LogIndex};
 use hsmcore::hsm::types as hsm_types;
-use juicebox_hsm::realm::agent::types as agent_types;
-use juicebox_hsm::realm::cluster::{discover_hsm_ids, get_hsm_statuses, types};
-use juicebox_hsm::realm::rpc::HandlerError;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::rpc::{self, RpcError};
+use service_core::rpc::HandlerError;
 
 impl Manager {
     pub(super) async fn handle_leader_stepdown(
         &self,
-        req: types::StepDownRequest,
-    ) -> Result<types::StepDownResponse, HandlerError> {
-        type Response = types::StepDownResponse;
+        req: cluster_api::StepDownRequest,
+    ) -> Result<cluster_api::StepDownResponse, HandlerError> {
+        type Response = cluster_api::StepDownResponse;
 
         let addresses: HashMap<HsmId, Url> =
             match discover_hsm_ids(&self.0.store, &self.0.agents).await {
@@ -56,7 +55,7 @@ impl Manager {
             match rpc::send(
                 &self.0.agents,
                 &stepdown.url,
-                agent_types::StepDownRequest {
+                agent_api::StepDownRequest {
                     realm: stepdown.realm,
                     group: stepdown.group,
                 },
@@ -64,15 +63,11 @@ impl Manager {
             .await
             {
                 Err(err) => return Ok(Response::RpcError(err)),
-                Ok(agent_types::StepDownResponse::NoHsm) => return Ok(Response::NoHsm),
-                Ok(agent_types::StepDownResponse::InvalidGroup) => {
-                    return Ok(Response::InvalidGroup)
-                }
-                Ok(agent_types::StepDownResponse::InvalidRealm) => {
-                    return Ok(Response::InvalidRealm)
-                }
-                Ok(agent_types::StepDownResponse::NotLeader) => return Ok(Response::NotLeader),
-                Ok(agent_types::StepDownResponse::Ok { last }) => {
+                Ok(agent_api::StepDownResponse::NoHsm) => return Ok(Response::NoHsm),
+                Ok(agent_api::StepDownResponse::InvalidGroup) => return Ok(Response::InvalidGroup),
+                Ok(agent_api::StepDownResponse::InvalidRealm) => return Ok(Response::InvalidRealm),
+                Ok(agent_api::StepDownResponse::NotLeader) => return Ok(Response::NotLeader),
+                Ok(agent_api::StepDownResponse::Ok { last }) => {
                     if let Err(err) = self
                         .assign_leader_post_stepdown(&addresses, &grant, stepdown, Some(last))
                         .await
@@ -112,23 +107,23 @@ impl Manager {
 
     async fn resolve_stepdowns(
         &self,
-        req: &types::StepDownRequest,
+        req: &cluster_api::StepDownRequest,
         addresses: &HashMap<HsmId, Url>,
-    ) -> Result<Vec<Stepdown>, types::StepDownResponse> {
+    ) -> Result<Vec<Stepdown>, cluster_api::StepDownResponse> {
         match req {
-            types::StepDownRequest::Hsm(hsm) => match addresses.get(hsm) {
+            cluster_api::StepDownRequest::Hsm(hsm) => match addresses.get(hsm) {
                 None => {
                     warn!(?hsm, "failed to find HSM in service discovery");
-                    Err(types::StepDownResponse::InvalidHsm)
+                    Err(cluster_api::StepDownResponse::InvalidHsm)
                 }
 
                 Some(url) => {
-                    match rpc::send(&self.0.agents, url, agent_types::StatusRequest {}).await {
+                    match rpc::send(&self.0.agents, url, agent_api::StatusRequest {}).await {
                         Err(err) => {
                             warn!(?err, %url, ?hsm, "failed to get status of HSM");
-                            Err(types::StepDownResponse::RpcError(err))
+                            Err(cluster_api::StepDownResponse::RpcError(err))
                         }
-                        Ok(agent_types::StatusResponse {
+                        Ok(agent_api::StatusResponse {
                             hsm:
                                 Some(hsm_types::StatusResponse {
                                     id,
@@ -157,9 +152,9 @@ impl Manager {
                 }
             },
 
-            types::StepDownRequest::Group { realm, group } => {
+            cluster_api::StepDownRequest::Group { realm, group } => {
                 Ok(join_all(addresses.iter().map(|(_hsm, url)| {
-                    rpc::send(&self.0.agents, url, agent_types::StatusRequest {})
+                    rpc::send(&self.0.agents, url, agent_api::StatusRequest {})
                         .map(|r| (r, url.clone()))
                 }))
                 .await

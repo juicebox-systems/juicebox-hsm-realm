@@ -2,13 +2,11 @@ use clap::Parser;
 use std::{net::SocketAddr, time::Duration};
 use tracing::info;
 
-use juicebox_hsm::clap_parsers::{parse_duration, parse_listen};
-use juicebox_hsm::exec::panic;
-use juicebox_hsm::google_auth;
-use juicebox_hsm::logging;
-use juicebox_hsm::metrics;
-use juicebox_hsm::realm::store::bigtable;
+use google::auth;
 use manager::Manager;
+use observability::{logging, metrics};
+use service_core::clap_parsers::{parse_duration, parse_listen};
+use service_core::panic;
 
 mod manager;
 
@@ -16,7 +14,7 @@ mod manager;
 #[command(about = "Management controller for Juicebox Clusters")]
 struct Args {
     #[command(flatten)]
-    bigtable: bigtable::Args,
+    bigtable: store::Args,
 
     /// The IP/port to listen on.
     #[arg(
@@ -51,7 +49,7 @@ async fn main() {
 
     let auth_manager = if args.bigtable.needs_auth() {
         Some(
-            google_auth::from_adc()
+            auth::from_adc()
                 .await
                 .expect("failed to initialize Google Cloud auth"),
         )
@@ -75,9 +73,9 @@ async fn main() {
         .bigtable
         .connect_data(
             auth_manager,
-            bigtable::Options {
+            store::Options {
                 metrics,
-                ..bigtable::Options::default()
+                ..store::Options::default()
             },
         )
         .await

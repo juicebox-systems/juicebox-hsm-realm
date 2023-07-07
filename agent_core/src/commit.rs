@@ -8,23 +8,22 @@ use tokio::time::sleep;
 use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use super::types::{ReadCapturedRequest, ReadCapturedResponse};
+use super::hsm::Transport;
 use super::Agent;
+use agent_api::{AgentService, ReadCapturedRequest, ReadCapturedResponse};
+use cluster_core::discover_hsm_ids;
 use hsmcore::hsm::commit::HsmElection;
 use hsmcore::hsm::types::{
     Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole, HsmId, LogIndex,
     PersistStateRequest, PersistStateResponse,
 };
-use juicebox_hsm::logging::{Spew, TracingSource};
-use juicebox_hsm::metrics_tag as tag;
-use juicebox_hsm::realm::agent::types::AgentService;
-use juicebox_hsm::realm::cluster::discover_hsm_ids;
-use juicebox_hsm::realm::hsm::client::Transport;
-use juicebox_hsm::realm::store::bigtable::StoreClient;
 use juicebox_sdk_core::requests::NoiseResponse;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc;
+use observability::logging::{Spew, TracingSource};
+use observability::metrics_tag as tag;
+use store::StoreClient;
 
 #[derive(Debug, Eq, PartialEq)]
 enum CommitterStatus {

@@ -1,23 +1,26 @@
 [package]
 name = "entrust_agent"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-agent_core = { path = "../agent_core" }
+agent_core = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true }
-entrust_api = { path = "../entrust_api" }
-entrust_nfast = { path = "../entrust_nfast" }
+entrust_api = { workspace = true }
+entrust_nfast = { workspace = true }
+google = { workspace = true }
 hsmcore = { workspace = true }
-juicebox_hsm = { path = ".." }
+juicebox-sdk-marshalling = { workspace = true }
+observability = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }
+service_core = { workspace = true }
+store = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-juicebox-sdk-marshalling = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }
