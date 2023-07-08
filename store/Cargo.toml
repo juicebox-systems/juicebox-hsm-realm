@@ -9,12 +9,12 @@ edition = "2021"
 agent_api = { workspace = true }
 async-trait = { workspace = true }
 bitvec = { workspace = true }
+cache = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 gcp_auth = { workspace = true }
 google = { workspace = true }
 hsm_api = { workspace = true }
-hsmcore = { workspace = true }
 http = { workspace = true }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
@@ -25,6 +25,7 @@ tracing = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
+hsmcore = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }

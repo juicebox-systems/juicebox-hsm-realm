@@ -18,7 +18,6 @@ use agent_api::merkle::{TreeStoreError, TreeStoreReader};
 use bitvec::Bits;
 use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey};
 use hsm_api::{DataHash, GroupId, RecordId};
-use hsmcore::hsm::cache;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
 use observability::metrics;

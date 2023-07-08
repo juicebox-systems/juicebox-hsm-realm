@@ -11,6 +11,7 @@ async-recursion = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 bitvec = { workspace = true }
 blake2 = { workspace = true }
+cache = { workspace = true }
 chacha20poly1305 = { workspace = true }
 ciborium = { workspace = true }
 ciborium-io = { workspace = true }

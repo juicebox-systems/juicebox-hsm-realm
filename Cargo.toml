@@ -4,6 +4,7 @@ members = [
     "agent_api",
     "agent_core",
     "bitvec",
+    "cache",
     "cluster_api",
     "cluster_bench",
     "cluster_cli",
@@ -32,6 +33,7 @@ default-members = [
     "agent_api",
     "agent_core",
     "bitvec",
+    "cache",
     "cluster_api",
     "cluster_bench",
     "cluster_cli",
@@ -66,6 +68,7 @@ async-trait = "0.1.64"
 bitvec = { path = "bitvec" }
 blake2 = { version = "0.10.6", default-features = false }
 bytes = { version = "1.4.0", default-features = false }
+cache = { path = "cache" }
 cbor-diag = { version = "0.1.11" }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
     "alloc",

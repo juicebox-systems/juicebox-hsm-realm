@@ -356,6 +356,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89b2fd2a0dcf38d7971e2194b6b6eebab45ae01067456a7fd93d5547a61b70be"
 
 [[package]]
+name = "cache"
+version = "0.2.0"
+dependencies = [
+ "hashbrown 0.14.0",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1411,6 +1418,7 @@ dependencies = [
  "async-trait",
  "bitvec",
  "blake2",
+ "cache",
  "cbor-diag",
  "chacha20poly1305",
  "ciborium",
@@ -2925,6 +2933,7 @@ dependencies = [
  "agent_core",
  "async-trait",
  "bitvec",
+ "cache",
  "clap 4.3.0",
  "futures",
  "gcp_auth",
