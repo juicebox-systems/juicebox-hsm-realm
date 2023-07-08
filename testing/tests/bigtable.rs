@@ -5,9 +5,9 @@ use store::discovery;
 
 use agent_api::merkle::TreeStoreReader;
 use bitvec::BitVec;
-use hsmcore::hsm::types::{EntryMac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId};
+use hsm_api::merkle::{NodeKey, StoreDelta};
+use hsm_api::{EntryMac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId};
 use hsmcore::hsm::MerkleHasher;
-use hsmcore::merkle::agent::{NodeKey, StoreDelta};
 use hsmcore::merkle::Tree;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_process_group::ProcessGroup;

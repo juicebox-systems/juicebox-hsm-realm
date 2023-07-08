@@ -3,11 +3,10 @@ pub mod merkle;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use hsm_types::{
+use hsm_api::{
     GroupConfigurationStatement, GroupId, HsmId, HsmRealmStatement, LogIndex, OwnedRange,
     Partition, RecordId, TransferNonce, TransferStatement,
 };
-use hsmcore::hsm::types as hsm_types;
 use juicebox_sdk_core::{
     requests::{ClientRequestKind, NoiseRequest, NoiseResponse},
     types::{RealmId, SessionId},
@@ -30,7 +29,7 @@ pub struct StatusRequest {}
 #[derive(Debug, Deserialize, Serialize)]
 pub struct StatusResponse {
     pub uptime: Duration,
-    pub hsm: Option<hsm_types::StatusResponse>,
+    pub hsm: Option<hsm_api::StatusResponse>,
 }
 
 impl Rpc<AgentService> for NewRealmRequest {
@@ -177,7 +176,7 @@ pub struct ReadCapturedRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum ReadCapturedResponse {
-    Ok(Option<hsm_types::Captured>),
+    Ok(Option<hsm_api::Captured>),
 }
 
 impl Rpc<AgentService> for TransferOutRequest {

@@ -15,6 +15,7 @@ cluster_api = { workspace = true }
 cluster_core = { workspace = true }
 futures = { workspace = true }
 hdrhistogram = { workspace = true }
+hsm_api = { workspace = true }
 hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }

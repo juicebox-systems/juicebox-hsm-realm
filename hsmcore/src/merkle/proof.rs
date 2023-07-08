@@ -3,14 +3,13 @@ extern crate alloc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::mem;
-use serde::{Deserialize, Serialize};
 
-use super::super::hsm::types::{OwnedRange, RecordId};
-use super::agent::Node;
 use super::overlay::TreeOverlay;
-use super::Bits;
-use super::{Dir, HashOutput, InteriorNode, KeySlice, KeyVec, LeafNode, NodeHasher};
+use super::NodeHasher;
+use super::{Bits, InteriorNodeExt, NodeHashBuilder};
 use crate::hash::{HashExt, HashMap, NotRandomized};
+use hsm_api::merkle::{Dir, HashOutput, InteriorNode, KeySlice, KeyVec, LeafNode, Node, ReadProof};
+use hsm_api::{OwnedRange, RecordId};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProofError {
@@ -19,179 +18,165 @@ pub enum ProofError {
     Stale,
 }
 
-/// A proof that a record exists or doesn't exist in a Merkle tree.
-///
-/// This includes the record itself, if it exists.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ReadProof<HO> {
-    /// The lookup key in the Merkle tree.
-    pub key: RecordId,
-    /// The range of record IDs stored in the tree that the proof was read
-    /// from.
-    pub range: OwnedRange,
-    /// The leaf containing the record, if it exists.
-    pub leaf: Option<LeafNode>,
-    /// The path in root-to-leaf order of the nodes traversed to get to the
-    /// leaf. If the leaf doesn't exist, this includes the furthest existing
-    /// node in the path of the key.
-    pub path: Vec<InteriorNode<HO>>,
-    /// The hash of the root node.
-    pub root_hash: HO,
+pub fn new<HO>(
+    key: RecordId,
+    range: OwnedRange,
+    root_hash: HO,
+    root: InteriorNode<HO>,
+) -> ReadProof<HO> {
+    ReadProof {
+        key,
+        range,
+        root_hash,
+        leaf: None,
+        path: vec![root],
+    }
 }
 
-impl<HO: HashOutput> ReadProof<HO> {
-    pub fn new(key: RecordId, range: OwnedRange, root_hash: HO, root: InteriorNode<HO>) -> Self {
-        ReadProof {
-            key,
-            range,
-            root_hash,
-            leaf: None,
-            path: vec![root],
-        }
+// Verify the ReadProof. This includes the hash verification and the key
+// path check. It returns a VerifiedProof that can be used for subsequent
+// operations that need the proof. The returned proof has been updated to
+// reflect that latest state of the tree from the overlay.
+pub fn verify<H: NodeHasher>(
+    proof: ReadProof<H::Output>,
+    overlay: &TreeOverlay<H::Output>,
+) -> Result<VerifiedProof<H::Output>, ProofError> {
+    // Ensure the root hash is one the overlay knows about.
+    if !overlay.roots.contains(&proof.root_hash) {
+        return Err(ProofError::Stale);
     }
+    verify_proof::<H>(&proof)
+        .map(|leaf_hash| VerifiedProof::new_make_latest(proof, overlay, leaf_hash))
+}
 
-    // Verify the ReadProof. This includes the hash verification and the key
-    // path check. It returns a VerifiedProof that can be used for subsequent
-    // operations that need the proof. The returned proof has been updated to
-    // reflect that latest state of the tree from the overlay.
-    pub fn verify<H: NodeHasher<Output = HO>>(
-        self,
-        overlay: &TreeOverlay<H::Output>,
-    ) -> Result<VerifiedProof<H::Output>, ProofError> {
-        // Ensure the root hash is one the overlay knows about.
-        if !overlay.roots.contains(&self.root_hash) {
-            return Err(ProofError::Stale);
-        }
-        self.verify_proof::<H>()
-            .map(|leaf_hash| VerifiedProof::new_make_latest(self, overlay, leaf_hash))
+// Verify the ReadProof. This includes the hash verification and the key
+// path check. It returns a VerifiedProof that can be used for subsequent
+// operations that need the proof.
+pub fn verify_foreign_proof<H: NodeHasher>(
+    proof: ReadProof<H::Output>,
+) -> Result<VerifiedProof<H::Output>, ProofError> {
+    verify_proof::<H>(&proof).map(|_| VerifiedProof::new_already_latest(proof))
+}
+
+// Returns the leaf hash
+fn verify_proof<H: NodeHasher>(
+    proof: &ReadProof<H::Output>,
+) -> Result<Option<H::Output>, ProofError> {
+    // Do some basic sanity checks of the Proof struct first.
+    if proof.path.is_empty() || !proof.range.contains(&proof.key) {
+        return Err(ProofError::Invalid);
     }
+    verify_path::<H>(
+        proof,
+        proof.key.to_bitvec().as_ref(),
+        true,
+        proof.root_hash,
+        &proof.path[0],
+        &proof.path[1..],
+    )
+    .map(|(_, leaf)| leaf)
+}
 
-    // Verify the ReadProof. This includes the hash verification and the key
-    // path check. It returns a VerifiedProof that can be used for subsequent
-    // operations that need the proof.
-    pub fn verify_foreign_proof<H: NodeHasher<Output = HO>>(
-        self,
-    ) -> Result<VerifiedProof<H::Output>, ProofError> {
-        self.verify_proof::<H>()
-            .map(|_| VerifiedProof::new_already_latest(self))
-    }
-
-    // Returns the leaf hash
-    fn verify_proof<H: NodeHasher<Output = HO>>(&self) -> Result<Option<H::Output>, ProofError> {
-        // Do some basic sanity checks of the Proof struct first.
-        if self.path.is_empty() || !self.range.contains(&self.key) {
-            return Err(ProofError::Invalid);
-        }
-        self.verify_path::<H>(
-            self.key.to_bitvec().as_ref(),
-            true,
-            self.root_hash,
-            &self.path[0],
-            &self.path[1..],
-        )
-        .map(|(_, leaf)| leaf)
-    }
-
-    // Walks down the path and
-    //      1. verifies the key & path match.
-    //      2. verifies the terminal conditions are correct.
-    //          a. If there's a leaf the last interior node should have a branch to it.
-    //          b. If there's no leaf, the last interior node should not have a branch
-    //             that could possibly lead to the key.
-    //      3. recalculates & verifies the hashes on the way back up.
-    fn verify_path<H: NodeHasher<Output = HO>>(
-        &self,
-        key_tail: KeySlice,
-        is_root: bool,
-        hash: H::Output,
-        node: &InteriorNode<H::Output>,
-        path_tail: &[InteriorNode<H::Output>],
-    ) -> Result<(H::Output, Option<H::Output>), ProofError> {
-        let dir = Dir::from(key_tail[0]);
-        match node.branch(dir).as_ref() {
-            None => {
-                match &self.leaf {
-                    Some(_) => {
-                        // If there's no branch, there can't be a leaf.
-                        Err(ProofError::Invalid)
+// Walks down the path and
+//      1. verifies the key & path match.
+//      2. verifies the terminal conditions are correct.
+//          a. If there's a leaf the last interior node should have a branch to it.
+//          b. If there's no leaf, the last interior node should not have a branch
+//             that could possibly lead to the key.
+//      3. recalculates & verifies the hashes on the way back up.
+fn verify_path<H: NodeHasher>(
+    proof: &ReadProof<H::Output>,
+    key_tail: KeySlice,
+    is_root: bool,
+    hash: H::Output,
+    node: &InteriorNode<H::Output>,
+    path_tail: &[InteriorNode<H::Output>],
+) -> Result<(H::Output, Option<H::Output>), ProofError> {
+    let dir = Dir::from(key_tail[0]);
+    match node.branch(dir).as_ref() {
+        None => {
+            match &proof.leaf {
+                Some(_) => {
+                    // If there's no branch, there can't be a leaf.
+                    Err(ProofError::Invalid)
+                }
+                None => {
+                    // We reached an empty branch and there's no existing leaf.
+                    // We should be at the bottom of the path.
+                    if !path_tail.is_empty() {
+                        return Err(ProofError::Invalid);
                     }
-                    None => {
-                        // We reached an empty branch and there's no existing leaf.
-                        // We should be at the bottom of the path.
-                        if !path_tail.is_empty() {
+                    // verify this nodes hash.
+                    let ch = InteriorNode::calc_hash::<H>(
+                        &proof.range,
+                        is_root,
+                        &node.left,
+                        &node.right,
+                    );
+                    if ch != hash {
+                        return Err(ProofError::Invalid);
+                    }
+                    Ok((ch, None))
+                }
+            }
+        }
+        Some(b) => {
+            if path_tail.is_empty() {
+                // This is the last InteriorNode on the path. This should point
+                // to the leaf, or to a different key altogether.
+                match &proof.leaf {
+                    Some(lh) => {
+                        // The branch prefix should point to the remainder of the key
+                        // and it should have the leaf's hash.
+                        let leaf_hash = NodeHashBuilder::<H>::Leaf(&proof.key, &lh.value).build();
+                        if (key_tail != b.prefix) || (leaf_hash != b.hash) {
                             return Err(ProofError::Invalid);
                         }
-                        // verify this nodes hash.
-                        let ch = InteriorNode::calc_hash::<H>(
-                            &self.range,
+                        let (nh, _) =
+                            node.with_new_child_hash::<H>(&proof.range, is_root, dir, leaf_hash);
+                        if nh != hash {
+                            return Err(ProofError::Invalid);
+                        }
+                        Ok((nh, Some(leaf_hash)))
+                    }
+                    None => {
+                        // This branch should not be able to lead to the key.
+                        if key_tail.starts_with(&b.prefix) {
+                            return Err(ProofError::Invalid);
+                        }
+                        let nh = InteriorNode::calc_hash::<H>(
+                            &proof.range,
                             is_root,
                             &node.left,
                             &node.right,
                         );
-                        if ch != hash {
+                        if nh != hash {
                             return Err(ProofError::Invalid);
                         }
-                        Ok((ch, None))
+                        Ok((nh, None))
                     }
                 }
-            }
-            Some(b) => {
-                if path_tail.is_empty() {
-                    // This is the last InteriorNode on the path. This should point
-                    // to the leaf, or to a different key altogether.
-                    match &self.leaf {
-                        Some(lh) => {
-                            // The branch prefix should point to the remainder of the key
-                            // and it should have the leaf's hash.
-                            let leaf_hash = LeafNode::calc_hash::<H>(&self.key, &lh.value);
-                            if (key_tail != b.prefix) || (leaf_hash != b.hash) {
-                                return Err(ProofError::Invalid);
-                            }
-                            let (nh, _) =
-                                node.with_new_child_hash::<H>(&self.range, is_root, dir, leaf_hash);
-                            if nh != hash {
-                                return Err(ProofError::Invalid);
-                            }
-                            Ok((nh, Some(leaf_hash)))
-                        }
-                        None => {
-                            // This branch should not be able to lead to the key.
-                            if key_tail.starts_with(&b.prefix) {
-                                return Err(ProofError::Invalid);
-                            }
-                            let nh = InteriorNode::calc_hash::<H>(
-                                &self.range,
-                                is_root,
-                                &node.left,
-                                &node.right,
-                            );
-                            if nh != hash {
-                                return Err(ProofError::Invalid);
-                            }
-                            Ok((nh, None))
-                        }
-                    }
-                } else {
-                    // keep going down
-                    if key_tail.slice(..b.prefix.len()) != b.prefix {
-                        return Err(ProofError::Invalid);
-                    }
-                    let (child_h, leaf_h) = self.verify_path::<H>(
-                        key_tail.slice(b.prefix.len()..),
-                        false,
-                        b.hash,
-                        &path_tail[0],
-                        &path_tail[1..],
-                    )?;
-                    if child_h != b.hash {
-                        return Err(ProofError::Invalid);
-                    }
-                    let (nh, _) = node.with_new_child_hash::<H>(&self.range, is_root, dir, child_h);
-                    if nh != hash {
-                        return Err(ProofError::Invalid);
-                    }
-                    Ok((nh, leaf_h))
+            } else {
+                // keep going down
+                if key_tail.slice(..b.prefix.len()) != b.prefix {
+                    return Err(ProofError::Invalid);
                 }
+                let (child_h, leaf_h) = verify_path::<H>(
+                    proof,
+                    key_tail.slice(b.prefix.len()..),
+                    false,
+                    b.hash,
+                    &path_tail[0],
+                    &path_tail[1..],
+                )?;
+                if child_h != b.hash {
+                    return Err(ProofError::Invalid);
+                }
+                let (nh, _) = node.with_new_child_hash::<H>(&proof.range, is_root, dir, child_h);
+                if nh != hash {
+                    return Err(ProofError::Invalid);
+                }
+                Ok((nh, leaf_h))
             }
         }
     }
@@ -365,13 +350,14 @@ impl<HO: HashOutput> VerifiedProof<HO> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::hsm::types::OwnedRange;
     use super::super::testing::{new_empty_tree, rec_id, tree_insert, TestHasher};
-    use super::super::Bits;
+    use super::verify;
     use super::ProofError;
+    use bitvec::Bits;
+    use hsm_api::OwnedRange;
 
     #[test]
-    fn verify() {
+    fn verify_proof() {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         let rid1 = rec_id(&[1]);
@@ -396,37 +382,37 @@ mod tests {
         );
 
         let p = store.read(&range, &root, &rid5).unwrap();
-        assert!(p.verify::<TestHasher>(&tree.overlay).is_ok());
+        assert!(verify::<TestHasher>(p, &tree.overlay).is_ok());
 
         // claim there's no leaf
         let mut p = store.read(&range, &root, &rid5).unwrap();
         p.leaf = None;
-        assert!(p.verify::<TestHasher>(&tree.overlay).is_err());
+        assert!(verify::<TestHasher>(p, &tree.overlay).is_err());
 
         let mut p = store.read(&range, &root, &rid5).unwrap();
         // truncate the tail of the path to claim there's no leaf
         p.leaf = None;
         p.path.pop();
-        assert!(p.verify::<TestHasher>(&tree.overlay).is_err());
+        assert!(verify::<TestHasher>(p, &tree.overlay).is_err());
 
         let mut p = store.read(&range, &root, &rid5).unwrap();
         // futz with the path
         p.key.0[0] = 2;
-        assert!(p.verify::<TestHasher>(&tree.overlay).is_err());
+        assert!(verify::<TestHasher>(p, &tree.overlay).is_err());
 
         // futz with the value (checks the hash)
         let mut p = store.read(&range, &root, &rid5).unwrap();
         if let Some(ref mut l) = p.leaf {
             l.value[0] += 1;
         }
-        assert!(p.verify::<TestHasher>(&tree.overlay).is_err());
+        assert!(verify::<TestHasher>(p, &tree.overlay).is_err());
 
         // futz with a node (checks the hash)
         let mut p = store.read(&range, &root, &rid5).unwrap();
         if let Some(ref mut b) = &mut p.path[0].left {
             b.prefix = b.prefix.slice(..b.prefix.len() - 1).to_bitvec()
         }
-        assert!(p.verify::<TestHasher>(&tree.overlay).is_err());
+        assert!(verify::<TestHasher>(p, &tree.overlay).is_err());
     }
 
     #[test]

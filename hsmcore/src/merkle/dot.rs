@@ -9,11 +9,11 @@ use core::marker::PhantomData;
 use std::path::Path;
 use std::{fs, io};
 
-use super::agent::Node;
 use super::testing::MemStore;
 use crate::merkle::{Branch, Dir, HashOutput, KeyVec};
 use bitvec::Bits;
 use bitvec::{BitVec, DisplayBits};
+use hsm_api::merkle::Node;
 
 // Creates a dot file for a visualization of the tree starting
 // at the supplied root hash.

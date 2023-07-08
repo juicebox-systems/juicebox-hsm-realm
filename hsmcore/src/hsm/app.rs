@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use tracing::trace;
 
-use super::types::RecordId;
+use hsm_api::RecordId;
 use juicebox_sdk_core::{
     requests::{
         DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
@@ -381,15 +381,12 @@ mod test {
         },
     };
 
-    use crate::hsm::{
-        app::{
-            marshal_user_record, unmarshal_user_record, RegisteredState, RegistrationState,
-            UserRecord, SERIALIZED_RECORD_SIZE, TRAILER_LEN,
-        },
-        types::RecordId,
-    };
-
     use super::{delete, recover1, recover2, recover3, register1, register2, AppContext};
+    use crate::hsm::app::{
+        marshal_user_record, unmarshal_user_record, RegisteredState, RegistrationState, UserRecord,
+        SERIALIZED_RECORD_SIZE, TRAILER_LEN,
+    };
+    use hsm_api::RecordId;
 
     #[test]
     fn test_user_record_marshalling() {

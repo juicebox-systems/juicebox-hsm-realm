@@ -6,7 +6,7 @@ use core::fmt::Debug;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::super::hal::Nanos;
-use super::types::{
+use hsm_api::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
     CaptureNextResponse, CommitRequest, CommitResponse, CompleteTransferRequest,
     CompleteTransferResponse, HandshakeRequest, HandshakeResponse, JoinGroupRequest,

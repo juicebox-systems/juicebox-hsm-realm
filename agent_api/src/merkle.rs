@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 
-use hsmcore::hsm::types::RecordId;
-use hsmcore::merkle::agent::{Node, NodeKey, TreeStoreError};
+use hsm_api::merkle::{Node, NodeKey};
+use hsm_api::RecordId;
 use juicebox_sdk_core::types::RealmId;
 use observability::metrics;
 
@@ -33,4 +33,10 @@ pub trait TreeStoreReader<HO>: Sync {
         key: NodeKey<HO>,
         tags: &[metrics::Tag],
     ) -> Result<Node<HO>, TreeStoreError>;
+}
+
+#[derive(Debug)]
+pub enum TreeStoreError {
+    MissingNode,
+    Network(String),
 }

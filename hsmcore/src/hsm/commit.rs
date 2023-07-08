@@ -5,9 +5,9 @@ use tracing::{info, trace, warn};
 
 use super::super::hal::Platform;
 use super::mac::{CapturedStatementMessage, CtMac};
-use super::types::{Captured, CommitRequest, CommitResponse, GroupMemberRole, HsmId, LogIndex};
 use super::{Hsm, Metrics};
 use crate::hash::{HashMap, NotRandomized};
+use hsm_api::{Captured, CommitRequest, CommitResponse, GroupMemberRole, HsmId, LogIndex};
 
 impl<P: Platform> Hsm<P> {
     pub(super) fn handle_commit(
@@ -209,10 +209,8 @@ impl HsmElection {
 mod test {
     use core::iter::zip;
 
-    use super::{
-        super::types::{HsmId, LogIndex},
-        ElectionNoQuorum, HsmElection,
-    };
+    use super::{ElectionNoQuorum, HsmElection};
+    use hsm_api::{HsmId, LogIndex};
 
     #[test]
     #[should_panic]

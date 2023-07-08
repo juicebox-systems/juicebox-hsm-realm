@@ -15,7 +15,7 @@ cluster_core = { workspace = true }
 ctrlc = { workspace = true }
 futures = { workspace = true }
 google = { workspace = true }
-hsmcore = { workspace = true }
+hsm_api = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 juicebox-sdk-core = { workspace = true }

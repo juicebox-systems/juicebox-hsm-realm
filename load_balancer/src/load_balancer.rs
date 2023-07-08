@@ -27,9 +27,8 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use agent_api::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
-use hsm_types::{GroupId, OwnedRange};
+use hsm_api::{GroupId, OwnedRange, RecordId};
 use hsmcore::hsm::mac::DigestWriter;
-use hsmcore::hsm::types::{self as hsm_types, RecordId};
 use juicebox_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
@@ -200,7 +199,7 @@ async fn refresh(
                 match response {
                     Ok(StatusResponse {
                         hsm:
-                            Some(hsm_types::StatusResponse {
+                            Some(hsm_api::StatusResponse {
                                 realm: Some(status),
                                 ..
                             }),

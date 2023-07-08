@@ -6,8 +6,7 @@ use tracing::{trace, warn};
 use url::Url;
 
 use agent_api::{AgentService, StatusRequest, StatusResponse};
-use hsm_types::{GroupId, HsmId};
-use hsmcore::hsm::types as hsm_types;
+use hsm_api::{GroupId, HsmId};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self};
@@ -32,7 +31,7 @@ pub async fn find_leaders(
         match response {
             Ok(StatusResponse {
                 hsm:
-                    Some(hsm_types::StatusResponse {
+                    Some(hsm_api::StatusResponse {
                         realm: Some(status),
                         id: hsm_id,
                         ..

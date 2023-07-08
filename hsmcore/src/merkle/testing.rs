@@ -4,13 +4,14 @@ use core::{fmt::Debug, hash::Hasher};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 
-use super::agent::{Node, StoreDelta, TreeStoreError};
-use super::proof::ReadProof;
-use super::{Dir, HashOutput, NodeHashBuilder, NodeHasher, Tree};
+use super::{NodeHashBuilder, NodeHasher, Tree};
 use crate::hash::{HashExt, HashMap, NotRandomized};
-use crate::hsm::types::{OwnedRange, RecordId};
-use crate::merkle::{InteriorNode, KeyVec, NodeKey};
+use crate::merkle::InteriorNodeExt;
 use bitvec::Bits;
+use hsm_api::merkle::{
+    Dir, HashOutput, InteriorNode, KeyVec, Node, NodeKey, ReadProof, StoreDelta,
+};
+use hsm_api::{OwnedRange, RecordId};
 use juicebox_sdk_marshalling::bytes;
 
 pub fn rec_id(bytes: &[u8]) -> RecordId {
@@ -204,6 +205,11 @@ pub struct MemStore<HO: core::hash::Hash + Eq> {
     nodes: HashMap<HO, Node<HO>, NotRandomized>,
 }
 
+#[derive(Debug)]
+pub enum MemStoreError {
+    MissingNode,
+}
+
 impl<HO: HashOutput> MemStore<HO> {
     fn new() -> Self {
         MemStore {
@@ -233,10 +239,10 @@ impl<HO: HashOutput> MemStore<HO> {
         }
     }
 
-    pub fn get_node(&self, hash: &HO) -> Result<Node<HO>, TreeStoreError> {
+    pub fn get_node(&self, hash: &HO) -> Result<Node<HO>, MemStoreError> {
         match self.nodes.get(hash) {
             Some(n) => Ok(n.clone()),
-            None => Err(TreeStoreError::MissingNode),
+            None => Err(MemStoreError::MissingNode),
         }
     }
 
@@ -245,12 +251,12 @@ impl<HO: HashOutput> MemStore<HO> {
         range: &OwnedRange,
         root_hash: &HO,
         k: &RecordId,
-    ) -> Result<ReadProof<HO>, TreeStoreError> {
+    ) -> Result<ReadProof<HO>, MemStoreError> {
         let root = match self.get_node(root_hash)? {
             Node::Leaf(_) => panic!("found unexpected leaf node"),
             Node::Interior(int) => int,
         };
-        let mut res = ReadProof::new(k.clone(), range.clone(), *root_hash, root);
+        let mut res = super::proof::new(k.clone(), range.clone(), *root_hash, root);
         let keyv = k.to_bitvec();
         let mut key = keyv.as_ref();
         loop {
@@ -264,7 +270,7 @@ impl<HO: HashOutput> MemStore<HO> {
                     }
                     key = key.slice(b.prefix.len()..);
                     match self.nodes.get(&b.hash) {
-                        None => return Err(TreeStoreError::MissingNode),
+                        None => return Err(MemStoreError::MissingNode),
                         Some(Node::Interior(int)) => {
                             res.path.push(int.clone());
                             continue;
@@ -287,7 +293,7 @@ impl<HO: HashOutput> MemStore<HO> {
         range: &OwnedRange,
         root_hash: &HO,
         side: Dir,
-    ) -> Result<ReadProof<HO>, TreeStoreError> {
+    ) -> Result<ReadProof<HO>, MemStoreError> {
         let mut path = Vec::new();
         let mut key = KeyVec::new();
         let mut current = *root_hash;

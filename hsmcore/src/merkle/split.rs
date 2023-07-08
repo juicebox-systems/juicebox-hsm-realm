@@ -1,12 +1,14 @@
 use tracing::info;
 
-use super::super::hsm::types::{OwnedRange, RecordId};
+use crate::merkle::InteriorNodeExt;
+
+use super::proof;
 use super::{
-    agent::{DeltaBuilder, Node, NodeKey},
-    proof::{ProofError, ReadProof},
-    Branch, Dir, InteriorNode, KeyVec, NodeHasher, SplitResult, SplitRoot, Tree,
+    proof::ProofError, Branch, Dir, InteriorNode, KeyVec, NodeHasher, SplitResult, SplitRoot, Tree,
 };
 use bitvec::Bits;
+use hsm_api::merkle::{DeltaBuilder, Node, NodeKey, ReadProof};
+use hsm_api::{OwnedRange, RecordId};
 
 impl<H: NodeHasher> Tree<H> {
     // Splits the current tree into two at the key in the proof. This key
@@ -17,7 +19,7 @@ impl<H: NodeHasher> Tree<H> {
     ) -> Result<SplitResult<H::Output>, ProofError> {
         assert!(proof.key > RecordId::min_id());
 
-        let proof = proof.verify::<H>(&self.overlay)?;
+        let proof = proof::verify::<H>(proof, &self.overlay)?;
 
         // Find the split node. We start at the bottom of the path. If the key is greater than the
         // left branch and smaller or equal to the right branch then this is the split node. If its
@@ -76,12 +78,12 @@ impl<H: NodeHasher> Tree<H> {
                 let root = &proof.path[0].node;
                 let ((left_hash, left_node), (right_hash, right_node)) = match side {
                     Dir::Left => (
-                        InteriorNode::new::<H>(&left_range, true, None, None),
+                        InteriorNode::new_with_hash::<H>(&left_range, true, None, None),
                         root.root_with_new_partition::<H>(&right_range),
                     ),
                     Dir::Right => (
                         root.root_with_new_partition::<H>(&left_range),
-                        InteriorNode::new::<H>(&right_range, true, None, None),
+                        InteriorNode::new_with_hash::<H>(&right_range, true, None, None),
                     ),
                 };
                 let left = SplitRoot {
@@ -112,9 +114,9 @@ impl<H: NodeHasher> Tree<H> {
                 info!("starting split at root node");
                 let root = &proof.path[0].node;
                 let (left_hash, left_node) =
-                    InteriorNode::new::<H>(&left_range, true, root.left.clone(), None);
+                    InteriorNode::new_with_hash::<H>(&left_range, true, root.left.clone(), None);
                 let (right_hash, right_node) =
-                    InteriorNode::new::<H>(&right_range, true, None, root.right.clone());
+                    InteriorNode::new_with_hash::<H>(&right_range, true, None, root.right.clone());
                 let left = SplitRoot {
                     root_hash: left_hash,
                     range: left_range,
@@ -233,9 +235,9 @@ mod tests {
         TestHash, TestHasher,
     };
 
-    use super::super::super::hsm::types::{OwnedRange, RecordId};
     use super::super::tests::tree_size;
-    use super::super::{Dir, KeyVec};
+    use hsm_api::merkle::{Dir, KeyVec};
+    use hsm_api::{OwnedRange, RecordId};
 
     #[test]
     fn one_bit() {

@@ -5,7 +5,7 @@ use std::cmp::min;
 use std::collections::HashSet;
 
 use agent_api::AgentService;
-use hsmcore::hsm::types::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
+use hsm_api::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
 use store::StoreClient;

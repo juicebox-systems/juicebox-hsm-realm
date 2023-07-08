@@ -20,8 +20,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use agent_api::AgentService;
-use hsm_types::GroupId;
-use hsmcore::hsm::types as hsm_types;
+use hsm_api::GroupId;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_networking::rpc::Rpc;

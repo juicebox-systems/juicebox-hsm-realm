@@ -17,7 +17,7 @@ name = "agent_api"
 version = "0.2.0"
 dependencies = [
  "async-trait",
- "hsmcore",
+ "hsm_api",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
  "observability",
@@ -38,6 +38,7 @@ dependencies = [
  "expect-test",
  "futures",
  "hdrhistogram",
+ "hsm_api",
  "hsmcore",
  "http",
  "http-body-util",
@@ -542,7 +543,7 @@ dependencies = [
 name = "cluster_api"
 version = "0.2.0"
 dependencies = [
- "hsmcore",
+ "hsm_api",
  "juicebox-sdk",
  "juicebox-sdk-networking",
  "serde",
@@ -583,7 +584,7 @@ dependencies = [
  "futures",
  "google",
  "hex",
- "hsmcore",
+ "hsm_api",
  "juicebox-sdk",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
@@ -604,7 +605,7 @@ version = "0.2.0"
 dependencies = [
  "agent_api",
  "futures",
- "hsmcore",
+ "hsm_api",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
  "serde",
@@ -630,7 +631,7 @@ dependencies = [
  "expect-test",
  "futures",
  "google",
- "hsmcore",
+ "hsm_api",
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-core",
@@ -1388,6 +1389,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hsm_api"
+version = "0.2.0"
+dependencies = [
+ "bitvec",
+ "blake2",
+ "digest",
+ "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
+ "juicebox-sdk-noise",
+ "serde",
+ "subtle",
+]
+
+[[package]]
 name = "hsmcore"
 version = "0.2.0"
 dependencies = [
@@ -1404,6 +1419,7 @@ dependencies = [
  "expect-test",
  "generic-array",
  "hashbrown 0.14.0",
+ "hsm_api",
  "hsmcore",
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
@@ -1833,6 +1849,7 @@ dependencies = [
  "expect-test",
  "futures",
  "google",
+ "hsm_api",
  "hsmcore",
  "http-body-util",
  "hyper 1.0.0-rc.3",
@@ -1903,6 +1920,7 @@ version = "0.2.0"
 dependencies = [
  "bitvec",
  "clap 4.3.0",
+ "hsm_api",
  "hsmcore",
  "juicebox-sdk-core",
  "rand_core",
@@ -2911,6 +2929,7 @@ dependencies = [
  "futures",
  "gcp_auth",
  "google",
+ "hsm_api",
  "hsmcore",
  "http",
  "juicebox-sdk-core",
@@ -3018,6 +3037,7 @@ dependencies = [
  "google",
  "hex",
  "hex-literal",
+ "hsm_api",
  "hsmcore",
  "http",
  "juicebox-sdk",

@@ -6,15 +6,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use bitvec::{BitVec, Bits};
-use hsmcore::hsm::types::{OwnedRange, RecordId};
-use hsmcore::merkle::agent::Node;
+use hsm_api::merkle::{Branch, Dir, HashOutput, KeyVec, Node, ReadProof};
+use hsm_api::{OwnedRange, RecordId};
 use hsmcore::merkle::dot::{hash_id, visit_tree_at, DotGraph, DotVisitor, Visitor};
-use hsmcore::merkle::proof::ReadProof;
 use hsmcore::merkle::testing::{
     new_empty_tree, rec_id, tree_insert, MemStore, TestHash, TestHasher,
 };
 use hsmcore::merkle::Tree;
-use hsmcore::merkle::{Branch, Dir, HashOutput, KeyVec};
 use juicebox_sdk_core::types::RealmId;
 
 const REALM: RealmId = RealmId([1; 16]);

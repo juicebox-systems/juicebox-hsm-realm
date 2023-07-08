@@ -3,9 +3,9 @@ use std::path::Path;
 
 use bitvec::bitvec;
 use bitvec::Bits;
+use hsm_api::merkle::KeyVec;
 use hsmcore::merkle::dot::{hash_id, DotGraph};
 use hsmcore::merkle::testing::rec_id;
-use hsmcore::merkle::KeyVec;
 
 use super::TreeIndex;
 

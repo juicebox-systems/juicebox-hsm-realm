@@ -3,11 +3,12 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 use super::{
-    agent::{DeltaBuilder, Node, NodeKey, StoreDelta},
+    new_leaf,
     proof::{ProofError, VerifiedProof},
-    Branch, InteriorNode, LeafNode, NodeHasher, Tree,
+    Branch, InteriorNode, InteriorNodeExt, NodeHasher, Tree,
 };
 use bitvec::Bits;
+use hsm_api::merkle::{DeltaBuilder, Node, NodeKey, StoreDelta};
 
 impl<H: NodeHasher> Tree<H> {
     // Insert a new value for the leaf described by the read proof. Returns the
@@ -38,7 +39,7 @@ impl<H: NodeHasher> Tree<H> {
                 .hash;
             delta.remove(NodeKey::new(proof.key.to_bitvec(), leaf_hash));
         }
-        let (leaf_hash, leaf) = LeafNode::new::<H>(&proof.key, v);
+        let (leaf_hash, leaf) = new_leaf::<H>(&proof.key, v);
         delta.add(
             NodeKey::new(proof.key.to_bitvec(), leaf_hash),
             Node::Leaf(leaf),
@@ -141,13 +142,12 @@ mod tests {
     use rand::{RngCore, SeedableRng};
     use std::collections::BTreeMap;
 
-    use super::super::super::hsm::types::OwnedRange;
-    use super::super::agent::Node;
     use super::super::testing::{
         check_tree_invariants, new_empty_tree, rec_id, tree_insert, TestHasher,
     };
     use super::super::tests::tree_size;
-    use super::super::{KeyVec, NodeKey};
+    use hsm_api::merkle::{KeyVec, Node, NodeKey};
+    use hsm_api::OwnedRange;
 
     #[test]
     fn first_insert() {

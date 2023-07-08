@@ -3,7 +3,7 @@ use reqwest::Url;
 use std::collections::HashMap;
 
 use agent_api::AgentService;
-use hsmcore::hsm::types::PublicKey;
+use hsm_api::PublicKey;
 use juicebox_sdk::Configuration;
 use juicebox_sdk::PinHashingMode;
 use juicebox_sdk::Realm;

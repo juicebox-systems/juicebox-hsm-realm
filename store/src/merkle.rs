@@ -4,7 +4,7 @@ use google::bigtable::v2::{
     mutate_rows_request, mutation, read_rows_request, row_filter, MutateRowsRequest, Mutation,
     ReadRowsRequest, RowFilter, RowRange, RowSet,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -14,13 +14,11 @@ use tracing::{instrument, trace, warn, Span};
 use crate::base128;
 
 use super::{mutate_rows, read_rows, Instance, MutateRowsError, StoreClient};
-use agent_api::merkle::TreeStoreReader;
+use agent_api::merkle::{TreeStoreError, TreeStoreReader};
 use bitvec::Bits;
-use hsmcore::hash::{HashMap as HsmHashMap, HashSet as HsmHashSet, NotRandomized};
+use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey};
+use hsm_api::{DataHash, GroupId, RecordId};
 use hsmcore::hsm::cache;
-use hsmcore::hsm::types::{DataHash, GroupId, RecordId};
-use hsmcore::merkle::agent::{Node, NodeKey, TreeStoreError};
-use hsmcore::merkle::{Dir, HashOutput, KeyVec};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
 use observability::metrics;
@@ -90,7 +88,7 @@ impl StoreClient {
         &self,
         realm: &RealmId,
         group: &GroupId,
-        add: &HsmHashMap<NodeKey<DataHash>, Node<DataHash>, NotRandomized>,
+        add: &BTreeMap<NodeKey<DataHash>, Node<DataHash>>,
     ) -> Result<(), MutateRowsError> {
         if add.is_empty() {
             return Ok(());
@@ -178,7 +176,7 @@ impl StoreClient {
         &self,
         realm: &RealmId,
         group: &GroupId,
-        remove: &HsmHashSet<NodeKey<DataHash>, NotRandomized>,
+        remove: &BTreeSet<NodeKey<DataHash>>,
     ) -> Result<(), MutateRowsError> {
         if remove.is_empty() {
             return Ok(());

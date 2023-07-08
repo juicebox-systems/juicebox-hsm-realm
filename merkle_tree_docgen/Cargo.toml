@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 bitvec = { workspace = true }
 clap = { workspace = true }
+hsm_api = { workspace = true }
 hsmcore = { workspace = true, features = ["dot"] }
 juicebox-sdk-core = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }

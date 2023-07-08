@@ -2,12 +2,12 @@ use std::path::Path;
 
 use super::{dot_to_png, format_branch_label, DocTree, RecordIdHighlighter};
 use bitvec::Bits;
-use hsmcore::hsm::types::{OwnedRange, RecordId};
-use hsmcore::merkle::agent::Node;
+use hsm_api::merkle::{Dir, KeyVec, Node};
+use hsm_api::{OwnedRange, RecordId};
 use hsmcore::merkle::dot::{hash_id, DotAttributes, DotGraph, DotVisitor, Visitor};
 use hsmcore::merkle::proof::VerifiedProof;
 use hsmcore::merkle::testing::{rec_id, TestHash, TestHasher};
-use hsmcore::merkle::{Dir, KeyVec, Tree};
+use hsmcore::merkle::Tree;
 
 pub fn tree_overlay(dir: &Path) {
     let dir = dir.join("overlay");

@@ -3,11 +3,8 @@ extern crate alloc;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
-use super::{
-    agent::{Node, NodeKey, StoreDelta},
-    HashOutput,
-};
 use crate::hash::{HashExt, HashMap, HashSet};
+use hsm_api::merkle::{HashOutput, Node, NodeKey, StoreDelta};
 
 // TreeOverlay keeps track of recent changes and can be used to get an up to date
 // view of the tree for a recent ReadProof.

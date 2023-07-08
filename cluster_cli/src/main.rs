@@ -9,7 +9,7 @@ use tracing::{info, Level};
 use agent_api::AgentService;
 use cluster_core::discover_hsm_ids;
 use google::auth;
-use hsmcore::hsm::types::{GroupId, HsmId, OwnedRange, RecordId};
+use hsm_api::{GroupId, HsmId, OwnedRange, RecordId};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use observability::{logging, metrics};

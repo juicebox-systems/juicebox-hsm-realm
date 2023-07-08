@@ -11,7 +11,7 @@ use std::thread::sleep;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use hsmcore::hsm::types::{OwnedRange, RecordId};
+use hsm_api::{OwnedRange, RecordId};
 use juicebox_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_process_group::ProcessGroup;

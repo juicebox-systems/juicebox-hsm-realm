@@ -8,12 +8,12 @@ use juicebox_sdk_marshalling::bytes;
 use serde::{Deserialize, Serialize};
 
 use super::configuration::GroupConfiguration;
-use super::types::{
+use super::RealmKeys;
+use hsm_api::{
     CapturedStatement, CtBytes, EntryMac, GroupConfigurationStatement, GroupId, HsmId,
     HsmRealmStatement, LogEntry, LogIndex, Partition, TransferNonce, TransferStatement,
     TransferringOut,
 };
-use super::RealmKeys;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct MacKey(#[serde(with = "bytes")] [u8; 32]);
@@ -148,8 +148,8 @@ impl<'a, D: digest::Update> ciborium_io::Write for DigestWriter<'a, D> {
 
 #[cfg(test)]
 mod test {
-    use crate::hsm::types::{DataHash, OwnedRange};
     use crate::hsm::RecordEncryptionKey;
+    use hsm_api::{DataHash, OwnedRange};
 
     use super::*;
     use expect_test::expect_file;
