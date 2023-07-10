@@ -105,75 +105,10 @@ submodule at the path `sdk`).
 This is a diagram of the current crates, excluding tooling, showing their
 local dependencies:
 
-```mermaid
-graph TD
-  subgraph sdk
-    juicebox-sdk
-    juicebox-sdk-marshalling
-    juicebox-sdk-noise
-    juicebox-sdk-core
-    juicebox-sdk-networking
-  end
-  %% deps
-  juicebox-sdk --> juicebox-sdk-core
-  juicebox-sdk --> juicebox-sdk-networking
-  juicebox-sdk --> juicebox-sdk-noise
-  juicebox-sdk-core --> juicebox-sdk-marshalling
-  juicebox-sdk-core --> juicebox-sdk-noise
-  juicebox-sdk-networking --> juicebox-sdk-core
-  juicebox-sdk-noise --> juicebox-sdk-marshalling
-
-  subgraph hsm
-    entrust-hsm[\entrust-hsm/]
-    hsmcore
-  end
-  %% deps
-  entrust_hsm --> entrust_api
-  entrust_hsm --> hsmcore
-  entrust_hsm --> juicebox-sdk-core
-  hsmcore --> juicebox-sdk-core
-  hsmcore --> juicebox-sdk-noise
-
-  subgraph agent
-    agent_core
-    entrust_agent[\entrust_agent/]
-    software_agent[\"software-agent\n(dev only)"/]
-  end
-  %% deps
-  agent --> juicebox_hsm
-  agent --> juicebox-sdk-core
-  agent_core --> juicebox-sdk-networking
-  entrust_agent --> agent_core
-  entrust_agent --> entrust_api
-  entrust_agent --> entrust_nfast
-  software_agent --> agent_core
-  software_agent --> hsmcore
-
-  subgraph entrust_libs["entrust libs"]
-    entrust_api
-    entrust_nfast
-  end
-
-  %% other servers
-  juicebox_hsm::cluster_manager[\juicebox_hsm::cluster_manager/]
-  load_balancer[\load_balancer/]
-  %% deps
-  juicebox_hsm::cluster_manager --> juicebox_hsm
-  load_balancer --> juicebox_hsm
-  load_balancer --> juicebox-sdk-core
-  load_balancer --> juicebox-sdk-networking
-
-  %% other libs
-  juicebox_hsm
-  %% deps
-  juicebox_hsm --> hsmcore
-  juicebox_hsm --> sdk
-
-  subgraph Legend
-    service[\service/]
-    library
-  end
-```
+![Dependency Graph](crate_graph.png)
+<!--- regenerate with
+  cargo depgraph  --workspace-only  --dedup-transitive-deps | dot -Tpng -o crate_graph.png
+---->
 
 Entrust is an HSM vendor, and the Entrust-specific code is named accordingly.
 Some of it is automatically generated from their C headers.
