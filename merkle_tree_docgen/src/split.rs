@@ -1,21 +1,19 @@
 use std::path::Path;
 
-use hsmcore::bitvec;
-use hsmcore::bitvec::Bits;
-use hsmcore::hsm::types::OwnedRange;
-use hsmcore::merkle::agent::Node;
+use super::{DocTree, TreeIndex};
+use bitvec::bitvec;
+use bitvec::Bits;
+use hsm_api::merkle::{Dir, KeyVec, Node};
+use hsm_api::OwnedRange;
 use hsmcore::merkle::dot::{hash_id, DotAttributes, DotGraph};
 use hsmcore::merkle::testing::{rec_id, TestHash};
-use hsmcore::merkle::{Dir, KeyVec};
 
-use super::{DocTree, TreeIndex};
-
-pub async fn doc_splits_intro(dir: &Path) {
+pub fn doc_splits_intro(dir: &Path) {
     let dir = dir.join("splits");
 
-    let tree = make_split_tree().await;
-    let index = TreeIndex::build(&tree).await;
-    let mut dot = tree.as_dot().await;
+    let tree = make_split_tree();
+    let index = TreeIndex::build(&tree);
+    let mut dot = tree.as_dot();
 
     let split_prefix = bitvec![0, 0, 0, 0, 1];
     let split_hash = index.prefixes.get(&split_prefix).unwrap();
@@ -25,34 +23,34 @@ pub async fn doc_splits_intro(dir: &Path) {
         .set("fillcolor", "gold1");
     dot.write(&dir, "intro_before.dot").unwrap();
 
-    let (left_tree, right_tree) = tree.split(rec_id(&[0b00001011])).await;
+    let (left_tree, right_tree) = tree.split(rec_id(&[0b00001011]));
 
-    left_tree.write_dot(&dir, "intro_after_left.dot").await;
+    left_tree.write_dot(&dir, "intro_after_left.dot");
 
-    right_tree.write_dot(&dir, "intro_after_right.dot").await;
+    right_tree.write_dot(&dir, "intro_after_right.dot");
 
     super::dot_to_png(&dir);
 }
 
-pub(crate) async fn make_split_tree() -> DocTree {
-    let mut tree = DocTree::new(OwnedRange::full()).await;
-    tree.insert(rec_id(&[0]), vec![1]).await;
-    tree.insert(rec_id(&[0b00001000]), vec![2]).await;
-    tree.insert(rec_id(&[0b00001010]), vec![3]).await;
-    tree.insert(rec_id(&[0b00001111]), vec![4]).await;
-    tree.insert(rec_id(&[0b00111011]), vec![5]).await;
-    tree.insert(rec_id(&[0b11001000]), vec![6]).await;
-    tree.insert(rec_id(&[0b11110000]), vec![7]).await;
-    tree.insert(rec_id(&[0b11111010]), vec![8]).await;
+pub(crate) fn make_split_tree() -> DocTree {
+    let mut tree = DocTree::new(OwnedRange::full());
+    tree.insert(rec_id(&[0]), vec![1]);
+    tree.insert(rec_id(&[0b00001000]), vec![2]);
+    tree.insert(rec_id(&[0b00001010]), vec![3]);
+    tree.insert(rec_id(&[0b00001111]), vec![4]);
+    tree.insert(rec_id(&[0b00111011]), vec![5]);
+    tree.insert(rec_id(&[0b11001000]), vec![6]);
+    tree.insert(rec_id(&[0b11110000]), vec![7]);
+    tree.insert(rec_id(&[0b11111010]), vec![8]);
     tree
 }
 
-pub async fn doc_splits_details(dir: &Path) {
+pub fn doc_splits_details(dir: &Path) {
     let dir = dir.join("split_details");
 
-    let tree = make_split_tree().await;
-    let index = TreeIndex::build(&tree).await;
-    let mut dot = tree.as_dot().await;
+    let tree = make_split_tree();
+    let index = TreeIndex::build(&tree);
+    let mut dot = tree.as_dot();
 
     let prefix = bitvec![0, 0, 0, 0, 1, 0];
     let hash = index.prefixes.get(&prefix).unwrap();
@@ -62,7 +60,7 @@ pub async fn doc_splits_details(dir: &Path) {
         .set("fillcolor", "gold1");
     dot.write(&dir, "1_same_side.dot").unwrap();
 
-    let mut dot = tree.as_dot().await;
+    let mut dot = tree.as_dot();
     let prefix = bitvec![0, 0, 0, 0, 1];
     let hash = index.prefixes.get(&prefix).unwrap();
     dot.node_mut(&hash_id(hash))
@@ -71,7 +69,7 @@ pub async fn doc_splits_details(dir: &Path) {
         .set("fillcolor", "gold1");
     dot.write(&dir, "2_start.dot").unwrap();
 
-    let mut dot = tree.as_dot().await;
+    let mut dot = tree.as_dot();
     let split_key = bitvec![0, 0, 0, 0, 1, 0, 1, 1];
     let split_node_prefix = bitvec![0, 0, 0, 0, 1];
     let mut split_hash = index.prefixes.get(&split_node_prefix).unwrap();
@@ -82,15 +80,15 @@ pub async fn doc_splits_details(dir: &Path) {
         &split_node_prefix,
         split_hash,
         &split_key,
-    )
-    .await;
+    );
+
     dot.write(&dir, "3_split_1.dot").unwrap();
 
     // split the parents, write a file for each step up the tree.
     let mut file_num = 4;
     let mut hashes = vec![*split_hash];
     while let Some(parent) = index.parents.get(split_hash) {
-        split_dot_tree_at(&tree, &index, &mut dot, &parent.0, &parent.1, &split_key).await;
+        split_dot_tree_at(&tree, &index, &mut dot, &parent.0, &parent.1, &split_key);
         dot.write(&dir, format!("{file_num}_split_{}.dot", file_num - 2))
             .unwrap();
         split_hash = &parent.1;
@@ -112,15 +110,15 @@ pub async fn doc_splits_details(dir: &Path) {
     // Show the 2 trees with the right hashes and the 3 recalculated nodes highlighted.
     // We'll do an actual split and show the results rather than trying to mutate
     // the last dot version.
-    let (left_tree, right_tree) = tree.split(rec_id(split_key.as_bytes())).await;
+    let (left_tree, right_tree) = tree.split(rec_id(split_key.as_bytes()));
 
-    let mut left = left_tree.as_dot().await;
+    let mut left = left_tree.as_dot();
     left.node_mut(&hash_id(&left_tree.root))
         .unwrap()
         .1
         .set("fillcolor", "gold1");
 
-    let Node::Interior(left_root) = left_tree.get_node(&KeyVec::new(), &left_tree.root).await else {panic!()};
+    let Node::Interior(left_root) = left_tree.get_node(&KeyVec::new(), &left_tree.root) else {panic!()};
 
     let left_branch = left_root.branch(Dir::Left).as_ref().unwrap();
     left.node_mut(&hash_id(&left_branch.hash))
@@ -128,14 +126,14 @@ pub async fn doc_splits_details(dir: &Path) {
         .1
         .set("fillcolor", "gold1");
 
-    let mut right = right_tree.as_dot().await;
+    let mut right = right_tree.as_dot();
     right
         .node_mut(&hash_id(&right_tree.root))
         .unwrap()
         .1
         .set("fillcolor", "gold1");
 
-    let Node::Interior(right_root) = right_tree.get_node(&KeyVec::new(), &right_tree.root).await else {panic!()};
+    let Node::Interior(right_root) = right_tree.get_node(&KeyVec::new(), &right_tree.root) else {panic!()};
     let left_branch = right_root.branch(Dir::Left).as_ref().unwrap();
     right
         .node_mut(&hash_id(&left_branch.hash))
@@ -166,7 +164,7 @@ fn highlight_if_compressible(node_id: String, dot: &mut DotGraph) {
     }
 }
 
-async fn split_dot_tree_at(
+fn split_dot_tree_at(
     tree: &DocTree,
     index: &TreeIndex,
     dot: &mut DotGraph,
@@ -186,7 +184,7 @@ async fn split_dot_tree_at(
 
     // move a child edge to the other side of the split
     // if the child was also split, move to the split side of the child.
-    let Node::Interior(int) = tree.get_node(prefix, node).await else { panic!() };
+    let Node::Interior(int) = tree.get_node(prefix, node) else { panic!() };
     let dir = Dir::from(split_key.at(prefix.len()));
 
     let child_hash = int.branch(dir).as_ref().unwrap().hash;

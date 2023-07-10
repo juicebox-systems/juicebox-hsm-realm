@@ -4,7 +4,7 @@ use reqwest::Url;
 use tracing::debug;
 
 use agent_api::{AgentService, StatusRequest};
-use hsmcore::hsm::types::StatusResponse;
+use hsm_api::StatusResponse;
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc;
 use store::{ServiceKind, StoreClient};

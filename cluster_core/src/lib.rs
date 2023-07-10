@@ -7,8 +7,7 @@ use tracing::{debug, info};
 use url::Url;
 
 use agent_api::{AgentService, StatusRequest};
-use hsm_types::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex};
-use hsmcore::hsm::types as hsm_types;
+use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self, RpcError};
@@ -77,7 +76,7 @@ async fn wait_for_commit(
 pub async fn get_hsm_statuses(
     agents: &Client<AgentService>,
     agent_urls: impl Iterator<Item = &Url>,
-) -> HashMap<HsmId, (hsm_types::StatusResponse, Url)> {
+) -> HashMap<HsmId, (hsm_api::StatusResponse, Url)> {
     join_all(
         agent_urls.map(|url| rpc::send(agents, url, StatusRequest {}).map(|r| (r, url.clone()))),
     )

@@ -9,7 +9,7 @@ use std::{env, fs};
 use tokio::time::sleep;
 use tracing::{debug, info};
 
-use hsmcore::hsm::types::{GroupId, OwnedRange, PublicKey};
+use hsm_api::{GroupId, OwnedRange, PublicKey};
 use juicebox_sdk::{
     AuthToken, Client, ClientBuilder, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper,
 };

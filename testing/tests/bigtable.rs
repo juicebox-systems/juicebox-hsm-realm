@@ -4,10 +4,10 @@ use std::time::{Duration, SystemTime};
 use store::discovery;
 
 use agent_api::merkle::TreeStoreReader;
-use hsmcore::bitvec::BitVec;
-use hsmcore::hsm::types::{EntryMac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId};
+use bitvec::BitVec;
+use hsm_api::merkle::{NodeKey, StoreDelta};
+use hsm_api::{EntryMac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId};
 use hsmcore::hsm::MerkleHasher;
-use hsmcore::merkle::agent::{StoreDelta, StoreKey};
 use hsmcore::merkle::Tree;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_process_group::ProcessGroup;
@@ -404,7 +404,7 @@ async fn append_store_delta() {
     // Verify the original root is readable.
     data.read_node(
         &REALM,
-        StoreKey::new(&BitVec::new(), &starting_root),
+        NodeKey::new(BitVec::new(), starting_root),
         metrics::NO_TAGS,
     )
     .await
@@ -421,14 +421,14 @@ async fn append_store_delta() {
 
     data.read_node(
         &REALM,
-        StoreKey::new(&BitVec::new(), &starting_root),
+        NodeKey::new(BitVec::new(), starting_root),
         metrics::NO_TAGS,
     )
     .await
     .unwrap();
     data.read_node(
         &REALM,
-        StoreKey::new(&BitVec::new(), &new_root),
+        NodeKey::new(BitVec::new(), new_root),
         metrics::NO_TAGS,
     )
     .await
@@ -440,14 +440,14 @@ async fn append_store_delta() {
     // The deferred delete should have executed and the original root be deleted.
     data.read_node(
         &REALM,
-        StoreKey::new(&BitVec::new(), &starting_root),
+        NodeKey::new(BitVec::new(), starting_root),
         metrics::NO_TAGS,
     )
     .await
     .expect_err("should have failed to find node");
     data.read_node(
         &REALM,
-        StoreKey::new(&BitVec::new(), &new_root),
+        NodeKey::new(BitVec::new(), new_root),
         metrics::NO_TAGS,
     )
     .await

@@ -1,3 +1,4 @@
+use agent_api::merkle::TreeStoreError;
 use anyhow::Context;
 use bytes::Bytes;
 use futures::channel::oneshot;
@@ -36,14 +37,11 @@ use agent_api::{
 use append::{Append, AppendingState};
 use cluster_api::ClusterService;
 use hsm::{HsmClient, Transport};
-use hsm_types::{
-    CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId, LogIndex,
-    TransferInProofs,
+use hsm_api::merkle::{Dir, StoreDelta};
+use hsm_api::{
+    AppRequestType, CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId,
+    LogEntry, LogIndex, TransferInProofs,
 };
-use hsmcore::hsm::types as hsm_types;
-use hsmcore::hsm::types::{AppRequestType, LogEntry};
-use hsmcore::merkle::agent::{StoreDelta, TreeStoreError};
-use hsmcore::merkle::Dir;
 use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::{self, Client, ClientOptions};
@@ -147,7 +145,7 @@ impl<T: Transport + 'static> Agent<T> {
 
     /// Called at service startup, start watching for any groups that the HSM is already a member of.
     async fn restart_watching(&self) {
-        let status = self.0.hsm.send(hsm_types::StatusRequest {}).await;
+        let status = self.0.hsm.send(hsm_api::StatusRequest {}).await;
         if let Ok(sr) = status {
             if let Some(realm) = sr.realm {
                 for g in &realm.groups {
@@ -289,7 +287,7 @@ impl<T: Transport + 'static> Agent<T> {
         let maybe_hsm_id = self
             .0
             .hsm
-            .send(hsm_types::StatusRequest {})
+            .send(hsm_api::StatusRequest {})
             .await
             .ok()
             .map(|s| s.id);
@@ -370,12 +368,12 @@ impl<T: Transport + 'static> Agent<T> {
         tokio::spawn(async move {
             let fn_hsm_id = || async {
                 loop {
-                    match agent.hsm.send(hsm_types::StatusRequest {}).await {
+                    match agent.hsm.send(hsm_api::StatusRequest {}).await {
                         Err(e) => {
                             warn!(err=?e, "failed to connect to HSM");
                             sleep(Duration::from_millis(10)).await;
                         }
-                        Ok(hsm_types::StatusResponse { id, .. }) => return id,
+                        Ok(hsm_api::StatusResponse { id, .. }) => return id,
                     }
                 }
             };
@@ -497,7 +495,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
 
 impl<T: Transport + 'static> Agent<T> {
     async fn handle_status(&self, _request: StatusRequest) -> Result<StatusResponse, HandlerError> {
-        let hsm_status = self.0.hsm.send(hsm_types::StatusRequest {}).await;
+        let hsm_status = self.0.hsm.send(hsm_api::StatusRequest {}).await;
         Ok(StatusResponse {
             hsm: hsm_status.ok(),
             uptime: self.0.boot_time.elapsed(),
@@ -514,24 +512,24 @@ impl<T: Transport + 'static> Agent<T> {
         // Get the HSM ID (which is used as the new group's Configuration
         // below). This also checks if a realm already exists, because it might
         // as well.
-        let hsm_id = match self.0.hsm.send(hsm_types::StatusRequest {}).await {
+        let hsm_id = match self.0.hsm.send(hsm_api::StatusRequest {}).await {
             Err(_) => return Ok(Response::NoHsm),
-            Ok(hsm_types::StatusResponse { realm: Some(_), .. }) => return Ok(Response::HaveRealm),
-            Ok(hsm_types::StatusResponse { id, .. }) => id,
+            Ok(hsm_api::StatusResponse { realm: Some(_), .. }) => return Ok(Response::HaveRealm),
+            Ok(hsm_api::StatusResponse { id, .. }) => id,
         };
 
         info!(agent = name, ?hsm_id, "creating new realm");
-        let (realm, group, entry, delta) =
-            match self.0.hsm.send(hsm_types::NewRealmRequest {}).await {
-                Err(_) => return Ok(Response::NoHsm),
-                Ok(hsm_types::NewRealmResponse::HaveRealm) => return Ok(Response::HaveRealm),
-                Ok(hsm_types::NewRealmResponse::Ok {
-                    realm,
-                    group,
-                    entry,
-                    delta,
-                }) => (realm, group, entry, delta),
-            };
+        let (realm, group, entry, delta) = match self.0.hsm.send(hsm_api::NewRealmRequest {}).await
+        {
+            Err(_) => return Ok(Response::NoHsm),
+            Ok(hsm_api::NewRealmResponse::HaveRealm) => return Ok(Response::HaveRealm),
+            Ok(hsm_api::NewRealmResponse::Ok {
+                realm,
+                group,
+                entry,
+                delta,
+            }) => (realm, group, entry, delta),
+        };
 
         info!(
             agent = name,
@@ -600,12 +598,12 @@ impl<T: Transport + 'static> Agent<T> {
         request: JoinRealmRequest,
     ) -> Result<JoinRealmResponse, HandlerError> {
         type Response = JoinRealmResponse;
-        type HsmResponse = hsm_types::JoinRealmResponse;
+        type HsmResponse = hsm_api::JoinRealmResponse;
 
         match self
             .0
             .hsm
-            .send(hsm_types::JoinRealmRequest {
+            .send(hsm_api::JoinRealmRequest {
                 realm: request.realm,
                 peer: request.peer,
                 statement: request.statement,
@@ -624,7 +622,7 @@ impl<T: Transport + 'static> Agent<T> {
         request: NewGroupRequest,
     ) -> Result<NewGroupResponse, HandlerError> {
         type Response = NewGroupResponse;
-        type HsmResponse = hsm_types::NewGroupResponse;
+        type HsmResponse = hsm_api::NewGroupResponse;
 
         let name = &self.0.name;
         let hsm = &self.0.hsm;
@@ -635,7 +633,7 @@ impl<T: Transport + 'static> Agent<T> {
         let configuration: Vec<HsmId> = request.members.iter().map(|(id, _)| *id).collect();
 
         let (group, statement, entry) = match hsm
-            .send(hsm_types::NewGroupRequest {
+            .send(hsm_api::NewGroupRequest {
                 realm,
                 members: request.members,
             })
@@ -681,12 +679,12 @@ impl<T: Transport + 'static> Agent<T> {
         request: JoinGroupRequest,
     ) -> Result<JoinGroupResponse, HandlerError> {
         type Response = JoinGroupResponse;
-        type HsmResponse = hsm_types::JoinGroupResponse;
+        type HsmResponse = hsm_api::JoinGroupResponse;
 
         let result = self
             .0
             .hsm
-            .send(hsm_types::JoinGroupRequest {
+            .send(hsm_api::JoinGroupRequest {
                 realm: request.realm,
                 group: request.group,
                 configuration: request.configuration,
@@ -712,7 +710,7 @@ impl<T: Transport + 'static> Agent<T> {
         request: BecomeLeaderRequest,
     ) -> Result<BecomeLeaderResponse, HandlerError> {
         type Response = BecomeLeaderResponse;
-        type HsmResponse = hsm_types::BecomeLeaderResponse;
+        type HsmResponse = hsm_api::BecomeLeaderResponse;
 
         let hsm = &self.0.hsm;
         let store = &self.0.store;
@@ -755,7 +753,7 @@ impl<T: Transport + 'static> Agent<T> {
         let last_entry_index = last_entry.index;
 
         match hsm
-            .send(hsm_types::BecomeLeaderRequest {
+            .send(hsm_api::BecomeLeaderRequest {
                 realm: request.realm,
                 group: request.group,
                 last_entry,
@@ -785,7 +783,7 @@ impl<T: Transport + 'static> Agent<T> {
         request: StepDownRequest,
     ) -> Result<StepDownResponse, HandlerError> {
         type Response = StepDownResponse;
-        type HsmResponse = hsm_types::StepDownResponse;
+        type HsmResponse = hsm_api::StepDownResponse;
 
         if self
             .0
@@ -801,7 +799,7 @@ impl<T: Transport + 'static> Agent<T> {
         match self
             .0
             .hsm
-            .send(hsm_types::StepDownRequest {
+            .send(hsm_api::StepDownRequest {
                 realm: request.realm,
                 group: request.group,
             })
@@ -865,7 +863,7 @@ impl<T: Transport + 'static> Agent<T> {
         request: TransferOutRequest,
     ) -> Result<TransferOutResponse, HandlerError> {
         type Response = TransferOutResponse;
-        type HsmResponse = hsm_types::TransferOutResponse;
+        type HsmResponse = hsm_api::TransferOutResponse;
         let realm = request.realm;
         let source = request.source;
 
@@ -918,7 +916,7 @@ impl<T: Transport + 'static> Agent<T> {
             };
 
             return match hsm
-                .send(hsm_types::TransferOutRequest {
+                .send(hsm_api::TransferOutRequest {
                     realm: request.realm,
                     source: request.source,
                     destination: request.destination,
@@ -960,12 +958,12 @@ impl<T: Transport + 'static> Agent<T> {
         request: TransferNonceRequest,
     ) -> Result<TransferNonceResponse, HandlerError> {
         type Response = TransferNonceResponse;
-        type HsmResponse = hsm_types::TransferNonceResponse;
+        type HsmResponse = hsm_api::TransferNonceResponse;
 
         match self
             .0
             .hsm
-            .send(hsm_types::TransferNonceRequest {
+            .send(hsm_api::TransferNonceRequest {
                 realm: request.realm,
                 destination: request.destination,
             })
@@ -984,12 +982,12 @@ impl<T: Transport + 'static> Agent<T> {
         request: TransferStatementRequest,
     ) -> Result<TransferStatementResponse, HandlerError> {
         type Response = TransferStatementResponse;
-        type HsmResponse = hsm_types::TransferStatementResponse;
+        type HsmResponse = hsm_api::TransferStatementResponse;
         loop {
             return match self
                 .0
                 .hsm
-                .send(hsm_types::TransferStatementRequest {
+                .send(hsm_api::TransferStatementRequest {
                     realm: request.realm,
                     source: request.source,
                     destination: request.destination,
@@ -1016,7 +1014,7 @@ impl<T: Transport + 'static> Agent<T> {
         request: TransferInRequest,
     ) -> Result<TransferInResponse, HandlerError> {
         type Response = TransferInResponse;
-        type HsmResponse = hsm_types::TransferInResponse;
+        type HsmResponse = hsm_api::TransferInResponse;
 
         let hsm = &self.0.hsm;
         let store = &self.0.store;
@@ -1085,7 +1083,7 @@ impl<T: Transport + 'static> Agent<T> {
             };
 
             return match hsm
-                .send(hsm_types::TransferInRequest {
+                .send(hsm_api::TransferInRequest {
                     realm: request.realm,
                     destination: request.destination,
                     transferring: request.transferring.clone(),
@@ -1123,11 +1121,11 @@ impl<T: Transport + 'static> Agent<T> {
         request: CompleteTransferRequest,
     ) -> Result<CompleteTransferResponse, HandlerError> {
         type Response = CompleteTransferResponse;
-        type HsmResponse = hsm_types::CompleteTransferResponse;
+        type HsmResponse = hsm_api::CompleteTransferResponse;
         let hsm = &self.0.hsm;
 
         let result = hsm
-            .send(hsm_types::CompleteTransferRequest {
+            .send(hsm_api::CompleteTransferRequest {
                 realm: request.realm,
                 source: request.source,
                 destination: request.destination,
@@ -1161,12 +1159,12 @@ impl<T: Transport + 'static> Agent<T> {
     #[instrument(level = "trace", skip(self))]
     async fn handle_handshake(&self, request: AppRequest) -> Result<AppResponse, HandlerError> {
         type Response = AppResponse;
-        type HsmResponse = hsm_types::HandshakeResponse;
+        type HsmResponse = hsm_api::HandshakeResponse;
 
         match self
             .0
             .hsm
-            .send(hsm_types::HandshakeRequest {
+            .send(hsm_api::HandshakeRequest {
                 realm: request.realm,
                 group: request.group,
                 record_id: request.record_id,
@@ -1288,7 +1286,7 @@ impl<T: Transport + 'static> Agent<T> {
         request: AppRequest,
         tags: &[metrics::Tag],
     ) -> Result<(Append, AppRequestType), AppResponse> {
-        type HsmResponse = hsm_types::AppResponse;
+        type HsmResponse = hsm_api::AppResponse;
         type Response = AppResponse;
 
         for attempt in 0..100 {
@@ -1348,7 +1346,7 @@ impl<T: Transport + 'static> Agent<T> {
             match self
                 .0
                 .hsm
-                .send(hsm_types::AppRequest {
+                .send(hsm_api::AppRequest {
                     realm: request.realm,
                     group: request.group,
                     record_id: request.record_id.clone(),

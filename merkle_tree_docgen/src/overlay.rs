@@ -1,86 +1,80 @@
 use std::path::Path;
 
 use super::{dot_to_png, format_branch_label, DocTree, RecordIdHighlighter};
-use hsmcore::bitvec::Bits;
-use hsmcore::hsm::types::{OwnedRange, RecordId};
-use hsmcore::merkle::agent::Node;
+use bitvec::Bits;
+use hsm_api::merkle::{Dir, KeyVec, Node};
+use hsm_api::{OwnedRange, RecordId};
 use hsmcore::merkle::dot::{hash_id, DotAttributes, DotGraph, DotVisitor, Visitor};
 use hsmcore::merkle::proof::VerifiedProof;
 use hsmcore::merkle::testing::{rec_id, TestHash, TestHasher};
-use hsmcore::merkle::{Dir, KeyVec, Tree};
+use hsmcore::merkle::Tree;
 
-pub async fn tree_overlay(dir: &Path) {
+pub fn tree_overlay(dir: &Path) {
     let dir = dir.join("overlay");
-    new_value(&dir).await;
-    proof_value(&dir).await;
+    new_value(&dir);
+    proof_value(&dir);
     dot_to_png(&dir);
 }
 
-async fn new_value(dir: &Path) {
-    let mut tree = DocTree::new(OwnedRange::full()).await;
+fn new_value(dir: &Path) {
+    let mut tree = DocTree::new(OwnedRange::full());
     // need to reset to a smaller overlay
     tree.tree = Tree::<TestHasher>::with_existing_root(tree.root, 5);
 
     let proof_key = rec_id(&[0b00101100]);
-    tree.insert(rec_id(&[0b10000000]), vec![1]).await;
-    tree.insert(rec_id(&[0b00100110]), vec![1]).await;
-    tree.insert(rec_id(&[0b00000100]), vec![1]).await;
-    tree.insert(rec_id(&[0b01110000]), vec![1]).await;
-    tree.insert(rec_id(&[0b00011100]), vec![1]).await;
-    tree.insert(rec_id(&[0b00000001]), vec![1]).await;
-    tree.insert(rec_id(&[0b00101100]), vec![1]).await;
-    tree.insert(rec_id(&[0b01001000]), vec![2]).await;
-    let proof = tree
-        .tree
-        .latest_proof(tree.proof(&proof_key).await)
-        .unwrap();
+    tree.insert(rec_id(&[0b10000000]), vec![1]);
+    tree.insert(rec_id(&[0b00100110]), vec![1]);
+    tree.insert(rec_id(&[0b00000100]), vec![1]);
+    tree.insert(rec_id(&[0b01110000]), vec![1]);
+    tree.insert(rec_id(&[0b00011100]), vec![1]);
+    tree.insert(rec_id(&[0b00000001]), vec![1]);
+    tree.insert(rec_id(&[0b00101100]), vec![1]);
+    tree.insert(rec_id(&[0b01001000]), vec![2]);
+    let proof = tree.tree.latest_proof(tree.proof(&proof_key)).unwrap();
 
-    tree.insert(proof_key.clone(), vec![4]).await;
-    tree.insert(rec_id(&[0b00101101]), vec![3]).await;
-    tree.insert(rec_id(&[0b11001000]), vec![4]).await;
+    tree.insert(proof_key.clone(), vec![4]);
+    tree.insert(rec_id(&[0b00101101]), vec![3]);
+    tree.insert(rec_id(&[0b11001000]), vec![4]);
 
     let mut dot = DotGraph::new("overlay");
     // setting this enables rank=same to work on clusters not just subgraphs
     dot.attributes.set("newrank", "true");
-    add_roots(&mut dot, &tree).await;
+    add_roots(&mut dot, &tree);
     add_proof(&mut dot, proof);
     add_overlay(&mut dot, &tree, proof_key);
 
     dot.write(dir, "new_value.dot").unwrap();
 }
 
-async fn proof_value(dir: &Path) {
-    let mut tree = DocTree::new(OwnedRange::full()).await;
+fn proof_value(dir: &Path) {
+    let mut tree = DocTree::new(OwnedRange::full());
     // need to reset to a smaller overlay
     tree.tree = Tree::<TestHasher>::with_existing_root(tree.root, 5);
 
     let proof_key = rec_id(&[0b00101100]);
-    tree.insert(proof_key.clone(), vec![1]).await;
-    tree.insert(rec_id(&[0b10000000]), vec![1]).await;
-    tree.insert(rec_id(&[0b00100110]), vec![1]).await;
-    tree.insert(rec_id(&[0b00000100]), vec![1]).await;
-    tree.insert(rec_id(&[0b01110000]), vec![1]).await;
-    tree.insert(rec_id(&[0b00000001]), vec![1]).await;
-    tree.insert(rec_id(&[0b01001000]), vec![2]).await;
-    let proof = tree
-        .tree
-        .latest_proof(tree.proof(&proof_key).await)
-        .unwrap();
+    tree.insert(proof_key.clone(), vec![1]);
+    tree.insert(rec_id(&[0b10000000]), vec![1]);
+    tree.insert(rec_id(&[0b00100110]), vec![1]);
+    tree.insert(rec_id(&[0b00000100]), vec![1]);
+    tree.insert(rec_id(&[0b01110000]), vec![1]);
+    tree.insert(rec_id(&[0b00000001]), vec![1]);
+    tree.insert(rec_id(&[0b01001000]), vec![2]);
+    let proof = tree.tree.latest_proof(tree.proof(&proof_key)).unwrap();
 
-    tree.insert(rec_id(&[0b00011100]), vec![1]).await;
-    tree.insert(rec_id(&[0b11001000]), vec![4]).await;
+    tree.insert(rec_id(&[0b00011100]), vec![1]);
+    tree.insert(rec_id(&[0b11001000]), vec![4]);
 
     let mut dot = DotGraph::new("overlay");
     // setting this enables rank=same to work on clusters not just subgraphs
     dot.attributes.set("newrank", "true");
-    add_roots(&mut dot, &tree).await;
+    add_roots(&mut dot, &tree);
     add_proof(&mut dot, proof);
     add_overlay(&mut dot, &tree, proof_key);
 
     dot.write(dir, "proof_value.dot").unwrap();
 }
 
-async fn add_roots(dot: &mut DotGraph, tree: &DocTree) {
+fn add_roots(dot: &mut DotGraph, tree: &DocTree) {
     let roots = dot.graph_mut("cluster_roots");
     roots.attributes.set("rank", "same");
     roots.attributes.set("label", "\"root hashes\"");

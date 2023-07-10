@@ -6,8 +6,7 @@ use url::Url;
 use super::{ManagementGrant, Manager};
 use agent_api::{AgentService, BecomeLeaderRequest, BecomeLeaderResponse};
 use cluster_core::{get_hsm_statuses, Error};
-use hsm_types::{GroupId, HsmId, LogIndex};
-use hsmcore::hsm::types as hsm_types;
+use hsm_api::{GroupId, HsmId, LogIndex};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self, RpcError};
@@ -67,7 +66,7 @@ pub(super) async fn assign_group_a_leader(
     grant: &ManagementGrant<'_>,
     config: Vec<HsmId>,
     skipping: Option<HsmId>,
-    hsm_status: &HashMap<HsmId, (hsm_types::StatusResponse, Url)>,
+    hsm_status: &HashMap<HsmId, (hsm_api::StatusResponse, Url)>,
     last: Option<LogIndex>,
 ) -> Result<Option<HsmId>, RpcError> {
     // We calculate a score for each group member based on how much work we
@@ -117,7 +116,7 @@ pub(super) async fn assign_group_a_leader(
     last_result
 }
 
-fn score(group: &GroupId, m: &hsm_types::StatusResponse) -> Score {
+fn score(group: &GroupId, m: &hsm_api::StatusResponse) -> Score {
     let mut work: usize = 0;
     let mut last_captured = None;
     if let Some(r) = &m.realm {
@@ -170,7 +169,7 @@ impl PartialOrd for Score {
 #[cfg(test)]
 mod test {
     use super::Score;
-    use hsmcore::hsm::types::{HsmId, LogIndex};
+    use hsm_api::{HsmId, LogIndex};
 
     #[test]
     fn score_order() {

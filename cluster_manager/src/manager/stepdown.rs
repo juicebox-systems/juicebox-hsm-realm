@@ -7,8 +7,7 @@ use url::Url;
 
 use super::{ManagementGrant, Manager};
 use cluster_core::{discover_hsm_ids, get_hsm_statuses};
-use hsm_types::{GroupId, HsmId, LogIndex};
-use hsmcore::hsm::types as hsm_types;
+use hsm_api::{GroupId, HsmId, LogIndex};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::rpc::{self, RpcError};
 use service_core::rpc::HandlerError;
@@ -125,7 +124,7 @@ impl Manager {
                         }
                         Ok(agent_api::StatusResponse {
                             hsm:
-                                Some(hsm_types::StatusResponse {
+                                Some(hsm_api::StatusResponse {
                                     id,
                                     realm: Some(rs),
                                     ..

@@ -1,9 +1,7 @@
-use agent_api::merkle::TreeStoreReader;
-use hsmcore::bitvec::Bits;
-use hsmcore::hsm::types::{OwnedRange, RecordId};
-use hsmcore::merkle::agent::{Node, StoreKey, TreeStoreError};
-use hsmcore::merkle::proof::ReadProof;
-use hsmcore::merkle::{Dir, HashOutput, KeyVec};
+use agent_api::merkle::{TreeStoreError, TreeStoreReader};
+use bitvec::Bits;
+use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey, ReadProof};
+use hsm_api::{OwnedRange, RecordId};
 use juicebox_sdk_core::types::RealmId;
 use observability::metrics;
 
@@ -23,7 +21,13 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
         Some(Node::Leaf(_)) => panic!("found unexpected leaf node"),
         Some(Node::Interior(int)) => int,
     };
-    let mut res = ReadProof::new(k.clone(), range.clone(), *root_hash, root);
+    let mut res = ReadProof {
+        key: k.clone(),
+        range: range.clone(),
+        leaf: None,
+        path: vec![root],
+        root_hash: *root_hash,
+    };
     let full_key = k.to_bitvec();
     let mut key = full_key.as_ref();
     loop {
@@ -78,7 +82,7 @@ pub async fn read_tree_side<R: TreeStoreReader<HO>, HO: HashOutput>(
     let mut current = *root_hash;
     loop {
         match store
-            .read_node(realm_id, StoreKey::new(&key, &current), tags)
+            .read_node(realm_id, NodeKey::new(key.clone(), current), tags)
             .await?
         {
             Node::Interior(int) => match int.branch(side) {

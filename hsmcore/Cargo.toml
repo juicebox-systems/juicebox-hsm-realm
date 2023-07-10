@@ -9,16 +9,20 @@ edition = "2021"
 ahash = { workspace = true }
 async-recursion = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
+bitvec = { workspace = true }
 blake2 = { workspace = true }
 chacha20poly1305 = { workspace = true }
 ciborium = { workspace = true }
 ciborium-io = { workspace = true }
 digest = { workspace = true }
+election = { workspace = true }
 generic-array = { workspace = true }
 hashbrown = { workspace = true }
+hsm_api = { workspace = true }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-noise = { workspace = true }
+lru-cache = { workspace = true }
 rand_core = { workspace = true }
 serde = { workspace = true }
 spin = { workspace = true }

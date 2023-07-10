@@ -11,11 +11,12 @@ anyhow = { workspace = true }
 blake2 = { workspace = true }
 bytes = { workspace = true }
 ciborium = { workspace = true }
+ciborium-io = { workspace = true }
 clap = { workspace = true }
 digest = { workspace = true }
 futures = { workspace = true }
 google = { workspace = true }
-hsmcore = { workspace = true }
+hsm_api = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 juicebox-sdk-core = { workspace = true }

@@ -10,41 +10,35 @@ use core::fmt::Debug;
 use core::time::Duration;
 use digest::Digest;
 use hashbrown::hash_map::Entry;
+use hsm_api::merkle::StoreDelta;
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace, warn};
 use x25519_dalek as x25519;
 
 mod app;
-pub mod cache;
 pub mod commit;
 mod configuration;
 pub mod mac;
-pub mod rpc;
-pub mod types;
 
 use self::mac::{
     CapturedStatementMessage, CtMac, EntryMacMessage, GroupConfigurationStatementMessage,
     HsmRealmStatementMessage, MacKey, TransferStatementMessage,
 };
-use super::hal::{Clock, CryptoRng, IOError, NVRam, Nanos, Platform};
+use super::hal::{Clock, CryptoRng, IOError, NVRam, Platform};
 use super::merkle::{
-    agent::StoreDelta,
-    proof::{ProofError, ReadProof, VerifiedProof},
+    proof::{ProofError, VerifiedProof},
     MergeError, NodeHasher, Tree,
 };
 use super::mutation::{MutationTracker, OnMutationFinished};
 use crate::hash::{HashExt, HashMap};
 use app::RecordChange;
 use configuration::GroupConfiguration;
-use juicebox_sdk_core::{
-    requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
-    types::{RealmId, SessionId},
+use hsm_api::merkle::ReadProof;
+use hsm_api::rpc::{
+    HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction, Nanos,
 };
-use juicebox_sdk_marshalling::{self as marshalling, bytes, DeserializationError};
-use juicebox_sdk_noise::server as noise;
-use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
-use types::{
+use hsm_api::{
     AppRequest, AppRequestType, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CaptureNextRequest, CaptureNextResponse, Captured, CompleteTransferRequest,
     CompleteTransferResponse, DataHash, EntryMac, GroupId, GroupMemberRole, GroupStatus,
@@ -57,14 +51,20 @@ use types::{
     TransferOutResponse, TransferStatementRequest, TransferStatementResponse, TransferringOut,
     CONFIGURATION_LIMIT, GROUPS_LIMIT,
 };
+use juicebox_sdk_core::{
+    requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
+    types::{RealmId, SessionId},
+};
+use juicebox_sdk_marshalling::{self as marshalling, bytes, DeserializationError};
+use juicebox_sdk_noise::server as noise;
 
 // TODO: This is susceptible to DoS attacks. One user could create many
 // sessions to evict all other users' Noise connections, or one attacker could
 // collect many (currently 511) user accounts to evict all other connections.
-type SessionCache = cache::Cache<
+type SessionCache = lru_cache::Cache<
     (RecordId, SessionId),
     noise::Transport,
-    cache::LogicalClock,
+    lru_cache::LogicalClock,
     crate::hash::RandomState,
 >;
 
@@ -75,20 +75,16 @@ type SessionCache = cache::Cache<
 /// sophisticated estimate, so it's OK for this to be a constant here.
 const SESSION_LIFETIME: Duration = Duration::from_secs(5);
 
-impl GroupId {
-    fn random(rng: &mut impl CryptoRng) -> Self {
-        let mut id = [0u8; 16];
-        rng.fill_bytes(&mut id);
-        Self(id)
-    }
+fn create_random_group_id(rng: &mut impl CryptoRng) -> GroupId {
+    let mut id = [0u8; 16];
+    rng.fill_bytes(&mut id);
+    GroupId(id)
 }
 
-impl HsmId {
-    fn random(rng: &mut impl CryptoRng) -> Self {
-        let mut id = [0u8; 16];
-        rng.fill_bytes(&mut id);
-        Self(id)
-    }
+fn create_random_hsm_id(rng: &mut impl CryptoRng) -> HsmId {
+    let mut id = [0u8; 16];
+    rng.fill_bytes(&mut id);
+    HsmId(id)
 }
 
 fn create_random_realm_id(rng: &mut impl CryptoRng) -> RealmId {
@@ -127,12 +123,10 @@ impl LogEntryBuilder {
     }
 }
 
-impl TransferNonce {
-    pub fn random(rng: &mut impl CryptoRng) -> Self {
-        let mut nonce = [0u8; 16];
-        rng.fill_bytes(&mut nonce);
-        Self(nonce)
-    }
+pub fn create_random_transfer_nonce(rng: &mut impl CryptoRng) -> TransferNonce {
+    let mut nonce = [0u8; 16];
+    rng.fill_bytes(&mut nonce);
+    TransferNonce(nonce)
 }
 
 #[derive(Default)]
@@ -394,7 +388,7 @@ impl<P: Platform> Hsm<P> {
         let persistent = match Self::read_persisted_state(&platform)? {
             Some(state) => state,
             None => {
-                let hsm_id = HsmId::random(&mut platform);
+                let hsm_id = create_random_hsm_id(&mut platform);
                 let state = PersistentState {
                     id: hsm_id,
                     realm: None,
@@ -600,7 +594,7 @@ impl<P: Platform> Hsm<P> {
             Response::HaveRealm
         } else {
             let realm = create_random_realm_id(&mut self.platform);
-            let group = GroupId::random(&mut self.platform);
+            let group = create_random_group_id(&mut self.platform);
 
             self.persistent.mutate().realm = Some(PersistentRealmState {
                 id: realm,
@@ -752,7 +746,7 @@ impl<P: Platform> Hsm<P> {
                 return Response::InvalidConfiguration;
             };
 
-            let group = GroupId::random(&mut self.platform);
+            let group = create_random_group_id(&mut self.platform);
             let statement =
                 self.realm_keys
                     .mac
@@ -1277,7 +1271,7 @@ impl<P: Platform> Hsm<P> {
                 return Response::NotLeader;
             };
 
-            let nonce = TransferNonce::random(&mut self.platform);
+            let nonce = create_random_transfer_nonce(&mut self.platform);
             leader.incoming = Some(nonce);
             Response::Ok(nonce)
         })();
@@ -1946,27 +1940,9 @@ mod test {
     use juicebox_sdk_core::types::RealmId;
     use juicebox_sdk_marshalling as marshalling;
 
-    use super::super::bitvec;
     use super::super::hal::MAX_NVRAM_SIZE;
-    use super::super::merkle::agent::StoreKey;
-    use super::super::merkle::testing::rec_id;
-    use super::super::merkle::NodeHashBuilder;
-    use super::types::{DataHash, EntryMac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT};
     use super::*;
-
-    #[test]
-    fn test_store_key_parse_data_hash() {
-        let prefix = bitvec![0, 1, 1, 1];
-        let hash = NodeHashBuilder::<MerkleHasher>::Leaf(&rec_id(&[1]), &[1, 2, 3, 4]).build();
-
-        let sk = StoreKey::new(&prefix, &hash);
-        match StoreKey::parse::<DataHash>(&sk.into_bytes()) {
-            None => panic!("should have decoded store key"),
-            Some((_p, h)) => {
-                assert_eq!(h, hash);
-            }
-        }
-    }
+    use hsm_api::{EntryMac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT};
 
     fn array_big<const N: usize>(i: u8) -> [u8; N] {
         let mut r = [0xff; N];

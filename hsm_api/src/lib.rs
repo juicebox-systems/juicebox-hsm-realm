@@ -1,3 +1,8 @@
+#![no_std]
+
+pub mod merkle;
+pub mod rpc;
+
 extern crate alloc;
 
 use alloc::vec::Vec;
@@ -9,14 +14,14 @@ use digest::CtOutput;
 use serde::{Deserialize, Serialize};
 use subtle::{Choice, ConstantTimeEq};
 
-use super::super::bitvec::{BitVec, Bits};
-use super::super::merkle::{agent::StoreDelta, proof::ReadProof, HashOutput};
+use bitvec::{BitVec, Bits};
 use juicebox_sdk_core::{
     requests::{NoiseRequest, NoiseResponse},
     types::{RealmId, SessionId},
 };
 use juicebox_sdk_marshalling::bytes;
 use juicebox_sdk_noise::server as noise;
+use merkle::{HashOutput, ReadProof, StoreDelta};
 
 /// A unique identifier for a replication group.
 ///
@@ -389,7 +394,7 @@ impl OwnedRange {
 /// it.
 ///
 /// The hash of the root node serves as the hash of the tree.
-#[derive(Clone, Copy, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct DataHash(#[serde(with = "bytes")] pub [u8; 32]);
 
 impl fmt::Debug for DataHash {
@@ -1730,11 +1735,10 @@ pub enum AppRequestType {
 
 #[cfg(test)]
 mod test {
-    use juicebox_sdk_marshalling as marshalling;
-
     use super::{DataHash, RecordId};
-    use crate::bitvec::Bits;
     use crate::merkle::HashOutput;
+    use bitvec::Bits;
+    use juicebox_sdk_marshalling as marshalling;
 
     #[test]
     fn record_id_bitvec() {

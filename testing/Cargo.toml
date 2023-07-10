@@ -13,6 +13,7 @@ ctrlc = { workspace = true }
 futures = { workspace = true }
 google = { workspace = true }
 hex = { workspace = true }
+hsm_api = { workspace = true }
 hsmcore = { workspace = true }
 http = { workspace = true }
 juicebox-sdk = { workspace = true }
@@ -34,6 +35,7 @@ url = { workspace = true }
 
 [dev-dependencies]
 agent_core = { workspace = true }
+bitvec = { workspace = true }
 cluster_api = { workspace = true }
 criterion = { workspace = true }
 digest = { workspace = true }

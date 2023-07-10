@@ -12,7 +12,8 @@ use super::seelib::{
     NVMemOpType_Write, SEElib_FreeReply, SEElib_Transact, Status_OK,
 };
 use entrust_api::WorldSignerError;
-use hsmcore::hal::{Clock, IOError, NVRam, Nanos, MAX_NVRAM_SIZE};
+use hsm_api::rpc::Nanos;
+use hsmcore::hal::{Clock, IOError, NVRam, MAX_NVRAM_SIZE};
 
 /// NCipher implements the Platform trait, which provides platform specific
 /// functionality to the hsmcore library.

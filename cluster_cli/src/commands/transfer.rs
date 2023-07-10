@@ -1,4 +1,4 @@
-use hsmcore::hsm::types::{GroupId, OwnedRange};
+use hsm_api::{GroupId, OwnedRange};
 use juicebox_sdk_core::types::RealmId;
 use store::StoreClient;
 

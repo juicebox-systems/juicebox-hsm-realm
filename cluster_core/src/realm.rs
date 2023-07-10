@@ -7,7 +7,7 @@ use agent_api::{
     AgentService, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse,
     NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, StatusRequest,
 };
-use hsmcore::hsm::types::{GroupId, HsmId, HsmRealmStatement, GROUPS_LIMIT};
+use hsm_api::{GroupId, HsmId, HsmRealmStatement, GROUPS_LIMIT};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self, RpcError};

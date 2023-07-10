@@ -3,8 +3,8 @@ use tracing::warn;
 
 use super::hsm::Transport;
 use agent_api::StepDownRequest;
-use hsmcore::hsm::types::{DataHash, GroupId, LogEntry, LogIndex};
-use hsmcore::merkle::agent::StoreDelta;
+use hsm_api::merkle::StoreDelta;
+use hsm_api::{DataHash, GroupId, LogEntry, LogIndex};
 use juicebox_sdk_core::types::RealmId;
 use observability::metrics::Tag;
 use observability::metrics_tag as tag;

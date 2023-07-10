@@ -1,60 +1,34 @@
 extern crate alloc;
 
-use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use async_recursion::async_recursion;
-use async_trait::async_trait;
 use core::fmt::{Display, Write};
 use core::marker::PhantomData;
 use std::path::Path;
 use std::{fs, io};
 
-use super::agent::{Node, StoreKey, TreeStoreError};
-use super::{Bits, Branch, Dir, HashOutput, KeyVec};
-use crate::bitvec::{BitVec, DisplayBits};
-use crate::hash::HashMap;
-use crate::hsm::types::RecordId;
-use juicebox_sdk_core::types::RealmId;
-
-#[async_trait]
-pub trait TreeStoreReader<HO: HashOutput>: Sync {
-    async fn path_lookup(
-        &self,
-        realm_id: &RealmId,
-        record_id: &RecordId,
-    ) -> Result<HashMap<HO, Node<HO>>, TreeStoreError>;
-
-    async fn read_node(
-        &self,
-        realm_id: &RealmId,
-        key: StoreKey,
-    ) -> Result<Node<HO>, TreeStoreError>;
-}
+use super::testing::MemStore;
+use crate::merkle::{Branch, Dir, HashOutput, KeyVec};
+use bitvec::Bits;
+use bitvec::{BitVec, DisplayBits};
+use hsm_api::merkle::Node;
 
 // Creates a dot file for a visualization of the tree starting
 // at the supplied root hash.
-pub async fn tree_to_dot<HO: HashOutput>(
-    realm_id: &RealmId,
-    reader: &impl TreeStoreReader<HO>,
+pub fn tree_to_dot<HO: HashOutput>(
+    store: &MemStore<HO>,
     root: HO,
     dir: &Path,
     output_filename: impl AsRef<Path>,
 ) -> std::io::Result<()> {
-    tree_to_dot_document(realm_id, reader, root)
-        .await
-        .write(dir, output_filename)
+    tree_to_dot_document(store, root).write(dir, output_filename)
 }
 
-pub async fn tree_to_dot_document<HO: HashOutput>(
-    realm_id: &RealmId,
-    reader: &impl TreeStoreReader<HO>,
-    root: HO,
-) -> DotGraph {
+pub fn tree_to_dot_document<HO: HashOutput>(reader: &MemStore<HO>, root: HO) -> DotGraph {
     let mut dot_visitor = DotVisitor::new("merkletree");
-    visit_tree_at(realm_id, reader, KeyVec::new(), root, &mut dot_visitor).await;
+    visit_tree_at(reader, KeyVec::new(), root, &mut dot_visitor);
     dot_visitor.dot
 }
 
@@ -66,28 +40,24 @@ pub trait Visitor<HO: HashOutput>: Sync {
     fn visit_branch(&mut self, prefix: &KeyVec, node_hash: &HO, dir: Dir, branch: &Branch<HO>);
 }
 
-#[async_recursion]
-pub async fn visit_tree_at<HO: HashOutput>(
-    realm_id: &RealmId,
-    reader: &impl TreeStoreReader<HO>,
+pub fn visit_tree_at<HO: HashOutput>(
+    store: &MemStore<HO>,
     prefix: KeyVec,
     h: HO,
     visitor: &mut (impl Visitor<HO> + Send),
 ) {
-    match reader.read_node(realm_id, StoreKey::new(&prefix, &h)).await {
+    match store.get_node(&h) {
         Err(_) => visitor.visit_missing_node(&prefix, &h),
         Ok(node) => {
             visitor.visit_node(&prefix, &h, &node);
             if let Node::Interior(int) = node {
                 if let Some(ref b) = int.left {
                     visitor.visit_branch(&prefix, &h, Dir::Left, b);
-                    visit_tree_at(realm_id, reader, prefix.concat(&b.prefix), b.hash, visitor)
-                        .await;
+                    visit_tree_at(store, prefix.concat(&b.prefix), b.hash, visitor);
                 }
                 if let Some(ref b) = int.right {
                     visitor.visit_branch(&prefix, &h, Dir::Right, b);
-                    visit_tree_at(realm_id, reader, prefix.concat(&b.prefix), b.hash, visitor)
-                        .await;
+                    visit_tree_at(store, prefix.concat(&b.prefix), b.hash, visitor);
                 }
             }
         }

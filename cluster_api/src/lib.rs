@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use hsmcore::hsm::types::{GroupId, HsmId};
+use hsm_api::{GroupId, HsmId};
 use juicebox_sdk::RealmId;
 use juicebox_sdk_networking::rpc::{Rpc, RpcError, Service};
 

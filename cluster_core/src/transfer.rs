@@ -8,8 +8,7 @@ use agent_api::{
     TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
     TransferStatementRequest, TransferStatementResponse,
 };
-use hsm_types::{GroupId, OwnedRange};
-use hsmcore::hsm::types as hsm_types;
+use hsm_api::{GroupId, OwnedRange};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
 use juicebox_sdk_networking::rpc;

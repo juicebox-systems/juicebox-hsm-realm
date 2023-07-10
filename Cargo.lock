@@ -17,7 +17,7 @@ name = "agent_api"
 version = "0.2.0"
 dependencies = [
  "async-trait",
- "hsmcore",
+ "hsm_api",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
  "observability",
@@ -31,13 +31,15 @@ dependencies = [
  "agent_api",
  "anyhow",
  "async-trait",
+ "bitvec",
  "bytes",
  "cluster_api",
  "cluster_core",
+ "election",
  "expect-test",
  "futures",
  "hdrhistogram",
- "hsmcore",
+ "hsm_api",
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
@@ -301,6 +303,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
+name = "bitvec"
+version = "0.2.0"
+dependencies = [
+ "juicebox-sdk-marshalling",
+ "serde",
+]
+
+[[package]]
 name = "blake2"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -533,7 +543,7 @@ dependencies = [
 name = "cluster_api"
 version = "0.2.0"
 dependencies = [
- "hsmcore",
+ "hsm_api",
  "juicebox-sdk",
  "juicebox-sdk-networking",
  "serde",
@@ -574,7 +584,7 @@ dependencies = [
  "futures",
  "google",
  "hex",
- "hsmcore",
+ "hsm_api",
  "juicebox-sdk",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
@@ -595,7 +605,7 @@ version = "0.2.0"
 dependencies = [
  "agent_api",
  "futures",
- "hsmcore",
+ "hsm_api",
  "juicebox-sdk-core",
  "juicebox-sdk-networking",
  "serde",
@@ -621,7 +631,7 @@ dependencies = [
  "expect-test",
  "futures",
  "google",
- "hsmcore",
+ "hsm_api",
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-core",
@@ -920,6 +930,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fcaabb2fef8c910e7f4c7ce9f67a1283a1715879a7c230ca9d6d1ae31f16d91"
 
 [[package]]
+name = "election"
+version = "0.1.0"
+dependencies = [
+ "hsm_api",
+]
+
+[[package]]
 name = "elliptic-curve"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -958,7 +975,6 @@ dependencies = [
  "entrust_nfast",
  "expect-test",
  "google",
- "hsmcore",
  "juicebox-sdk-marshalling",
  "observability",
  "rand_core",
@@ -981,6 +997,7 @@ name = "entrust_hsm"
 version = "0.2.0"
 dependencies = [
  "entrust_api",
+ "hsm_api",
  "hsmcore",
  "juicebox-sdk-marshalling",
  "rand_core",
@@ -1379,25 +1396,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "hsm_api"
+version = "0.2.0"
+dependencies = [
+ "bitvec",
+ "blake2",
+ "digest",
+ "juicebox-sdk-core",
+ "juicebox-sdk-marshalling",
+ "juicebox-sdk-noise",
+ "serde",
+ "subtle",
+]
+
+[[package]]
 name = "hsmcore"
 version = "0.2.0"
 dependencies = [
  "ahash 0.8.3",
  "async-recursion",
  "async-trait",
+ "bitvec",
  "blake2",
  "cbor-diag",
  "chacha20poly1305",
  "ciborium",
  "ciborium-io",
  "digest",
+ "election",
  "expect-test",
  "generic-array",
  "hashbrown 0.14.0",
+ "hsm_api",
  "hsmcore",
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
  "juicebox-sdk-noise",
+ "lru-cache",
  "rand",
  "rand_core",
  "serde",
@@ -1841,12 +1876,13 @@ dependencies = [
  "blake2",
  "bytes",
  "ciborium",
+ "ciborium-io",
  "clap 4.3.0",
  "digest",
  "expect-test",
  "futures",
  "google",
- "hsmcore",
+ "hsm_api",
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-core",
@@ -1890,6 +1926,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lru-cache"
+version = "0.2.0"
+dependencies = [
+ "hashbrown 0.14.0",
+]
+
+[[package]]
 name = "matchit"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1914,7 +1957,9 @@ dependencies = [
 name = "merkle_tree_docgen"
 version = "0.2.0"
 dependencies = [
+ "bitvec",
  "clap 4.3.0",
+ "hsm_api",
  "hsmcore",
  "juicebox-sdk-core",
  "rand_core",
@@ -2877,6 +2922,7 @@ dependencies = [
  "hex",
  "hkdf",
  "hmac",
+ "hsm_api",
  "hsmcore",
  "http",
  "http-body-util",
@@ -2918,17 +2964,21 @@ dependencies = [
  "agent_api",
  "agent_core",
  "async-trait",
+ "bitvec",
  "clap 4.3.0",
  "futures",
  "gcp_auth",
  "google",
+ "hsm_api",
  "hsmcore",
  "http",
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
  "juicebox-sdk-process-group",
+ "lru-cache",
  "observability",
  "once_cell",
+ "rand",
  "rand_core",
  "reqwest",
  "tokio",
@@ -3017,6 +3067,7 @@ version = "0.2.0"
 dependencies = [
  "agent_api",
  "agent_core",
+ "bitvec",
  "clap 4.3.0",
  "cluster_api",
  "cluster_core",
@@ -3027,6 +3078,7 @@ dependencies = [
  "google",
  "hex",
  "hex-literal",
+ "hsm_api",
  "hsmcore",
  "http",
  "juicebox-sdk",

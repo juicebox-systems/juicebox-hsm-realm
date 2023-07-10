@@ -21,7 +21,7 @@ use url::Url;
 
 use super::PortIssuer;
 use agent_api::{AgentService, StatusRequest};
-use hsmcore::hsm::types::PublicKey;
+use hsm_api::PublicKey;
 
 type AgentClient = reqwest::Client<AgentService>;
 

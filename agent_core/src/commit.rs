@@ -12,8 +12,8 @@ use super::hsm::Transport;
 use super::Agent;
 use agent_api::{AgentService, ReadCapturedRequest, ReadCapturedResponse};
 use cluster_core::discover_hsm_ids;
-use hsmcore::hsm::commit::HsmElection;
-use hsmcore::hsm::types::{
+use election::HsmElection;
+use hsm_api::{
     Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole, HsmId, LogIndex,
     PersistStateRequest, PersistStateResponse,
 };

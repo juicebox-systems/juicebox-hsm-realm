@@ -1,13 +1,14 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 
-use hsmcore::hsm::types::RecordId;
-use hsmcore::merkle::agent::{Node, StoreKey, TreeStoreError};
+use hsm_api::merkle::{Node, NodeKey};
+use hsm_api::RecordId;
 use juicebox_sdk_core::types::RealmId;
 use observability::metrics;
 
-/// Interface to read Merkle nodes, primarily used by the functions below. The
-/// only implementation is [`crate::realm::store::bigtable::StoreClient`].
+/// Interface to read Merkle nodes, primarily used by the
+/// agent_core::merkle::read and agent_core::merkle::read_tree_side. The only
+/// implementation is [`store::StoreClient`].
 #[async_trait]
 pub trait TreeStoreReader<HO>: Sync {
     /// Reads and returns all the nodes on the path from the root to
@@ -29,7 +30,13 @@ pub trait TreeStoreReader<HO>: Sync {
     async fn read_node(
         &self,
         realm_id: &RealmId,
-        key: StoreKey,
+        key: NodeKey<HO>,
         tags: &[metrics::Tag],
     ) -> Result<Node<HO>, TreeStoreError>;
+}
+
+#[derive(Debug)]
+pub enum TreeStoreError {
+    MissingNode,
+    Network(String),
 }

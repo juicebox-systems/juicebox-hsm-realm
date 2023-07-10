@@ -1,18 +1,17 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use core::fmt::{self, Debug, Display};
-use core::hash::Hash;
-use juicebox_sdk_marshalling::bytes;
-use serde::{Deserialize, Serialize};
+use core::fmt::{self, Debug};
 
-use self::agent::{DeltaBuilder, Node, NodeKey, StoreDelta};
-use self::proof::{ProofError, ReadProof, VerifiedProof};
-use super::bitvec::{BitSlice, BitVec, Bits};
-use super::hsm::types::{OwnedRange, RecordId};
+use self::proof::{ProofError, VerifiedProof};
+use bitvec::Bits;
+use hsm_api::merkle::{
+    Branch, DeltaBuilder, Dir, HashOutput, InteriorNode, KeyVec, LeafNode, Node, NodeKey,
+    ReadProof, StoreDelta,
+};
+use hsm_api::{OwnedRange, RecordId};
 
 pub mod agent;
-mod base128;
 #[cfg(feature = "dot")]
 pub mod dot;
 mod insert;
@@ -23,8 +22,6 @@ mod split;
 #[cfg(any(test, feature = "dot"))]
 pub mod testing;
 
-pub type KeyVec = BitVec;
-pub type KeySlice<'a> = BitSlice<'a>;
 pub type TreeOverlay<HO> = self::overlay::TreeOverlay<HO>;
 
 pub struct Tree<H: NodeHasher> {
@@ -43,7 +40,7 @@ impl<H: NodeHasher> Tree<H> {
     //      Apply the store delta returned from insert to storage. Keep track of what
     //      the new root hash is.
     pub fn new_tree(key_range: &OwnedRange) -> (H::Output, StoreDelta<H::Output>) {
-        let (hash, root) = InteriorNode::new::<H>(key_range, true, None, None);
+        let (hash, root) = InteriorNode::new_with_hash::<H>(key_range, true, None, None);
         let mut delta = DeltaBuilder::new();
         delta.add(NodeKey::new(KeyVec::new(), hash), Node::Interior(root));
         (hash, delta.build())
@@ -64,7 +61,7 @@ impl<H: NodeHasher> Tree<H> {
         &self,
         rp: ReadProof<H::Output>,
     ) -> Result<VerifiedProof<H::Output>, ProofError> {
-        rp.verify::<H>(&self.overlay)
+        proof::verify::<H>(rp, &self.overlay)
     }
 
     // Returns the tree overlay.
@@ -73,23 +70,59 @@ impl<H: NodeHasher> Tree<H> {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct InteriorNode<HO> {
-    left: Option<Branch<HO>>,
-    right: Option<Branch<HO>>,
+pub(crate) trait InteriorNodeExt<HO> {
+    fn new_with_hash<H: NodeHasher<Output = HO>>(
+        key_range: &OwnedRange,
+        is_root: bool,
+        left: Option<Branch<H::Output>>,
+        right: Option<Branch<H::Output>>,
+    ) -> (H::Output, InteriorNode<H::Output>);
+
+    fn construct<H: NodeHasher<Output = HO>>(
+        key_range: &OwnedRange,
+        is_root: bool,
+        a: Option<Branch<H::Output>>,
+        b: Option<Branch<H::Output>>,
+    ) -> (HO, InteriorNode<H::Output>);
+
+    fn calc_hash<H: NodeHasher<Output = HO>>(
+        key_range: &OwnedRange,
+        is_root: bool,
+        left: &Option<Branch<H::Output>>,
+        right: &Option<Branch<H::Output>>,
+    ) -> H::Output;
+
+    fn root_with_new_partition<H: NodeHasher<Output = HO>>(
+        &self,
+        key_range: &OwnedRange,
+    ) -> (H::Output, InteriorNode<H::Output>);
+
+    fn with_new_child<H: NodeHasher<Output = HO>>(
+        &self,
+        key_range: &OwnedRange,
+        is_root: bool,
+        dir: Dir,
+        child: Branch<H::Output>,
+    ) -> (H::Output, InteriorNode<H::Output>);
+
+    fn with_new_child_hash<H: NodeHasher<Output = HO>>(
+        &self,
+        key_range: &OwnedRange,
+        is_root: bool,
+        dir: Dir,
+        hash: H::Output,
+    ) -> (H::Output, InteriorNode<H::Output>);
 }
 
-impl<HO: HashOutput> InteriorNode<HO> {
-    fn new<H: NodeHasher<Output = HO>>(
+impl<HO: HashOutput> InteriorNodeExt<HO> for InteriorNode<HO> {
+    fn new_with_hash<H: NodeHasher<Output = HO>>(
         key_range: &OwnedRange,
         is_root: bool,
         left: Option<Branch<H::Output>>,
         right: Option<Branch<H::Output>>,
     ) -> (H::Output, InteriorNode<H::Output>) {
-        Branch::assert_dir(&left, Dir::Left);
-        Branch::assert_dir(&right, Dir::Right);
         let hash = Self::calc_hash::<H>(key_range, is_root, &left, &right);
-        (hash, InteriorNode { left, right })
+        (hash, InteriorNode::new(left, right))
     }
 
     // construct returns a new InteriorNode with the supplied children. It will determine
@@ -101,18 +134,19 @@ impl<HO: HashOutput> InteriorNode<HO> {
         b: Option<Branch<H::Output>>,
     ) -> (HO, InteriorNode<H::Output>) {
         match (&a, &b) {
-            (None, None) => Self::new::<H>(key_range, is_root, None, None),
+            (None, None) => Self::new_with_hash::<H>(key_range, is_root, None, None),
             (Some(x), _) => {
                 let (l, r) = if x.dir() == Dir::Left { (a, b) } else { (b, a) };
-                Self::new::<H>(key_range, is_root, l, r)
+                Self::new_with_hash::<H>(key_range, is_root, l, r)
             }
             (_, Some(x)) => {
                 let (l, r) = if x.dir() == Dir::Left { (b, a) } else { (a, b) };
-                Self::new::<H>(key_range, is_root, l, r)
+                Self::new_with_hash::<H>(key_range, is_root, l, r)
             }
         }
     }
-    pub fn calc_hash<H: NodeHasher<Output = HO>>(
+
+    fn calc_hash<H: NodeHasher<Output = HO>>(
         key_range: &OwnedRange,
         is_root: bool,
         left: &Option<Branch<H::Output>>,
@@ -126,18 +160,13 @@ impl<HO: HashOutput> InteriorNode<HO> {
         b.build()
     }
 
-    pub fn branch(&self, dir: Dir) -> &Option<Branch<HO>> {
-        match dir {
-            Dir::Left => &self.left,
-            Dir::Right => &self.right,
-        }
-    }
     fn root_with_new_partition<H: NodeHasher<Output = HO>>(
         &self,
         key_range: &OwnedRange,
     ) -> (H::Output, InteriorNode<H::Output>) {
-        InteriorNode::new::<H>(key_range, true, self.left.clone(), self.right.clone())
+        InteriorNode::new_with_hash::<H>(key_range, true, self.left.clone(), self.right.clone())
     }
+
     fn with_new_child<H: NodeHasher<Output = HO>>(
         &self,
         key_range: &OwnedRange,
@@ -146,14 +175,18 @@ impl<HO: HashOutput> InteriorNode<HO> {
         child: Branch<H::Output>,
     ) -> (H::Output, InteriorNode<H::Output>) {
         match dir {
-            Dir::Left => {
-                InteriorNode::new::<H>(key_range, is_root, Some(child), self.right.clone())
-            }
+            Dir::Left => InteriorNode::new_with_hash::<H>(
+                key_range,
+                is_root,
+                Some(child),
+                self.right.clone(),
+            ),
             Dir::Right => {
-                InteriorNode::new::<H>(key_range, is_root, self.left.clone(), Some(child))
+                InteriorNode::new_with_hash::<H>(key_range, is_root, self.left.clone(), Some(child))
             }
         }
     }
+
     fn with_new_child_hash<H: NodeHasher<Output = HO>>(
         &self,
         key_range: &OwnedRange,
@@ -167,80 +200,9 @@ impl<HO: HashOutput> InteriorNode<HO> {
     }
 }
 
-#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
-pub struct LeafNode {
-    #[serde(with = "bytes")]
-    pub value: Vec<u8>,
-}
-
-impl Debug for LeafNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("LeafNode")
-    }
-}
-
-impl LeafNode {
-    fn new<H: NodeHasher>(k: &RecordId, v: Vec<u8>) -> (H::Output, LeafNode) {
-        let h = Self::calc_hash::<H>(k, &v);
-        (h, LeafNode { value: v })
-    }
-
-    pub fn calc_hash<H: NodeHasher>(k: &RecordId, v: &[u8]) -> H::Output {
-        NodeHashBuilder::<H>::Leaf(k, v).build()
-    }
-}
-
-#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
-pub struct Branch<HO> {
-    pub prefix: KeyVec,
-    pub hash: HO,
-}
-impl<HO: HashOutput> Branch<HO> {
-    pub fn new(prefix: KeyVec, hash: HO) -> Self {
-        Branch { prefix, hash }
-    }
-    fn dir(&self) -> Dir {
-        Dir::from(self.prefix[0])
-    }
-    fn assert_dir(b: &Option<Branch<HO>>, d: Dir) {
-        if let Some(b) = b {
-            assert!(!b.prefix.is_empty());
-            assert_eq!(d, b.dir(), "{:?} prefix is invalid {}", d, b.prefix);
-        }
-    }
-}
-impl<HO: Debug> Debug for Branch<HO> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?} -> {:?}", &self.prefix, self.hash)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub enum Dir {
-    Left,
-    Right,
-}
-impl Dir {
-    pub fn from(v: bool) -> Self {
-        match v {
-            true => Dir::Right,
-            false => Dir::Left,
-        }
-    }
-    pub fn opposite(&self) -> Self {
-        match self {
-            Dir::Left => Dir::Right,
-            Dir::Right => Dir::Left,
-        }
-    }
-}
-impl Display for Dir {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Dir::Left => f.write_str("Left"),
-            Dir::Right => f.write_str("Right"),
-        }
-    }
+fn new_leaf<H: NodeHasher>(k: &RecordId, v: Vec<u8>) -> (H::Output, LeafNode) {
+    let h = NodeHashBuilder::<H>::Leaf(k, &v).build();
+    (h, LeafNode { value: v })
 }
 
 // The result of performing a split operation on the tree. The tree is split
@@ -282,12 +244,6 @@ pub trait NodeHasher: Default {
 
     fn update(&mut self, d: &[u8]);
     fn finalize(self) -> Self::Output;
-}
-
-pub trait HashOutput: Hash + Copy + Eq + Debug + Sync + Send {
-    fn zero() -> Self;
-    fn from_slice(bytes: &[u8]) -> Option<Self>;
-    fn as_slice(&self) -> &[u8];
 }
 
 pub enum NodeHashBuilder<'a, H: NodeHasher> {
@@ -351,21 +307,17 @@ impl<'a, H: NodeHasher> NodeHashBuilder<'a, H> {
 
 #[cfg(test)]
 mod tests {
-    use async_recursion::async_recursion;
-
-    use super::agent::{Node, StoreKey, TreeStoreError};
-    use super::dot::TreeStoreReader;
     use super::testing::{
-        check_tree_invariants, new_empty_tree, read, rec_id, TestHash, TestHasher,
+        check_tree_invariants, new_empty_tree, rec_id, MemStore, MemStoreError, TestHash,
+        TestHasher,
     };
-    use super::{BitVec, Branch, HashOutput, InteriorNode, KeyVec, LeafNode};
-    use crate::bitvec;
-    use crate::bitvec::Bits;
-    use crate::hsm::types::OwnedRange;
-    use juicebox_sdk_core::types::RealmId;
+    use super::{HashOutput, InteriorNode};
+    use crate::merkle::{InteriorNodeExt, NodeHashBuilder};
+    use bitvec::Bits;
+    use bitvec::{bitvec, BitVec};
+    use hsm_api::merkle::{Branch, KeyVec, LeafNode, Node};
+    use hsm_api::OwnedRange;
     use juicebox_sdk_marshalling as marshalling;
-
-    pub const TEST_REALM: RealmId = RealmId([42u8; 16]);
 
     #[test]
     fn test_leaf_serialization() {
@@ -438,31 +390,30 @@ mod tests {
         });
     }
 
-    #[tokio::test]
-    async fn get_nothing() {
+    #[test]
+    fn get_nothing() {
         let range = OwnedRange::full();
-        let (_tree, root, store) = new_empty_tree(&range).await;
-        let p = read(&TEST_REALM, &store, &range, &root, &rec_id(&[1, 2, 3]))
-            .await
-            .unwrap();
+        let (_tree, root, store) = new_empty_tree(&range);
+        let p = store.read(&range, &root, &rec_id(&[1, 2, 3])).unwrap();
         assert_eq!(1, p.path.len());
         assert!(p.leaf.is_none());
-        check_tree_invariants::<TestHasher>(&range, &TEST_REALM, root, &store).await;
+        check_tree_invariants::<TestHasher>(&range, root, &store);
     }
 
     #[test]
     fn test_empty_root_prefix_hash() {
-        let (root_hash, _) = InteriorNode::new::<TestHasher>(&OwnedRange::full(), true, None, None);
+        let (root_hash, _) =
+            InteriorNode::new_with_hash::<TestHasher>(&OwnedRange::full(), true, None, None);
         let p0 = OwnedRange {
             start: rec_id(&[1]),
             end: rec_id(&[2]),
         };
-        let (hash_p0, _) = InteriorNode::new::<TestHasher>(&p0, true, None, None);
+        let (hash_p0, _) = InteriorNode::new_with_hash::<TestHasher>(&p0, true, None, None);
         let p1 = OwnedRange {
             start: p0.start,
             end: p0.end.next().unwrap(),
         };
-        let (hash_p1, _) = InteriorNode::new::<TestHasher>(&p1, true, None, None);
+        let (hash_p1, _) = InteriorNode::new_with_hash::<TestHasher>(&p1, true, None, None);
         assert_ne!(root_hash, hash_p0);
         assert_ne!(root_hash, hash_p1);
         assert_ne!(hash_p0, hash_p1);
@@ -473,7 +424,7 @@ mod tests {
         let p = OwnedRange::full();
         let k1 = bitvec![0, 0, 1, 1, 0, 0, 0, 0];
         let k2 = bitvec![1, 1, 0, 1, 0, 0, 0, 0];
-        let a = InteriorNode::new::<TestHasher>(
+        let a = InteriorNode::new_with_hash::<TestHasher>(
             &p,
             false,
             Some(Branch::new(
@@ -485,7 +436,7 @@ mod tests {
                 TestHash([8, 7, 6, 5, 4, 3, 2, 1]),
             )),
         );
-        let b = InteriorNode::new::<TestHasher>(
+        let b = InteriorNode::new_with_hash::<TestHasher>(
             &p,
             false,
             Some(Branch::new(
@@ -505,29 +456,25 @@ mod tests {
         let v = vec![1, 2, 3, 4, 5, 6, 8, 9];
         let k1 = rec_id(&[1, 2]);
         let k2 = rec_id(&[1, 4]);
-        let ha = LeafNode::calc_hash::<TestHasher>(&k1, &v);
-        let hb = LeafNode::calc_hash::<TestHasher>(&k2, &v);
+        let ha = NodeHashBuilder::<TestHasher>::Leaf(&k1, &v).build();
+        let hb = NodeHashBuilder::<TestHasher>::Leaf(&k2, &v).build();
         assert_ne!(ha, hb);
     }
 
-    #[async_recursion]
-    pub async fn tree_size<HO: HashOutput>(
+    pub fn tree_size<HO: HashOutput>(
         prefix: KeyVec,
         root: HO,
-        store: &impl TreeStoreReader<HO>,
-    ) -> Result<usize, TreeStoreError> {
-        match store
-            .read_node(&TEST_REALM, StoreKey::new(&prefix, &root))
-            .await?
-        {
+        store: &MemStore<HO>,
+    ) -> Result<usize, MemStoreError> {
+        match store.get_node(&root)? {
             Node::Interior(int) => {
                 let lc = match &int.left {
                     None => 0,
-                    Some(b) => tree_size(prefix.concat(&b.prefix), b.hash, store).await?,
+                    Some(b) => tree_size(prefix.concat(&b.prefix), b.hash, store)?,
                 };
                 let rc = match &int.right {
                     None => 0,
-                    Some(b) => tree_size(prefix.concat(&b.prefix), b.hash, store).await?,
+                    Some(b) => tree_size(prefix.concat(&b.prefix), b.hash, store)?,
                 };
                 Ok(lc + rc + 1)
             }

@@ -1,0 +1,16 @@
+[package]
+name = "hsm_api"
+version = "0.2.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bitvec = { workspace = true }
+blake2 = { workspace = true }
+digest = { workspace = true }
+juicebox-sdk-core = { workspace = true }
+juicebox-sdk-marshalling = { workspace = true }
+juicebox-sdk-noise = { workspace = true }
+serde = { workspace = true }
+subtle = { workspace = true }

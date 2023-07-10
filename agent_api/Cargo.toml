@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 async-trait = { workspace = true }
-hsmcore = { workspace = true }
+hsm_api = { workspace = true }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-networking = { workspace = true }
 serde = { workspace = true }

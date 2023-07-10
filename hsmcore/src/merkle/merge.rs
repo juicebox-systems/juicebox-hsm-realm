@@ -3,13 +3,16 @@ extern crate alloc;
 use alloc::vec::Vec;
 use tracing::{info, trace};
 
-use super::super::hsm::types::OwnedRange;
+use crate::merkle::InteriorNodeExt;
+
+use super::proof;
 use super::{
-    super::bitvec::Bits,
-    agent::{DeltaBuilder, Node, NodeKey},
-    proof::{PathStep, ReadProof},
-    Branch, HashOutput, InteriorNode, KeyVec, MergeError, MergeResult, NodeHasher, Tree,
+    proof::PathStep, Branch, HashOutput, InteriorNode, KeyVec, MergeError, MergeResult, NodeHasher,
+    Tree,
 };
+use bitvec::Bits;
+use hsm_api::merkle::{DeltaBuilder, Node, NodeKey, ReadProof};
+use hsm_api::OwnedRange;
 
 impl<H: NodeHasher> Tree<H> {
     // Merge an adjacent tree into this tree. Requires a read proof from both
@@ -23,12 +26,8 @@ impl<H: NodeHasher> Tree<H> {
         other_proof: ReadProof<H::Output>,
     ) -> Result<MergeResult<H::Output>, MergeError> {
         //
-        let mine = my_proof
-            .verify::<H>(&self.overlay)
-            .map_err(MergeError::Proof)?;
-        let other = other_proof
-            .verify_foreign_proof::<H>()
-            .map_err(MergeError::Proof)?;
+        let mine = proof::verify::<H>(my_proof, &self.overlay).map_err(MergeError::Proof)?;
+        let other = proof::verify_foreign_proof::<H>(other_proof).map_err(MergeError::Proof)?;
 
         let new_range = match mine.range.join(&other.range) {
             None => return Err(MergeError::NotAdjacentRanges),
@@ -137,7 +136,7 @@ impl<H: NodeHasher> Tree<H> {
 
         // Handle edge case where we're merging two empty trees, branches will be empty.
         let root_hash = if branches.is_empty() {
-            let (hash, root) = InteriorNode::new::<H>(&new_range, true, None, None);
+            let (hash, root) = InteriorNode::new_with_hash::<H>(&new_range, true, None, None);
             delta.add(NodeKey::new(KeyVec::new(), hash), Node::Interior(root));
             hash
         } else {
