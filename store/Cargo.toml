@@ -9,7 +9,6 @@ edition = "2021"
 agent_api = { workspace = true }
 async-trait = { workspace = true }
 bitvec = { workspace = true }
-cache = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 gcp_auth = { workspace = true }
@@ -18,6 +17,7 @@ hsm_api = { workspace = true }
 http = { workspace = true }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
+lru-cache = { workspace = true }
 observability = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }

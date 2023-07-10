@@ -31,7 +31,7 @@ use observability::metrics_tag as tag;
 #[derive(Default)]
 struct MonotonicClock;
 
-impl cache::Clock for MonotonicClock {
+impl lru_cache::Clock for MonotonicClock {
     type Time = Instant;
 
     fn time(&mut self) -> Self::Time {
@@ -40,11 +40,11 @@ impl cache::Clock for MonotonicClock {
 }
 
 /// Statistics for [`NodeCache`].
-type CacheStats = cache::Stats<Instant>;
+type CacheStats = lru_cache::Stats<Instant>;
 
 /// Non-threadsafe Merkle node cache.
 type NodeCache =
-    cache::Cache<StoreKey, Vec<u8>, MonotonicClock, std::collections::hash_map::RandomState>;
+    lru_cache::Cache<StoreKey, Vec<u8>, MonotonicClock, std::collections::hash_map::RandomState>;
 
 /// Sharable and cheaply cloneable Merkle node cache.
 #[derive(Clone)]

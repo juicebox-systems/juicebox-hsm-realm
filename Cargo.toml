@@ -4,7 +4,6 @@ members = [
     "agent_api",
     "agent_core",
     "bitvec",
-    "cache",
     "cluster_api",
     "cluster_bench",
     "cluster_cli",
@@ -21,6 +20,7 @@ members = [
     "hsm_api",
     "hsmcore",
     "load_balancer",
+    "lru-cache",
     "merkle_tree_docgen",
     "observability",
     "secret_manager",
@@ -34,7 +34,6 @@ default-members = [
     "agent_api",
     "agent_core",
     "bitvec",
-    "cache",
     "cluster_api",
     "cluster_bench",
     "cluster_cli",
@@ -46,6 +45,7 @@ default-members = [
     "hsm_api",
     "hsmcore",
     "load_balancer",
+    "lru-cache",
     "observability",
     "secret_manager",
     "service_core",
@@ -110,6 +110,7 @@ http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
 jsonwebtoken = { version = "8.3.0", default-features = false }
 libc = { version = "0.2.139", default-features = false }
+lru-cache = { path = "lru-cache" }
 juicebox-sdk = { path = "sdk/rust/sdk/client", features = ["reqwest", "tokio"] }
 juicebox-sdk-core = { path = "sdk/rust/sdk/core" }
 juicebox-sdk-marshalling = { path = "sdk/rust/sdk/marshalling" }

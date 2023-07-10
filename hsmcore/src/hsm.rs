@@ -61,10 +61,10 @@ use juicebox_sdk_noise::server as noise;
 // TODO: This is susceptible to DoS attacks. One user could create many
 // sessions to evict all other users' Noise connections, or one attacker could
 // collect many (currently 511) user accounts to evict all other connections.
-type SessionCache = cache::Cache<
+type SessionCache = lru_cache::Cache<
     (RecordId, SessionId),
     noise::Transport,
-    cache::LogicalClock,
+    lru_cache::LogicalClock,
     crate::hash::RandomState,
 >;
 

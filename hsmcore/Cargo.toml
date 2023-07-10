@@ -11,7 +11,6 @@ async-recursion = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 bitvec = { workspace = true }
 blake2 = { workspace = true }
-cache = { workspace = true }
 chacha20poly1305 = { workspace = true }
 ciborium = { workspace = true }
 ciborium-io = { workspace = true }
@@ -23,6 +22,7 @@ hsm_api = { workspace = true }
 juicebox-sdk-core = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
 juicebox-sdk-noise = { workspace = true }
+lru-cache = { workspace = true }
 rand_core = { workspace = true }
 serde = { workspace = true }
 spin = { workspace = true }
