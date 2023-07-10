@@ -106,9 +106,7 @@ This is a diagram of the current crates, excluding tooling, showing their
 local dependencies:
 
 ![Dependency Graph](crate_graph.png)
-<!--- regenerate with
-  cargo depgraph  --workspace-only  --dedup-transitive-deps | dot -Tpng -o crate_graph.png
----->
+<!--- regenerate with scripts/dep_graph.sh ---->
 
 Entrust is an HSM vendor, and the Entrust-specific code is named accordingly.
 Some of it is automatically generated from their C headers.
