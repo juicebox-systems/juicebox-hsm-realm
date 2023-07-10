@@ -5,8 +5,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use super::super::hal::Nanos;
-use hsm_api::{
+use super::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
     CaptureNextResponse, CommitRequest, CommitResponse, CompleteTransferRequest,
     CompleteTransferResponse, HandshakeRequest, HandshakeResponse, JoinGroupRequest,
@@ -16,6 +15,16 @@ use hsm_api::{
     TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
     TransferStatementRequest, TransferStatementResponse,
 };
+
+// Nanoseconds upto ~4.29 seconds.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialOrd, PartialEq, Serialize)]
+pub struct Nanos(pub u32);
+
+impl Nanos {
+    pub const ZERO: Nanos = Nanos(0);
+    pub const ONE_SECOND: Nanos = Nanos(1_000_000_000);
+    pub const MAX: Nanos = Nanos(u32::MAX);
+}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub enum MetricsAction {

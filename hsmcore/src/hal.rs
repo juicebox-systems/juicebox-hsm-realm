@@ -4,18 +4,10 @@ use alloc::{string::String, vec::Vec};
 use core::ops::Sub;
 use serde::{Deserialize, Serialize};
 
+use hsm_api::rpc::Nanos;
+
 pub trait CryptoRng: rand_core::RngCore + rand_core::CryptoRng + Send {}
 impl<R> CryptoRng for R where R: rand_core::RngCore + rand_core::CryptoRng + Send {}
-
-// Nanoseconds upto ~4.29 seconds.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialOrd, PartialEq, Serialize)]
-pub struct Nanos(pub u32);
-
-impl Nanos {
-    pub const ZERO: Nanos = Nanos(0);
-    pub const ONE_SECOND: Nanos = Nanos(1_000_000_000);
-    pub const MAX: Nanos = Nanos(u32::MAX);
-}
 
 // A Monotonic clock that can calculate durations in nanoseconds.
 pub trait Clock {

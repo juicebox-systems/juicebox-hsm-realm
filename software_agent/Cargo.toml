@@ -18,6 +18,7 @@ google = { workspace = true }
 hex = { workspace = true }
 hkdf = { workspace = true }
 hmac = { workspace = true }
+hsm_api = { workspace = true }
 hsmcore = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }

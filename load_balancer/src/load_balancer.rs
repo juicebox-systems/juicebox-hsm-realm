@@ -28,7 +28,6 @@ use url::Url;
 
 use agent_api::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
 use hsm_api::{GroupId, OwnedRange, RecordId};
-use hsmcore::hsm::mac::DigestWriter;
 use juicebox_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_marshalling as marshalling;
@@ -487,5 +486,19 @@ impl<'a> RecordIdBuilder<'a> {
         ciborium::ser::into_writer(self, DigestWriter(&mut h))
             .expect("failed to serialize RecordIdBuilder");
         RecordId(h.finalize().into())
+    }
+}
+
+struct DigestWriter<'a, D>(&'a mut D);
+impl<'a, D: digest::Update> ciborium_io::Write for DigestWriter<'a, D> {
+    type Error = ();
+
+    fn write_all(&mut self, data: &[u8]) -> Result<(), Self::Error> {
+        self.0.update(data);
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }

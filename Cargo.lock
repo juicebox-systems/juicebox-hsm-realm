@@ -35,11 +35,11 @@ dependencies = [
  "bytes",
  "cluster_api",
  "cluster_core",
+ "election",
  "expect-test",
  "futures",
  "hdrhistogram",
  "hsm_api",
- "hsmcore",
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
@@ -937,6 +937,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fcaabb2fef8c910e7f4c7ce9f67a1283a1715879a7c230ca9d6d1ae31f16d91"
 
 [[package]]
+name = "election"
+version = "0.1.0"
+dependencies = [
+ "hsm_api",
+]
+
+[[package]]
 name = "elliptic-curve"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -975,7 +982,6 @@ dependencies = [
  "entrust_nfast",
  "expect-test",
  "google",
- "hsmcore",
  "juicebox-sdk-marshalling",
  "observability",
  "rand_core",
@@ -998,6 +1004,7 @@ name = "entrust_hsm"
 version = "0.2.0"
 dependencies = [
  "entrust_api",
+ "hsm_api",
  "hsmcore",
  "juicebox-sdk-marshalling",
  "rand_core",
@@ -1424,6 +1431,7 @@ dependencies = [
  "ciborium",
  "ciborium-io",
  "digest",
+ "election",
  "expect-test",
  "generic-array",
  "hashbrown 0.14.0",
@@ -1852,13 +1860,13 @@ dependencies = [
  "blake2",
  "bytes",
  "ciborium",
+ "ciborium-io",
  "clap 4.3.0",
  "digest",
  "expect-test",
  "futures",
  "google",
  "hsm_api",
- "hsmcore",
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "juicebox-sdk-core",
@@ -2891,6 +2899,7 @@ dependencies = [
  "hex",
  "hkdf",
  "hmac",
+ "hsm_api",
  "hsmcore",
  "http",
  "http-body-util",

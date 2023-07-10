@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod merkle;
+pub mod rpc;
 
 extern crate alloc;
 

@@ -20,13 +20,12 @@ mod app;
 pub mod commit;
 mod configuration;
 pub mod mac;
-pub mod rpc;
 
 use self::mac::{
     CapturedStatementMessage, CtMac, EntryMacMessage, GroupConfigurationStatementMessage,
     HsmRealmStatementMessage, MacKey, TransferStatementMessage,
 };
-use super::hal::{Clock, CryptoRng, IOError, NVRam, Nanos, Platform};
+use super::hal::{Clock, CryptoRng, IOError, NVRam, Platform};
 use super::merkle::{
     proof::{ProofError, VerifiedProof},
     MergeError, NodeHasher, Tree,
@@ -36,6 +35,9 @@ use crate::hash::{HashExt, HashMap};
 use app::RecordChange;
 use configuration::GroupConfiguration;
 use hsm_api::merkle::ReadProof;
+use hsm_api::rpc::{
+    HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction, Nanos,
+};
 use hsm_api::{
     AppRequest, AppRequestType, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CaptureNextRequest, CaptureNextResponse, Captured, CompleteTransferRequest,
@@ -55,7 +57,6 @@ use juicebox_sdk_core::{
 };
 use juicebox_sdk_marshalling::{self as marshalling, bytes, DeserializationError};
 use juicebox_sdk_noise::server as noise;
-use rpc::{HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 
 // TODO: This is susceptible to DoS attacks. One user could create many
 // sessions to evict all other users' Noise connections, or one attacker could

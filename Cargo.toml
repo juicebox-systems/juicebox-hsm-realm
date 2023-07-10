@@ -11,6 +11,7 @@ members = [
     "cluster_core",
     "cluster_manager",
     "codegen",
+    "election",
     "entrust_agent",
     "entrust_api",
     "entrust_hsm",
@@ -40,6 +41,7 @@ default-members = [
     "cluster_core",
     "cluster_manager",
     "codegen",
+    "election",
     "google",
     "hsm_api",
     "hsmcore",
@@ -83,6 +85,7 @@ criterion = "0.4.0"
 ctrlc = "3.2.5"
 digest = "0.10.6"
 dogstatsd = "0.8.1"
+election = { path = "election" }
 entrust_api = { path = "entrust_api" }
 entrust_nfast = { path = "entrust_nfast" }
 expect-test = "1.4.1"

@@ -13,7 +13,6 @@ ctrlc = { workspace = true }
 entrust_api = { workspace = true }
 entrust_nfast = { workspace = true }
 google = { workspace = true }
-hsmcore = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
 observability = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }
