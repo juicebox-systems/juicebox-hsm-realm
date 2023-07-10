@@ -6,3 +6,6 @@ linker = "powerpc-linux-gnu-gcc-9"
 [target.x86_64-unknown-linux-gnu.seelib]
 rustc-link-search=["/opt/nfast/c/csd/gcc/lib/"]
 rustc-link-lib=["rqcard","nfkm","nfstub","nflog","cutils","rqcard","nfkm","nfstub","nflog","cutils"]
+
+[net]
+git-fetch-with-cli = true   # use the `git` executable for git operations
