@@ -1,2 +1,4 @@
 /secret*.json
 /target
+*.profraw
+

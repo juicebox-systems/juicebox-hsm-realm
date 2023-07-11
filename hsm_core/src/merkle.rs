@@ -11,7 +11,7 @@ use hsm_api::merkle::{
 };
 use hsm_api::{OwnedRange, RecordId};
 
-pub mod agent;
+mod delta;
 #[cfg(feature = "dot")]
 pub mod dot;
 mod insert;
