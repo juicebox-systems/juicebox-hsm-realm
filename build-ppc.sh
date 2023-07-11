@@ -5,4 +5,4 @@ then
 else
     toolchain="nightly"
 fi
-cargo +${toolchain} build -p hsmcore --target powerpc-unknown-linux-gnu -Z build-std=core,alloc "$@"
+cargo +${toolchain} build -p hsm_core --target powerpc-unknown-linux-gnu -Z build-std=core,alloc "$@"
