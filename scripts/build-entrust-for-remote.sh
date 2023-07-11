@@ -35,3 +35,7 @@ rsync --archive --compress --mkpath --progress --relative \
     "$REMOTE_HOST":juicebox-hsm-realm/
 
 ssh "$REMOTE_HOST" juicebox-hsm-realm/scripts/entrust-sign.sh
+
+rsync --archive --compress --progress \
+    "$REMOTE_HOST":juicebox-hsm-realm/target/powerpc-unknown-linux-gnu/release/*.sar \
+    target/powerpc-unknown-linux-gnu/release/
