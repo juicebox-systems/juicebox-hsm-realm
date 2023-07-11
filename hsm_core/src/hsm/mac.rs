@@ -57,7 +57,7 @@ impl MacKey {
     fn calculate(&self, value: &impl Serialize, domain: &[u8]) -> CtBytes<32> {
         let mut mac =
             Blake2sMac256::new_from_slice(&self.0).expect("failed to initialize Blake2sMac");
-        mac.update(&domain.len().to_be_bytes());
+        mac.update(&[u8::try_from(domain.len()).unwrap()]);
         mac.update(domain);
         ciborium::ser::into_writer(value, DigestWriter(&mut mac))
             .expect("failed to serialize value");
