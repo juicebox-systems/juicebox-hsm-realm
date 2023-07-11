@@ -3,8 +3,6 @@ extern crate alloc;
 use alloc::fmt;
 use blake2::Blake2sMac256;
 use digest::Mac;
-use juicebox_sdk_core::types::RealmId;
-use juicebox_sdk_marshalling::bytes;
 use serde::{Deserialize, Serialize};
 
 use super::configuration::GroupConfiguration;
@@ -14,6 +12,8 @@ use hsm_api::{
     HsmRealmStatement, LogEntry, LogIndex, Partition, TransferNonce, TransferStatement,
     TransferringOut,
 };
+use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_marshalling::bytes;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct MacKey(#[serde(with = "bytes")] [u8; 32]);
@@ -54,9 +54,11 @@ impl MacKey {
         self.calculate(msg, b"transfer").into()
     }
 
-    fn calculate(&self, value: &impl Serialize, persona: &[u8]) -> CtBytes<32> {
-        let mut mac = Blake2sMac256::new_with_salt_and_personal(&self.0, &[], persona)
-            .expect("failed to initialize Blake2sMac");
+    fn calculate(&self, value: &impl Serialize, domain: &[u8]) -> CtBytes<32> {
+        let mut mac =
+            Blake2sMac256::new_from_slice(&self.0).expect("failed to initialize Blake2sMac");
+        mac.update(&[u8::try_from(domain.len()).unwrap()]);
+        mac.update(domain);
         ciborium::ser::into_writer(value, DigestWriter(&mut mac))
             .expect("failed to serialize value");
         mac.finalize().into()
