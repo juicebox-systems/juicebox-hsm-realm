@@ -439,8 +439,8 @@ impl<'a> From<BitSlice<'a>> for BitVec {
 
 #[cfg(test)]
 mod test {
-    use alloc::vec;
     use alloc::vec::Vec;
+    use alloc::{format, vec};
     use core::cmp::Ordering;
 
     use super::*;
@@ -633,6 +633,20 @@ mod test {
     }
 
     #[test]
+    fn starts_with() {
+        let v = bitvec![1, 1, 1, 1, 1];
+        let u = bitvec![1, 1, 1, 1];
+        assert!(v.starts_with(&u));
+        assert!(!u.starts_with(&v));
+        let u = bitvec![1, 1, 0];
+        assert!(!v.starts_with(&u));
+        assert!(!u.starts_with(&v));
+        assert!(v.starts_with(&v));
+        let e = bitvec![];
+        assert!(v.starts_with(&e));
+    }
+
+    #[test]
     fn eq() {
         let a = bitvec![1, 0, 0, 1, 0];
         let b = bitvec![1, 0, 0, 1, 0, 1];
@@ -645,6 +659,7 @@ mod test {
         assert_eq!(a.as_ref(), b.as_ref());
         assert_eq!(a.slice(1..3), b.slice(1..3));
         assert_eq!(a.slice(0..2), a.slice(3..5));
+        assert_eq!(&a.slice(0..4), b.slice(0..4).to_bitvec());
     }
 
     #[test]
@@ -710,5 +725,63 @@ mod test {
         let b = BitVec::from_bytes(&[1]);
         assert_eq!(a.as_ref(), a.as_ref().common_prefix(&b));
         assert_eq!(b.as_ref(), b.as_ref().common_prefix(&a));
+    }
+
+    #[test]
+    fn from() {
+        let b = BitVec::from_bytes(&[255, 128]);
+        let s = BitSlice::from(&b);
+        assert_eq!(b, s);
+        let b2 = BitVec::from(&s);
+        assert_eq!(b, b2);
+    }
+
+    #[test]
+    fn fmt() {
+        assert_eq!("1110", format!("{}", bitvec![1, 1, 1, 0]));
+        assert_eq!("", format!("{}", bitvec![]));
+        assert_eq!(
+            "11110000 111",
+            format!("{}", bitvec![1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1])
+        );
+        assert_eq!("[1110]", format!("{:?}", bitvec![1, 1, 1, 0]));
+        assert_eq!("[]", format!("{:?}", bitvec![]));
+        assert_eq!(
+            "[11110000 111]",
+            format!("{:?}", bitvec![1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1])
+        );
+        assert_eq!("[10]", format!("{:?}", bitvec![1, 0].as_ref()));
+        assert_eq!("[]", format!("{:?}", bitvec![].as_ref()));
+        assert_eq!(
+            "[11110000 00001111]",
+            format!(
+                "{:?}",
+                bitvec![1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1].as_ref()
+            )
+        );
+        assert_eq!(
+            "{11111111,00000000}",
+            format!(
+                "{}",
+                DisplayBits {
+                    byte_separator: ",",
+                    opener: "{",
+                    closer: "}",
+                    bits: &BitVec::from_bytes(&[255, 0]),
+                }
+            )
+        );
+        assert_eq!(
+            "111111110",
+            format!(
+                "{}",
+                DisplayBits {
+                    byte_separator: "",
+                    opener: "",
+                    closer: "",
+                    bits: &bitvec![1, 1, 1, 1, 1, 1, 1, 1, 0],
+                }
+            )
+        );
     }
 }
