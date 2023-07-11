@@ -17,8 +17,8 @@ use entrust_api::{
     ChunkCount, ChunkNumber, KeyRole, SEEJobRequestType, SEEJobResponseType, StartRequest,
     StartResponse, Ticket, Trailer,
 };
-use hsmcore::hash::{HashExt, HashMap};
-use hsmcore::hsm::{
+use hsm_core::hash::{HashExt, HashMap};
+use hsm_core::hsm::{
     mac::MacKey, Hsm, HsmOptions, MetricsReporting, RealmKeys, RecordEncryptionKey,
 };
 use juicebox_sdk_marshalling as marshalling;
@@ -189,7 +189,7 @@ fn start_hsm(req: StartRequest) -> Result<Hsm<NCipher>, StartResponse> {
     };
 
     if req.nvram == entrust_api::NvRamState::Reinitialize {
-        use hsmcore::hal::NVRam;
+        use hsm_core::hal::NVRam;
         platform.write(Vec::new()).map_err(|err| {
             StartResponse::PersistenceError(format!("error while re-initializing NVRAM: {:?}", err))
         })?;

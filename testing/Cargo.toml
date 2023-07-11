@@ -14,7 +14,7 @@ futures = { workspace = true }
 google = { workspace = true }
 hex = { workspace = true }
 hsm_api = { workspace = true }
-hsmcore = { workspace = true }
+hsm_core = { workspace = true }
 http = { workspace = true }
 juicebox-sdk = { workspace = true }
 juicebox-sdk-core = { workspace = true }

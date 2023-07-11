@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 entrust_api = { workspace = true }
 hsm_api = { workspace = true }
-hsmcore = { workspace = true }
+hsm_core = { workspace = true }
 juicebox-sdk-marshalling = { workspace = true }
 rand_core = { workspace = true }
 x25519-dalek = { workspace = true }

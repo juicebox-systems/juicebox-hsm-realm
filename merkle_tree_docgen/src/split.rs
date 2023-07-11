@@ -5,8 +5,8 @@ use bitvec::bitvec;
 use bitvec::Bits;
 use hsm_api::merkle::{Dir, KeyVec, Node};
 use hsm_api::OwnedRange;
-use hsmcore::merkle::dot::{hash_id, DotAttributes, DotGraph};
-use hsmcore::merkle::testing::{rec_id, TestHash};
+use hsm_core::merkle::dot::{hash_id, DotAttributes, DotGraph};
+use hsm_core::merkle::testing::{rec_id, TestHash};
 
 pub fn doc_splits_intro(dir: &Path) {
     let dir = dir.join("splits");

@@ -21,8 +21,8 @@ use tracing::warn;
 use url::Url;
 
 use hsm_api::rpc::Nanos;
-use hsmcore::hal::{Clock, IOError, NVRam, MAX_NVRAM_SIZE};
-use hsmcore::hsm::{Hsm, HsmError, HsmOptions, MetricsReporting, PersistenceError, RealmKeys};
+use hsm_core::hal::{Clock, IOError, NVRam, MAX_NVRAM_SIZE};
+use hsm_core::hsm::{Hsm, HsmError, HsmOptions, MetricsReporting, PersistenceError, RealmKeys};
 
 struct HalInstant(Instant);
 impl Sub for HalInstant {
@@ -117,7 +117,7 @@ impl HttpHsm {
         name: String,
         realm_keys: RealmKeys,
     ) -> Result<Self, PersistenceError> {
-        hsmcore::hash::set_global_rng_owned(OsRng);
+        hsm_core::hash::set_global_rng_owned(OsRng);
         let state_file = state_dir.join(&name);
         Ok(HttpHsm(Arc::new(Mutex::new(Hsm::new(
             HsmOptions {

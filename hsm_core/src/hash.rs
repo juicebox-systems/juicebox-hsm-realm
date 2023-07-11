@@ -65,7 +65,7 @@ impl<K, S: Default> HashExt for HashSet<K, S> {
 /// # Example
 ///
 /// ```
-/// use hsmcore::hash::{HashExt, HashMap, NotRandomized};
+/// use hsm_core::hash::{HashExt, HashMap, NotRandomized};
 /// // This map doesn't need mitigation from HashDoS attacks because ___.
 /// // It's best to avoid randomization here because ___.
 /// let map: HashMap<String, String, NotRandomized> = HashMap::new();
@@ -94,7 +94,7 @@ impl BuildHasher for NotRandomized {
 /// # Example
 ///
 /// ```
-/// use hsmcore::hash::{HashExt, HashMap, set_global_rng_owned};
+/// use hsm_core::hash::{HashExt, HashMap, set_global_rng_owned};
 /// set_global_rng_owned(rand_core::OsRng);
 /// // The third generic parameter defaults to RandomState.
 /// let map: HashMap<String, String> = HashMap::new();

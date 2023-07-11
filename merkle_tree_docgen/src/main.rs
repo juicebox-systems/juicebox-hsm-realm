@@ -8,11 +8,11 @@ use std::process::Command;
 use bitvec::{BitVec, Bits};
 use hsm_api::merkle::{Branch, Dir, HashOutput, KeyVec, Node, ReadProof};
 use hsm_api::{OwnedRange, RecordId};
-use hsmcore::merkle::dot::{hash_id, visit_tree_at, DotGraph, DotVisitor, Visitor};
-use hsmcore::merkle::testing::{
+use hsm_core::merkle::dot::{hash_id, visit_tree_at, DotGraph, DotVisitor, Visitor};
+use hsm_core::merkle::testing::{
     new_empty_tree, rec_id, tree_insert, MemStore, TestHash, TestHasher,
 };
-use hsmcore::merkle::Tree;
+use hsm_core::merkle::Tree;
 use juicebox_sdk_core::types::RealmId;
 
 const REALM: RealmId = RealmId([1; 16]);
@@ -35,7 +35,7 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
-    hsmcore::hash::set_global_rng_owned(rand_core::OsRng);
+    hsm_core::hash::set_global_rng_owned(rand_core::OsRng);
 
     let o = PathBuf::from("docs/merkle_tree");
     doc_intro(&o);

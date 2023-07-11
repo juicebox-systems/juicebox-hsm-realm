@@ -604,9 +604,9 @@ fn encode_prefix_into(prefix: &KeyVec, dest: &mut Vec<u8>) {
 mod tests {
     use super::*;
     use bitvec::bitvec;
-    use hsmcore::hsm::MerkleHasher;
-    use hsmcore::merkle::testing::{rec_id, TestHash};
-    use hsmcore::merkle::NodeHashBuilder;
+    use hsm_core::hsm::MerkleHasher;
+    use hsm_core::merkle::testing::{rec_id, TestHash};
+    use hsm_core::merkle::NodeHashBuilder;
 
     #[test]
     fn store_key_encoding() {

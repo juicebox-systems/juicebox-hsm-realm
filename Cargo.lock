@@ -998,7 +998,7 @@ version = "0.2.0"
 dependencies = [
  "entrust_api",
  "hsm_api",
- "hsmcore",
+ "hsm_core",
  "juicebox-sdk-marshalling",
  "rand_core",
  "x25519-dalek",
@@ -1410,7 +1410,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hsmcore"
+name = "hsm_core"
 version = "0.2.0"
 dependencies = [
  "ahash 0.8.3",
@@ -1428,7 +1428,7 @@ dependencies = [
  "generic-array",
  "hashbrown 0.14.0",
  "hsm_api",
- "hsmcore",
+ "hsm_core",
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
  "juicebox-sdk-noise",
@@ -1960,7 +1960,7 @@ dependencies = [
  "bitvec",
  "clap 4.3.0",
  "hsm_api",
- "hsmcore",
+ "hsm_core",
  "juicebox-sdk-core",
  "rand_core",
  "tokio",
@@ -2923,7 +2923,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "hsm_api",
- "hsmcore",
+ "hsm_core",
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
@@ -2970,7 +2970,7 @@ dependencies = [
  "gcp_auth",
  "google",
  "hsm_api",
- "hsmcore",
+ "hsm_core",
  "http",
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
@@ -3079,7 +3079,7 @@ dependencies = [
  "hex",
  "hex-literal",
  "hsm_api",
- "hsmcore",
+ "hsm_core",
  "http",
  "juicebox-sdk",
  "juicebox-sdk-core",

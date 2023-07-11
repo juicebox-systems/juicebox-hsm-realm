@@ -18,7 +18,7 @@ members = [
     "entrust_nfast",
     "google",
     "hsm_api",
-    "hsmcore",
+    "hsm_core",
     "load_balancer",
     "lru-cache",
     "merkle_tree_docgen",
@@ -43,7 +43,7 @@ default-members = [
     "election",
     "google",
     "hsm_api",
-    "hsmcore",
+    "hsm_core",
     "load_balancer",
     "lru-cache",
     "observability",
@@ -104,7 +104,7 @@ hex-literal = "0.3.4"
 hkdf = "0.12.3"
 hmac = "0.12.1"
 hsm_api = { path = "hsm_api" }
-hsmcore = { path = "hsmcore" }
+hsm_core = { path = "hsm_core" }
 http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }

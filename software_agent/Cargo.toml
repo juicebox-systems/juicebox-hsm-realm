@@ -19,7 +19,7 @@ hex = { workspace = true }
 hkdf = { workspace = true }
 hmac = { workspace = true }
 hsm_api = { workspace = true }
-hsmcore = { workspace = true }
+hsm_core = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
