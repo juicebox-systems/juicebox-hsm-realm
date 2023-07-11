@@ -234,4 +234,23 @@ mod test {
         add_diag(&mut out, &k, &transfer);
         expect_file!["mac.txt"].assert_eq(&out);
     }
+
+    #[test]
+    fn verify() {
+        let captured = CapturedStatementMessage {
+            hsm: HsmId([1; 16]),
+            realm: RealmId([2; 16]),
+            group: GroupId([3; 16]),
+            index: LogIndex(u64::MAX),
+            entry_mac: &EntryMac::from([5; 32]),
+        };
+        let key = MacKey([42; 32]);
+        let m = key.captured_mac(&captured);
+        assert!(key.captured_mac(&captured).verify(&m).is_ok());
+        let captured2 = CapturedStatementMessage {
+            index: LogIndex(u64::MAX - 1),
+            ..captured
+        };
+        assert!(key.captured_mac(&captured2).verify(&m).is_err());
+    }
 }
