@@ -1,5 +1,14 @@
 #!/bin/sh
 
+# does a release build including the entrust components.
+# Get the HSM see machine signed by a HSM
+# and uploads the results to a google cloud bucket from
+# where it can be deployed.
+#
+# build-and-upload-entrust.sh <hsm-host>
+# e.g. to use agent-2 in the colo to sign the code.
+# ./build-and-upload-entrust.sh agent@100.79.214.29
+#
 set -eu
 
 PROJECT='loam-dev-env'
@@ -17,7 +26,7 @@ if ! command -v gcloud > /dev/null; then
 fi
 
 echo "Building version $GIT"
-scripts/build-entrust-for-remote.sh $REMOTE_HOST
+scripts/build-entrust-for-remote.sh "$REMOTE_HOST"
 
 echo 'Uploading artifacts to Google Cloud Storage'
 gcloud storage cp \
