@@ -1,4 +1,4 @@
-hsmcore::hsm::mac::GroupConfigurationStatementMessage
+hsm_core::hsm::mac::GroupConfigurationStatementMessage
 mac: bed5d22fe75e10be041489bc62098e1b8a9ca3b473689029a3fc668cea2c142a
 {
     "realm": h'01010101010101010101010101010101',
@@ -10,7 +10,7 @@ mac: bed5d22fe75e10be041489bc62098e1b8a9ca3b473689029a3fc668cea2c142a
     ],
 }
 
-hsmcore::hsm::mac::HsmRealmStatementMessage
+hsm_core::hsm::mac::HsmRealmStatementMessage
 mac: 0400c7dda7d266dce0057fd763853f79e434789c80a82b0beebeec0d7a689322
 {
     "realm": h'02020202020202020202020202020202',
@@ -23,7 +23,7 @@ mac: 0400c7dda7d266dce0057fd763853f79e434789c80a82b0beebeec0d7a689322
     ],
 }
 
-hsmcore::hsm::mac::CapturedStatementMessage
+hsm_core::hsm::mac::CapturedStatementMessage
 mac: ad160ca18e9218061554c1d6d625cd07c3934c975dceb9e1ebb6e300526a96ef
 {
     "hsm": h'01010101010101010101010101010101',
@@ -33,7 +33,7 @@ mac: ad160ca18e9218061554c1d6d625cd07c3934c975dceb9e1ebb6e300526a96ef
     "entry_mac": h'0505050505050505050505050505050505050505050505050505050505050505',
 }
 
-hsmcore::hsm::mac::EntryMacMessage
+hsm_core::hsm::mac::EntryMacMessage
 mac: d86913f9e786ac31fb77fc7138b4d83206fe2c601332c0350ab61d4f414106e0
 {
     "realm": h'01010101010101010101010101010101',
@@ -60,7 +60,7 @@ mac: d86913f9e786ac31fb77fc7138b4d83206fe2c601332c0350ab61d4f414106e0
     "prev_mac": h'0606060606060606060606060606060606060606060606060606060606060606',
 }
 
-hsmcore::hsm::mac::TransferStatementMessage
+hsm_core::hsm::mac::TransferStatementMessage
 mac: d039e9f18201a04ad75db1ab1a365e11252750ab8bfd1033fb481f7b8b5fa986
 {
     "realm": h'01010101010101010101010101010101',

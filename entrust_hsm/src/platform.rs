@@ -13,7 +13,7 @@ use super::seelib::{
 };
 use entrust_api::WorldSignerError;
 use hsm_api::rpc::Nanos;
-use hsmcore::hal::{Clock, IOError, NVRam, MAX_NVRAM_SIZE};
+use hsm_core::hal::{Clock, IOError, NVRam, MAX_NVRAM_SIZE};
 
 /// NCipher implements the Platform trait, which provides platform specific
 /// functionality to the hsmcore library.
@@ -45,7 +45,7 @@ impl NCipher {
 }
 
 pub fn register_global_rng() {
-    hsmcore::hash::set_global_rng_owned(new_rng());
+    hsm_core::hash::set_global_rng_owned(new_rng());
 }
 
 fn new_rng() -> BlockRng<NCipherRngFiller> {

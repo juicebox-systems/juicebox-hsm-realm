@@ -7,8 +7,8 @@ use agent_api::merkle::TreeStoreReader;
 use bitvec::BitVec;
 use hsm_api::merkle::{NodeKey, StoreDelta};
 use hsm_api::{EntryMac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId};
-use hsmcore::hsm::MerkleHasher;
-use hsmcore::merkle::Tree;
+use hsm_core::hsm::MerkleHasher;
+use hsm_core::merkle::Tree;
 use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_process_group::ProcessGroup;
 use observability::metrics;
@@ -390,7 +390,7 @@ async fn append_store_delta() {
 
     // The `Tree` instance includes an overlay. It's normally part of the HSM.
     // The overlay includes hash tables which need an RNG registered.
-    hsmcore::hash::set_global_rng_owned(rand_core::OsRng);
+    hsm_core::hash::set_global_rng_owned(rand_core::OsRng);
 
     let mut tree = Tree::<MerkleHasher>::with_existing_root(starting_root, 15);
     let vp = tree.latest_proof(rp).unwrap();
