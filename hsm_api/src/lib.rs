@@ -1739,9 +1739,25 @@ mod test {
 
     use super::{DataHash, RecordId};
     use crate::merkle::HashOutput;
-    use crate::{CtBytes, OwnedRange};
+    use crate::{CtBytes, LogIndex, OwnedRange};
     use bitvec::Bits;
     use juicebox_sdk_marshalling as marshalling;
+
+    #[test]
+    fn log_index() {
+        assert!(LogIndex::FIRST.prev().is_none());
+        assert!(LogIndex(0).prev().is_none());
+        assert!(LogIndex(1).prev().is_none());
+        assert_eq!(LogIndex::FIRST, LogIndex::FIRST.next().prev().unwrap());
+        assert_eq!(LogIndex(1234), LogIndex(1233).next());
+        assert_eq!(LogIndex(1232), LogIndex(1233).prev().unwrap());
+    }
+
+    #[test]
+    #[should_panic]
+    fn log_index_overflow() {
+        LogIndex(u64::MAX).next();
+    }
 
     #[test]
     fn record_id_prev() {
