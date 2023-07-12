@@ -63,7 +63,7 @@ impl fmt::Display for HsmId {
 
 /// A public key used by clients for encrypted communication (over Noise)
 /// to the HSMs in a realm.
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PublicKey(#[serde(with = "bytes")] pub Vec<u8>);
 
 impl fmt::Debug for PublicKey {
@@ -464,7 +464,7 @@ impl From<CtBytes<32>> for GroupConfigurationStatement {
 /// A MAC over an HSM ID, a realm ID, and the realm's keys.
 ///
 /// See [super::mac::HsmRealmStatementMessage].
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct HsmRealmStatement(CtBytes<32>);
 
 impl Deref for HsmRealmStatement {
