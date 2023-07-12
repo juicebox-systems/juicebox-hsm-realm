@@ -405,7 +405,13 @@ mod tests {
             .read_tree_side(&s.right.range, &root_r, Dir::Left)
             .unwrap();
 
-        let merged = tree_l.merge(left_proof, right_proof).unwrap();
+        let merged = tree_l
+            .merge(left_proof.clone(), right_proof.clone())
+            .unwrap();
+        // Merging the left into the right should give the same result as merging the right into the left.
+        let merged_rev = tree_r.merge(right_proof, left_proof).unwrap();
+        assert_eq!(merged, merged_rev);
+
         store_l.add_from_other_store(store_r);
         store_l.apply_store_delta(merged.root_hash, merged.delta);
         if pre_split_root_hash != merged.root_hash {

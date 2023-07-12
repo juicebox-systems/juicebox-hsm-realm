@@ -157,7 +157,7 @@ mod private {
     ///
     /// Correct values of this struct have no overlap between nodes that are added
     /// and nodes that are removed.
-    #[derive(Clone, Debug, Deserialize, Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     pub struct StoreDelta<HO: HashOutput> {
         /// New nodes to be added.
         add: BTreeMap<NodeKey<HO>, Node<HO>>,

@@ -227,6 +227,7 @@ impl<HO: Debug> Debug for SplitRoot<HO> {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
 pub struct MergeResult<HO: HashOutput> {
     pub range: OwnedRange,
     pub root_hash: HO,
