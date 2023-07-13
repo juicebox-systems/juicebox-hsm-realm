@@ -372,7 +372,7 @@ impl Deref for Reply {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use rand_core::RngCore;
 
     use super::*;

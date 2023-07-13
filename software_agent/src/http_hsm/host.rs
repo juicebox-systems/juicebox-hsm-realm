@@ -200,7 +200,7 @@ impl Service<Request<IncomingBody>> for HttpHsm {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use std::time::Duration;
 

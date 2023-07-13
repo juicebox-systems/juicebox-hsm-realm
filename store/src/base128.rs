@@ -82,7 +82,7 @@ fn encode_tail(src: &[u8], num_bits: usize, dest: &mut Vec<u8>) {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use rand::{rngs::StdRng, RngCore, SeedableRng};
 
     use super::{encode, encode_chunk, encode_tail, encoded_len};

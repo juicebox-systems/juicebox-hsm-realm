@@ -1734,7 +1734,7 @@ pub enum AppRequestType {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use subtle::ConstantTimeEq;
 
     use super::{DataHash, RecordId};

@@ -167,7 +167,7 @@ impl PartialOrd for Score {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::Score;
     use hsm_api::{HsmId, LogIndex};
 
