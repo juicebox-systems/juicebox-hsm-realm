@@ -35,15 +35,19 @@ url = { workspace = true }
 
 [dev-dependencies]
 agent_core = { workspace = true }
+anyhow = { workspace = true }
 bitvec = { workspace = true }
 cluster_api = { workspace = true }
 cluster_core = { workspace = true }
 criterion = { workspace = true }
 digest = { workspace = true }
 hex-literal = { workspace = true }
+nix = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 sharks = { workspace = true }
+sysinfo = { workspace = true }
+tokio-rustls = { workspace = true }
 voprf = { workspace = true }
 
 [[bench]]
