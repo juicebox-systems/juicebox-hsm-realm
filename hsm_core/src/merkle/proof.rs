@@ -350,11 +350,16 @@ impl<HO: HashOutput> VerifiedProof<HO> {
 
 #[cfg(test)]
 mod tests {
+    use crate::merkle::testing::TestHash;
+    use crate::merkle::{new_leaf, InteriorNodeExt};
+
     use super::super::testing::{new_empty_tree, rec_id, tree_insert, TestHasher};
     use super::verify;
     use super::ProofError;
+    use bitvec::bitvec;
     use bitvec::Bits;
-    use hsm_api::OwnedRange;
+    use hsm_api::merkle::{Branch, InteriorNode, KeyVec, LeafNode, ReadProof};
+    use hsm_api::{OwnedRange, RecordId};
 
     #[test]
     fn verify_proof() {
@@ -416,6 +421,231 @@ mod tests {
     }
 
     #[test]
+    fn empty_path() {
+        // The path should always have at least a root node.
+        let p = ReadProof {
+            key: RecordId([32; 32]),
+            range: OwnedRange::full(),
+            leaf: None,
+            path: Vec::new(),
+            root_hash: TestHash([32; 8]),
+        };
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+    }
+
+    #[test]
+    fn key_range() {
+        let range = OwnedRange {
+            start: RecordId([33; 32]),
+            end: RecordId([43; 32]),
+        };
+        // key outside the range, should error
+        let (root_hash, root) = InteriorNode::new_with_hash::<TestHasher>(&range, true, None, None);
+        let p = ReadProof {
+            key: RecordId([32; 32]),
+            range: range.clone(),
+            leaf: None,
+            path: vec![root.clone()],
+            root_hash,
+        };
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+
+        // with a key inside the range
+        let p = ReadProof {
+            key: RecordId([34; 32]),
+            range,
+            leaf: None,
+            path: vec![root],
+            root_hash,
+        };
+        assert_eq!(Ok(None), super::verify_proof::<TestHasher>(&p));
+    }
+
+    #[test]
+    fn path_not_key() {
+        // The key described by the nodes in the path don't match the key
+        let mut p = build_test_proof(5);
+        p.key.0[31] = 1;
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+
+        let mut p = build_test_proof(5);
+        p.key.0[0] = 1;
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+    }
+
+    #[test]
+    fn leaf_but_no_branch_to_leaf() {
+        let range = OwnedRange::full();
+        // The proof claims there's a leaf, but there's no path to it.
+        let (root_hash, root) = InteriorNode::new_with_hash::<TestHasher>(&range, true, None, None);
+        let p = ReadProof {
+            key: RecordId([32; 32]),
+            range,
+            leaf: Some(LeafNode { value: Vec::new() }),
+            path: vec![root],
+            root_hash,
+        };
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+    }
+
+    #[test]
+    fn bad_path() {
+        let range = OwnedRange::full();
+        // The proof path has a node in the path after a node with an empty branch.
+        let (root_hash, root) = InteriorNode::new_with_hash::<TestHasher>(&range, true, None, None);
+        let p = ReadProof {
+            key: RecordId([32; 32]),
+            range,
+            leaf: None,
+            path: vec![root.clone(), root],
+            root_hash,
+        };
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+    }
+
+    #[test]
+    fn leaf_hash_wrong() {
+        let mut p = build_test_proof(1);
+        p.path[0].left.as_mut().unwrap().hash = TestHash([1; 8]);
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+        let mut p = build_test_proof(3);
+        p.path[2].left.as_mut().unwrap().hash = TestHash([1; 8]);
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+    }
+
+    #[test]
+    fn root_hash_wrong_with_leaf() {
+        // The hash of the root node doesn't match the one rolled up from the leaf.
+        let mut p = build_test_proof(1);
+        p.root_hash = TestHash([3; 8]);
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+        let mut p = build_test_proof(4);
+        p.root_hash = TestHash([3; 8]);
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+    }
+
+    #[test]
+    fn root_hash_wrong_with_branch_to_other_key() {
+        // The root node has a branch that leads to a different key.
+        // But the hash of the root node doesn't match the calculated one.
+        let range = OwnedRange::full();
+        let (_root_hash, root) = InteriorNode::new_with_hash::<TestHasher>(
+            &range,
+            true,
+            Some(Branch::new(KeyVec::from_bytes(&[0; 32]), TestHash([1; 8]))),
+            None,
+        );
+        let p = ReadProof {
+            key: RecordId([1; 32]),
+            range: OwnedRange::full(),
+            leaf: None,
+            path: vec![root],
+            root_hash: TestHash([33; 8]),
+        };
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+    }
+
+    #[test]
+    fn root_hash_wrong_no_branch() {
+        // The root node doesn't have a branch for our key.
+        // But the hash of the root node doesn't match the calculated one.
+        let p = ReadProof {
+            key: RecordId([0; 32]),
+            range: OwnedRange::full(),
+            leaf: None,
+            path: vec![InteriorNode::new(None, None)],
+            root_hash: TestHash([1; 8]),
+        };
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+    }
+
+    #[test]
+    fn intermediate_node_hash_wrong() {
+        let mut p = build_test_proof(3);
+        p.path[1].left.as_mut().unwrap().hash = TestHash([3; 8]);
+        assert_eq!(
+            Err(ProofError::Invalid),
+            super::verify_proof::<TestHasher>(&p)
+        );
+    }
+
+    // Helper to build a valid proof with a specified number of interior nodes
+    // and an optional leaf.
+    fn build_test_proof(mut num_int_nodes: usize) -> ReadProof<TestHash> {
+        assert!(num_int_nodes > 0);
+        assert!(num_int_nodes <= RecordId::NUM_BITS);
+        let range = OwnedRange::full();
+        let key = RecordId([0; 32]);
+        let key_bits = key.to_bitvec();
+        let mut key_head = key_bits.as_ref();
+        let (leaf_hash, leaf) = new_leaf::<TestHasher>(&key, Vec::new());
+        let mut child_hash = leaf_hash;
+        let mut path = Vec::with_capacity(num_int_nodes);
+        while num_int_nodes > 1 {
+            let (int_hash, int_node) = InteriorNode::new_with_hash::<TestHasher>(
+                &range,
+                false,
+                Some(Branch::new(bitvec![0], child_hash)),
+                Some(Branch::new(bitvec![1], TestHash([1; 8]))),
+            );
+            path.insert(0, int_node);
+            child_hash = int_hash;
+            num_int_nodes -= 1;
+            key_head = key_head.slice(..key_head.len() - 1);
+        }
+        let (root_hash, root) = InteriorNode::new_with_hash::<TestHasher>(
+            &range,
+            true,
+            Some(Branch::new(key_head.to_bitvec(), child_hash)),
+            None,
+        );
+        path.insert(0, root);
+        ReadProof {
+            key,
+            range,
+            leaf: Some(leaf),
+            path,
+            root_hash,
+        }
+    }
+
+    #[test]
     fn stale_proof() {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
@@ -444,5 +674,20 @@ mod tests {
             .latest_proof(rp_1)
             .expect_err("should have been declared stale");
         assert_eq!(ProofError::Stale, err);
+    }
+
+    #[test]
+    fn make_latest_with_leaf() {
+        let range = OwnedRange::full();
+        let key = rec_id(&[1]);
+        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        root = tree_insert(&mut tree, &mut store, &range, root, &key, vec![1], false);
+        let rp = store.read(&range, &root, &key).unwrap();
+
+        // update the leaf after having already gotten a proof.
+        tree_insert(&mut tree, &mut store, &range, root, &key, vec![2], false);
+        // get the latest proof from our stale proof, it should reflect the new leaf value.
+        let lp = tree.latest_proof(rp).unwrap();
+        assert_eq!(Some(LeafNode { value: vec![2] }), lp.leaf);
     }
 }

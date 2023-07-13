@@ -205,4 +205,42 @@ mod tests {
                 .to_string(),
         );
     }
+
+    #[tokio::test]
+    async fn start_hsm_from_saved_state() {
+        let keys = insecure_derive_realm_keys("start_hsm_from_saved_state").unwrap();
+        let keys2 = insecure_derive_realm_keys("start_hsm_from_saved_state").unwrap();
+        let dir = random_tmp_dir();
+        fs::create_dir_all(&dir).unwrap();
+
+        let hsm = HttpHsm::new(dir.clone(), "test".to_owned(), keys).unwrap();
+        let (hsm_url, _) = hsm.listen("127.0.0.1:0".parse().unwrap()).await.unwrap();
+
+        let hsm_client = HsmClient::new(
+            HsmHttpClient::new(hsm_url),
+            "test".to_owned(),
+            None,
+            metrics::Client::new("bob"),
+        );
+        hsm_client.send(hsm_api::NewRealmRequest {}).await.unwrap();
+        let status = hsm_client.send(hsm_api::StatusRequest {}).await.unwrap();
+
+        // we should be able to start another HSM instance from the persisted state.
+        let hsm2 = HttpHsm::new(dir.clone(), "test".to_owned(), keys2).unwrap();
+        let (hsm2_url, _) = hsm2.listen("127.0.0.1:0".parse().unwrap()).await.unwrap();
+        let hsm2_client = HsmClient::new(
+            HsmHttpClient::new(hsm2_url),
+            "test".to_owned(),
+            None,
+            metrics::Client::new("bob"),
+        );
+
+        let status2 = hsm2_client.send(hsm_api::StatusRequest {}).await.unwrap();
+        assert_eq!(status.id, status2.id);
+        assert_eq!(status.public_key, status2.public_key);
+        let realm = status.realm.unwrap();
+        let realm2 = status2.realm.unwrap();
+        assert_eq!(realm.id, realm2.id);
+        assert_eq!(realm.statement, realm2.statement);
+    }
 }

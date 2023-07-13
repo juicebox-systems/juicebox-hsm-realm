@@ -107,7 +107,7 @@ where
             }
         }
         self.lru.insert(now, k);
-        if cfg!(debug_assert) {
+        if cfg!(debug_assertions) {
             self.check_invariants();
         }
     }
@@ -115,7 +115,7 @@ where
     pub fn remove(&mut self, k: &K) -> Option<V> {
         if let Some((mtime, v)) = self.map.remove(k) {
             self.lru.remove(&mtime);
-            if cfg!(debug_assert) {
+            if cfg!(debug_assertions) {
                 self.check_invariants();
             }
             Some(v)

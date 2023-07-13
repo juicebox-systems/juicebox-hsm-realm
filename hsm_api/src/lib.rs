@@ -63,7 +63,7 @@ impl fmt::Display for HsmId {
 
 /// A public key used by clients for encrypted communication (over Noise)
 /// to the HSMs in a realm.
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PublicKey(#[serde(with = "bytes")] pub Vec<u8>);
 
 impl fmt::Debug for PublicKey {
@@ -464,7 +464,7 @@ impl From<CtBytes<32>> for GroupConfigurationStatement {
 /// A MAC over an HSM ID, a realm ID, and the realm's keys.
 ///
 /// See [super::mac::HsmRealmStatementMessage].
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize)]
 pub struct HsmRealmStatement(CtBytes<32>);
 
 impl Deref for HsmRealmStatement {
@@ -1735,10 +1735,48 @@ pub enum AppRequestType {
 
 #[cfg(test)]
 mod test {
+    use subtle::ConstantTimeEq;
+
     use super::{DataHash, RecordId};
     use crate::merkle::HashOutput;
+    use crate::{CtBytes, LogIndex, OwnedRange};
     use bitvec::Bits;
     use juicebox_sdk_marshalling as marshalling;
+
+    #[test]
+    fn log_index() {
+        assert!(LogIndex::FIRST.prev().is_none());
+        assert!(LogIndex(0).prev().is_none());
+        assert!(LogIndex(1).prev().is_none());
+        assert_eq!(LogIndex::FIRST, LogIndex::FIRST.next().prev().unwrap());
+        assert_eq!(LogIndex(1234), LogIndex(1233).next());
+        assert_eq!(LogIndex(1232), LogIndex(1233).prev().unwrap());
+    }
+
+    #[test]
+    #[should_panic]
+    fn log_index_overflow() {
+        LogIndex(u64::MAX).next();
+    }
+
+    #[test]
+    fn record_id_prev() {
+        assert!(RecordId::min_id().prev().is_none());
+        let mut id = RecordId([255; RecordId::NUM_BYTES]);
+        *id.0.last_mut().unwrap() = 254;
+        assert_eq!(id, RecordId::max_id().prev().unwrap());
+    }
+
+    #[test]
+    fn record_id_next() {
+        assert!(RecordId::max_id().next().is_none());
+        let mut id = RecordId([42; RecordId::NUM_BYTES]);
+        *id.0.last_mut().unwrap() = 255;
+        let mut exp = RecordId([42; RecordId::NUM_BYTES]);
+        exp.0[RecordId::NUM_BYTES - 1] = 0;
+        exp.0[RecordId::NUM_BYTES - 2] = 43;
+        assert_eq!(exp, id.next().unwrap());
+    }
 
     #[test]
     fn record_id_bitvec() {
@@ -1751,11 +1789,93 @@ mod test {
     }
 
     #[test]
-    fn data_hash() {
+    fn data_hash_marshalling() {
         let h = DataHash::from_slice(&[200u8; 32]).unwrap();
         let m = marshalling::to_vec(&h).unwrap();
         assert_eq!(34, m.len()); // 32 bytes + 2 bytes to say its 32 bytes.
         let h2 = marshalling::from_slice(&m).unwrap();
         assert_eq!(h, h2);
+    }
+
+    #[test]
+    fn data_hash_from_slice() {
+        let s = [42u8; 40];
+        let exp = DataHash([42u8; 32]);
+        assert_eq!(Some(exp), DataHash::from_slice(&s[..32]));
+        assert!(DataHash::from_slice(&s).is_none());
+        assert!(DataHash::from_slice(&s[..31]).is_none());
+        assert!(DataHash::from_slice(&s[..33]).is_none());
+        assert!(DataHash::from_slice(&s[..0]).is_none());
+    }
+
+    #[test]
+    fn ctbytes_zero() {
+        let z = CtBytes::<8>::zero();
+        assert_eq!([0u8; 8], z.0);
+        assert_eq!(&[0u8; 8], z.as_bytes());
+        assert!(bool::from(z.ct_eq(&z)));
+        let notz = CtBytes([42; 8]);
+        assert!(!bool::from(z.ct_eq(&notz)));
+    }
+
+    #[test]
+    fn owned_range_contains() {
+        let mut start = RecordId::min_id();
+        start.0[0] = 10;
+        let mut end = RecordId::min_id();
+        end.0[0] = 20;
+        let r = OwnedRange {
+            start: start.clone(),
+            end: end.clone(),
+        };
+        assert!(r.contains(&start));
+        assert!(r.contains(&end));
+        assert!(r.contains(&start.next().unwrap()));
+        assert!(r.contains(&end.prev().unwrap()));
+        assert!(r.contains(&RecordId([10; RecordId::NUM_BYTES])));
+        assert!(r.contains(&RecordId([19; RecordId::NUM_BYTES])));
+        assert!(!r.contains(&RecordId([9; RecordId::NUM_BYTES])));
+        assert!(!r.contains(&RecordId([20; RecordId::NUM_BYTES])));
+        assert!(!r.contains(&start.prev().unwrap()));
+        assert!(!r.contains(&end.next().unwrap()));
+        assert!(!r.contains(&RecordId::min_id()));
+        assert!(!r.contains(&RecordId::max_id()));
+    }
+
+    #[test]
+    fn owned_range_join_split() {
+        let a = OwnedRange {
+            start: RecordId([33; RecordId::NUM_BYTES]),
+            end: RecordId([55; RecordId::NUM_BYTES]),
+        };
+        let b = OwnedRange {
+            start: a.end.next().unwrap(),
+            end: RecordId([99; RecordId::NUM_BYTES]),
+        };
+        let joined = OwnedRange {
+            start: a.start.clone(),
+            end: b.end.clone(),
+        };
+        assert_eq!(Some(joined.clone()), a.join(&b));
+        assert_eq!(Some(joined.clone()), b.join(&a));
+
+        let c = OwnedRange {
+            start: RecordId::min_id(),
+            end: RecordId([30; RecordId::NUM_BYTES]),
+        };
+        assert!(a.join(&c).is_none());
+        assert!(c.join(&a).is_none());
+        assert!(a.join(&OwnedRange::full()).is_none());
+        assert!(OwnedRange::full().join(&a).is_none());
+
+        assert_eq!(Some(b.start.clone()), joined.split_at(&b));
+        assert_eq!(Some(b.start.clone()), joined.split_at(&a));
+        assert!(joined.split_at(&c).is_none());
+        assert!(joined
+            .split_at(&OwnedRange {
+                start: b.start,
+                end: b.end.prev().unwrap()
+            })
+            .is_none());
     }
 }

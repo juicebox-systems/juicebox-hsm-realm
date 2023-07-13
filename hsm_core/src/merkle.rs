@@ -11,7 +11,7 @@ use hsm_api::merkle::{
 };
 use hsm_api::{OwnedRange, RecordId};
 
-pub mod agent;
+mod delta;
 #[cfg(feature = "dot")]
 pub mod dot;
 mod insert;
@@ -227,6 +227,7 @@ impl<HO: Debug> Debug for SplitRoot<HO> {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
 pub struct MergeResult<HO: HashOutput> {
     pub range: OwnedRange,
     pub root_hash: HO,
