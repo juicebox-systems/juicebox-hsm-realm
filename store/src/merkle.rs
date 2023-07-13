@@ -609,6 +609,20 @@ mod tests {
     use hsm_core::merkle::NodeHashBuilder;
 
     #[test]
+    fn store_key_starts_next() {
+        let k = StoreKeyStart(vec![1, 3, 129]);
+        assert_eq!(vec![1, 3, 130], k.next().0);
+        assert_eq!(vec![1, 3, 131], k.next().next().0);
+
+        let k = StoreKeyStart(vec![1, 2, 254]);
+        assert_eq!(vec![1, 2, 255], k.next().0);
+        assert_eq!(vec![1, 3, 0], k.next().next().0);
+
+        let k = StoreKeyStart(vec![1, 255, 255, 255]);
+        assert_eq!(vec![2, 0, 0, 0], k.next().0);
+    }
+
+    #[test]
     fn store_key_encoding() {
         let k = NodeKey::new(KeyVec::new(), TestHash([1u8; 8]));
         assert_eq!(
