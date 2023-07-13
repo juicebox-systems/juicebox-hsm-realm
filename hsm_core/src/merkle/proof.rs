@@ -449,7 +449,7 @@ mod tests {
             range: range.clone(),
             leaf: None,
             path: vec![root.clone()],
-            root_hash: root_hash.clone(),
+            root_hash,
         };
         assert_eq!(
             Err(ProofError::Invalid),
@@ -492,7 +492,7 @@ mod tests {
         let (root_hash, root) = InteriorNode::new_with_hash::<TestHasher>(&range, true, None, None);
         let p = ReadProof {
             key: RecordId([32; 32]),
-            range: range,
+            range,
             leaf: Some(LeafNode { value: Vec::new() }),
             path: vec![root],
             root_hash,
