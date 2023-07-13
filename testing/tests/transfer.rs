@@ -1,16 +1,17 @@
-use cluster_core::new_group;
 use futures::future::join_all;
 use futures::FutureExt;
-use hsm_core::merkle::testing::rec_id;
 use once_cell::sync::Lazy;
 use std::iter::zip;
 use std::path::PathBuf;
 
 use agent_api::AgentService;
+use cluster_core::new_group;
 use hsm_api::{GroupId, OwnedRange, RecordId};
+use hsm_core::merkle::testing::rec_id;
 use juicebox_sdk::{Pin, Policy, UserInfo, UserSecret};
 use juicebox_sdk_networking::reqwest::{self, Client, ClientOptions};
 use juicebox_sdk_process_group::ProcessGroup;
+use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, ClusterResult, RealmConfig};
 use testing::exec::hsm_gen::{Entrust, MetricsParticipants};
 use testing::exec::PortIssuer;
@@ -18,18 +19,9 @@ use testing::exec::PortIssuer;
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8555));
 
-fn emulator() -> store::Args {
-    let u = format!("http://localhost:{}", PORT.next()).parse().unwrap();
-    store::Args {
-        project: String::from("prj"),
-        instance: String::from("inst"),
-        url: Some(u),
-    }
-}
-
 #[tokio::test]
 async fn transfer() {
-    let bt_args = emulator();
+    let bt_args = emulator(PORT.next());
     let mut processes = ProcessGroup::new();
 
     let cluster_args = ClusterConfig {

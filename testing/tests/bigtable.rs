@@ -13,6 +13,7 @@ use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_process_group::ProcessGroup;
 use observability::metrics;
 use store::{self, AppendError::LogPrecondition, ServiceKind, StoreAdminClient, StoreClient};
+use testing::exec::bigtable::emulator;
 use testing::exec::{bigtable::BigtableRunner, PortIssuer};
 
 const REALM: RealmId = RealmId([200; 16]);
@@ -22,15 +23,6 @@ const GROUP_3: GroupId = GroupId([15; 16]);
 
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8222));
-
-fn emulator() -> store::Args {
-    let u = format!("http://localhost:{}", PORT.next()).parse().unwrap();
-    store::Args {
-        project: String::from("prj"),
-        instance: String::from("inst"),
-        url: Some(u),
-    }
-}
 
 async fn init_bt(pg: &mut ProcessGroup, args: store::Args) -> (StoreAdminClient, StoreClient) {
     BigtableRunner::run(pg, &args).await;
@@ -56,7 +48,7 @@ async fn init_bt(pg: &mut ProcessGroup, args: store::Args) -> (StoreAdminClient,
 #[tokio::test]
 async fn read_log_entry() {
     let mut pg = ProcessGroup::new();
-    let (_, data) = init_bt(&mut pg, emulator()).await;
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
 
     // Log should start empty.
     assert!(data
@@ -149,7 +141,7 @@ async fn read_log_entry() {
 #[tokio::test]
 async fn last_log_entry_does_not_cross_groups() {
     let mut pg = ProcessGroup::new();
-    let (_, data) = init_bt(&mut pg, emulator()).await;
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let (_, delta) = Tree::<MerkleHasher>::new_tree(&OwnedRange::full());
 
     for g in &[GROUP_1, GROUP_2, GROUP_3] {
@@ -217,7 +209,7 @@ async fn last_log_entry_does_not_cross_groups() {
 #[tokio::test]
 async fn read_log_entries() {
     let mut pg = ProcessGroup::new();
-    let (_, data) = init_bt(&mut pg, emulator()).await;
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let mut entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
     data.append(&REALM, &GROUP_1, &entries, StoreDelta::default())
         .await
@@ -306,7 +298,7 @@ async fn read_log_entries() {
 #[tokio::test]
 async fn append_log_precondition() {
     let mut pg = ProcessGroup::new();
-    let (_, data) = init_bt(&mut pg, emulator()).await;
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let entries = create_log_batch(LogIndex(2), EntryMac::from([0; 32]), 4);
     // previous log entry should exist
     assert!(matches!(
@@ -344,7 +336,7 @@ async fn append_log_precondition() {
 #[should_panic]
 async fn batch_index_chain_verified() {
     let mut pg = ProcessGroup::new();
-    let (_, data) = init_bt(&mut pg, emulator()).await;
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let mut entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
     entries[3].index = LogIndex(100);
     let _ = data
@@ -356,7 +348,7 @@ async fn batch_index_chain_verified() {
 #[should_panic]
 async fn batch_mac_chain_verified() {
     let mut pg = ProcessGroup::new();
-    let (_, data) = init_bt(&mut pg, emulator()).await;
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let mut entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
     entries[2].entry_mac = EntryMac::from([33; 32]);
     let _ = data
@@ -367,7 +359,7 @@ async fn batch_mac_chain_verified() {
 #[tokio::test]
 async fn append_store_delta() {
     let mut pg = ProcessGroup::new();
-    let (_, data) = init_bt(&mut pg, emulator()).await;
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
     let (starting_root, delta) = Tree::<MerkleHasher>::new_tree(&OwnedRange::full());
 
@@ -476,7 +468,7 @@ fn create_log_batch(first_idx: LogIndex, prev_mac: EntryMac, count: usize) -> Ve
 #[tokio::test]
 async fn service_discovery() {
     let mut pg = ProcessGroup::new();
-    let (admin, data) = init_bt(&mut pg, emulator()).await;
+    let (admin, data) = init_bt(&mut pg, emulator(PORT.next())).await;
 
     admin.initialize_discovery().await.unwrap();
     assert!(data.get_addresses(None).await.unwrap().is_empty());
