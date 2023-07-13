@@ -37,6 +37,7 @@ url = { workspace = true }
 agent_core = { workspace = true }
 bitvec = { workspace = true }
 cluster_api = { workspace = true }
+cluster_core = { workspace = true }
 criterion = { workspace = true }
 digest = { workspace = true }
 hex-literal = { workspace = true }
