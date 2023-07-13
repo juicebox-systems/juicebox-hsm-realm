@@ -1,0 +1,52 @@
+Digraph merkletree {
+
+hf3c3346e5994f88b -> hc5c9357d1d4c5d31 [arrowsize=0.7 label="Left:\n00000010\n00000110\n00000\l" nojustify=true ];
+hc5c9357d1d4c5d31 -> h07d0a449a57852cc [arrowsize=0.7 label="Left: 0\l" nojustify=true ];
+h07d0a449a57852cc -> h4da5c203ff9f8fc4 [arrowsize=0.7 label="Left: 0\l" nojustify=true ];
+h4da5c203ff9f8fc4 -> h9ccad688fd6ca58f [arrowsize=0.7 label="Left:\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n0\l" nojustify=true ];
+h4da5c203ff9f8fc4 -> hc58e44c150822680 [arrowsize=0.7 label="Right:\n10000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n0\l" nojustify=true ];
+h07d0a449a57852cc -> h3433679e53295fb8 [arrowsize=0.7 label="Right: 1\l" nojustify=true ];
+h3433679e53295fb8 -> hfe1859aa9dcb2cd8 [arrowsize=0.7 label="Left:\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n0\l" nojustify=true ];
+h3433679e53295fb8 -> hdd3c4b585030ac0c [arrowsize=0.7 label="Right:\n10000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n0\l" nojustify=true ];
+hc5c9357d1d4c5d31 -> hc46ff5b491275c68 [arrowsize=0.7 label="Right:\n10000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n000\l" nojustify=true ];
+
+Subgraph depth_0 {
+rank=same
+
+hf3c3346e5994f88b [fillcolor=darkseagreen label="root\nf3c3346e5994f88b" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_21 {
+rank=same
+
+hc5c9357d1d4c5d31 [fillcolor=azure3 label="c5c9357d1d4c5d31" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_22 {
+rank=same
+
+h07d0a449a57852cc [fillcolor=azure3 label="07d0a449a57852cc" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_23 {
+rank=same
+
+h4da5c203ff9f8fc4 [fillcolor=azure3 label="4da5c203ff9f8fc4" ordering=out shape=box style=filled ];
+h3433679e53295fb8 [fillcolor=azure3 label="3433679e53295fb8" ordering=out shape=box style=filled ];
+}
+
+
+Subgraph depth_256 {
+rank=same
+
+h9ccad688fd6ca58f [fillcolor=lightblue1 label="9ccad688fd6ca58f\nvalue: [97]" ordering=out shape=box style=filled ];
+hc58e44c150822680 [fillcolor=lightblue1 label="c58e44c150822680\nvalue: [98]" ordering=out shape=box style=filled ];
+hfe1859aa9dcb2cd8 [fillcolor=lightblue1 label="fe1859aa9dcb2cd8\nvalue: [99]" ordering=out shape=box style=filled ];
+hdd3c4b585030ac0c [fillcolor=lightblue1 label="dd3c4b585030ac0c\nvalue: [100]" ordering=out shape=box style=filled ];
+hc46ff5b491275c68 [fillcolor=lightblue1 label="c46ff5b491275c68\nvalue: [101]" ordering=out shape=box style=filled ];
+}
+
+}
