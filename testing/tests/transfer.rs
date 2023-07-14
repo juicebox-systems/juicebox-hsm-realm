@@ -47,7 +47,6 @@ async fn transfer() {
 
     // do some registers
     let clients: Vec<_> = (0..50)
-        .into_iter()
         .map(|i| {
             (
                 cluster.client_for_user(format!("presso_{i}")),
@@ -58,12 +57,12 @@ async fn transfer() {
     let pin = Pin::from(vec![1, 2, 3, 4]);
     let user_info = UserInfo::from(b"presso".to_vec());
     join_all(clients.iter().map(|(client, secret)| {
-        client.register(&pin, &secret, &user_info, Policy { num_guesses: 5 })
+        client.register(&pin, secret, &user_info, Policy { num_guesses: 5 })
     }))
     .await;
 
     // create some more groups.
-    let group_ids: Vec<GroupId> = join_all((1..5).into_iter().map(|_| {
+    let group_ids: Vec<GroupId> = join_all((1..5).map(|_| {
         new_group(
             &agent_client,
             cluster.realms[0].realm,
@@ -106,7 +105,7 @@ async fn transfer() {
     }
     // do some registers again
     join_all(clients.iter().map(|(client, secret)| {
-        client.register(&pin, &secret, &user_info, Policy { num_guesses: 1 })
+        client.register(&pin, secret, &user_info, Policy { num_guesses: 1 })
     }))
     .await;
 
@@ -147,7 +146,7 @@ async fn transfer() {
 async fn split_merge_empty_cluster(agent_client: &Client<AgentService>, cluster: &ClusterResult) {
     // create another group
     let new_group_id = new_group(
-        &agent_client,
+        agent_client,
         cluster.realms[0].realm,
         &cluster.realms[0].agents,
     )
