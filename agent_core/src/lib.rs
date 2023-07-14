@@ -577,20 +577,30 @@ impl<T: Transport + 'static> Agent<T> {
         config: Vec<HsmId>,
         starting_index: LogIndex,
     ) {
-        let existing = self.0.state.lock().unwrap().leader.insert(
-            (realm, group),
-            LeaderState {
-                append_queue: HashMap::new(),
-                appending: AppendingState::NotAppending {
-                    next: starting_index.next(),
-                },
-                last_appended: None,
-                response_channels: HashMap::new(),
-                stepdown_at: None,
-            },
-        );
-        assert!(existing.is_none());
-        self.start_group_committer(realm, group, config);
+        // The HSM will return Ok to become_leader if its already leader.
+        // When we get here we might already be leading.
+        let mut has_existing = true;
+        self.0
+            .state
+            .lock()
+            .unwrap()
+            .leader
+            .entry((realm, group))
+            .or_insert_with(|| {
+                has_existing = false;
+                LeaderState {
+                    append_queue: HashMap::new(),
+                    appending: AppendingState::NotAppending {
+                        next: starting_index.next(),
+                    },
+                    last_appended: None,
+                    response_channels: HashMap::new(),
+                    stepdown_at: None,
+                }
+            });
+        if !has_existing {
+            self.start_group_committer(realm, group, config);
+        }
     }
 
     async fn handle_join_realm(

@@ -929,12 +929,31 @@ impl<P: Platform> Hsm<P> {
                         // stepdown.
                         if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
                             let last = &sd.log.back().unwrap().entry;
-                            if entry.index == last.index.next() && entry.prev_mac == last.entry_mac
-                            {
-                                sd.log.push_back(LeaderLogEntry {
-                                    entry: entry.clone(),
-                                    response: None,
-                                });
+                            if entry.index == last.index.next() {
+                                if entry.prev_mac == last.entry_mac {
+                                    sd.log.push_back(LeaderLogEntry {
+                                        entry: entry.clone(),
+                                        response: None,
+                                    });
+                                } else {
+                                    // If there's dueling leaders then our in
+                                    // memory log may not be the one that
+                                    // actually got persisted to the store. In
+                                    // that event our responses are never valid,
+                                    // and we should give up trying to step
+                                    // down.
+
+                                    // TODO: what do we want to do about
+                                    // signaling to the caller that the request
+                                    // is done. Can we return a NoLeader for all
+                                    // the pending responses? If so we'll need
+                                    // to do that from commit somehow.
+                                    // Annoyingly there's no common error
+                                    // responses, so we'd need to know what
+                                    // request type each pending response is for
+                                    // so that we can generate the right type of
+                                    // NoLeader response.
+                                }
                             }
                         }
                         e.insert((entry.index, entry.entry_mac));

@@ -14,7 +14,7 @@ futures = { workspace = true }
 google = { workspace = true }
 hex = { workspace = true }
 hsm_api = { workspace = true }
-hsm_core = { workspace = true }
+hsm_core = { workspace = true, features = ["dot"] }
 http = { workspace = true }
 juicebox_sdk = { workspace = true }
 juicebox_networking = { workspace = true }
@@ -42,6 +42,8 @@ cluster_core = { workspace = true }
 criterion = { workspace = true }
 digest = { workspace = true }
 hex-literal = { workspace = true }
+juicebox_marshalling = { workspace = true }
+juicebox_noise = { workspace = true }
 nix = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
@@ -49,6 +51,7 @@ sharks = { workspace = true }
 sysinfo = { workspace = true }
 tokio-rustls = { workspace = true }
 voprf = { workspace = true }
+x25519-dalek = { workspace = true }
 
 [[bench]]
 name = "voprf_benchmark"

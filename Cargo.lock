@@ -3167,7 +3167,9 @@ dependencies = [
  "hsm_api",
  "hsm_core",
  "http",
+ "juicebox_marshalling",
  "juicebox_networking",
+ "juicebox_noise",
  "juicebox_process_group",
  "juicebox_realm_api",
  "juicebox_realm_auth",
@@ -3189,6 +3191,7 @@ dependencies = [
  "tracing 0.2.0",
  "url",
  "voprf",
+ "x25519-dalek",
 ]
 
 [[package]]
