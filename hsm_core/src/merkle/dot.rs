@@ -322,3 +322,32 @@ fn format_branch_label<HO>(_prefix: &KeyVec, dir: Dir, branch: &Branch<HO>) -> S
         }
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use expect_test::expect_file;
+    use hsm_api::OwnedRange;
+
+    use super::tree_to_dot_document;
+    use crate::merkle::testing::{new_empty_tree, rec_id, tree_insert};
+
+    #[test]
+    fn dot_output() {
+        let range = OwnedRange::full();
+        let (mut tree, mut root, mut store) = new_empty_tree(&range);
+        for i in 0..5 {
+            root = tree_insert(
+                &mut tree,
+                &mut store,
+                &range,
+                root,
+                &rec_id(&[2, 6, i]),
+                [b'a' + i].to_vec(),
+                true,
+            );
+        }
+        let d = tree_to_dot_document(&store, root);
+        let out = format!("{}", d);
+        expect_file!["dot_test.dot"].assert_eq(&out);
+    }
+}

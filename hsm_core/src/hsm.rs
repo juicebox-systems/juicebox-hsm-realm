@@ -1935,7 +1935,7 @@ impl From<AppError> for AppResponse {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::hash::HashMap;
     use juicebox_sdk_core::types::RealmId;
     use juicebox_sdk_marshalling as marshalling;

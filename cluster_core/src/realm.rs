@@ -12,7 +12,7 @@ use juicebox_sdk_core::types::RealmId;
 use juicebox_sdk_networking::reqwest::Client;
 use juicebox_sdk_networking::rpc::{self, RpcError};
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Eq, PartialEq)]
 pub enum NewRealmError {
     #[error("RPC error: {0}")]
     NetworkError(RpcError),

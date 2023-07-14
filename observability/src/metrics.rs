@@ -328,7 +328,7 @@ impl Warn for DogstatsdResult {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::metrics_tag as tag;
 
     #[derive(Debug)]

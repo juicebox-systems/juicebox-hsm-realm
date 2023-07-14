@@ -149,7 +149,7 @@ impl<'a, D: digest::Update> ciborium_io::Write for DigestWriter<'a, D> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::hsm::RecordEncryptionKey;
     use hsm_api::{DataHash, OwnedRange};
 

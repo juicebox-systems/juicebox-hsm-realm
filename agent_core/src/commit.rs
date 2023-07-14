@@ -338,7 +338,7 @@ fn how_long_to_wait(time: SystemTime, interval_millis: u64) -> Duration {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::how_long_to_wait;
     use std::time::{Duration, SystemTime};
 

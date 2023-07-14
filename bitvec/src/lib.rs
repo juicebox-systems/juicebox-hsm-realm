@@ -438,7 +438,7 @@ impl<'a> From<BitSlice<'a>> for BitVec {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use alloc::vec::Vec;
     use alloc::{format, vec};
     use core::cmp::Ordering;

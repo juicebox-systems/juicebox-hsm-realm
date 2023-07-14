@@ -47,7 +47,7 @@ impl HsmElection {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use core::iter::zip;
 
     use super::{ElectionNoQuorum, HsmElection};

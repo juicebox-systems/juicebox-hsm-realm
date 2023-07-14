@@ -32,3 +32,12 @@ impl BigtableRunner {
         }
     }
 }
+
+pub fn emulator(port: u16) -> store::Args {
+    let u = format!("http://localhost:{port}").parse().unwrap();
+    store::Args {
+        project: String::from("prj"),
+        instance: String::from("inst"),
+        url: Some(u),
+    }
+}

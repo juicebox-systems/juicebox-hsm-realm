@@ -1,4 +1,3 @@
-use agent_api::merkle::TreeStoreError;
 use anyhow::Context;
 use bytes::Bytes;
 use futures::channel::oneshot;
@@ -25,6 +24,7 @@ mod commit;
 pub mod hsm;
 pub mod merkle;
 
+use agent_api::merkle::TreeStoreError;
 use agent_api::{
     AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
     CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,

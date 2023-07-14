@@ -385,7 +385,7 @@ fn unmarshal_user_record(padded: &[u8]) -> Result<UserRecord, DeserializationErr
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use juicebox_sdk_core::{
         requests::{
             DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
