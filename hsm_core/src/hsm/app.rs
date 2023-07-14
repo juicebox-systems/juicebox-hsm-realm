@@ -336,7 +336,7 @@ pub fn process(
 // that side channel. There's no need to pad NotRegistered, as the only way that
 // gets written is with the delete call. This size includes the bytes needed to
 // store the size in the trailer.
-const SERIALIZED_RECORD_SIZE: usize = 590;
+const SERIALIZED_RECORD_SIZE: usize = 600;
 const TRAILER_LEN: usize = u32::BITS as usize / 8;
 
 fn marshal_user_record(u: &UserRecord) -> Result<Vec<u8>, SerializationError> {
@@ -407,7 +407,10 @@ mod test {
 
     #[test]
     fn test_user_record_marshalling() {
-        let registered = registered_record(5);
+        let mut registered = registered_record(u16::MAX);
+        let RegistrationState::Registered(ref mut state) = registered.registration_state else { panic!("unexpected registration state") };
+        state.policy.num_guesses = u16::MAX;
+
         let unpadded = juicebox_sdk_marshalling::to_vec(&registered).unwrap();
         println!(
             "unpadded length {}, SERIALIZED_RECORD_SIZE: {SERIALIZED_RECORD_SIZE}",
@@ -445,12 +448,12 @@ mod test {
             unmarshal_user_record(&[]).unwrap_err().to_string()
         );
         let mut big: Vec<u8> = vec![0u8; SERIALIZED_RECORD_SIZE + 1];
-        assert_eq!("Deserialization error: user record data is too large. got 591 bytes, but should be no more than 590", unmarshal_user_record(&big).unwrap_err().to_string());
+        assert_eq!("Deserialization error: user record data is too large. got 601 bytes, but should be no more than 600", unmarshal_user_record(&big).unwrap_err().to_string());
 
         big[SERIALIZED_RECORD_SIZE - 4..SERIALIZED_RECORD_SIZE]
             .copy_from_slice(&((SERIALIZED_RECORD_SIZE + 1) as u32).to_be_bytes());
         assert_eq!(
-            "Deserialization error: embedded length of 591 can't be larger than the 586 bytes present",
+            "Deserialization error: embedded length of 601 can't be larger than the 596 bytes present",
             unmarshal_user_record(&big[..SERIALIZED_RECORD_SIZE])
                 .unwrap_err()
                 .to_string()
