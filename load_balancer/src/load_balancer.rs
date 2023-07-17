@@ -17,12 +17,12 @@ use std::iter::zip;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::time::{self, sleep};
+use tokio::time::{self};
 use tokio_rustls::{rustls, TlsAcceptor};
-use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
+use tracing::{instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
@@ -38,7 +38,6 @@ use observability::logging::{Spew, TracingSource};
 use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
 use secret_manager::{tenant_secret_name, SecretManager};
-use store::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
 use store::{ServiceKind, StoreClient};
 
 #[derive(Clone)]
@@ -90,23 +89,6 @@ impl LoadBalancer {
             .with_no_client_auth()
             .with_cert_resolver(cert_resolver);
         let acceptor = TlsAcceptor::from(Arc::new(config));
-
-        let disco_url = url.clone();
-        let store = self.0.store.clone();
-        tokio::spawn(async move {
-            info!(%disco_url, "registering load balancer with service discovery");
-            loop {
-                if let Err(e) = store
-                    .set_address(&disco_url, ServiceKind::LoadBalancer, SystemTime::now())
-                    .await
-                {
-                    warn!(err = ?e, "failed to register with service discovery");
-                    sleep(REGISTER_FAILURE_DELAY).await;
-                } else {
-                    sleep(REGISTER_INTERVAL).await;
-                }
-            }
-        });
 
         Ok((
             url,
