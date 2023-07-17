@@ -35,7 +35,8 @@ Typically this is done with `eval $(ssh-agent -s)` and then `ssh-add`.
 Generating bit identical builds comes with come some challenges, including
 file paths, versions of compilers & linkers, as well as 3rd party SDKs. Our
 build scripts address most of these by using a fairly reproducible Docker
-environment.
+environment. This section describes the issues that came up before we
+switched to using Docker.
 
 ### Linker
 
