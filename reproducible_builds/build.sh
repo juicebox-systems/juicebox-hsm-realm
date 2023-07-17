@@ -1,12 +1,20 @@
+#!/bin/sh
+
+set -eux
+
 # cd to repo root directory
 cd -P -- "$(dirname -- "$0")/.."
 
+git submodule update -- sdk
+mkdir -p target/reproducible
+
 docker run --rm  \
     --volume "$PWD:/juicebox:ro"  \
-    --volume "/opt/nfast/c/csd:/opt/nfast/c/csd:ro" \
-    --volume "/opt/nfast/gcc:/opt/nfast/gcc:ro" \
+    --volume "$PWD/target/reproducible:/juicebox/target/reproducible:rw"  \
     --workdir /juicebox \
     --mount type=bind,source=$SSH_AUTH_SOCK,target=/ssh-agent \
     --env SSH_AUTH_SOCK=/ssh-agent \
+    --interactive \
+    --tty \
     juicebox-hsm-build \
-    bash -c "/juicebox/reproducible_builds/build_inner.sh"
+    /juicebox/reproducible_builds/build_inner.sh
