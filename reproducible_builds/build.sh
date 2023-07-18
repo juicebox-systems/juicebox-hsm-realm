@@ -14,6 +14,8 @@ docker run --rm  \
     --workdir /juicebox \
     --mount type=bind,source=$SSH_AUTH_SOCK,target=/ssh-agent \
     --env SSH_AUTH_SOCK=/ssh-agent \
+    --env HOST_USER=$(id -u) \
+    --env HOST_GROUP=$(id -g) \
     --interactive \
     --tty \
     juicebox-hsm-build \

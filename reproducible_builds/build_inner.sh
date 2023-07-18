@@ -5,9 +5,10 @@ set -eux
 # cd to repo root directory
 cd -P -- "$(dirname -- "$0")/.."
 
-CARGO_TARGET_DIR=$(pwd)/target/reproducible; export CARGO_TARGET_DIR
+CARGO_TARGET_DIR=/target; export CARGO_TARGET_DIR
 NIGHTLY=nightly-2023-06-01; export NIGHTLY
 TMPDIR=${TMPDIR:-/tmp}
+OUT_DIR=$(pwd)/target/reproducible
 
 sha256sum Codesafe_Lin64-12.80.4.zip
 mkdir -p $TMPDIR/encipher/codesafe
@@ -26,7 +27,18 @@ cargo build --release \
     -p entrust_init \
     -p load_balancer
 
-(
-  find $CARGO_TARGET_DIR/powerpc-unknown-linux-gnu/release -maxdepth 1 -name '*.elf' -type f -print0
-  find $CARGO_TARGET_DIR/release -maxdepth 1 -executable -type f -print0
-) | sort -z | xargs -0 sha256sum
+outputs='
+    powerpc-unknown-linux-gnu/release/entrust-hsm.elf
+    release/cluster
+    release/cluster_manager
+    release/entrust_agent
+    release/entrust_init
+    release/load_balancer
+'
+
+cd $CARGO_TARGET_DIR
+sha256sum $outputs
+tar -cf $OUT_DIR/dist.tgz $outputs
+cd $OUT_DIR
+sha256sum dist.tgz
+chown -R "$HOST_USER:$HOST_GROUP" dist.tgz
