@@ -38,7 +38,12 @@ outputs='
 
 cd $CARGO_TARGET_DIR
 sha256sum $outputs
-tar -cf $OUT_DIR/dist.tgz $outputs
+
+# The overall TAR file should also be deterministic (for convenience). See
+# https://reproducible-builds.org/docs/archives/ for relevant flags.
+tar --mtime='2023-01-01 00:00Z' \
+    --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
+     -cf $OUT_DIR/dist.tgz $outputs
 cd $OUT_DIR
 sha256sum dist.tgz
 chown -R "$HOST_USER:$HOST_GROUP" dist.tgz
