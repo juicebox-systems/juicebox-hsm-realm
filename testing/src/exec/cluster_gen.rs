@@ -118,6 +118,7 @@ impl ClusterResult {
             .tokio_sleeper()
             .reqwest_with_options(reqwest::ClientOptions {
                 additional_root_certs: vec![self.lb_cert()],
+                ..reqwest::ClientOptions::default()
             })
             .build()
     }

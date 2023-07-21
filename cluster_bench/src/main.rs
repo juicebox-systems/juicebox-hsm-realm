@@ -157,6 +157,7 @@ async fn run(args: Args) -> anyhow::Result<usize> {
     let shared_http_client = if args.share_http_connections {
         Some(reqwest::Client::new(reqwest::ClientOptions {
             additional_root_certs: certs.clone(),
+            ..reqwest::ClientOptions::default()
         }))
     } else {
         None
@@ -402,6 +403,7 @@ impl ClientBuilder {
                 Some(client) => client.clone(),
                 None => reqwest::Client::new(reqwest::ClientOptions {
                     additional_root_certs: self.certs.clone(),
+                    ..reqwest::ClientOptions::default()
                 }),
             })
             .tokio_sleeper()
