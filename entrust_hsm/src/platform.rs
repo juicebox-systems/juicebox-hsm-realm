@@ -4,6 +4,7 @@ use core::{
     ops::{Deref, Sub},
     slice,
 };
+use juicebox_sdk_core::types::i2osp_4;
 
 use super::seelib::{
     CertType_SEECert, Cmd_GenerateRandom, Cmd_GetWorldSigners, Cmd_NVMemOp,
@@ -273,9 +274,8 @@ impl NVRam for NCipher {
                 data.len()
             )));
         }
-        let len = (data.len() as u32).to_be_bytes();
         data.resize(NVRAM_LEN_OFFSET, 0);
-        data.extend(&len);
+        data.extend(&i2osp_4(data.len()));
 
         let mut cmd = M_Command::new(Cmd_NVMemOp);
         cmd.args.nvmemop.op = NVMemOpType_Write;

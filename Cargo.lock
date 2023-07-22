@@ -1001,6 +1001,7 @@ dependencies = [
 name = "entrust_api"
 version = "0.2.0"
 dependencies = [
+ "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
  "serde",
 ]
@@ -1012,6 +1013,7 @@ dependencies = [
  "entrust_api",
  "hsm_api",
  "hsm_core",
+ "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
  "rand_core",
  "x25519-dalek",

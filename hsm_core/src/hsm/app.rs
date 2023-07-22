@@ -17,7 +17,7 @@ use juicebox_sdk_core::{
         SecretsResponse,
     },
     types::{
-        EncryptedUserSecret, EncryptedUserSecretCommitment, Policy, RegistrationVersion,
+        i2osp_4, EncryptedUserSecret, EncryptedUserSecretCommitment, Policy, RegistrationVersion,
         UnlockKeyCommitment, UnlockKeyTag, UserSecretEncryptionKeyScalarShare,
     },
 };
@@ -346,11 +346,10 @@ fn marshal_user_record(u: &UserRecord) -> Result<Vec<u8>, SerializationError> {
     // The actual length is stored at the end of the serialized state.
     // The length is a big endian encoded u32.
     assert!(s.len() < SERIALIZED_RECORD_SIZE - TRAILER_LEN);
-    let len = u32::try_from(s.len()).unwrap();
     if should_pad {
         s.resize(SERIALIZED_RECORD_SIZE - TRAILER_LEN, 0);
     }
-    s.extend_from_slice(&len.to_be_bytes());
+    s.extend_from_slice(&i2osp_4(s.len()));
     Ok(s)
 }
 
@@ -389,8 +388,9 @@ mod tests {
             Recover3Response, Register1Response, Register2Request, Register2Response,
         },
         types::{
-            EncryptedUserSecret, EncryptedUserSecretCommitment, Policy, RegistrationVersion,
-            UnlockKeyCommitment, UnlockKeyTag, UserSecretEncryptionKeyScalarShare,
+            i2osp_4, EncryptedUserSecret, EncryptedUserSecretCommitment, Policy,
+            RegistrationVersion, UnlockKeyCommitment, UnlockKeyTag,
+            UserSecretEncryptionKeyScalarShare,
         },
     };
 
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!("Deserialization error: user record data is too large. got 551 bytes, but should be no more than 550", unmarshal_user_record(&big).unwrap_err().to_string());
 
         big[SERIALIZED_RECORD_SIZE - 4..SERIALIZED_RECORD_SIZE]
-            .copy_from_slice(&((SERIALIZED_RECORD_SIZE + 1) as u32).to_be_bytes());
+            .copy_from_slice(&i2osp_4(SERIALIZED_RECORD_SIZE + 1));
         assert_eq!(
             "Deserialization error: embedded length of 551 can't be larger than the 546 bytes present",
             unmarshal_user_record(&big[..SERIALIZED_RECORD_SIZE])
