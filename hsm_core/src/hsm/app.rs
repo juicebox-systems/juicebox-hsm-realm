@@ -17,7 +17,7 @@ use juicebox_sdk_core::{
         SecretsResponse,
     },
     types::{
-        i2osp_4, EncryptedUserSecret, EncryptedUserSecretCommitment, Policy, RegistrationVersion,
+        to_be4, EncryptedUserSecret, EncryptedUserSecretCommitment, Policy, RegistrationVersion,
         UnlockKeyCommitment, UnlockKeyTag, UserSecretEncryptionKeyScalarShare,
     },
 };
@@ -349,7 +349,7 @@ fn marshal_user_record(u: &UserRecord) -> Result<Vec<u8>, SerializationError> {
     if should_pad {
         s.resize(SERIALIZED_RECORD_SIZE - TRAILER_LEN, 0);
     }
-    s.extend_from_slice(&i2osp_4(s.len()));
+    s.extend_from_slice(&to_be4(s.len()));
     Ok(s)
 }
 
@@ -388,7 +388,7 @@ mod tests {
             Recover3Response, Register1Response, Register2Request, Register2Response,
         },
         types::{
-            i2osp_4, EncryptedUserSecret, EncryptedUserSecretCommitment, Policy,
+            to_be4, EncryptedUserSecret, EncryptedUserSecretCommitment, Policy,
             RegistrationVersion, UnlockKeyCommitment, UnlockKeyTag,
             UserSecretEncryptionKeyScalarShare,
         },
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!("Deserialization error: user record data is too large. got 551 bytes, but should be no more than 550", unmarshal_user_record(&big).unwrap_err().to_string());
 
         big[SERIALIZED_RECORD_SIZE - 4..SERIALIZED_RECORD_SIZE]
-            .copy_from_slice(&i2osp_4(SERIALIZED_RECORD_SIZE + 1));
+            .copy_from_slice(&to_be4(SERIALIZED_RECORD_SIZE + 1));
         assert_eq!(
             "Deserialization error: embedded length of 551 can't be larger than the 546 bytes present",
             unmarshal_user_record(&big[..SERIALIZED_RECORD_SIZE])

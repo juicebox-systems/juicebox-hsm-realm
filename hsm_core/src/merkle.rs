@@ -2,7 +2,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use core::fmt::{self, Debug};
-use juicebox_sdk_core::types::{i2osp_2, i2osp_8};
+use juicebox_sdk_core::types::{to_be2, to_be8};
 
 use self::proof::{ProofError, VerifiedProof};
 use bitvec::Bits;
@@ -265,7 +265,7 @@ impl<'a, H: NodeHasher> NodeHashBuilder<'a, H> {
                 let mut h = H::default();
                 h.update(b"leaf");
                 h.update(&key.0);
-                h.update(&i2osp_8(val.len()));
+                h.update(&to_be8(val.len()));
                 h.update(val);
                 h.finalize()
             }
@@ -299,7 +299,7 @@ impl<'a, H: NodeHasher> NodeHashBuilder<'a, H> {
         u8::try_from(2 + b.prefix.as_bytes().len() + b.hash.as_slice().len()).unwrap()
     }
     fn branch(h: &mut H, b: &Branch<H::Output>) {
-        h.update(&i2osp_2(b.prefix.len()));
+        h.update(&to_be2(b.prefix.len()));
         h.update(b.prefix.as_bytes());
         h.update(b.hash.as_slice());
     }
