@@ -1,8 +1,7 @@
 # Reproducible Builds
 
-Use the scripts and build images in this directory you can verify that the
-software built & deployed during the key ceremony matches that which is in this
-repo.
+Use the scripts and build images in this directory to verify that the software
+built and deployed during the key ceremony matches that which is in this repo.
 
 ## Using the build image
 

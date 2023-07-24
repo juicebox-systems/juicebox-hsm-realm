@@ -5,8 +5,14 @@ set -eux
 # cd to repo root directory
 cd -P -- "$(dirname -- "$0")/.."
 
-git submodule update -- sdk
+git submodule update --init -- sdk
 mkdir -p target/reproducible
+
+if [ "$(uname -s)" = Darwin ]; then
+    # On OS X, `$SSH_AUTH_SOCK` defaults to a sandboxed `/var` location,
+    # which Docker is unable to bind to the container.
+    SSH_AUTH_SOCK=/run/host-services/ssh-auth.sock
+fi
 
 docker run --rm  \
     --volume "$PWD:/juicebox:ro"  \
