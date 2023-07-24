@@ -1,4 +1,5 @@
+*.profraw
+/Codesafe*.zip
+/SecWorld*.zip
 /secret*.json
 /target
-*.profraw
-
