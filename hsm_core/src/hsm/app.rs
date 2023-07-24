@@ -10,15 +10,15 @@ use tracing::trace;
 
 use hsm_api::RecordId;
 use juicebox_sdk_core::{
+    oprf::{OprfBlindedResult, OprfKey},
     requests::{
         DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
         Recover3Response, Register1Response, Register2Request, Register2Response, SecretsRequest,
         SecretsResponse,
     },
     types::{
-        EncryptedUserSecret, EncryptedUserSecretCommitment, MaskedUnlockKeyScalarShare,
-        OprfBlindedResult, OprfSeed, OprfServer, Policy, RegistrationVersion, UnlockKeyCommitment,
-        UnlockKeyTag, UserSecretEncryptionKeyScalarShare, OPRF_KEY_INFO,
+        to_be4, EncryptedUserSecret, EncryptedUserSecretCommitment, Policy, RegistrationVersion,
+        UnlockKeyCommitment, UnlockKeyTag, UserSecretEncryptionKeyScalarShare,
     },
 };
 use juicebox_sdk_marshalling as marshalling;
@@ -49,8 +49,7 @@ enum RegistrationState {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct RegisteredState {
     version: RegistrationVersion,
-    oprf_seed: OprfSeed,
-    masked_unlock_key_scalar_share: MaskedUnlockKeyScalarShare,
+    oprf_key: OprfKey,
     unlock_key_commitment: UnlockKeyCommitment,
     unlock_key_tag: UnlockKeyTag,
     user_secret_encryption_key_scalar_share: UserSecretEncryptionKeyScalarShare,
@@ -75,8 +74,7 @@ fn register2(
 
     user_record.registration_state = RegistrationState::Registered(Box::new(RegisteredState {
         version: request.version,
-        oprf_seed: request.oprf_seed,
-        masked_unlock_key_scalar_share: request.masked_unlock_key_scalar_share,
+        oprf_key: request.oprf_key,
         unlock_key_commitment: request.unlock_key_commitment,
         unlock_key_tag: request.unlock_key_tag,
         user_secret_encryption_key_scalar_share: request.user_secret_encryption_key_scalar_share,
@@ -141,7 +139,7 @@ fn recover2(
 ) -> (Recover2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
-    let (oprf_seed, masked_unlock_key_scalar_share, unlock_key_commitment) = match &mut user_record
+    let (oprf_key, unlock_key_commitment, num_guesses, guess_count) = match &mut user_record
         .registration_state
     {
         RegistrationState::Registered(state) if state.version != request.version => {
@@ -164,9 +162,10 @@ fn recover2(
         RegistrationState::Registered(state) => {
             state.guess_count += 1;
             (
-                state.oprf_seed.clone(),
-                state.masked_unlock_key_scalar_share.clone(),
+                state.oprf_key.clone(),
                 state.unlock_key_commitment.clone(),
+                state.policy.num_guesses,
+                state.guess_count,
             )
         }
         RegistrationState::NoGuesses => {
@@ -183,18 +182,15 @@ fn recover2(
         }
     };
 
-    let server = OprfServer::new_from_seed(oprf_seed.expose_secret(), OPRF_KEY_INFO)
-        .expect("error constructing OprfServer");
-    let oprf_blinded_result: OprfBlindedResult = server
-        .blind_evaluate(&request.oprf_blinded_input.expose_secret())
-        .into();
+    let oprf_blinded_result = OprfBlindedResult::new(&oprf_key, &request.oprf_blinded_input);
 
     trace!(?record_id, "recover2 completed");
     (
         Recover2Response::Ok {
             oprf_blinded_result,
-            masked_unlock_key_scalar_share,
             unlock_key_commitment,
+            num_guesses,
+            guess_count,
         },
         Some(user_record),
     )
@@ -336,7 +332,7 @@ pub fn process(
 // that side channel. There's no need to pad NotRegistered, as the only way that
 // gets written is with the delete call. This size includes the bytes needed to
 // store the size in the trailer.
-const SERIALIZED_RECORD_SIZE: usize = 600;
+const SERIALIZED_RECORD_SIZE: usize = 550;
 const TRAILER_LEN: usize = u32::BITS as usize / 8;
 
 fn marshal_user_record(u: &UserRecord) -> Result<Vec<u8>, SerializationError> {
@@ -350,11 +346,10 @@ fn marshal_user_record(u: &UserRecord) -> Result<Vec<u8>, SerializationError> {
     // The actual length is stored at the end of the serialized state.
     // The length is a big endian encoded u32.
     assert!(s.len() < SERIALIZED_RECORD_SIZE - TRAILER_LEN);
-    let len = u32::try_from(s.len()).unwrap();
     if should_pad {
         s.resize(SERIALIZED_RECORD_SIZE - TRAILER_LEN, 0);
     }
-    s.extend_from_slice(&len.to_be_bytes());
+    s.extend_from_slice(&to_be4(s.len()));
     Ok(s)
 }
 
@@ -387,14 +382,15 @@ fn unmarshal_user_record(padded: &[u8]) -> Result<UserRecord, DeserializationErr
 #[cfg(test)]
 mod tests {
     use juicebox_sdk_core::{
+        oprf::{OprfBlindedInput, OprfBlindedResult, OprfKey},
         requests::{
             DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
             Recover3Response, Register1Response, Register2Request, Register2Response,
         },
         types::{
-            EncryptedUserSecret, EncryptedUserSecretCommitment, MaskedUnlockKeyScalarShare,
-            OprfBlindedInput, OprfBlindedResult, OprfSeed, Policy, RegistrationVersion,
-            UnlockKeyCommitment, UnlockKeyTag, UserSecretEncryptionKeyScalarShare,
+            to_be4, EncryptedUserSecret, EncryptedUserSecretCommitment, Policy,
+            RegistrationVersion, UnlockKeyCommitment, UnlockKeyTag,
+            UserSecretEncryptionKeyScalarShare,
         },
     };
 
@@ -448,12 +444,12 @@ mod tests {
             unmarshal_user_record(&[]).unwrap_err().to_string()
         );
         let mut big: Vec<u8> = vec![0u8; SERIALIZED_RECORD_SIZE + 1];
-        assert_eq!("Deserialization error: user record data is too large. got 601 bytes, but should be no more than 600", unmarshal_user_record(&big).unwrap_err().to_string());
+        assert_eq!("Deserialization error: user record data is too large. got 551 bytes, but should be no more than 550", unmarshal_user_record(&big).unwrap_err().to_string());
 
         big[SERIALIZED_RECORD_SIZE - 4..SERIALIZED_RECORD_SIZE]
-            .copy_from_slice(&((SERIALIZED_RECORD_SIZE + 1) as u32).to_be_bytes());
+            .copy_from_slice(&to_be4(SERIALIZED_RECORD_SIZE + 1));
         assert_eq!(
-            "Deserialization error: embedded length of 601 can't be larger than the 596 bytes present",
+            "Deserialization error: embedded length of 551 can't be larger than the 546 bytes present",
             unmarshal_user_record(&big[..SERIALIZED_RECORD_SIZE])
                 .unwrap_err()
                 .to_string()
@@ -470,8 +466,7 @@ mod tests {
     fn test_register2() {
         let request = Register2Request {
             version: version(),
-            oprf_seed: oprf_seed(),
-            masked_unlock_key_scalar_share: masked_unlock_key_scalar_share(),
+            oprf_key: oprf_key(),
             unlock_key_commitment: unlock_key_commitment(),
             unlock_key_tag: unlock_key_tag(),
             user_secret_encryption_key_scalar_share: user_secret_encryption_key_scalar_share(),
@@ -549,8 +544,9 @@ mod tests {
             response,
             Recover2Response::Ok {
                 oprf_blinded_result: oprf_blinded_result(),
-                masked_unlock_key_scalar_share: masked_unlock_key_scalar_share(),
                 unlock_key_commitment: unlock_key_commitment(),
+                num_guesses: 2,
+                guess_count: 1,
             }
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
@@ -757,8 +753,7 @@ mod tests {
         UserRecord {
             registration_state: RegistrationState::Registered(Box::new(RegisteredState {
                 version: version(),
-                oprf_seed: oprf_seed(),
-                masked_unlock_key_scalar_share: masked_unlock_key_scalar_share(),
+                oprf_key: oprf_key(),
                 unlock_key_commitment: unlock_key_commitment(),
                 unlock_key_tag: unlock_key_tag(),
                 user_secret_encryption_key_scalar_share: user_secret_encryption_key_scalar_share(),
@@ -774,28 +769,26 @@ mod tests {
         RegistrationVersion::from([0; 16])
     }
 
-    fn oprf_seed() -> OprfSeed {
-        OprfSeed::from([2; 32])
+    fn oprf_key() -> OprfKey {
+        OprfKey::try_from([2; 32]).unwrap()
     }
 
     fn oprf_blinded_input() -> OprfBlindedInput {
-        OprfBlindedInput::from([
+        OprfBlindedInput::try_from([
             0xe6, 0x92, 0xd0, 0xf3, 0x22, 0x96, 0xe9, 0x01, 0x97, 0xf4, 0x55, 0x7c, 0x74, 0x42,
             0x99, 0xd2, 0x3e, 0x1d, 0xc2, 0x6c, 0xda, 0x1a, 0xea, 0x5a, 0xa7, 0x54, 0xb4, 0x6c,
             0xee, 0x59, 0x55, 0x7c,
         ])
+        .unwrap()
     }
 
     fn oprf_blinded_result() -> OprfBlindedResult {
-        OprfBlindedResult::from([
-            0xee, 0x8d, 0x91, 0x39, 0xf7, 0x3e, 0xe8, 0x5, 0x99, 0xb7, 0x19, 0x4a, 0x15, 0x57,
-            0x2d, 0x88, 0x38, 0xb9, 0x31, 0x41, 0x13, 0x29, 0x99, 0x57, 0xa7, 0x48, 0x25, 0x1a,
-            0xf9, 0x6a, 0x76, 0x27,
+        OprfBlindedResult::try_from([
+            0x1c, 0x63, 0xe0, 0x37, 0xd5, 0x99, 0x2, 0x32, 0xa8, 0xfd, 0x52, 0xd9, 0x89, 0x83,
+            0x82, 0xfc, 0xe1, 0x88, 0xe0, 0xcc, 0xe3, 0x18, 0x57, 0x82, 0x9e, 0x3b, 0x93, 0xf9,
+            0x77, 0xc0, 0x79, 0x5c,
         ])
-    }
-
-    fn masked_unlock_key_scalar_share() -> MaskedUnlockKeyScalarShare {
-        MaskedUnlockKeyScalarShare::from([1; 32])
+        .unwrap()
     }
 
     fn unlock_key_commitment() -> UnlockKeyCommitment {
@@ -807,7 +800,7 @@ mod tests {
     }
 
     fn user_secret_encryption_key_scalar_share() -> UserSecretEncryptionKeyScalarShare {
-        UserSecretEncryptionKeyScalarShare::from([4; 32])
+        UserSecretEncryptionKeyScalarShare::try_from([4; 32]).unwrap()
     }
 
     fn encrypted_user_secret() -> EncryptedUserSecret {

@@ -7,6 +7,7 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::{Add, AddAssign};
+use juicebox_sdk_core::types::{to_be2, to_be4};
 use juicebox_sdk_marshalling::bytes;
 use serde::{Deserialize, Serialize};
 
@@ -155,8 +156,8 @@ impl Trailer {
     pub fn serialize(&self) -> [u8; Self::LEN] {
         let mut r = [0; Self::LEN];
         r[0] = self.type_;
-        r[2..4].copy_from_slice(&self.count.0.to_be_bytes());
-        r[4..8].copy_from_slice(&self.chunk.0.to_be_bytes());
+        r[2..4].copy_from_slice(&to_be2(self.count.0));
+        r[4..8].copy_from_slice(&to_be4(self.chunk.0));
         r
     }
 

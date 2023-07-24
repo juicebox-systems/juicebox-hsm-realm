@@ -171,7 +171,7 @@ tracing-opentelemetry = { version = "*" }
 tracing-subscriber = { version = "*", features = ["json"] }
 url = { version = "2.3.1", features = ["serde"] }
 voprf = { version = "0.5.0-pre.4" }
-x25519-dalek = { version = "2.0.0-rc.2", features = [
+x25519-dalek = { version = "2.0.0-rc.3", features = [
     "reusable_secrets",
     "serde",
     "static_secrets",

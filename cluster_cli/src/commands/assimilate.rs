@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use agent_api::AgentService;
 use hsm_api::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
-use juicebox_sdk_core::types::RealmId;
+use juicebox_sdk_core::types::{to_be4, RealmId};
 use juicebox_sdk_networking::reqwest::Client;
 use store::StoreClient;
 
@@ -242,10 +242,10 @@ fn partition_evenly(n: usize) -> Vec<OwnedRange> {
     (0..n)
         .map(|i| {
             let mut start = [0; RecordId::NUM_BYTES];
-            start[..4].copy_from_slice(&((partition_size * i) as u32).to_be_bytes());
+            start[..4].copy_from_slice(&to_be4(partition_size * i));
             let mut end = [0xff; RecordId::NUM_BYTES];
             if i + 1 < n {
-                end[..4].copy_from_slice(&((partition_size * (i + 1) - 1) as u32).to_be_bytes());
+                end[..4].copy_from_slice(&to_be4(partition_size * (i + 1) - 1));
                 OwnedRange {
                     start: RecordId(start),
                     end: RecordId(end),
