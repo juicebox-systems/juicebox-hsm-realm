@@ -818,6 +818,7 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "curve25519-dalek-derive",
+ "digest",
  "fiat-crypto",
  "platforms",
  "rand_core",
@@ -934,6 +935,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4609d1443932a4fcee5d2df820ef0597d039fa4154a5c60f798650a5b4f48e14"
 dependencies = [
  "chrono",
+]
+
+[[package]]
+name = "ed25519"
+version = "2.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fb04eee5d9d907f29e80ee6b0e78f7e2c82342c63e3580d8c4f69d9d5aad963"
+dependencies = [
+ "signature",
+]
+
+[[package]]
+name = "ed25519-dalek"
+version = "2.0.0-rc.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "faa8e9049d5d72bfc12acbc05914731b5322f79b5e2f195e9f2d705fca22ab4c"
+dependencies = [
+ "curve25519-dalek",
+ "ed25519",
+ "rand_core",
+ "sha2",
 ]
 
 [[package]]
@@ -1742,7 +1764,7 @@ dependencies = [
 
 [[package]]
 name = "juicebox-sdk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "argon2",
  "async-trait",
@@ -1772,11 +1794,12 @@ dependencies = [
 
 [[package]]
 name = "juicebox-sdk-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake2",
  "curve25519-dalek",
  "digest",
+ "ed25519-dalek",
  "elliptic-curve",
  "hex",
  "juicebox-sdk-marshalling",
@@ -1790,7 +1813,7 @@ dependencies = [
 
 [[package]]
 name = "juicebox-sdk-marshalling"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ciborium",
  "curve25519-dalek",
@@ -1799,7 +1822,7 @@ dependencies = [
 
 [[package]]
 name = "juicebox-sdk-networking"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "http",
@@ -1816,7 +1839,7 @@ dependencies = [
 
 [[package]]
 name = "juicebox-sdk-noise"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake2",
  "chacha20poly1305",
@@ -1832,7 +1855,7 @@ dependencies = [
 
 [[package]]
 name = "juicebox-sdk-process-group"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "nix",
@@ -1841,7 +1864,7 @@ dependencies = [
 
 [[package]]
 name = "juicebox-sdk-realm-auth"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "jsonwebtoken",
@@ -1852,7 +1875,7 @@ dependencies = [
 
 [[package]]
 name = "juicebox-sdk-secret-sharing"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "curve25519-dalek",
  "itertools 0.11.0",
@@ -2904,6 +2927,12 @@ checksum = "d8229b473baa5980ac72ef434c4415e70c4b5e71b423043adb4ba059f89c99a1"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "signature"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fe458c98333f9c8152221191a77e2a44e8325d0193484af2e9421a53019e57d"
 
 [[package]]
 name = "slab"

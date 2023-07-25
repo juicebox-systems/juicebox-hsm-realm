@@ -10,7 +10,7 @@ use tracing::trace;
 
 use hsm_api::RecordId;
 use juicebox_sdk_core::{
-    oprf::{OprfBlindedResult, OprfKey},
+    oprf::{OprfBlindedResult, OprfPrivateKey, OprfSignedPublicKey},
     requests::{
         DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
         Recover3Response, Register1Response, Register2Request, Register2Response, SecretsRequest,
@@ -49,7 +49,8 @@ enum RegistrationState {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct RegisteredState {
     version: RegistrationVersion,
-    oprf_key: OprfKey,
+    oprf_private_key: OprfPrivateKey,
+    oprf_signed_public_key: OprfSignedPublicKey,
     unlock_key_commitment: UnlockKeyCommitment,
     unlock_key_tag: UnlockKeyTag,
     user_secret_encryption_key_scalar_share: UserSecretEncryptionKeyScalarShare,
@@ -74,12 +75,13 @@ fn register2(
 
     user_record.registration_state = RegistrationState::Registered(Box::new(RegisteredState {
         version: request.version,
-        oprf_key: request.oprf_key,
+        oprf_private_key: request.oprf_private_key,
+        oprf_signed_public_key: request.oprf_signed_public_key,
         unlock_key_commitment: request.unlock_key_commitment,
         unlock_key_tag: request.unlock_key_tag,
-        user_secret_encryption_key_scalar_share: request.user_secret_encryption_key_scalar_share,
-        encrypted_user_secret: request.encrypted_user_secret,
-        encrypted_user_secret_commitment: request.encrypted_user_secret_commitment,
+        user_secret_encryption_key_scalar_share: request.encryption_key_scalar_share,
+        encrypted_user_secret: request.encrypted_secret,
+        encrypted_user_secret_commitment: request.encrypted_secret_commitment,
         guess_count: 0,
         policy: request.policy,
     }));
@@ -139,55 +141,59 @@ fn recover2(
 ) -> (Recover2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
-    let (oprf_key, unlock_key_commitment, num_guesses, guess_count) = match &mut user_record
-        .registration_state
-    {
-        RegistrationState::Registered(state) if state.version != request.version => {
-            trace!(
-                hsm = ctx.hsm_name,
-                ?record_id,
-                "can't recover: wrong version"
-            );
-            return (Recover2Response::VersionMismatch, Some(user_record));
-        }
-        RegistrationState::Registered(state) if state.guess_count >= state.policy.num_guesses => {
-            trace!(
-                hsm = ctx.hsm_name,
-                ?record_id,
-                "can't recover: out of guesses"
-            );
-            user_record.registration_state = RegistrationState::NoGuesses;
-            return (Recover2Response::NoGuesses, Some(user_record));
-        }
-        RegistrationState::Registered(state) => {
-            state.guess_count += 1;
-            (
-                state.oprf_key.clone(),
-                state.unlock_key_commitment.clone(),
-                state.policy.num_guesses,
-                state.guess_count,
-            )
-        }
-        RegistrationState::NoGuesses => {
-            trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
-            return (Recover2Response::NoGuesses, Some(user_record));
-        }
-        RegistrationState::NotRegistered => {
-            trace!(
-                hsm = ctx.hsm_name,
-                ?record_id,
-                "can't recover: not registered"
-            );
-            return (Recover2Response::NotRegistered, None);
-        }
-    };
+    let (oprf_signed_public_key, oprf_private_key, unlock_key_commitment, num_guesses, guess_count) =
+        match &mut user_record.registration_state {
+            RegistrationState::Registered(state) if state.version != request.version => {
+                trace!(
+                    hsm = ctx.hsm_name,
+                    ?record_id,
+                    "can't recover: wrong version"
+                );
+                return (Recover2Response::VersionMismatch, Some(user_record));
+            }
+            RegistrationState::Registered(state)
+                if state.guess_count >= state.policy.num_guesses =>
+            {
+                trace!(
+                    hsm = ctx.hsm_name,
+                    ?record_id,
+                    "can't recover: out of guesses"
+                );
+                user_record.registration_state = RegistrationState::NoGuesses;
+                return (Recover2Response::NoGuesses, Some(user_record));
+            }
+            RegistrationState::Registered(state) => {
+                state.guess_count += 1;
+                (
+                    state.oprf_signed_public_key.clone(),
+                    state.oprf_private_key.clone(),
+                    state.unlock_key_commitment.clone(),
+                    state.policy.num_guesses,
+                    state.guess_count,
+                )
+            }
+            RegistrationState::NoGuesses => {
+                trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
+                return (Recover2Response::NoGuesses, Some(user_record));
+            }
+            RegistrationState::NotRegistered => {
+                trace!(
+                    hsm = ctx.hsm_name,
+                    ?record_id,
+                    "can't recover: not registered"
+                );
+                return (Recover2Response::NotRegistered, None);
+            }
+        };
 
-    let oprf_blinded_result = OprfBlindedResult::new(&oprf_key, &request.oprf_blinded_input);
+    let oprf_blinded_result =
+        OprfBlindedResult::new(&oprf_private_key, &request.oprf_blinded_input);
 
     trace!(?record_id, "recover2 completed");
     (
         Recover2Response::Ok {
-            oprf_blinded_result,
+            oprf_signed_public_key: Box::from(oprf_signed_public_key.clone()),
+            oprf_blinded_result: Box::from(oprf_blinded_result),
             unlock_key_commitment,
             num_guesses,
             guess_count,
@@ -253,13 +259,11 @@ fn recover3(
             );
             (
                 Recover3Response::Ok {
-                    encrypted_user_secret: state.encrypted_user_secret.clone(),
-                    user_secret_encryption_key_scalar_share: state
+                    encrypted_secret: state.encrypted_user_secret.clone(),
+                    encryption_key_scalar_share: state
                         .user_secret_encryption_key_scalar_share
                         .clone(),
-                    encrypted_user_secret_commitment: state
-                        .encrypted_user_secret_commitment
-                        .clone(),
+                    encrypted_secret_commitment: state.encrypted_user_secret_commitment.clone(),
                 },
                 Some(user_record),
             )
@@ -332,7 +336,7 @@ pub fn process(
 // that side channel. There's no need to pad NotRegistered, as the only way that
 // gets written is with the delete call. This size includes the bytes needed to
 // store the size in the trailer.
-const SERIALIZED_RECORD_SIZE: usize = 550;
+const SERIALIZED_RECORD_SIZE: usize = 750;
 const TRAILER_LEN: usize = u32::BITS as usize / 8;
 
 fn marshal_user_record(u: &UserRecord) -> Result<Vec<u8>, SerializationError> {
@@ -382,14 +386,17 @@ fn unmarshal_user_record(padded: &[u8]) -> Result<UserRecord, DeserializationErr
 #[cfg(test)]
 mod tests {
     use juicebox_sdk_core::{
-        oprf::{OprfBlindedInput, OprfBlindedResult, OprfKey},
+        oprf::{
+            OprfBlindedInput, OprfBlindedResult, OprfPrivateKey, OprfSignedPublicKey,
+            OprfVerifyingKey,
+        },
         requests::{
             DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
             Recover3Response, Register1Response, Register2Request, Register2Response,
         },
         types::{
             to_be4, EncryptedUserSecret, EncryptedUserSecretCommitment, Policy,
-            RegistrationVersion, UnlockKeyCommitment, UnlockKeyTag,
+            RegistrationVersion, SecretBytesArray, UnlockKeyCommitment, UnlockKeyTag,
             UserSecretEncryptionKeyScalarShare,
         },
     };
@@ -444,12 +451,12 @@ mod tests {
             unmarshal_user_record(&[]).unwrap_err().to_string()
         );
         let mut big: Vec<u8> = vec![0u8; SERIALIZED_RECORD_SIZE + 1];
-        assert_eq!("Deserialization error: user record data is too large. got 551 bytes, but should be no more than 550", unmarshal_user_record(&big).unwrap_err().to_string());
+        assert_eq!("Deserialization error: user record data is too large. got 751 bytes, but should be no more than 750", unmarshal_user_record(&big).unwrap_err().to_string());
 
         big[SERIALIZED_RECORD_SIZE - 4..SERIALIZED_RECORD_SIZE]
             .copy_from_slice(&to_be4(SERIALIZED_RECORD_SIZE + 1));
         assert_eq!(
-            "Deserialization error: embedded length of 551 can't be larger than the 546 bytes present",
+            "Deserialization error: embedded length of 751 can't be larger than the 746 bytes present",
             unmarshal_user_record(&big[..SERIALIZED_RECORD_SIZE])
                 .unwrap_err()
                 .to_string()
@@ -466,12 +473,13 @@ mod tests {
     fn test_register2() {
         let request = Register2Request {
             version: version(),
-            oprf_key: oprf_key(),
+            oprf_private_key: oprf_private_key(),
+            oprf_signed_public_key: oprf_signed_public_key(),
             unlock_key_commitment: unlock_key_commitment(),
             unlock_key_tag: unlock_key_tag(),
-            user_secret_encryption_key_scalar_share: user_secret_encryption_key_scalar_share(),
-            encrypted_user_secret: encrypted_user_secret(),
-            encrypted_user_secret_commitment: encrypted_user_secret_commitment(),
+            encryption_key_scalar_share: user_secret_encryption_key_scalar_share(),
+            encrypted_secret: encrypted_user_secret(),
+            encrypted_secret_commitment: encrypted_user_secret_commitment(),
             policy: policy(),
         };
         let user_record_in = UserRecord::new();
@@ -543,7 +551,8 @@ mod tests {
         assert_eq!(
             response,
             Recover2Response::Ok {
-                oprf_blinded_result: oprf_blinded_result(),
+                oprf_signed_public_key: Box::new(oprf_signed_public_key()),
+                oprf_blinded_result: Box::new(oprf_blinded_result()),
                 unlock_key_commitment: unlock_key_commitment(),
                 num_guesses: 2,
                 guess_count: 1,
@@ -624,9 +633,9 @@ mod tests {
         assert_eq!(
             response,
             Recover3Response::Ok {
-                encrypted_user_secret: encrypted_user_secret(),
-                encrypted_user_secret_commitment: encrypted_user_secret_commitment(),
-                user_secret_encryption_key_scalar_share: user_secret_encryption_key_scalar_share(),
+                encrypted_secret: encrypted_user_secret(),
+                encrypted_secret_commitment: encrypted_user_secret_commitment(),
+                encryption_key_scalar_share: user_secret_encryption_key_scalar_share(),
             }
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
@@ -753,7 +762,8 @@ mod tests {
         UserRecord {
             registration_state: RegistrationState::Registered(Box::new(RegisteredState {
                 version: version(),
-                oprf_key: oprf_key(),
+                oprf_private_key: oprf_private_key(),
+                oprf_signed_public_key: oprf_signed_public_key(),
                 unlock_key_commitment: unlock_key_commitment(),
                 unlock_key_tag: unlock_key_tag(),
                 user_secret_encryption_key_scalar_share: user_secret_encryption_key_scalar_share(),
@@ -769,8 +779,16 @@ mod tests {
         RegistrationVersion::from([0; 16])
     }
 
-    fn oprf_key() -> OprfKey {
-        OprfKey::try_from([2; 32]).unwrap()
+    fn oprf_private_key() -> OprfPrivateKey {
+        OprfPrivateKey::try_from([2; 32]).unwrap()
+    }
+
+    fn oprf_signed_public_key() -> OprfSignedPublicKey {
+        OprfSignedPublicKey {
+            public_key: oprf_private_key().public_key(),
+            verifying_key: OprfVerifyingKey::from([0xff; 32]),
+            signature: SecretBytesArray::from([0xff; 64]),
+        }
     }
 
     fn oprf_blinded_input() -> OprfBlindedInput {
