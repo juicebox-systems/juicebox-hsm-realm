@@ -1363,6 +1363,7 @@ impl<T: Transport + 'static> Agent<T> {
                     session_id: request.session_id,
                     encrypted: request.encrypted.clone(),
                     proof,
+                    index: entry.index,
                 })
                 .await
             {

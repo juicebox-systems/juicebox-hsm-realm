@@ -1599,13 +1599,35 @@ impl<P: Platform> Hsm<P> {
                             .filter(|partition| partition.range.contains(&request.record_id))
                             .is_some()
                         {
-                            handle_app_request(
-                                request,
-                                &self.realm_keys,
-                                leader,
-                                &mut app_req_name,
-                                &mut self.platform,
-                            )
+                            // If we get a request where the log index is newer
+                            // than anything we know about then some other HSM
+                            // wrote a log entry and therefore we are not leader
+                            // anymore.
+                            if request.index
+                                > leader
+                                    .log
+                                    .back()
+                                    .expect("leader.log should never be empty")
+                                    .entry
+                                    .index
+                            {
+                                self.handle_stepdown_as_leader(
+                                    metrics,
+                                    StepDownRequest {
+                                        realm: request.realm,
+                                        group: request.group,
+                                    },
+                                );
+                                Response::NotLeader
+                            } else {
+                                handle_app_request(
+                                    request,
+                                    &self.realm_keys,
+                                    leader,
+                                    &mut app_req_name,
+                                    &mut self.platform,
+                                )
+                            }
                         } else {
                             Response::NotOwner
                         }

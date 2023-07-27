@@ -223,6 +223,10 @@ impl<T: Transport + 'static> Agent<T> {
                 );
                 return CommitterStatus::Committing { committed: Some(c) };
             }
+            Ok(CommitResponse::NotLeader) => {
+                info!(agent = self.0.name, ?realm, ?group, "Leader stepped down");
+                return CommitterStatus::NoLongerLeader;
+            }
             _ => {
                 warn!(agent = self.0.name, ?response, "commit response not ok");
                 return CommitterStatus::Committing {

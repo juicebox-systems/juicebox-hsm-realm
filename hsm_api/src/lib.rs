@@ -1651,6 +1651,8 @@ pub struct AppRequest {
     /// concurrent operations, it does not need to use the absolute latest
     /// version of the tree.
     pub proof: ReadProof<DataHash>,
+    /// The log index that `proof` was generated from.
+    pub index: LogIndex,
 }
 
 /// Response type for the HSM App RPC (see [`AppRequest`]).
