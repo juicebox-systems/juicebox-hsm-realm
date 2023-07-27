@@ -397,7 +397,6 @@ mod tests {
         },
     };
     use rand_core::OsRng;
-    use serde::Serialize;
 
     use super::{delete, oprf, recover1, recover2, recover3, register1, register2, AppContext};
     use crate::hsm::app::{
@@ -802,9 +801,7 @@ mod tests {
     }
 
     fn oprf_private_key() -> oprf::PrivateKey {
-        #[derive(Serialize)]
-        struct PrivateKey2([u8; 32]);
-        let serialized = juicebox_sdk_marshalling::to_vec(&PrivateKey2([2; 32])).unwrap();
+        let serialized = juicebox_sdk_marshalling::to_vec(&[2u8; 32]).unwrap();
         juicebox_sdk_marshalling::from_slice(&serialized).unwrap()
     }
 
@@ -817,25 +814,21 @@ mod tests {
     }
 
     fn oprf_blinded_input() -> oprf::BlindedInput {
-        #[derive(Serialize)]
-        struct BlindedInput2([u8; 32]);
-        let serialized = juicebox_sdk_marshalling::to_vec(&BlindedInput2([
-            0xe6, 0x92, 0xd0, 0xf3, 0x22, 0x96, 0xe9, 0x01, 0x97, 0xf4, 0x55, 0x7c, 0x74, 0x42,
+        let serialized = juicebox_sdk_marshalling::to_vec(&[
+            0xe6u8, 0x92, 0xd0, 0xf3, 0x22, 0x96, 0xe9, 0x01, 0x97, 0xf4, 0x55, 0x7c, 0x74, 0x42,
             0x99, 0xd2, 0x3e, 0x1d, 0xc2, 0x6c, 0xda, 0x1a, 0xea, 0x5a, 0xa7, 0x54, 0xb4, 0x6c,
             0xee, 0x59, 0x55, 0x7c,
-        ]))
+        ])
         .unwrap();
         juicebox_sdk_marshalling::from_slice(&serialized).unwrap()
     }
 
     fn oprf_blinded_result() -> oprf::BlindedOutput {
-        #[derive(Serialize)]
-        struct BlindedOutput2([u8; 32]);
-        let serialized = juicebox_sdk_marshalling::to_vec(&BlindedOutput2([
-            0x1c, 0x63, 0xe0, 0x37, 0xd5, 0x99, 0x2, 0x32, 0xa8, 0xfd, 0x52, 0xd9, 0x89, 0x83,
+        let serialized = juicebox_sdk_marshalling::to_vec(&[
+            0x1cu8, 0x63, 0xe0, 0x37, 0xd5, 0x99, 0x2, 0x32, 0xa8, 0xfd, 0x52, 0xd9, 0x89, 0x83,
             0x82, 0xfc, 0xe1, 0x88, 0xe0, 0xcc, 0xe3, 0x18, 0x57, 0x82, 0x9e, 0x3b, 0x93, 0xf9,
             0x77, 0xc0, 0x79, 0x5c,
-        ]))
+        ])
         .unwrap();
         juicebox_sdk_marshalling::from_slice(&serialized).unwrap()
     }
