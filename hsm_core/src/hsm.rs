@@ -9,7 +9,6 @@ use chacha20poly1305::aead::Aead;
 use core::fmt::Debug;
 use core::time::Duration;
 use digest::Digest;
-use hashbrown::hash_map::Entry;
 use hsm_api::merkle::StoreDelta;
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
@@ -39,17 +38,16 @@ use hsm_api::rpc::{
     HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction, Nanos,
 };
 use hsm_api::{
-    AppRequest, AppRequestType, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CaptureNextRequest, CaptureNextResponse, Captured, CompleteTransferRequest,
-    CompleteTransferResponse, DataHash, EntryMac, GroupId, GroupMemberRole, GroupStatus,
-    HandshakeRequest, HandshakeResponse, HsmId, HsmRealmStatement, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus, LogEntry, LogIndex,
-    NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange, Partition,
-    PersistStateRequest, PersistStateResponse, PublicKey, RealmStatus, RecordId, StatusRequest,
-    StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse,
-    TransferNonce, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
-    TransferOutResponse, TransferStatementRequest, TransferStatementResponse, TransferringOut,
-    CONFIGURATION_LIMIT, GROUPS_LIMIT,
+    AppRequest, AppRequestType, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, Captured,
+    CompleteTransferRequest, CompleteTransferResponse, DataHash, EntryMac, GroupId,
+    GroupMemberRole, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId, HsmRealmStatement,
+    JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus,
+    LogEntry, LogIndex, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
+    OwnedRange, Partition, PersistStateRequest, PersistStateResponse, PublicKey, RealmStatus,
+    RecordId, StatusRequest, StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest,
+    TransferInResponse, TransferNonce, TransferNonceRequest, TransferNonceResponse,
+    TransferOutRequest, TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
+    TransferringOut, CONFIGURATION_LIMIT, GROUPS_LIMIT,
 };
 use juicebox_marshalling::{self as marshalling, bytes, DeserializationError};
 use juicebox_noise::server as noise;
@@ -854,118 +852,6 @@ impl<P: Platform> Hsm<P> {
                     captured: None,
                 });
             Response::Ok
-        })();
-
-        trace!(hsm = self.options.name, ?response);
-        response
-    }
-
-    fn handle_capture_next(
-        &mut self,
-        _metrics: &mut Metrics<P>,
-        request: CaptureNextRequest,
-    ) -> CaptureNextResponse {
-        type Response = CaptureNextResponse;
-        trace!(hsm = self.options.name, ?request);
-
-        let response = (|| {
-            if request.entries.is_empty() {
-                return Response::MissingEntries;
-            }
-
-            match &self.persistent.realm {
-                None => Response::InvalidRealm,
-
-                Some(realm) => {
-                    if realm.id != request.realm {
-                        return Response::InvalidRealm;
-                    }
-
-                    if realm.groups.get(&request.group).is_none() {
-                        return Response::InvalidGroup;
-                    }
-
-                    for entry in request.entries {
-                        if self
-                            .realm_keys
-                            .mac
-                            .log_entry_mac(&EntryMacMessage::new(
-                                request.realm,
-                                request.group,
-                                &entry,
-                            ))
-                            .verify(&entry.entry_mac)
-                            .is_err()
-                        {
-                            return Response::InvalidMac;
-                        }
-
-                        let e = self.volatile.captured.entry(request.group);
-                        match &e {
-                            Entry::Vacant(_) => {
-                                if entry.index != LogIndex::FIRST {
-                                    return Response::MissingPrev;
-                                }
-                                if entry.prev_mac != EntryMac::zero() {
-                                    return Response::InvalidChain;
-                                }
-                            }
-                            Entry::Occupied(v) => {
-                                let (captured_index, captured_mac) = v.get();
-                                if entry.index != captured_index.next() {
-                                    return Response::MissingPrev;
-                                }
-                                if entry.prev_mac != *captured_mac {
-                                    return Response::InvalidChain;
-                                }
-                            }
-                        }
-
-                        // If we're stepping down we need to get the commit
-                        // index up to the stepping down index. It's not
-                        // possible for the agent to create a commit request
-                        // with that exact index as the witnesses may have
-                        // already passed the index and they can't generate a
-                        // capture statement for an earlier index. So while
-                        // stepping down we collect the new log entries that
-                        // we're witnessing into the stepping down log. Commit
-                        // can then successfully process a commit request that
-                        // is after the stepdown index and complete the
-                        // stepdown.
-                        if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
-                            let last = &sd.log.back().unwrap().entry;
-                            if entry.index == last.index.next() {
-                                if entry.prev_mac == last.entry_mac {
-                                    sd.log.push_back(LeaderLogEntry {
-                                        entry: entry.clone(),
-                                        response: None,
-                                    });
-                                } else {
-                                    // If there's dueling leaders then our in
-                                    // memory log may not be the one that
-                                    // actually got persisted to the store. In
-                                    // that event our responses are never valid,
-                                    // and we should give up trying to step
-                                    // down.
-
-                                    // TODO: what do we want to do about
-                                    // signaling to the caller that the request
-                                    // is done. Can we return a NoLeader for all
-                                    // the pending responses? If so we'll need
-                                    // to do that from commit somehow.
-                                    // Annoyingly there's no common error
-                                    // responses, so we'd need to know what
-                                    // request type each pending response is for
-                                    // so that we can generate the right type of
-                                    // NoLeader response.
-                                }
-                            }
-                        }
-                        e.insert((entry.index, entry.entry_mac));
-                    }
-                    Response::Ok
-                }
-            }
         })();
 
         trace!(hsm = self.options.name, ?response);
