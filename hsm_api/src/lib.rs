@@ -215,6 +215,11 @@ pub struct LogEntry {
     pub prev_mac: EntryMac,
     /// Allows HSMs to check the authenticity of the entry.
     pub entry_mac: EntryMac,
+    /// The Id of the HSM that generated this entry. This ensures that log
+    /// entries/mac's differ even if 2 HSM generate an otherwise identical
+    /// entry. This can happen if a log entry is generated but the tree did not
+    /// change.
+    pub hsm: HsmId,
     // TODO: these may be needed for log compaction:
     // pub committed: LogIndex,
     // pub committed_statement: CommittedStatement,

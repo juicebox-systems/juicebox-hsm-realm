@@ -94,6 +94,7 @@ fn create_random_realm_id(rng: &mut impl CryptoRng) -> RealmId {
 }
 
 struct LogEntryBuilder {
+    hsm: HsmId,
     realm: RealmId,
     group: GroupId,
     index: LogIndex,
@@ -105,6 +106,7 @@ struct LogEntryBuilder {
 impl LogEntryBuilder {
     fn build(self, key: &MacKey) -> LogEntry {
         let entry_mac = key.log_entry_mac(&EntryMacMessage {
+            hsm: self.hsm,
             realm: self.realm,
             group: self.group,
             index: self.index,
@@ -114,6 +116,7 @@ impl LogEntryBuilder {
         });
 
         LogEntry {
+            hsm: self.hsm,
             index: self.index,
             partition: self.partition,
             transferring_out: self.transferring_out,
@@ -619,6 +622,7 @@ impl<P: Platform> Hsm<P> {
             let (root_hash, delta) = Tree::<MerkleHasher>::new_tree(&range);
 
             let entry = LogEntryBuilder {
+                hsm: self.persistent.id,
                 realm,
                 group,
                 index: LogIndex::FIRST,
@@ -769,6 +773,7 @@ impl<P: Platform> Hsm<P> {
             }
 
             let entry = LogEntryBuilder {
+                hsm: self.persistent.id,
                 realm: request.realm,
                 group,
                 index: LogIndex::FIRST,
@@ -1241,6 +1246,7 @@ impl<P: Platform> Hsm<P> {
 
             let index = last_entry.index.next();
             let entry = LogEntryBuilder {
+                hsm: self.persistent.id,
                 realm: request.realm,
                 group: request.source,
                 index,
@@ -1438,6 +1444,7 @@ impl<P: Platform> Hsm<P> {
             };
 
             let entry = LogEntryBuilder {
+                hsm: self.persistent.id,
                 realm: request.realm,
                 group: request.destination,
                 index: last_entry.index.next(),
@@ -1500,6 +1507,7 @@ impl<P: Platform> Hsm<P> {
             }
 
             let entry = LogEntryBuilder {
+                hsm: self.persistent.id,
                 realm: request.realm,
                 group: request.source,
                 index: last_entry.index.next(),
@@ -1622,6 +1630,7 @@ impl<P: Platform> Hsm<P> {
                             } else {
                                 handle_app_request(
                                     request,
+                                    self.persistent.id,
                                     &self.realm_keys,
                                     leader,
                                     &mut app_req_name,
@@ -1672,6 +1681,7 @@ fn secrets_request_type(r: &SecretsRequest) -> AppRequestType {
 
 fn handle_app_request(
     request: AppRequest,
+    hsm: HsmId,
     keys: &RealmKeys,
     leader: &mut LeaderVolatileGroupState,
     req_name_out: &mut Option<&'static str>,
@@ -1722,6 +1732,7 @@ fn handle_app_request(
 
     let last_entry = leader.log.back().unwrap();
     let new_entry = LogEntryBuilder {
+        hsm,
         realm: request.realm,
         group: request.group,
         index: last_entry.entry.index.next(),

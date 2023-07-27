@@ -90,6 +90,7 @@ pub struct CapturedStatementMessage<'a> {
 
 #[derive(Serialize)]
 pub struct EntryMacMessage<'a> {
+    pub hsm: HsmId,
     pub realm: RealmId,
     pub group: GroupId,
     pub index: LogIndex,
@@ -101,6 +102,7 @@ pub struct EntryMacMessage<'a> {
 impl<'a> EntryMacMessage<'a> {
     pub fn new(realm: RealmId, group: GroupId, entry: &'a LogEntry) -> Self {
         EntryMacMessage {
+            hsm: entry.hsm,
             realm,
             group,
             index: entry.index,
@@ -204,6 +206,7 @@ mod tests {
                 at: LogIndex(u64::MAX - 1),
             }),
             prev_mac: &EntryMac::from([6; 32]),
+            hsm: HsmId([7; 16]),
         };
         let transfer = TransferStatementMessage {
             realm: RealmId([1; 16]),
