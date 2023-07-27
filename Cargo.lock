@@ -1469,7 +1469,7 @@ dependencies = [
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
  "juicebox-sdk-noise",
- "juicebox-sdk-voprf",
+ "juicebox-sdk-oprf",
  "lru-cache",
  "rand",
  "rand_core",
@@ -1780,8 +1780,8 @@ dependencies = [
  "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
  "juicebox-sdk-noise",
+ "juicebox-sdk-oprf",
  "juicebox-sdk-secret-sharing",
- "juicebox-sdk-voprf",
  "rand",
  "serde",
  "serde_json",
@@ -1806,7 +1806,7 @@ dependencies = [
  "hex",
  "juicebox-sdk-marshalling",
  "juicebox-sdk-noise",
- "juicebox-sdk-voprf",
+ "juicebox-sdk-oprf",
  "rand_core",
  "serde",
  "sha2",
@@ -1857,6 +1857,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "juicebox-sdk-oprf"
+version = "0.1.1"
+dependencies = [
+ "curve25519-dalek",
+ "digest",
+ "juicebox-sdk-marshalling",
+ "rand_core",
+ "serde",
+ "sha2",
+ "subtle",
+ "tracing 0.2.0",
+ "zeroize",
+]
+
+[[package]]
 name = "juicebox-sdk-process-group"
 version = "0.1.1"
 dependencies = [
@@ -1884,21 +1899,6 @@ dependencies = [
  "itertools 0.11.0",
  "juicebox-sdk-core",
  "rand_core",
-]
-
-[[package]]
-name = "juicebox-sdk-voprf"
-version = "0.1.1"
-dependencies = [
- "curve25519-dalek",
- "digest",
- "juicebox-sdk-marshalling",
- "rand_core",
- "serde",
- "sha2",
- "subtle",
- "tracing 0.2.0",
- "zeroize",
 ]
 
 [[package]]

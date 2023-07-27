@@ -22,7 +22,7 @@ use juicebox_sdk_core::{
     },
 };
 use juicebox_sdk_marshalling as marshalling;
-use juicebox_sdk_voprf as voprf;
+use juicebox_sdk_oprf as oprf;
 
 use super::CryptoRng;
 
@@ -52,7 +52,7 @@ enum RegistrationState {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct RegisteredState {
     version: RegistrationVersion,
-    oprf_private_key: voprf::PrivateKey,
+    oprf_private_key: oprf::PrivateKey,
     oprf_signed_public_key: OprfSignedPublicKey,
     unlock_key_commitment: UnlockKeyCommitment,
     unlock_key_tag: UnlockKeyTag,
@@ -165,7 +165,7 @@ fn recover2(
         }
         RegistrationState::Registered(state) => {
             state.guess_count += 1;
-            let (oprf_blinded_result, oprf_proof) = voprf::blind_evaluate(
+            let (oprf_blinded_result, oprf_proof) = oprf::blind_verifiable_evaluate(
                 &state.oprf_private_key,
                 &state.oprf_signed_public_key.public_key,
                 &request.oprf_blinded_input,
@@ -399,7 +399,7 @@ mod tests {
     use rand_core::OsRng;
     use serde::Serialize;
 
-    use super::{delete, recover1, recover2, recover3, register1, register2, voprf, AppContext};
+    use super::{delete, oprf, recover1, recover2, recover3, register1, register2, AppContext};
     use crate::hsm::app::{
         marshal_user_record, unmarshal_user_record, RegisteredState, RegistrationState, UserRecord,
         SERIALIZED_RECORD_SIZE, TRAILER_LEN,
@@ -554,7 +554,7 @@ mod tests {
             ..
         } = &response
         {
-            voprf::verify_proof(
+            oprf::verify_proof(
                 &oprf_blinded_input(),
                 oprf_blinded_result,
                 &oprf_signed_public_key().public_key,
@@ -801,7 +801,7 @@ mod tests {
         RegistrationVersion::from([0; 16])
     }
 
-    fn oprf_private_key() -> voprf::PrivateKey {
+    fn oprf_private_key() -> oprf::PrivateKey {
         #[derive(Serialize)]
         struct PrivateKey2([u8; 32]);
         let serialized = juicebox_sdk_marshalling::to_vec(&PrivateKey2([2; 32])).unwrap();
@@ -810,13 +810,13 @@ mod tests {
 
     fn oprf_signed_public_key() -> OprfSignedPublicKey {
         OprfSignedPublicKey {
-            public_key: voprf::PublicKey::new_from_private(&oprf_private_key()),
+            public_key: oprf_private_key().to_public_key(),
             verifying_key: OprfVerifyingKey::from([0xff; 32]),
             signature: SecretBytesArray::from([0xff; 64]),
         }
     }
 
-    fn oprf_blinded_input() -> voprf::BlindedInput {
+    fn oprf_blinded_input() -> oprf::BlindedInput {
         #[derive(Serialize)]
         struct BlindedInput2([u8; 32]);
         let serialized = juicebox_sdk_marshalling::to_vec(&BlindedInput2([
@@ -828,7 +828,7 @@ mod tests {
         juicebox_sdk_marshalling::from_slice(&serialized).unwrap()
     }
 
-    fn oprf_blinded_result() -> voprf::BlindedOutput {
+    fn oprf_blinded_result() -> oprf::BlindedOutput {
         #[derive(Serialize)]
         struct BlindedOutput2([u8; 32]);
         let serialized = juicebox_sdk_marshalling::to_vec(&BlindedOutput2([
