@@ -1566,7 +1566,6 @@ impl<P: Platform> Hsm<P> {
     fn handle_app(&mut self, metrics: &mut Metrics<P>, request: AppRequest) -> AppResponse {
         type Response = AppResponse;
         trace!(hsm = self.options.name, ?request);
-        let hsm_name = &self.options.name;
 
         let start = metrics.now();
         let mut app_req_name = None;
@@ -1581,9 +1580,7 @@ impl<P: Platform> Hsm<P> {
                             .filter(|partition| partition.range.contains(&request.record_id))
                             .is_some()
                         {
-                            let app_ctx = app::AppContext { hsm_name };
                             handle_app_request(
-                                &app_ctx,
                                 request,
                                 &self.realm_keys,
                                 leader,
@@ -1633,7 +1630,6 @@ fn secrets_request_type(r: &SecretsRequest) -> AppRequestType {
 }
 
 fn handle_app_request(
-    app_ctx: &app::AppContext,
     request: AppRequest,
     keys: &RealmKeys,
     leader: &mut LeaderVolatileGroupState,
@@ -1677,13 +1673,7 @@ fn handle_app_request(
     let secrets_request_type = secrets_request_type(&secrets_request);
     req_name_out.replace(secrets_req_name(&secrets_request));
 
-    let (secrets_response, change) = app::process(
-        app_ctx,
-        &request.record_id,
-        secrets_request,
-        record.as_deref(),
-        rng,
-    );
+    let (secrets_response, change) = app::process(secrets_request, record.as_deref(), rng);
 
     let secrets_response = noise.encode(secrets_response, &mut leader.sessions);
 
