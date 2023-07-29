@@ -7,11 +7,11 @@ use hsm_api::{
     GroupConfigurationStatement, GroupId, HsmId, HsmRealmStatement, LogIndex, OwnedRange,
     Partition, RecordId, TransferNonce, TransferStatement,
 };
-use juicebox_sdk_core::{
+use juicebox_api::{
     requests::{ClientRequestKind, NoiseRequest, NoiseResponse},
     types::{RealmId, SessionId},
 };
-use juicebox_sdk_networking::rpc::{Rpc, Service};
+use juicebox_networking::rpc::{Rpc, Service};
 
 #[derive(Clone, Debug)]
 pub struct AgentService;

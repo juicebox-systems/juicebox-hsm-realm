@@ -21,7 +21,7 @@ use hsm_core::hash::{HashExt, HashMap};
 use hsm_core::hsm::{
     mac::MacKey, Hsm, HsmOptions, MetricsReporting, RealmKeys, RecordEncryptionKey,
 };
-use juicebox_sdk_marshalling as marshalling;
+use juicebox_marshalling as marshalling;
 use platform::{register_global_rng, transact, NCipher, SeeError};
 use seelib::{
     Cmd_Export, Cmd_RedeemTicket, M_ByteBlock, M_Command, M_Hash, M_Status, M_Word,

@@ -23,7 +23,7 @@ hsm_core = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-juicebox-sdk-marshalling = { workspace = true }
+juicebox_marshalling = { workspace = true }
 observability = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }

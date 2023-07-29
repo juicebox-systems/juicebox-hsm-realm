@@ -7,20 +7,21 @@ use marshalling::{DeserializationError, SerializationError};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 
-use juicebox_sdk_core::{
-    oprf::OprfSignedPublicKey,
+use juicebox_api::{
     requests::{
         DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
         Recover3Response, Register1Response, Register2Request, Register2Response, SecretsRequest,
         SecretsResponse,
     },
+    signing::OprfSignedPublicKey,
     types::{
-        to_be4, EncryptedUserSecret, EncryptedUserSecretCommitment, Policy, RegistrationVersion,
+        EncryptedUserSecret, EncryptedUserSecretCommitment, Policy, RegistrationVersion,
         UnlockKeyCommitment, UnlockKeyTag, UserSecretEncryptionKeyScalarShare,
     },
 };
-use juicebox_sdk_marshalling as marshalling;
-use juicebox_sdk_oprf as oprf;
+use juicebox_marshalling as marshalling;
+use juicebox_marshalling::to_be4;
+use juicebox_oprf as oprf;
 
 use super::CryptoRng;
 
@@ -287,18 +288,19 @@ fn unmarshal_user_record(padded: &[u8]) -> Result<UserRecord, DeserializationErr
 
 #[cfg(test)]
 mod tests {
-    use juicebox_sdk_core::{
-        oprf::{OprfSignedPublicKey, OprfVerifyingKey},
+    use juicebox_api::{
         requests::{
             DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
             Recover3Response, Register1Response, Register2Request, Register2Response,
         },
+        signing::{OprfSignedPublicKey, OprfVerifyingKey},
         types::{
-            to_be4, EncryptedUserSecret, EncryptedUserSecretCommitment, Policy,
-            RegistrationVersion, SecretBytesArray, UnlockKeyCommitment, UnlockKeyTag,
+            EncryptedUserSecret, EncryptedUserSecretCommitment, Policy, RegistrationVersion,
+            SecretBytesArray, UnlockKeyCommitment, UnlockKeyTag,
             UserSecretEncryptionKeyScalarShare,
         },
     };
+    use juicebox_marshalling::to_be4;
     use rand_core::OsRng;
 
     use super::{delete, oprf, recover1, recover2, recover3, register1, register2};
@@ -315,7 +317,7 @@ mod tests {
         };
         state.policy.num_guesses = u16::MAX;
 
-        let unpadded = juicebox_sdk_marshalling::to_vec(&registered).unwrap();
+        let unpadded = juicebox_marshalling::to_vec(&registered).unwrap();
         println!(
             "unpadded length {}, SERIALIZED_RECORD_SIZE: {SERIALIZED_RECORD_SIZE}",
             unpadded.len()
@@ -633,8 +635,8 @@ mod tests {
     }
 
     fn oprf_private_key() -> oprf::PrivateKey {
-        let serialized = juicebox_sdk_marshalling::to_vec(&[2u8; 32]).unwrap();
-        juicebox_sdk_marshalling::from_slice(&serialized).unwrap()
+        let serialized = juicebox_marshalling::to_vec(&[2u8; 32]).unwrap();
+        juicebox_marshalling::from_slice(&serialized).unwrap()
     }
 
     fn oprf_signed_public_key() -> OprfSignedPublicKey {
@@ -646,23 +648,23 @@ mod tests {
     }
 
     fn oprf_blinded_input() -> oprf::BlindedInput {
-        let serialized = juicebox_sdk_marshalling::to_vec(&[
+        let serialized = juicebox_marshalling::to_vec(&[
             0xe6u8, 0x92, 0xd0, 0xf3, 0x22, 0x96, 0xe9, 0x01, 0x97, 0xf4, 0x55, 0x7c, 0x74, 0x42,
             0x99, 0xd2, 0x3e, 0x1d, 0xc2, 0x6c, 0xda, 0x1a, 0xea, 0x5a, 0xa7, 0x54, 0xb4, 0x6c,
             0xee, 0x59, 0x55, 0x7c,
         ])
         .unwrap();
-        juicebox_sdk_marshalling::from_slice(&serialized).unwrap()
+        juicebox_marshalling::from_slice(&serialized).unwrap()
     }
 
     fn oprf_blinded_result() -> oprf::BlindedOutput {
-        let serialized = juicebox_sdk_marshalling::to_vec(&[
+        let serialized = juicebox_marshalling::to_vec(&[
             0x1cu8, 0x63, 0xe0, 0x37, 0xd5, 0x99, 0x2, 0x32, 0xa8, 0xfd, 0x52, 0xd9, 0x89, 0x83,
             0x82, 0xfc, 0xe1, 0x88, 0xe0, 0xcc, 0xe3, 0x18, 0x57, 0x82, 0x9e, 0x3b, 0x93, 0xf9,
             0x77, 0xc0, 0x79, 0x5c,
         ])
         .unwrap();
-        juicebox_sdk_marshalling::from_slice(&serialized).unwrap()
+        juicebox_marshalling::from_slice(&serialized).unwrap()
     }
 
     fn unlock_key_commitment() -> UnlockKeyCommitment {

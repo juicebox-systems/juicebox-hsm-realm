@@ -1,5 +1,5 @@
 use hsm_api::{GroupId, OwnedRange};
-use juicebox_sdk_core::types::RealmId;
+use juicebox_api::types::RealmId;
 use store::StoreClient;
 
 pub async fn transfer(

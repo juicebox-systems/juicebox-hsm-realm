@@ -10,6 +10,6 @@ bitvec = { workspace = true }
 clap = { workspace = true }
 hsm_api = { workspace = true }
 hsm_core = { workspace = true, features = ["dot"] }
-juicebox-sdk-core = { workspace = true }
+juicebox_api = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }
 tokio = { workspace = true }

@@ -1,7 +1,7 @@
 //! General-purpose mechanisms to access databases of secrets at runtime.
 use async_trait::async_trait;
-use juicebox_sdk_core::types::SecretBytesVec;
-use juicebox_sdk_realm_auth::{AuthKey, AuthKeyVersion};
+use juicebox_api::types::SecretBytesVec;
+use juicebox_realm_auth::{AuthKey, AuthKeyVersion};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt::Debug;

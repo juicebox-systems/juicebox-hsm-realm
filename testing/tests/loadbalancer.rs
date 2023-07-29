@@ -3,9 +3,9 @@ use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use juicebox_sdk_core::requests::{SecretsRequest, BODY_SIZE_LIMIT};
-use juicebox_sdk_networking::rpc::Rpc;
-use juicebox_sdk_process_group::ProcessGroup;
+use juicebox_api::requests::{SecretsRequest, BODY_SIZE_LIMIT};
+use juicebox_networking::rpc::Rpc;
+use juicebox_process_group::ProcessGroup;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use testing::exec::hsm_gen::{Entrust, MetricsParticipants};

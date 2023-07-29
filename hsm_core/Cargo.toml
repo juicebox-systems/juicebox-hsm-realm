@@ -19,10 +19,10 @@ election = { workspace = true }
 generic-array = { workspace = true }
 hashbrown = { workspace = true }
 hsm_api = { workspace = true }
-juicebox-sdk-core = { workspace = true }
-juicebox-sdk-marshalling = { workspace = true }
-juicebox-sdk-noise = { workspace = true }
-juicebox-sdk-oprf = { workspace = true }
+juicebox_api = { workspace = true }
+juicebox_marshalling = { workspace = true }
+juicebox_noise = { workspace = true }
+juicebox_oprf = { workspace = true }
 lru-cache = { workspace = true }
 rand_core = { workspace = true }
 serde = { workspace = true }

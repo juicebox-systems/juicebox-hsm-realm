@@ -51,12 +51,12 @@ use hsm_api::{
     TransferOutResponse, TransferStatementRequest, TransferStatementResponse, TransferringOut,
     CONFIGURATION_LIMIT, GROUPS_LIMIT,
 };
-use juicebox_sdk_core::{
+use juicebox_api::{
     requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
     types::{RealmId, SessionId},
 };
-use juicebox_sdk_marshalling::{self as marshalling, bytes, DeserializationError};
-use juicebox_sdk_noise::server as noise;
+use juicebox_marshalling::{self as marshalling, bytes, DeserializationError};
+use juicebox_noise::server as noise;
 
 // TODO: This is susceptible to DoS attacks. One user could create many
 // sessions to evict all other users' Noise connections, or one attacker could
@@ -1928,8 +1928,8 @@ impl From<AppError> for AppResponse {
 #[cfg(test)]
 mod tests {
     use crate::hash::HashMap;
-    use juicebox_sdk_core::types::RealmId;
-    use juicebox_sdk_marshalling as marshalling;
+    use juicebox_api::types::RealmId;
+    use juicebox_marshalling as marshalling;
 
     use super::super::hal::MAX_NVRAM_SIZE;
     use super::*;

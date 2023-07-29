@@ -16,11 +16,11 @@ hex = { workspace = true }
 hsm_api = { workspace = true }
 hsm_core = { workspace = true }
 http = { workspace = true }
-juicebox-sdk = { workspace = true }
-juicebox-sdk-core = { workspace = true }
-juicebox-sdk-networking = { workspace = true }
-juicebox-sdk-process-group = { workspace = true }
-juicebox-sdk-realm-auth = { workspace = true }
+juicebox_sdk = { workspace = true }
+juicebox_api = { workspace = true }
+juicebox_networking = { workspace = true }
+juicebox_process_group = { workspace = true }
+juicebox_realm_auth = { workspace = true }
 observability = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }

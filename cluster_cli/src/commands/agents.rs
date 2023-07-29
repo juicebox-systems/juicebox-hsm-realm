@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use agent_api::{AgentService, StatusRequest, StatusResponse};
 use hsm_api::{GroupStatus, HsmId, OwnedRange};
-use juicebox_sdk_networking::reqwest::Client;
-use juicebox_sdk_networking::rpc::{self, RpcError};
+use juicebox_networking::reqwest::Client;
+use juicebox_networking::rpc::{self, RpcError};
 use store::{ServiceKind, StoreClient};
 
 pub async fn list_agents(c: &Client<AgentService>, store: &StoreClient) -> anyhow::Result<()> {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use hsm_api::merkle::{Node, NodeKey};
 use hsm_api::RecordId;
-use juicebox_sdk_core::types::RealmId;
+use juicebox_api::types::RealmId;
 use observability::metrics;
 
 /// Interface to read Merkle nodes, primarily used by the

@@ -8,11 +8,11 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
+use juicebox_api::types::Policy;
+use juicebox_networking::reqwest;
+use juicebox_networking::rpc::LoadBalancerService;
+use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::{Client, Pin, UserInfo, UserSecret};
-use juicebox_sdk_core::types::Policy;
-use juicebox_sdk_networking::reqwest;
-use juicebox_sdk_networking::rpc::LoadBalancerService;
-use juicebox_sdk_process_group::ProcessGroup;
 use observability::logging;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use testing::exec::hsm_gen::{Entrust, MetricsParticipants};

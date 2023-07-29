@@ -3,10 +3,10 @@ use std::{path::PathBuf, sync::mpsc::channel};
 use tokio::task::JoinSet;
 
 use cluster_api::StepDownRequest;
+use juicebox_networking::reqwest::{self, ClientOptions};
+use juicebox_networking::rpc;
+use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::Policy;
-use juicebox_sdk_networking::reqwest::{self, ClientOptions};
-use juicebox_sdk_networking::rpc;
-use juicebox_sdk_process_group::ProcessGroup;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use testing::exec::hsm_gen::{Entrust, MetricsParticipants};

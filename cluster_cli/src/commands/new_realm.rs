@@ -1,7 +1,7 @@
 use reqwest::Url;
 
 use agent_api::AgentService;
-use juicebox_sdk_networking::reqwest::Client;
+use juicebox_networking::reqwest::Client;
 
 pub async fn new_realm(
     agent_address: &Url,

@@ -121,7 +121,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: build
-        args: --manifest-path sdk/rust/sdk/demo/Cargo.toml
+        args: --manifest-path sdk/rust/cli/demo/Cargo.toml
 
     - name: Run cargo build
       uses: actions-rs/cargo@v1
@@ -130,7 +130,7 @@ jobs:
 
     - name: Run demo
       run: |
-        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/target/debug/juicebox_sdk_demo
+        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/target/debug/demo
       shell: bash
 
   swift_demo:
@@ -387,7 +387,7 @@ jobs:
     - uses: jetli/wasm-pack-action@v0.4.0
 
     - name: Build WASM
-      run: wasm-pack build sdk/rust/bridge/wasm --out-dir ../../../javascript/juicebox-sdk --out-name juicebox-sdk --target nodejs
+      run: wasm-pack build sdk/rust/sdk/bridge/wasm --out-dir ../../../../javascript/juicebox-sdk --out-name juicebox-sdk --target nodejs
 
     - name: NPM Install
       run: |

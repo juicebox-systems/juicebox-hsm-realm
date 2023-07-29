@@ -12,7 +12,7 @@ use tokio_rustls::rustls::{self, Certificate, ClientConfig, ServerName};
 use tokio_rustls::TlsConnector;
 use url::Url;
 
-use juicebox_sdk_process_group::ProcessGroup;
+use juicebox_process_group::ProcessGroup;
 use testing::exec::bigtable::emulator;
 use testing::exec::certs::{create_localhost_key_and_cert, Certificates};
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};

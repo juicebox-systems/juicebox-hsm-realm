@@ -5,8 +5,8 @@ use tracing::debug;
 
 use agent_api::{AgentService, StatusRequest};
 use hsm_api::StatusResponse;
-use juicebox_sdk_networking::reqwest::Client;
-use juicebox_sdk_networking::rpc;
+use juicebox_networking::reqwest::Client;
+use juicebox_networking::rpc;
 use store::{ServiceKind, StoreClient};
 
 /// Returns the status of every available HSM, sorted by HSM ID.

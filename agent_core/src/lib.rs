@@ -42,10 +42,10 @@ use hsm_api::{
     AppRequestType, CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId,
     LogEntry, LogIndex, TransferInProofs,
 };
-use juicebox_sdk_core::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
-use juicebox_sdk_core::types::RealmId;
-use juicebox_sdk_networking::reqwest::{self, Client, ClientOptions};
-use juicebox_sdk_networking::rpc::{self, Rpc};
+use juicebox_api::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
+use juicebox_api::types::RealmId;
+use juicebox_networking::reqwest::{self, Client, ClientOptions};
+use juicebox_networking::rpc::{self, Rpc};
 use observability::logging::TracingSource;
 use observability::metrics::{self};
 use observability::metrics_tag as tag;

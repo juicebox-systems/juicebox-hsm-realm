@@ -28,12 +28,12 @@ use url::Url;
 
 use agent_api::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
 use hsm_api::{GroupId, OwnedRange, RecordId};
-use juicebox_sdk_core::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
-use juicebox_sdk_core::types::RealmId;
-use juicebox_sdk_marshalling as marshalling;
-use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
-use juicebox_sdk_networking::rpc;
-use juicebox_sdk_realm_auth::validation::Validator as AuthTokenValidator;
+use juicebox_api::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
+use juicebox_api::types::RealmId;
+use juicebox_marshalling as marshalling;
+use juicebox_networking::reqwest::{Client, ClientOptions};
+use juicebox_networking::rpc;
+use juicebox_realm_auth::validation::Validator as AuthTokenValidator;
 use observability::logging::{Spew, TracingSource};
 use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
