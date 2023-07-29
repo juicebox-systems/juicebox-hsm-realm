@@ -10,7 +10,7 @@ use tracing::trace;
 
 use hsm_api::RecordId;
 use juicebox_sdk_core::{
-    oprf::{OprfBlindedResult, OprfPrivateKey, OprfSignedPublicKey},
+    oprf::OprfSignedPublicKey,
     requests::{
         DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
         Recover3Response, Register1Response, Register2Request, Register2Response, SecretsRequest,
@@ -22,6 +22,9 @@ use juicebox_sdk_core::{
     },
 };
 use juicebox_sdk_marshalling as marshalling;
+use juicebox_sdk_oprf as oprf;
+
+use super::CryptoRng;
 
 /// Persistent state for a particular user.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -49,7 +52,7 @@ enum RegistrationState {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct RegisteredState {
     version: RegistrationVersion,
-    oprf_private_key: OprfPrivateKey,
+    oprf_private_key: oprf::PrivateKey,
     oprf_signed_public_key: OprfSignedPublicKey,
     unlock_key_commitment: UnlockKeyCommitment,
     unlock_key_tag: UnlockKeyTag,
@@ -138,68 +141,63 @@ fn recover2(
     record_id: &RecordId,
     request: Recover2Request,
     mut user_record: UserRecord,
+    rng: &mut impl CryptoRng,
 ) -> (Recover2Response, Option<UserRecord>) {
     trace!(hsm = ctx.hsm_name, ?record_id, "recover2 request");
 
-    let (oprf_signed_public_key, oprf_private_key, unlock_key_commitment, num_guesses, guess_count) =
-        match &mut user_record.registration_state {
-            RegistrationState::Registered(state) if state.version != request.version => {
-                trace!(
-                    hsm = ctx.hsm_name,
-                    ?record_id,
-                    "can't recover: wrong version"
-                );
-                return (Recover2Response::VersionMismatch, Some(user_record));
-            }
-            RegistrationState::Registered(state)
-                if state.guess_count >= state.policy.num_guesses =>
-            {
-                trace!(
-                    hsm = ctx.hsm_name,
-                    ?record_id,
-                    "can't recover: out of guesses"
-                );
-                user_record.registration_state = RegistrationState::NoGuesses;
-                return (Recover2Response::NoGuesses, Some(user_record));
-            }
-            RegistrationState::Registered(state) => {
-                state.guess_count += 1;
-                (
-                    state.oprf_signed_public_key.clone(),
-                    state.oprf_private_key.clone(),
-                    state.unlock_key_commitment.clone(),
-                    state.policy.num_guesses,
-                    state.guess_count,
-                )
-            }
-            RegistrationState::NoGuesses => {
-                trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
-                return (Recover2Response::NoGuesses, Some(user_record));
-            }
-            RegistrationState::NotRegistered => {
-                trace!(
-                    hsm = ctx.hsm_name,
-                    ?record_id,
-                    "can't recover: not registered"
-                );
-                return (Recover2Response::NotRegistered, None);
-            }
-        };
+    match &mut user_record.registration_state {
+        RegistrationState::Registered(state) if state.version != request.version => {
+            trace!(
+                hsm = ctx.hsm_name,
+                ?record_id,
+                "can't recover: wrong version"
+            );
+            (Recover2Response::VersionMismatch, Some(user_record))
+        }
+        RegistrationState::Registered(state) if state.guess_count >= state.policy.num_guesses => {
+            trace!(
+                hsm = ctx.hsm_name,
+                ?record_id,
+                "can't recover: out of guesses"
+            );
+            user_record.registration_state = RegistrationState::NoGuesses;
+            (Recover2Response::NoGuesses, Some(user_record))
+        }
+        RegistrationState::Registered(state) => {
+            state.guess_count += 1;
+            let (oprf_blinded_result, oprf_proof) = oprf::blind_verifiable_evaluate(
+                &state.oprf_private_key,
+                &state.oprf_signed_public_key.public_key,
+                &request.oprf_blinded_input,
+                rng,
+            );
 
-    let oprf_blinded_result =
-        OprfBlindedResult::new(&oprf_private_key, &request.oprf_blinded_input);
-
-    trace!(?record_id, "recover2 completed");
-    (
-        Recover2Response::Ok {
-            oprf_signed_public_key: Box::from(oprf_signed_public_key.clone()),
-            oprf_blinded_result: Box::from(oprf_blinded_result),
-            unlock_key_commitment,
-            num_guesses,
-            guess_count,
-        },
-        Some(user_record),
-    )
+            trace!(?record_id, "recover2 completed");
+            (
+                Recover2Response::Ok {
+                    oprf_signed_public_key: state.oprf_signed_public_key.clone(),
+                    oprf_blinded_result,
+                    oprf_proof,
+                    unlock_key_commitment: state.unlock_key_commitment.clone(),
+                    num_guesses: state.policy.num_guesses,
+                    guess_count: state.guess_count,
+                },
+                Some(user_record),
+            )
+        }
+        RegistrationState::NoGuesses => {
+            trace!(hsm = ctx.hsm_name, ?record_id, "can't recover: no guesses");
+            (Recover2Response::NoGuesses, Some(user_record))
+        }
+        RegistrationState::NotRegistered => {
+            trace!(
+                hsm = ctx.hsm_name,
+                ?record_id,
+                "can't recover: not registered"
+            );
+            (Recover2Response::NotRegistered, None)
+        }
+    }
 }
 
 fn recover3(
@@ -295,6 +293,7 @@ pub fn process(
     record_id: &RecordId,
     request: SecretsRequest,
     record_val: Option<&[u8]>,
+    rng: &mut impl CryptoRng,
 ) -> (SecretsResponse, Option<RecordChange>) {
     let user_record_in = match record_val {
         None => UserRecord::new(),
@@ -314,7 +313,7 @@ pub fn process(
             (SecretsResponse::Recover1(res.0), res.1)
         }
         SecretsRequest::Recover2(req) => {
-            let res = recover2(ctx, record_id, req, user_record_in);
+            let res = recover2(ctx, record_id, req, user_record_in, rng);
             (SecretsResponse::Recover2(res.0), res.1)
         }
         SecretsRequest::Recover3(req) => {
@@ -386,10 +385,7 @@ fn unmarshal_user_record(padded: &[u8]) -> Result<UserRecord, DeserializationErr
 #[cfg(test)]
 mod tests {
     use juicebox_sdk_core::{
-        oprf::{
-            OprfBlindedInput, OprfBlindedResult, OprfPrivateKey, OprfSignedPublicKey,
-            OprfVerifyingKey,
-        },
+        oprf::{OprfSignedPublicKey, OprfVerifyingKey},
         requests::{
             DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
             Recover3Response, Register1Response, Register2Request, Register2Response,
@@ -400,8 +396,9 @@ mod tests {
             UserSecretEncryptionKeyScalarShare,
         },
     };
+    use rand_core::OsRng;
 
-    use super::{delete, recover1, recover2, recover3, register1, register2, AppContext};
+    use super::{delete, oprf, recover1, recover2, recover3, register1, register2, AppContext};
     use crate::hsm::app::{
         marshal_user_record, unmarshal_user_record, RegisteredState, RegistrationState, UserRecord,
         SERIALIZED_RECORD_SIZE, TRAILER_LEN,
@@ -547,12 +544,33 @@ mod tests {
             &RecordId([0; 32]),
             request,
             user_record_in,
+            &mut OsRng,
         );
+
+        let checked_oprf_proof = if let Recover2Response::Ok {
+            oprf_blinded_result,
+            oprf_proof,
+            ..
+        } = &response
+        {
+            oprf::verify_proof(
+                &oprf_blinded_input(),
+                oprf_blinded_result,
+                &oprf_signed_public_key().public_key,
+                oprf_proof,
+            )
+            .unwrap();
+            oprf_proof.clone()
+        } else {
+            panic!("not OK response");
+        };
+
         assert_eq!(
             response,
             Recover2Response::Ok {
-                oprf_signed_public_key: Box::new(oprf_signed_public_key()),
-                oprf_blinded_result: Box::new(oprf_blinded_result()),
+                oprf_signed_public_key: oprf_signed_public_key(),
+                oprf_blinded_result: oprf_blinded_result(),
+                oprf_proof: checked_oprf_proof,
                 unlock_key_commitment: unlock_key_commitment(),
                 num_guesses: 2,
                 guess_count: 1,
@@ -573,6 +591,7 @@ mod tests {
             &RecordId([0; 32]),
             request,
             user_record_in.clone(),
+            &mut OsRng,
         );
         assert_eq!(response, Recover2Response::VersionMismatch,);
         assert_eq!(Some(user_record_in), user_record_out);
@@ -592,6 +611,7 @@ mod tests {
             &RecordId([0; 32]),
             request,
             user_record_in.clone(),
+            &mut OsRng,
         );
         assert_eq!(response, Recover2Response::NoGuesses);
         assert_eq!(Some(user_record_in), user_record_out);
@@ -611,6 +631,7 @@ mod tests {
             &RecordId([0; 32]),
             request,
             user_record_in,
+            &mut OsRng,
         );
         assert_eq!(response, Recover2Response::NotRegistered);
         assert!(user_record_out.is_none());
@@ -779,34 +800,37 @@ mod tests {
         RegistrationVersion::from([0; 16])
     }
 
-    fn oprf_private_key() -> OprfPrivateKey {
-        OprfPrivateKey::try_from([2; 32]).unwrap()
+    fn oprf_private_key() -> oprf::PrivateKey {
+        let serialized = juicebox_sdk_marshalling::to_vec(&[2u8; 32]).unwrap();
+        juicebox_sdk_marshalling::from_slice(&serialized).unwrap()
     }
 
     fn oprf_signed_public_key() -> OprfSignedPublicKey {
         OprfSignedPublicKey {
-            public_key: oprf_private_key().public_key(),
+            public_key: oprf_private_key().to_public_key(),
             verifying_key: OprfVerifyingKey::from([0xff; 32]),
             signature: SecretBytesArray::from([0xff; 64]),
         }
     }
 
-    fn oprf_blinded_input() -> OprfBlindedInput {
-        OprfBlindedInput::try_from([
-            0xe6, 0x92, 0xd0, 0xf3, 0x22, 0x96, 0xe9, 0x01, 0x97, 0xf4, 0x55, 0x7c, 0x74, 0x42,
+    fn oprf_blinded_input() -> oprf::BlindedInput {
+        let serialized = juicebox_sdk_marshalling::to_vec(&[
+            0xe6u8, 0x92, 0xd0, 0xf3, 0x22, 0x96, 0xe9, 0x01, 0x97, 0xf4, 0x55, 0x7c, 0x74, 0x42,
             0x99, 0xd2, 0x3e, 0x1d, 0xc2, 0x6c, 0xda, 0x1a, 0xea, 0x5a, 0xa7, 0x54, 0xb4, 0x6c,
             0xee, 0x59, 0x55, 0x7c,
         ])
-        .unwrap()
+        .unwrap();
+        juicebox_sdk_marshalling::from_slice(&serialized).unwrap()
     }
 
-    fn oprf_blinded_result() -> OprfBlindedResult {
-        OprfBlindedResult::try_from([
-            0x1c, 0x63, 0xe0, 0x37, 0xd5, 0x99, 0x2, 0x32, 0xa8, 0xfd, 0x52, 0xd9, 0x89, 0x83,
+    fn oprf_blinded_result() -> oprf::BlindedOutput {
+        let serialized = juicebox_sdk_marshalling::to_vec(&[
+            0x1cu8, 0x63, 0xe0, 0x37, 0xd5, 0x99, 0x2, 0x32, 0xa8, 0xfd, 0x52, 0xd9, 0x89, 0x83,
             0x82, 0xfc, 0xe1, 0x88, 0xe0, 0xcc, 0xe3, 0x18, 0x57, 0x82, 0x9e, 0x3b, 0x93, 0xf9,
             0x77, 0xc0, 0x79, 0x5c,
         ])
-        .unwrap()
+        .unwrap();
+        juicebox_sdk_marshalling::from_slice(&serialized).unwrap()
     }
 
     fn unlock_key_commitment() -> UnlockKeyCommitment {

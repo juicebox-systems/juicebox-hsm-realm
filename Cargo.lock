@@ -1469,6 +1469,7 @@ dependencies = [
  "juicebox-sdk-core",
  "juicebox-sdk-marshalling",
  "juicebox-sdk-noise",
+ "juicebox-sdk-oprf",
  "lru-cache",
  "rand",
  "rand_core",
@@ -1779,6 +1780,7 @@ dependencies = [
  "juicebox-sdk-marshalling",
  "juicebox-sdk-networking",
  "juicebox-sdk-noise",
+ "juicebox-sdk-oprf",
  "juicebox-sdk-secret-sharing",
  "rand",
  "serde",
@@ -1804,6 +1806,7 @@ dependencies = [
  "hex",
  "juicebox-sdk-marshalling",
  "juicebox-sdk-noise",
+ "juicebox-sdk-oprf",
  "rand_core",
  "serde",
  "sha2",
@@ -1851,6 +1854,21 @@ dependencies = [
  "serde",
  "tracing 0.2.0",
  "x25519-dalek",
+]
+
+[[package]]
+name = "juicebox-sdk-oprf"
+version = "0.1.1"
+dependencies = [
+ "curve25519-dalek",
+ "digest",
+ "juicebox-sdk-marshalling",
+ "rand_core",
+ "serde",
+ "sha2",
+ "subtle",
+ "tracing 0.2.0",
+ "zeroize",
 ]
 
 [[package]]

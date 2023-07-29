@@ -1638,7 +1638,7 @@ fn handle_app_request(
     keys: &RealmKeys,
     leader: &mut LeaderVolatileGroupState,
     req_name_out: &mut Option<&'static str>,
-    rng: &mut dyn CryptoRng,
+    rng: &mut impl CryptoRng,
 ) -> AppResponse {
     let tree = leader
         .tree
@@ -1682,6 +1682,7 @@ fn handle_app_request(
         &request.record_id,
         secrets_request,
         record.as_deref(),
+        rng,
     );
 
     let secrets_response = noise.encode(secrets_response, &mut leader.sessions);
@@ -1781,7 +1782,7 @@ impl<'a> MerkleHelper<'a> {
 
     fn update_overlay(
         self,
-        rng: &mut dyn CryptoRng,
+        rng: &mut impl CryptoRng,
         change: Option<RecordChange>,
     ) -> (DataHash, StoreDelta<DataHash>) {
         use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
@@ -1835,7 +1836,7 @@ impl NoiseHelper {
         encrypted: &NoiseRequest,
         sessions: &mut SessionCache,
         realm_communication: &(x25519::StaticSecret, x25519::PublicKey),
-        rng: &mut dyn CryptoRng,
+        rng: &mut impl CryptoRng,
     ) -> Result<(Self, SecretsRequest), AppError> {
         let (message, secrets_request) = match encrypted {
             NoiseRequest::Handshake { handshake } => {

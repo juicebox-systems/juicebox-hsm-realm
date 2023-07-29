@@ -119,6 +119,7 @@ juicebox-sdk-networking = { path = "sdk/rust/sdk/networking", features = [
     "reqwest",
 ] }
 juicebox-sdk-noise = { path = "sdk/rust/sdk/noise" }
+juicebox-sdk-oprf = { path = "sdk/rust/sdk/oprf" }
 juicebox-sdk-process-group = { path = "sdk/rust/sdk/process_group" }
 juicebox-sdk-realm-auth = { path = "sdk/rust/sdk/realm_auth" }
 nix = { version = "0.26.2", default-features = false, features = ["signal"] }
