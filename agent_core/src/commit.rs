@@ -196,10 +196,11 @@ impl<T: Transport + 'static> Agent<T> {
         let realm = request.realm;
         let group = request.group;
         let response = self.0.hsm.send(request).await;
-        let (new_committed, responses, role) = match response {
+        let (new_committed, responses, abandoned, role) = match response {
             Ok(CommitResponse::Ok {
                 committed,
                 responses,
+                abandoned,
                 role,
             }) => {
                 trace!(
@@ -213,7 +214,7 @@ impl<T: Transport + 'static> Agent<T> {
                     committed.0,
                     [tag!(?realm), tag!(?group)],
                 );
-                (committed, responses, role)
+                (committed, responses, abandoned, role)
             }
             Ok(CommitResponse::AlreadyCommitted { committed: c }) => {
                 info!(
@@ -223,8 +224,9 @@ impl<T: Transport + 'static> Agent<T> {
                 );
                 return CommitterStatus::Committing { committed: Some(c) };
             }
-            Ok(CommitResponse::NotLeader) => {
+            Ok(CommitResponse::NotLeader(role)) => {
                 info!(agent = self.0.name, ?realm, ?group, "Leader stepped down");
+                self.0.maybe_role_changed(realm, group, role);
                 return CommitterStatus::NoLongerLeader;
             }
             _ => {
@@ -235,13 +237,13 @@ impl<T: Transport + 'static> Agent<T> {
             }
         };
 
-        let released_count = self.release_client_responses(realm, group, responses);
+        let released_count = self.release_client_responses(realm, group, responses, abandoned);
         Span::current().record("released_count", released_count);
 
         // See if we're done stepping down
+        self.0.maybe_role_changed(realm, group, role);
         if role == GroupMemberRole::Witness {
             info!(?group, "Leader stepped down");
-            self.0.state.lock().unwrap().leader.remove(&(realm, group));
             CommitterStatus::NoLongerLeader
         } else {
             CommitterStatus::Committing {
@@ -256,6 +258,7 @@ impl<T: Transport + 'static> Agent<T> {
         realm: RealmId,
         group: GroupId,
         responses: Vec<(EntryMac, NoiseResponse)>,
+        abandoned: Vec<EntryMac>,
     ) -> usize {
         let mut released_count = 0;
         let mut locked = self.0.state.lock().unwrap();
@@ -268,6 +271,14 @@ impl<T: Transport + 'static> Agent<T> {
                     released_count += 1;
                 } else {
                     warn!("dropping response on the floor: client never waiting");
+                }
+            }
+            for mac in abandoned {
+                if let Some(sender) = leader.response_channels.remove(&mac.into()) {
+                    // This closes the sender without having sent, which'll have
+                    // the waiter get an error and report NotLeader to the
+                    // load balancer.
+                    drop(sender);
                 }
             }
         } else if !responses.is_empty() {

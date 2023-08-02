@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use hashbrown::hash_map::Entry;
 use tracing::{info, trace, warn};
@@ -10,7 +11,7 @@ use super::{Hsm, LeaderLogEntry, Metrics};
 use election::HsmElection;
 use hsm_api::{
     CaptureNextRequest, CaptureNextResponse, Captured, CommitRequest, CommitResponse, EntryMac,
-    GroupMemberRole, LogIndex,
+    GroupMemberRole, LogEntry, LogIndex,
 };
 
 impl<P: Platform> Hsm<P> {
@@ -74,50 +75,103 @@ impl<P: Platform> Hsm<P> {
                                 }
                             }
                         }
+                        e.insert((entry.index, entry.entry_mac.clone()));
 
-                        // If we're stepping down we need to get the commit
-                        // index up to the stepping down index. It's not
-                        // possible for the agent to create a commit request
-                        // with that exact index as the witnesses may have
-                        // already passed the index and they can't generate a
-                        // capture statement for an earlier index. So while
-                        // stepping down we collect the new log entries that
-                        // we're witnessing into the stepping down log. Commit
-                        // can then successfully process a commit request that
-                        // is after the stepdown index and complete the
-                        // stepdown.
-                        if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
-                            let last = &sd.log.back().unwrap().entry;
-                            if entry.index == last.index.next() {
-                                if entry.prev_mac == last.entry_mac {
-                                    sd.log.push_back(LeaderLogEntry {
-                                        entry: entry.clone(),
-                                        response: None,
-                                    });
-                                } else {
-                                    // If there's dueling leaders then our in
-                                    // memory log may not be the one that
-                                    // actually got persisted to the store. In
-                                    // that event our responses are never valid,
-                                    // and we should give up trying to step
-                                    // down.
-
-                                    // TODO: what do we want to do about
-                                    // signaling to the caller that the request
-                                    // is done. Can we return a NoLeader for all
-                                    // the pending responses? If so we'll need
-                                    // to do that from commit somehow.
-                                    // Annoyingly there's no common error
-                                    // responses, so we'd need to know what
-                                    // request type each pending response is for
-                                    // so that we can generate the right type of
-                                    // NoLeader response.
+                        if let Some(ls) = self.volatile.leader.get_mut(&request.group) {
+                            // If while leading another HSM becomes leader and
+                            // writes a log entry the actual persisted log
+                            // diverges from what our in memory copy of the log
+                            // is.
+                            let status = has_log_diverged(&ls.log, &entry);
+                            match status {
+                                LogEntryStatus::Ok => {}
+                                LogEntryStatus::PriorIndex => {
+                                    // The start of log gets truncated on
+                                    // commit. The commit may of been based on
+                                    // captures from just witnesses not the
+                                    // leader. So its valid that the captured
+                                    // index is earlier than anything in the in
+                                    // memory log.
+                                }
+                                LogEntryStatus::FutureIndex => {
+                                    // Some other HSM successfully wrote a log entry, we should stop leading
+                                    let leader =
+                                        self.volatile.leader.remove(&request.group).unwrap();
+                                    let last_idx = leader.log.back().unwrap().entry.index;
+                                    self.stepdown_at(request.group, leader, last_idx);
+                                }
+                                LogEntryStatus::EntryMacMismatch { offset: _ } => {
+                                    // The logs have diverged, we'll stepdown.
+                                    let leader =
+                                        self.volatile.leader.remove(&request.group).unwrap();
+                                    self.stepdown_at(
+                                        request.group,
+                                        leader,
+                                        entry.index.prev().unwrap(),
+                                    );
                                 }
                             }
                         }
-                        e.insert((entry.index, entry.entry_mac));
+
+                        if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
+                            let status = has_log_diverged(&sd.log, &entry);
+                            match status {
+                                LogEntryStatus::Ok | LogEntryStatus::PriorIndex => {}
+                                LogEntryStatus::EntryMacMismatch { offset } => {
+                                    // If the logs diverge while we're stepping down we
+                                    // shorten the stepping down index to the index just
+                                    // before it diverged.
+                                    if let Some(prev) = entry.index.prev() {
+                                        if prev < sd.stepdown_at {
+                                            sd.stepdown_at = prev;
+                                            // We also need to flag the future log entries
+                                            // as abandoned.
+                                            for e in sd.log.iter().skip(offset) {
+                                                sd.abandoned.push(e.entry.entry_mac.clone());
+                                            }
+                                        }
+                                    }
+                                    // we truncate the in memory log so that it can
+                                    // be rebuilt with the valid captured entries. This
+                                    // allows the log to build back up and eventually
+                                    // perform a commit. The commit is safe because
+                                    // we've removed from the log any responses that
+                                    // would be at or after the diverged index.
+                                    sd.log.truncate(offset);
+                                    sd.log.push_back(LeaderLogEntry {
+                                        entry,
+                                        response: None,
+                                    });
+                                }
+                                LogEntryStatus::FutureIndex => {
+                                    // If we're stepping down we need to get the commit
+                                    // index up to the stepping down index. It's not
+                                    // possible for the agent to create a commit request
+                                    // with that exact index as the witnesses may have
+                                    // already passed the index and they can't generate a
+                                    // capture statement for an earlier index. So while
+                                    // stepping down we collect the new log entries that
+                                    // we're witnessing into the stepping down log. Commit
+                                    // can then successfully process a commit request that
+                                    // is after the stepdown index and complete the
+                                    // stepdown.
+                                    let last = &sd.log.back().unwrap().entry;
+                                    if entry.index == last.index.next()
+                                        && entry.prev_mac == last.entry_mac
+                                    {
+                                        sd.log.push_back(LeaderLogEntry {
+                                            entry,
+                                            response: None,
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
-                    Response::Ok
+                    Response::Ok(
+                        self.current_role(&request.group)
+                            .expect("We already validated that this HSM is a member of the group"),
+                    )
                 }
             }
         })();
@@ -150,7 +204,7 @@ impl<P: Platform> Hsm<P> {
                 Some(leader) => (&mut leader.log, &mut leader.committed),
                 None => match self.volatile.stepping_down.get_mut(&request.group) {
                     Some(steppingdown) => (&mut steppingdown.log, &mut steppingdown.committed),
-                    None => return Response::NotLeader,
+                    None => return Response::NotLeader(GroupMemberRole::Witness),
                 },
             };
 
@@ -186,8 +240,15 @@ impl<P: Platform> Hsm<P> {
                     // entry written by the new leader.
                     if let Some(offset) = captured.index.0.checked_sub(log[0].entry.index.0) {
                         if let Ok(offset) = usize::try_from(offset) {
-                            if offset < log.len() && log[offset].entry.entry_mac == captured.mac {
-                                election.vote(captured.hsm, captured.index);
+                            if offset < log.len() {
+                                if log[offset].entry.index != captured.index {
+                                    panic!("in memory log seems corrupt, expecting index {} at offset {} but got {}", captured.index, offset, log[offset].entry.index);
+                                }
+                                if log[offset].entry.entry_mac == captured.mac {
+                                    election.vote(captured.hsm, captured.index);
+                                } else {
+                                    warn!(index=?captured.index, hsm=?captured.hsm, "mac mismatch, skipping vote")
+                                }
                             }
                         }
                     }
@@ -198,7 +259,7 @@ impl<P: Platform> Hsm<P> {
                 warn!(
                     hsm = self.options.name,
                     commit_request = ?request,
-                    "no quorum. buggy caller?"
+                    "no quorum. buggy caller or diverged logs"
                 );
                 return Response::NoQuorum;
             };
@@ -246,7 +307,9 @@ impl<P: Platform> Hsm<P> {
             *committed = Some(commit_index);
 
             // See if we're finished stepping down.
-            let role = if let Some(sd) = self.volatile.stepping_down.get(&request.group) {
+            let mut abandoned = Vec::new();
+            let role = if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
+                core::mem::swap(&mut abandoned, &mut sd.abandoned);
                 if commit_index >= sd.stepdown_at {
                     info!(group=?request.group, hsm=self.options.name, "Completed leader stepdown");
                     self.volatile.stepping_down.remove(&request.group);
@@ -261,6 +324,7 @@ impl<P: Platform> Hsm<P> {
             Response::Ok {
                 committed: commit_index,
                 responses,
+                abandoned,
                 role,
             }
         })();
@@ -268,4 +332,49 @@ impl<P: Platform> Hsm<P> {
         trace!(hsm = self.options.name, ?response);
         response
     }
+}
+
+// Checks to see if the in memory log and the captured
+// entry have diverged. If so, returns the offset into
+// our_log where the diverged entry is located.
+enum LogEntryStatus {
+    // The captured entry matches our in memory log.
+    Ok,
+    // The captured entry is for an index before our in
+    // memory log starts.
+    PriorIndex,
+    // The captured entry is for an index after the most
+    // recent entry in our in memory log.
+    FutureIndex,
+    // The captured entry and the entry in our log have
+    // different Entry MACs.
+    EntryMacMismatch { offset: usize },
+}
+
+// Compares the supplied 'captured' log entry against the in memory log to see
+// if its diverged. If it has that that would indicate that some other HSM
+// became leader and successfully wrote a log entry.
+fn has_log_diverged(our_log: &VecDeque<LeaderLogEntry>, captured: &LogEntry) -> LogEntryStatus {
+    let our_first_idx = our_log.front().unwrap().entry.index;
+    if captured.index < our_first_idx {
+        return LogEntryStatus::PriorIndex;
+    }
+    let our_last_idx = our_log.back().unwrap().entry.index;
+    if captured.index > our_last_idx {
+        return LogEntryStatus::FutureIndex;
+    }
+    let offset = captured.index.0 - our_first_idx.0;
+    if let Ok(offset) = usize::try_from(offset) {
+        if let Some(our_entry) = our_log.get(offset) {
+            assert_eq!(our_entry.entry.index, captured.index);
+            if our_entry.entry.entry_mac != captured.entry_mac {
+                warn!(index=?captured.index, "logs diverged");
+                return LogEntryStatus::EntryMacMismatch { offset };
+            }
+        }
+    } else {
+        // I'd expect that we ran out of memory long before we hit this.
+        panic!("in memory log too large");
+    }
+    LogEntryStatus::Ok
 }

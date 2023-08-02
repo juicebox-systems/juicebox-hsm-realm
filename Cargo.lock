@@ -3167,6 +3167,7 @@ dependencies = [
  "hsm_api",
  "hsm_core",
  "http",
+ "itertools 0.11.0",
  "juicebox_marshalling",
  "juicebox_networking",
  "juicebox_noise",

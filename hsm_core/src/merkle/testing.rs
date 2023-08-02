@@ -210,6 +210,12 @@ pub enum MemStoreError {
     MissingNode,
 }
 
+impl<HO: HashOutput> Default for MemStore<HO> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<HO: HashOutput> MemStore<HO> {
     fn new() -> Self {
         MemStore {

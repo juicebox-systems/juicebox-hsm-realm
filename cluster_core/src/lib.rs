@@ -46,7 +46,9 @@ async fn wait_for_commit(
     loop {
         let status = rpc::send(agent_client, leader, StatusRequest {}).await?;
         let Some(hsm) = status.hsm else { continue };
-        let Some(realm_status) = hsm.realm else { continue };
+        let Some(realm_status) = hsm.realm else {
+            continue;
+        };
         if realm_status.id != realm {
             continue;
         }

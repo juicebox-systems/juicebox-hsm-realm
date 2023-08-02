@@ -93,10 +93,6 @@ struct LeaderState {
     /// Used to route responses back to the right client after the HSM commits
     /// a batch of log entries and releases the responses.
     response_channels: HashMap<HashableEntryMac, oneshot::Sender<NoiseResponse>>,
-
-    /// When set the leader is stepping down, and should stop processing once
-    /// this log entry is complete.
-    stepdown_at: Option<LogIndex>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -226,8 +222,9 @@ impl<T: Transport + 'static> Agent<T> {
                     .await
                 {
                     Err(err) => todo!("{err:?}"),
-                    Ok(CaptureNextResponse::Ok) => {
+                    Ok(CaptureNextResponse::Ok(role)) => {
                         Span::current().record("num_captured", num_entries);
+                        state.maybe_role_changed(realm, group, role);
                     }
                     Ok(r) => todo!("{r:#?}"),
                 }
@@ -579,7 +576,7 @@ impl<T: Transport + 'static> Agent<T> {
     ) {
         // The HSM will return Ok to become_leader if its already leader.
         // When we get here we might already be leading.
-        let mut has_existing = true;
+        let mut wasnt_leading = false;
         self.0
             .state
             .lock()
@@ -587,7 +584,7 @@ impl<T: Transport + 'static> Agent<T> {
             .leader
             .entry((realm, group))
             .or_insert_with(|| {
-                has_existing = false;
+                wasnt_leading = true;
                 LeaderState {
                     append_queue: HashMap::new(),
                     appending: AppendingState::NotAppending {
@@ -595,10 +592,9 @@ impl<T: Transport + 'static> Agent<T> {
                     },
                     last_appended: None,
                     response_channels: HashMap::new(),
-                    stepdown_at: None,
                 }
             });
-        if !has_existing {
+        if wasnt_leading {
             self.start_group_committer(realm, group, config);
         }
     }
@@ -782,7 +778,10 @@ impl<T: Transport + 'static> Agent<T> {
             }
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
             Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
-            Ok(HsmResponse::StepdownInProgress) => Ok(Response::StepdownInProgress),
+            Ok(HsmResponse::StepdownInProgress) => {
+                info!(realm=?request.realm, group=?request.group, state=?self.0.state.lock().unwrap(), "didn't become leader because still stepping down");
+                Ok(Response::StepdownInProgress)
+            }
             Ok(HsmResponse::InvalidMac) => panic!(),
             Ok(HsmResponse::NotCaptured { have }) => Ok(Response::NotCaptured { have }),
         }
@@ -818,38 +817,29 @@ impl<T: Transport + 'static> Agent<T> {
             Err(_) => Ok(Response::NoHsm),
             Ok(HsmResponse::Complete { last }) => {
                 info!(group=?request.group, realm=?request.realm, "HSM Stepped down as leader");
-                let leader_state = self
-                    .0
-                    .state
-                    .lock()
-                    .unwrap()
-                    .leader
-                    .remove(&(request.realm, request.group));
-
-                if let Some(ls) = leader_state {
-                    assert!(ls.append_queue.is_empty());
-                }
+                self.0.maybe_role_changed(
+                    request.realm,
+                    request.group,
+                    hsm_api::GroupMemberRole::Witness,
+                );
                 Ok(Response::Ok { last })
             }
             Ok(HsmResponse::InProgress { last }) => {
                 info!(group=?request.group, realm=?request.realm, index=?last, "HSM will stepdown as leader");
-                // This is not as racy as it may appear as the HSM will only
-                // return Complete or InProgress when it atomically steps down
-                // as leader. So even if a bunch of step down requests came in
-                // at once, only one of them would get here. (or Complete)
-                self.0
-                    .state
-                    .lock()
-                    .unwrap()
-                    .leader
-                    .get_mut(&(request.realm, request.group))
-                    .unwrap()
-                    .stepdown_at = Some(last);
+                self.0.maybe_role_changed(
+                    request.realm,
+                    request.group,
+                    hsm_api::GroupMemberRole::SteppingDown,
+                );
                 Ok(Response::Ok { last })
             }
             Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
-            Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
+            Ok(HsmResponse::NotLeader(role)) => {
+                self.0
+                    .maybe_role_changed(request.realm, request.group, role);
+                Ok(Response::NotLeader)
+            }
         }
     }
 
@@ -1275,12 +1265,19 @@ impl<T: Transport + 'static> Agent<T> {
 
         {
             let mut locked = self.0.state.lock().unwrap();
-            let leader = locked.leader.get_mut(&(realm, group))
-                        .expect("The HSM thought it was leader and generated a response, but the agent has no leader state");
-
-            leader
-                .response_channels
-                .insert(append_request.entry.entry_mac.clone().into(), sender);
+            match locked.leader.get_mut(&(realm, group)) {
+                None => {
+                    // Its possible for start_app_request to succeed, but to
+                    // have subsequently lost leadership due to a background
+                    // capture_next or commit operation.
+                    return Ok(Response::NotLeader);
+                }
+                Some(leader) => {
+                    leader
+                        .response_channels
+                        .insert(append_request.entry.entry_mac.clone().into(), sender);
+                }
+            }
         }
 
         self.append(realm, group, append_request);
@@ -1378,9 +1375,12 @@ impl<T: Transport + 'static> Agent<T> {
                     );
                     continue;
                 }
-                Ok(HsmResponse::NotLeader | HsmResponse::NotOwner) => {
-                    return Err(Response::NotLeader)
+                Ok(HsmResponse::NotLeader(role)) => {
+                    self.0
+                        .maybe_role_changed(request.realm, request.group, role);
+                    return Err(Response::NotLeader);
                 }
+                Ok(HsmResponse::NotOwner) => return Err(Response::NotLeader),
                 Ok(HsmResponse::InvalidProof) => return Err(Response::InvalidProof),
                 // TODO, is this right? if we can't decrypt the leaf, then the proof is likely bogus.
                 Ok(HsmResponse::InvalidRecordData) => return Err(Response::InvalidProof),
@@ -1404,5 +1404,22 @@ impl<T: Transport + 'static> Agent<T> {
             };
         }
         panic!("too slow to make progress");
+    }
+}
+
+impl<T> AgentInner<T> {
+    fn maybe_role_changed(&self, realm: RealmId, group: GroupId, role: hsm_api::GroupMemberRole) {
+        // If we've transitioned to witness from leader/stepdown we need to cleanup our leader state.
+        if role == hsm_api::GroupMemberRole::Witness
+            && self
+                .state
+                .lock()
+                .unwrap()
+                .leader
+                .remove(&(realm, group))
+                .is_some()
+        {
+            info!(?realm, ?group, "HSM transitioned to Witness");
+        }
     }
 }

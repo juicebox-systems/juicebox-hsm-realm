@@ -25,16 +25,19 @@ pub(super) enum AppendingState {
 }
 
 impl<T: Transport + 'static> Agent<T> {
-    /// Precondition: agent is leader.
     pub(super) fn append(&self, realm: RealmId, group: GroupId, append_request: Append) {
         let appending = {
             let mut locked = self.0.state.lock().unwrap();
-            let leader = locked.leader.get_mut(&(realm, group)).unwrap();
-            let existing = leader
-                .append_queue
-                .insert(append_request.entry.index, append_request);
-            assert!(existing.is_none());
-            std::mem::replace(&mut leader.appending, Appending)
+            match locked.leader.get_mut(&(realm, group)) {
+                None => return,
+                Some(leader) => {
+                    let existing = leader
+                        .append_queue
+                        .insert(append_request.entry.index, append_request);
+                    assert!(existing.is_none());
+                    std::mem::replace(&mut leader.appending, Appending)
+                }
+            }
         };
 
         if let NotAppending { next } = appending {

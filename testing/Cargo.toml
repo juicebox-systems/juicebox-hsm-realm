@@ -16,6 +16,7 @@ hex = { workspace = true }
 hsm_api = { workspace = true }
 hsm_core = { workspace = true, features = ["dot"] }
 http = { workspace = true }
+itertools = { workspace = true }
 juicebox_sdk = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_process_group = { workspace = true }
