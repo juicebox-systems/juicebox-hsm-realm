@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 serde = { workspace = true }
 hsm_api = { workspace = true }
-juicebox-sdk = { workspace = true }
-juicebox-sdk-networking = { workspace = true }
+juicebox_sdk = { workspace = true }
+juicebox_networking = { workspace = true }

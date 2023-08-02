@@ -15,12 +15,12 @@ use serde::{Deserialize, Serialize};
 use subtle::{Choice, ConstantTimeEq};
 
 use bitvec::{BitVec, Bits};
-use juicebox_sdk_core::{
+use juicebox_marshalling::bytes;
+use juicebox_noise::server as noise;
+use juicebox_realm_api::{
     requests::{NoiseRequest, NoiseResponse},
     types::{RealmId, SessionId},
 };
-use juicebox_sdk_marshalling::bytes;
-use juicebox_sdk_noise::server as noise;
 use merkle::{HashOutput, ReadProof, StoreDelta};
 
 /// A unique identifier for a replication group.
@@ -1635,10 +1635,10 @@ pub struct AppRequest {
     /// If the request type requires forward secrecy, it must not be sent in a
     /// handshake request and may only be sent in a transport request. Which
     /// request types require forward secrecy are defined by
-    /// [`juicebox_sdk_core::requests::SecretsRequest::needs_forward_secrecy`].
+    /// [`juicebox_realm_api::requests::SecretsRequest::needs_forward_secrecy`].
     ///
     /// The size of the payload must not exceed
-    /// [`juicebox_sdk_core::requests::BODY_SIZE_LIMIT`]; otherwise, the HSM
+    /// [`juicebox_realm_api::requests::BODY_SIZE_LIMIT`]; otherwise, the HSM
     /// will panic.
     pub encrypted: NoiseRequest,
     /// A recent Merkle proof leading to the record, if any.
@@ -1741,7 +1741,7 @@ mod tests {
     use crate::merkle::HashOutput;
     use crate::{CtBytes, LogIndex, OwnedRange};
     use bitvec::Bits;
-    use juicebox_sdk_marshalling as marshalling;
+    use juicebox_marshalling as marshalling;
 
     #[test]
     fn log_index() {

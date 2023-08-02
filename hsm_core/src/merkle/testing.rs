@@ -12,7 +12,7 @@ use hsm_api::merkle::{
     Dir, HashOutput, InteriorNode, KeyVec, Node, NodeKey, ReadProof, StoreDelta,
 };
 use hsm_api::{OwnedRange, RecordId};
-use juicebox_sdk_marshalling::bytes;
+use juicebox_marshalling::bytes;
 
 pub fn rec_id(bytes: &[u8]) -> RecordId {
     let mut r = RecordId([0u8; RecordId::NUM_BYTES]);

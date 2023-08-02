@@ -18,8 +18,8 @@ version = "0.2.0"
 dependencies = [
  "async-trait",
  "hsm_api",
- "juicebox-sdk-core",
- "juicebox-sdk-networking",
+ "juicebox_networking",
+ "juicebox_realm_api",
  "observability",
  "serde",
 ]
@@ -43,9 +43,9 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "juicebox-sdk-core",
- "juicebox-sdk-marshalling",
- "juicebox-sdk-networking",
+ "juicebox_marshalling",
+ "juicebox_networking",
+ "juicebox_realm_api",
  "observability",
  "opentelemetry",
  "opentelemetry-http",
@@ -306,7 +306,7 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 name = "bitvec"
 version = "0.2.0"
 dependencies = [
- "juicebox-sdk-marshalling",
+ "juicebox_marshalling",
  "serde",
 ]
 
@@ -544,8 +544,8 @@ name = "cluster_api"
 version = "0.2.0"
 dependencies = [
  "hsm_api",
- "juicebox-sdk",
- "juicebox-sdk-networking",
+ "juicebox_networking",
+ "juicebox_sdk",
  "serde",
 ]
 
@@ -559,9 +559,9 @@ dependencies = [
  "futures",
  "google",
  "hdrhistogram",
- "juicebox-sdk",
- "juicebox-sdk-networking",
- "juicebox-sdk-realm-auth",
+ "juicebox_networking",
+ "juicebox_realm_auth",
+ "juicebox_sdk",
  "observability",
  "reqwest",
  "secret_manager",
@@ -585,10 +585,11 @@ dependencies = [
  "google",
  "hex",
  "hsm_api",
- "juicebox-sdk",
- "juicebox-sdk-core",
- "juicebox-sdk-networking",
- "juicebox-sdk-realm-auth",
+ "juicebox_marshalling",
+ "juicebox_networking",
+ "juicebox_realm_api",
+ "juicebox_realm_auth",
+ "juicebox_sdk",
  "observability",
  "reqwest",
  "secret_manager",
@@ -606,8 +607,8 @@ dependencies = [
  "agent_api",
  "futures",
  "hsm_api",
- "juicebox-sdk-core",
- "juicebox-sdk-networking",
+ "juicebox_networking",
+ "juicebox_realm_api",
  "serde",
  "store",
  "thiserror",
@@ -634,8 +635,8 @@ dependencies = [
  "hsm_api",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "juicebox-sdk-core",
- "juicebox-sdk-networking",
+ "juicebox_networking",
+ "juicebox_realm_api",
  "observability",
  "opentelemetry",
  "opentelemetry-http",
@@ -1010,7 +1011,7 @@ dependencies = [
  "entrust_nfast",
  "expect-test",
  "google",
- "juicebox-sdk-marshalling",
+ "juicebox_marshalling",
  "observability",
  "rand_core",
  "service_core",
@@ -1023,8 +1024,7 @@ dependencies = [
 name = "entrust_api"
 version = "0.2.0"
 dependencies = [
- "juicebox-sdk-core",
- "juicebox-sdk-marshalling",
+ "juicebox_marshalling",
  "serde",
 ]
 
@@ -1035,8 +1035,7 @@ dependencies = [
  "entrust_api",
  "hsm_api",
  "hsm_core",
- "juicebox-sdk-core",
- "juicebox-sdk-marshalling",
+ "juicebox_marshalling",
  "rand_core",
  "x25519-dalek",
 ]
@@ -1051,7 +1050,7 @@ dependencies = [
  "entrust_nfast",
  "expect-test",
  "hex",
- "juicebox-sdk-core",
+ "juicebox_realm_api",
  "tracing 0.2.0",
 ]
 
@@ -1439,9 +1438,9 @@ dependencies = [
  "bitvec",
  "blake2",
  "digest",
- "juicebox-sdk-core",
- "juicebox-sdk-marshalling",
- "juicebox-sdk-noise",
+ "juicebox_marshalling",
+ "juicebox_noise",
+ "juicebox_realm_api",
  "serde",
  "subtle",
 ]
@@ -1466,10 +1465,10 @@ dependencies = [
  "hashbrown 0.14.0",
  "hsm_api",
  "hsm_core",
- "juicebox-sdk-core",
- "juicebox-sdk-marshalling",
- "juicebox-sdk-noise",
- "juicebox-sdk-oprf",
+ "juicebox_marshalling",
+ "juicebox_noise",
+ "juicebox_oprf",
+ "juicebox_realm_api",
  "lru-cache",
  "rand",
  "rand_core",
@@ -1764,7 +1763,104 @@ dependencies = [
 ]
 
 [[package]]
-name = "juicebox-sdk"
+name = "juicebox_marshalling"
+version = "0.1.1"
+dependencies = [
+ "ciborium",
+ "curve25519-dalek",
+ "serde",
+]
+
+[[package]]
+name = "juicebox_networking"
+version = "0.1.1"
+dependencies = [
+ "async-trait",
+ "http",
+ "juicebox_marshalling",
+ "juicebox_realm_api",
+ "opentelemetry",
+ "reqwest",
+ "serde",
+ "thiserror",
+ "tracing 0.2.0",
+ "tracing-opentelemetry",
+ "url",
+]
+
+[[package]]
+name = "juicebox_noise"
+version = "0.1.1"
+dependencies = [
+ "blake2",
+ "chacha20poly1305",
+ "digest",
+ "hkdf",
+ "hmac",
+ "juicebox_marshalling",
+ "rand_core",
+ "serde",
+ "tracing 0.2.0",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "juicebox_oprf"
+version = "0.1.1"
+dependencies = [
+ "curve25519-dalek",
+ "digest",
+ "juicebox_marshalling",
+ "rand_core",
+ "serde",
+ "sha2",
+ "subtle",
+ "tracing 0.2.0",
+ "zeroize",
+]
+
+[[package]]
+name = "juicebox_process_group"
+version = "0.1.1"
+dependencies = [
+ "libc",
+ "nix",
+ "tracing 0.2.0",
+]
+
+[[package]]
+name = "juicebox_realm_api"
+version = "0.1.1"
+dependencies = [
+ "blake2",
+ "curve25519-dalek",
+ "digest",
+ "ed25519-dalek",
+ "elliptic-curve",
+ "hex",
+ "juicebox_marshalling",
+ "juicebox_noise",
+ "juicebox_oprf",
+ "rand_core",
+ "serde",
+ "sha2",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "juicebox_realm_auth"
+version = "0.1.1"
+dependencies = [
+ "hex",
+ "jsonwebtoken",
+ "juicebox_realm_api",
+ "regex",
+ "serde",
+]
+
+[[package]]
+name = "juicebox_sdk"
 version = "0.1.1"
 dependencies = [
  "argon2",
@@ -1776,12 +1872,12 @@ dependencies = [
  "futures",
  "hex",
  "instant",
- "juicebox-sdk-core",
- "juicebox-sdk-marshalling",
- "juicebox-sdk-networking",
- "juicebox-sdk-noise",
- "juicebox-sdk-oprf",
- "juicebox-sdk-secret-sharing",
+ "juicebox_marshalling",
+ "juicebox_networking",
+ "juicebox_noise",
+ "juicebox_oprf",
+ "juicebox_realm_api",
+ "juicebox_secret_sharing",
  "rand",
  "serde",
  "serde_json",
@@ -1795,109 +1891,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "juicebox-sdk-core"
-version = "0.1.1"
-dependencies = [
- "blake2",
- "curve25519-dalek",
- "digest",
- "ed25519-dalek",
- "elliptic-curve",
- "hex",
- "juicebox-sdk-marshalling",
- "juicebox-sdk-noise",
- "juicebox-sdk-oprf",
- "rand_core",
- "serde",
- "sha2",
- "subtle",
- "zeroize",
-]
-
-[[package]]
-name = "juicebox-sdk-marshalling"
-version = "0.1.1"
-dependencies = [
- "ciborium",
- "curve25519-dalek",
- "serde",
-]
-
-[[package]]
-name = "juicebox-sdk-networking"
-version = "0.1.1"
-dependencies = [
- "async-trait",
- "http",
- "juicebox-sdk-core",
- "juicebox-sdk-marshalling",
- "opentelemetry",
- "reqwest",
- "serde",
- "thiserror",
- "tracing 0.2.0",
- "tracing-opentelemetry",
- "url",
-]
-
-[[package]]
-name = "juicebox-sdk-noise"
-version = "0.1.1"
-dependencies = [
- "blake2",
- "chacha20poly1305",
- "digest",
- "hkdf",
- "hmac",
- "juicebox-sdk-marshalling",
- "rand_core",
- "serde",
- "tracing 0.2.0",
- "x25519-dalek",
-]
-
-[[package]]
-name = "juicebox-sdk-oprf"
-version = "0.1.1"
-dependencies = [
- "curve25519-dalek",
- "digest",
- "juicebox-sdk-marshalling",
- "rand_core",
- "serde",
- "sha2",
- "subtle",
- "tracing 0.2.0",
- "zeroize",
-]
-
-[[package]]
-name = "juicebox-sdk-process-group"
-version = "0.1.1"
-dependencies = [
- "libc",
- "nix",
- "tracing 0.2.0",
-]
-
-[[package]]
-name = "juicebox-sdk-realm-auth"
-version = "0.1.1"
-dependencies = [
- "hex",
- "jsonwebtoken",
- "juicebox-sdk-core",
- "regex",
- "serde",
-]
-
-[[package]]
-name = "juicebox-sdk-secret-sharing"
+name = "juicebox_secret_sharing"
 version = "0.1.1"
 dependencies = [
  "curve25519-dalek",
  "itertools 0.11.0",
- "juicebox-sdk-core",
  "rand_core",
 ]
 
@@ -1937,10 +1935,10 @@ dependencies = [
  "hsm_api",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "juicebox-sdk-core",
- "juicebox-sdk-marshalling",
- "juicebox-sdk-networking",
- "juicebox-sdk-realm-auth",
+ "juicebox_marshalling",
+ "juicebox_networking",
+ "juicebox_realm_api",
+ "juicebox_realm_auth",
  "observability",
  "opentelemetry",
  "opentelemetry-http",
@@ -2013,7 +2011,7 @@ dependencies = [
  "clap 4.3.0",
  "hsm_api",
  "hsm_core",
- "juicebox-sdk-core",
+ "juicebox_realm_api",
  "rand_core",
  "tokio",
 ]
@@ -2794,8 +2792,8 @@ dependencies = [
  "gcp_auth",
  "google",
  "http",
- "juicebox-sdk-core",
- "juicebox-sdk-realm-auth",
+ "juicebox_realm_api",
+ "juicebox_realm_auth",
  "serde",
  "serde_json",
  "tempfile",
@@ -2891,8 +2889,8 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "juicebox-sdk-marshalling",
- "juicebox-sdk-networking",
+ "juicebox_marshalling",
+ "juicebox_networking",
  "tracing 0.2.0",
 ]
 
@@ -2999,7 +2997,7 @@ dependencies = [
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "juicebox-sdk-marshalling",
+ "juicebox_marshalling",
  "observability",
  "rand",
  "reqwest",
@@ -3044,9 +3042,9 @@ dependencies = [
  "hsm_api",
  "hsm_core",
  "http",
- "juicebox-sdk-core",
- "juicebox-sdk-marshalling",
- "juicebox-sdk-process-group",
+ "juicebox_marshalling",
+ "juicebox_process_group",
+ "juicebox_realm_api",
  "lru-cache",
  "observability",
  "once_cell",
@@ -3169,11 +3167,11 @@ dependencies = [
  "hsm_api",
  "hsm_core",
  "http",
- "juicebox-sdk",
- "juicebox-sdk-core",
- "juicebox-sdk-networking",
- "juicebox-sdk-process-group",
- "juicebox-sdk-realm-auth",
+ "juicebox_networking",
+ "juicebox_process_group",
+ "juicebox_realm_api",
+ "juicebox_realm_auth",
+ "juicebox_sdk",
  "nix",
  "observability",
  "once_cell",

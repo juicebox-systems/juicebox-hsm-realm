@@ -2,7 +2,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use core::fmt::{self, Debug};
-use juicebox_sdk_core::types::{to_be2, to_be8};
+use juicebox_marshalling::{to_be2, to_be8};
 
 use self::proof::{ProofError, VerifiedProof};
 use bitvec::Bits;
@@ -317,7 +317,7 @@ mod tests {
     use bitvec::{bitvec, BitVec};
     use hsm_api::merkle::{Branch, KeyVec, LeafNode, Node};
     use hsm_api::OwnedRange;
-    use juicebox_sdk_marshalling as marshalling;
+    use juicebox_marshalling as marshalling;
 
     #[test]
     fn test_leaf_serialization() {

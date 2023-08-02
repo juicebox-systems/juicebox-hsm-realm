@@ -8,9 +8,9 @@ use agent_api::{
     NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, StatusRequest,
 };
 use hsm_api::{GroupId, HsmId, HsmRealmStatement, GROUPS_LIMIT};
-use juicebox_sdk_core::types::RealmId;
-use juicebox_sdk_networking::reqwest::Client;
-use juicebox_sdk_networking::rpc::{self, RpcError};
+use juicebox_networking::reqwest::Client;
+use juicebox_networking::rpc::{self, RpcError};
+use juicebox_realm_api::types::RealmId;
 
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum NewRealmError {

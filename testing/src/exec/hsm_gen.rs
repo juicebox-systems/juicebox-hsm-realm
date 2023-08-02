@@ -3,11 +3,11 @@
 //! This module exists in part to encapsulate the secret shared between the HSMs.
 
 use futures::future::join_all;
-use juicebox_sdk_networking::{
+use juicebox_networking::{
     reqwest::{self, ClientOptions},
     rpc,
 };
-use juicebox_sdk_process_group::ProcessGroup;
+use juicebox_process_group::ProcessGroup;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::fmt::{Display, Write};

@@ -3,7 +3,7 @@ use core::fmt;
 use serde::{Deserialize, Serialize};
 
 use bitvec::{BitSlice, BitVec, Bits};
-use juicebox_sdk_marshalling::bytes;
+use juicebox_marshalling::bytes;
 
 pub type KeyVec = BitVec;
 pub type KeySlice<'a> = BitSlice<'a>;

@@ -13,7 +13,7 @@ use hsm_core::merkle::testing::{
     new_empty_tree, rec_id, tree_insert, MemStore, TestHash, TestHasher,
 };
 use hsm_core::merkle::Tree;
-use juicebox_sdk_core::types::RealmId;
+use juicebox_realm_api::types::RealmId;
 
 const REALM: RealmId = RealmId([1; 16]);
 

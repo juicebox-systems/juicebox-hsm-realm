@@ -148,9 +148,9 @@ Then:
 * to run the rust demo aka "integration test":
 ```sh
 cd sdk
-cargo build -p juicebox-sdk-demo
+cargo build -p juicebox_demo_cli
 cd ..
-cargo run --bin demo_runner -- --demo sdk/target/debug/juicebox_sdk_demo
+cargo run --bin demo_runner -- --demo sdk/target/debug/demo
 ```
 * to run the swift demo:
 ```sh

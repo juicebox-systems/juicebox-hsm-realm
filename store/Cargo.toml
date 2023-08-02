@@ -15,8 +15,8 @@ gcp_auth = { workspace = true }
 google = { workspace = true }
 hsm_api = { workspace = true }
 http = { workspace = true }
-juicebox-sdk-core = { workspace = true }
-juicebox-sdk-marshalling = { workspace = true }
+juicebox_marshalling = { workspace = true }
+juicebox_realm_api = { workspace = true }
 lru-cache = { workspace = true }
 observability = { workspace = true }
 tokio = { workspace = true }
@@ -30,5 +30,5 @@ once_cell = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }
 reqwest = { workspace = true }
-juicebox-sdk-process-group = { workspace = true }
+juicebox_process_group = { workspace = true }
 agent_core = { workspace = true }

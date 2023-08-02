@@ -11,7 +11,7 @@ use core::{
     iter::zip,
     ops::{Bound, Index, RangeBounds},
 };
-use juicebox_sdk_marshalling::bytes;
+use juicebox_marshalling::bytes;
 use serde::{Deserialize, Serialize};
 
 /// The bitvec! macro is used to easily create new bitvecs. Its very similar to vec!

@@ -4,7 +4,7 @@ use core::{
     ops::{Deref, Sub},
     slice,
 };
-use juicebox_sdk_core::types::to_be4;
+use juicebox_marshalling::to_be4;
 
 use super::seelib::{
     CertType_SEECert, Cmd_GenerateRandom, Cmd_GetWorldSigners, Cmd_NVMemOp,

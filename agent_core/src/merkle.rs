@@ -2,7 +2,7 @@ use agent_api::merkle::{TreeStoreError, TreeStoreReader};
 use bitvec::Bits;
 use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey, ReadProof};
 use hsm_api::{OwnedRange, RecordId};
-use juicebox_sdk_core::types::RealmId;
+use juicebox_realm_api::types::RealmId;
 use observability::metrics;
 
 /// Looks up a path to a record in a Merkle tree and returns its proof.

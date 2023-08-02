@@ -4,8 +4,8 @@ use reqwest::Url;
 
 use cluster_api::{ClusterService, StepDownRequest, StepDownResponse};
 use hsm_api::HsmId;
-use juicebox_sdk_networking::reqwest::{Client, ClientOptions};
-use juicebox_sdk_networking::rpc;
+use juicebox_networking::reqwest::{Client, ClientOptions};
+use juicebox_networking::rpc;
 use store::{ServiceKind, StoreClient};
 
 pub async fn stepdown(

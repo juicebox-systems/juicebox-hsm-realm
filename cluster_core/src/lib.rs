@@ -8,9 +8,9 @@ use url::Url;
 
 use agent_api::{AgentService, StatusRequest};
 use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex};
-use juicebox_sdk_core::types::RealmId;
-use juicebox_sdk_networking::reqwest::Client;
-use juicebox_sdk_networking::rpc::{self, RpcError};
+use juicebox_networking::reqwest::Client;
+use juicebox_networking::rpc::{self, RpcError};
+use juicebox_realm_api::types::RealmId;
 
 mod leader;
 mod realm;

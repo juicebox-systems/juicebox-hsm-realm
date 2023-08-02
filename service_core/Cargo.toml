@@ -11,6 +11,6 @@ futures = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-juicebox-sdk-marshalling = { workspace = true }
-juicebox-sdk-networking = { workspace = true }
+juicebox_marshalling = { workspace = true }
+juicebox_networking = { workspace = true }
 tracing = { workspace = true }

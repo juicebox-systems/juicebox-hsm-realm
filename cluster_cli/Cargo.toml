@@ -20,10 +20,11 @@ futures = { workspace = true }
 hex = { workspace = true }
 hsm_api = { workspace = true }
 google = { workspace = true }
-juicebox-sdk = { workspace = true }
-juicebox-sdk-core = { workspace = true }
-juicebox-sdk-networking = { workspace = true }
-juicebox-sdk-realm-auth = { workspace = true }
+juicebox_sdk = { workspace = true }
+juicebox_networking = { workspace = true }
+juicebox_marshalling = { workspace = true }
+juicebox_realm_api = { workspace = true }
+juicebox_realm_auth = { workspace = true }
 observability = { workspace = true }
 reqwest = { workspace = true }
 secret_manager = { workspace = true }

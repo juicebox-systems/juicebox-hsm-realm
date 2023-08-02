@@ -4,8 +4,8 @@ use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use testing::exec::bigtable::emulator;
 
-use juicebox_sdk_networking::reqwest::{self, ClientOptions};
-use juicebox_sdk_process_group::ProcessGroup;
+use juicebox_networking::reqwest::{self, ClientOptions};
+use juicebox_process_group::ProcessGroup;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use testing::exec::hsm_gen::{Entrust, MetricsParticipants};
 use testing::exec::PortIssuer;

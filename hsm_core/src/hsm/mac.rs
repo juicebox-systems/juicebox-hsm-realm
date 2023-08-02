@@ -12,8 +12,8 @@ use hsm_api::{
     HsmRealmStatement, LogEntry, LogIndex, Partition, TransferNonce, TransferStatement,
     TransferringOut,
 };
-use juicebox_sdk_core::types::RealmId;
-use juicebox_sdk_marshalling::bytes;
+use juicebox_marshalling::bytes;
+use juicebox_realm_api::types::RealmId;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct MacKey(#[serde(with = "bytes")] [u8; 32]);
@@ -155,7 +155,7 @@ mod tests {
 
     use super::*;
     use expect_test::expect_file;
-    use juicebox_sdk_marshalling as marshalling;
+    use juicebox_marshalling as marshalling;
 
     #[test]
     fn mac_message_cbor() {

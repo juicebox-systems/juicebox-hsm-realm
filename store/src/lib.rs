@@ -25,8 +25,8 @@ use url::Url;
 use google::auth::AuthMiddleware;
 use hsm_api::merkle::StoreDelta;
 use hsm_api::{DataHash, EntryMac, GroupId, LogEntry, LogIndex};
-use juicebox_sdk_core::types::RealmId;
-use juicebox_sdk_marshalling as marshalling;
+use juicebox_marshalling as marshalling;
+use juicebox_realm_api::types::RealmId;
 use observability::metrics;
 use observability::metrics_tag as tag;
 
