@@ -7,9 +7,9 @@ use url::Url;
 
 use agent_api::{AgentService, StatusRequest, StatusResponse};
 use hsm_api::{GroupId, HsmId};
-use juicebox_api::types::RealmId;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self};
+use juicebox_realm_api::types::RealmId;
 use store::{ServiceKind, StoreClient};
 
 pub async fn find_leaders(

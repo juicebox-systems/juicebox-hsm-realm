@@ -7,9 +7,9 @@ use super::{ManagementGrant, Manager};
 use agent_api::{AgentService, BecomeLeaderRequest, BecomeLeaderResponse};
 use cluster_core::{get_hsm_statuses, Error};
 use hsm_api::{GroupId, HsmId, LogIndex};
-use juicebox_api::types::RealmId;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError};
+use juicebox_realm_api::types::RealmId;
 use store::ServiceKind;
 
 impl Manager {

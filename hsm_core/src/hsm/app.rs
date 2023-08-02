@@ -7,7 +7,10 @@ use marshalling::{DeserializationError, SerializationError};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 
-use juicebox_api::{
+use juicebox_marshalling as marshalling;
+use juicebox_marshalling::to_be4;
+use juicebox_oprf as oprf;
+use juicebox_realm_api::{
     requests::{
         DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
         Recover3Response, Register1Response, Register2Request, Register2Response, SecretsRequest,
@@ -19,9 +22,6 @@ use juicebox_api::{
         UnlockKeyCommitment, UnlockKeyTag, UserSecretEncryptionKeyScalarShare,
     },
 };
-use juicebox_marshalling as marshalling;
-use juicebox_marshalling::to_be4;
-use juicebox_oprf as oprf;
 
 use super::CryptoRng;
 
@@ -288,7 +288,8 @@ fn unmarshal_user_record(padded: &[u8]) -> Result<UserRecord, DeserializationErr
 
 #[cfg(test)]
 mod tests {
-    use juicebox_api::{
+    use juicebox_marshalling::to_be4;
+    use juicebox_realm_api::{
         requests::{
             DeleteResponse, Recover1Response, Recover2Request, Recover2Response, Recover3Request,
             Recover3Response, Register1Response, Register2Request, Register2Response,
@@ -300,7 +301,6 @@ mod tests {
             UserSecretEncryptionKeyScalarShare,
         },
     };
-    use juicebox_marshalling::to_be4;
     use rand_core::OsRng;
 
     use super::{delete, oprf, recover1, recover2, recover3, register1, register2};

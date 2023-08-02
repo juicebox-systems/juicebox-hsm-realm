@@ -17,10 +17,10 @@ use hsm_api::{
     Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole, HsmId, LogIndex,
     PersistStateRequest, PersistStateResponse,
 };
-use juicebox_api::requests::NoiseResponse;
-use juicebox_api::types::RealmId;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
+use juicebox_realm_api::requests::NoiseResponse;
+use juicebox_realm_api::types::RealmId;
 use observability::logging::{Spew, TracingSource};
 use observability::metrics_tag as tag;
 use store::StoreClient;

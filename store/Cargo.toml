@@ -15,8 +15,8 @@ gcp_auth = { workspace = true }
 google = { workspace = true }
 hsm_api = { workspace = true }
 http = { workspace = true }
-juicebox_api = { workspace = true }
 juicebox_marshalling = { workspace = true }
+juicebox_realm_api = { workspace = true }
 lru-cache = { workspace = true }
 observability = { workspace = true }
 tokio = { workspace = true }

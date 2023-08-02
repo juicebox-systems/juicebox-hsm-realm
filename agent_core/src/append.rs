@@ -5,7 +5,7 @@ use super::hsm::Transport;
 use agent_api::StepDownRequest;
 use hsm_api::merkle::StoreDelta;
 use hsm_api::{DataHash, GroupId, LogEntry, LogIndex};
-use juicebox_api::types::RealmId;
+use juicebox_realm_api::types::RealmId;
 use observability::metrics::Tag;
 use observability::metrics_tag as tag;
 

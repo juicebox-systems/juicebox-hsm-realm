@@ -8,8 +8,8 @@ use url::Url;
 use super::{ManagementGrant, Manager};
 use cluster_core::{discover_hsm_ids, get_hsm_statuses};
 use hsm_api::{GroupId, HsmId, LogIndex};
-use juicebox_api::types::RealmId;
 use juicebox_networking::rpc::{self, RpcError};
+use juicebox_realm_api::types::RealmId;
 use service_core::rpc::HandlerError;
 
 impl Manager {

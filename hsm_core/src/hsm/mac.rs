@@ -12,8 +12,8 @@ use hsm_api::{
     HsmRealmStatement, LogEntry, LogIndex, Partition, TransferNonce, TransferStatement,
     TransferringOut,
 };
-use juicebox_api::types::RealmId;
 use juicebox_marshalling::bytes;
+use juicebox_realm_api::types::RealmId;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct MacKey(#[serde(with = "bytes")] [u8; 32]);

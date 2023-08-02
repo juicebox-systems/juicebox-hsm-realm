@@ -1,8 +1,8 @@
 use reqwest::Url;
 
 use agent_api::AgentService;
-use juicebox_api::types::RealmId;
 use juicebox_networking::reqwest::Client;
+use juicebox_realm_api::types::RealmId;
 
 pub async fn new_group(
     realm: RealmId,

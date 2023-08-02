@@ -9,9 +9,9 @@ use agent_api::{
     TransferStatementRequest, TransferStatementResponse,
 };
 use hsm_api::{GroupId, OwnedRange};
-use juicebox_api::types::RealmId;
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_networking::rpc;
+use juicebox_realm_api::types::RealmId;
 use store::StoreClient;
 
 #[derive(Debug, Error)]

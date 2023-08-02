@@ -12,7 +12,7 @@ futures = { workspace = true }
 gcp_auth = { workspace = true }
 google = { workspace = true }
 http = { workspace = true }
-juicebox_api = { workspace = true }
+juicebox_realm_api = { workspace = true }
 juicebox_realm_auth = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

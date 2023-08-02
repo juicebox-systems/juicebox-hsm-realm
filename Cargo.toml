@@ -112,7 +112,6 @@ jsonwebtoken = { version = "8.3.0", default-features = false }
 libc = { version = "0.2.139", default-features = false }
 lru-cache = { path = "lru-cache" }
 juicebox_sdk = { path = "sdk/rust/sdk", features = ["reqwest", "tokio"] }
-juicebox_api = { path = "sdk/rust/api" }
 juicebox_marshalling = { path = "sdk/rust/marshalling" }
 juicebox_networking = { path = "sdk/rust/networking", features = [
     "distributed-tracing",
@@ -121,7 +120,8 @@ juicebox_networking = { path = "sdk/rust/networking", features = [
 juicebox_noise = { path = "sdk/rust/noise" }
 juicebox_oprf = { path = "sdk/rust/oprf" }
 juicebox_process_group = { path = "sdk/rust/process_group" }
-juicebox_realm_auth = { path = "sdk/rust/realm_auth" }
+juicebox_realm_api = { path = "sdk/rust/realm/api" }
+juicebox_realm_auth = { path = "sdk/rust/realm/auth" }
 nix = { version = "0.26.2", default-features = false, features = ["signal"] }
 observability = { path = "observability" }
 once_cell = "1.17.1"

@@ -6,9 +6,9 @@ use std::collections::HashSet;
 
 use agent_api::AgentService;
 use hsm_api::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
-use juicebox_api::types::RealmId;
 use juicebox_marshalling::to_be4;
 use juicebox_networking::reqwest::Client;
+use juicebox_realm_api::types::RealmId;
 use store::StoreClient;
 
 use crate::get_hsm_statuses;

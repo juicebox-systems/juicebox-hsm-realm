@@ -18,8 +18,8 @@ use agent_api::merkle::{TreeStoreError, TreeStoreReader};
 use bitvec::Bits;
 use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey};
 use hsm_api::{DataHash, GroupId, RecordId};
-use juicebox_api::types::RealmId;
 use juicebox_marshalling as marshalling;
+use juicebox_realm_api::types::RealmId;
 use observability::metrics;
 use observability::metrics_tag as tag;
 
