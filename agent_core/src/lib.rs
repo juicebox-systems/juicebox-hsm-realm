@@ -7,6 +7,7 @@ use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -576,25 +577,22 @@ impl<T: Transport + 'static> Agent<T> {
     ) {
         // The HSM will return Ok to become_leader if its already leader.
         // When we get here we might already be leading.
-        let mut wasnt_leading = false;
-        self.0
-            .state
-            .lock()
-            .unwrap()
-            .leader
-            .entry((realm, group))
-            .or_insert_with(|| {
-                wasnt_leading = true;
-                LeaderState {
-                    append_queue: HashMap::new(),
-                    appending: AppendingState::NotAppending {
-                        next: starting_index.next(),
-                    },
-                    last_appended: None,
-                    response_channels: HashMap::new(),
-                }
+        let start = if let Entry::Vacant(entry) =
+            self.0.state.lock().unwrap().leader.entry((realm, group))
+        {
+            entry.insert(LeaderState {
+                append_queue: HashMap::new(),
+                appending: AppendingState::NotAppending {
+                    next: starting_index.next(),
+                },
+                last_appended: None,
+                response_channels: HashMap::new(),
             });
-        if wasnt_leading {
+            true
+        } else {
+            false
+        };
+        if start {
             self.start_group_committer(realm, group, config);
         }
     }
