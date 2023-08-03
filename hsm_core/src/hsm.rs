@@ -1558,10 +1558,12 @@ impl<P: Platform> Hsm<P> {
                                 .filter(|partition| partition.range.contains(&request.record_id))
                                 .is_some()
                             {
-                                // If we get a request where the log index is newer
-                                // than anything we know about then some other HSM
-                                // wrote a log entry and therefore we are not leader
-                                // anymore.
+                                // If we get a request where the log index is
+                                // newer than anything we know about then some
+                                // other HSM wrote a log entry and therefore we
+                                // are not leader anymore. This also stops this
+                                // replying with state proof and the agent
+                                // endlessly retrying.
                                 if request.index
                                     > leader
                                         .log

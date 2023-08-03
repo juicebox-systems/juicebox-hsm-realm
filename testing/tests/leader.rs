@@ -87,7 +87,9 @@ async fn leader_handover() {
                     res_tx.send((success_count, failures.split_off(0))).unwrap();
                     return;
                 }
-                Err(_) => {}
+                Err(_) => {
+                    // Nothing to read from rx. Keep making more requests.
+                }
             }
         }
     });

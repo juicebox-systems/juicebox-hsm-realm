@@ -87,9 +87,9 @@ impl<P: Platform> Hsm<P> {
                                 LogEntryStatus::Ok => {}
                                 LogEntryStatus::PriorIndex => {
                                     // The start of log gets truncated on
-                                    // commit. The commit may of been based on
+                                    // commit. The commit may have been based on
                                     // captures from just witnesses not the
-                                    // leader. So its valid that the captured
+                                    // leader. So it's valid that the captured
                                     // index is earlier than anything in the in
                                     // memory log.
                                 }
@@ -334,9 +334,8 @@ impl<P: Platform> Hsm<P> {
     }
 }
 
-// Checks to see if the in memory log and the captured
-// entry have diverged. If so, returns the offset into
-// our_log where the diverged entry is located.
+// Describes the result of checking to see if the in memory log and the captured
+// entry have diverged.
 enum LogEntryStatus {
     // The captured entry matches our in memory log.
     Ok,
@@ -352,8 +351,8 @@ enum LogEntryStatus {
 }
 
 // Compares the supplied 'captured' log entry against the in memory log to see
-// if its diverged. If it has that that would indicate that some other HSM
-// became leader and successfully wrote a log entry.
+// if its diverged. If it has that would indicate that some other HSM became
+// leader and successfully wrote a log entry.
 fn has_log_diverged(our_log: &VecDeque<LeaderLogEntry>, captured: &LogEntry) -> LogEntryStatus {
     let our_first_idx = our_log.front().unwrap().entry.index;
     if captured.index < our_first_idx {

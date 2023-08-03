@@ -954,8 +954,8 @@ pub struct CaptureNextRequest {
 pub enum CaptureNextResponse {
     /// The HSM successfully processed the log entries.
     ///
-    /// The role of this HSM in the group is returned. The HSM may of used the
-    /// data captured to detect that its no longer leader and transition out of
+    /// The role of this HSM in the group is returned. The HSM may have used the
+    /// data captured to detect that it's no longer leader and transition out of
     /// the leader state.
     Ok(GroupMemberRole),
     /// This HSM is not a member of this realm.
@@ -1165,7 +1165,7 @@ pub enum CommitResponse {
         /// requests caused the log entries to be created.
         responses: Vec<(EntryMac, NoiseResponse)>,
         /// A set of responses that will never commit. If there are multiple
-        /// leaders then its possible for the persisted log to diverge from a
+        /// leaders then it's possible for the persisted log to diverge from a
         /// leaders in memory log. In this event there are clients waiting for a
         /// response that will never commit. These are included here so that the
         /// agent can signal a failure to those client requests.
