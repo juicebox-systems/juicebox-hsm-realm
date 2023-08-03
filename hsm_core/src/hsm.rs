@@ -231,7 +231,7 @@ struct VolatileState {
 }
 
 struct LeaderVolatileGroupState {
-    log: VecDeque<LeaderLogEntry>, // never empty
+    log: LeaderLog, // never empty
     committed: Option<LogIndex>,
     incoming: Option<TransferNonce>,
     /// This is `Some` if and only if the last entry in `log` owns a partition.
@@ -246,10 +246,7 @@ impl LeaderVolatileGroupState {
             .as_ref()
             .map(|p| Tree::with_existing_root(p.root_hash, options.tree_overlay_size));
         Self {
-            log: VecDeque::from([LeaderLogEntry {
-                entry: last_entry,
-                response: None,
-            }]),
+            log: LeaderLog::new(last_entry),
             committed: None,
             incoming: None,
             tree,
@@ -262,7 +259,7 @@ struct SteppingDownVolatileGroupState {
     // This contains uncommitted log entries generated while leader and log
     // entries from the new leader that are needed to complete a commit. Never
     // empty.
-    log: VecDeque<LeaderLogEntry>,
+    log: LeaderLog,
     committed: Option<LogIndex>,
     // EntryMacs that were returned from app_request but will never commit
     // because the in memory leader log and the persisted log have diverged.
@@ -277,6 +274,85 @@ struct LeaderLogEntry {
     /// A possible response to the client. This must not be externalized until
     /// after the entry has been committed.
     response: Option<NoiseResponse>,
+}
+
+// A contiguous series of Log entries.
+//
+// invariant: contains at least one log entry at all times.
+struct LeaderLog(VecDeque<LeaderLogEntry>);
+
+impl LeaderLog {
+    fn new(entry: LogEntry) -> Self {
+        Self(VecDeque::from([LeaderLogEntry {
+            entry,
+            response: None,
+        }]))
+    }
+
+    fn first(&self) -> &LeaderLogEntry {
+        self.0.front().expect("LeaderLog should never be empty")
+    }
+
+    fn last(&self) -> &LeaderLogEntry {
+        self.0.back().expect("LeaderLog should never be empty")
+    }
+
+    fn with_index(&self, index: LogIndex) -> Option<&LeaderLogEntry> {
+        let first = self.first().entry.index;
+        let last = self.last().entry.index;
+        if index < first || index > last {
+            return None;
+        }
+        let offset = index.0 - first.0;
+        // Should run out of memory before hitting this limit for usize==u32
+        let offset = usize::try_from(offset).expect("LeaderLog too large");
+        let entry = self
+            .0
+            .get(offset)
+            .expect("we already validated the offset is in range");
+        assert_eq!(entry.entry.index, index);
+        Some(entry)
+    }
+
+    // Adds a new entry to the end of the log. Will panic if the LogIndex of the
+    // new entry is not the next in the sequence. Will panic if the prev_mac of
+    // the new entry does not match the entry_mac of the last entry.
+    fn push(&mut self, entry: LogEntry, response: Option<NoiseResponse>) {
+        let last = self.last();
+        assert_eq!(
+            entry.index,
+            last.entry.index.next(),
+            "LogIndex not sequential"
+        );
+        assert_eq!(
+            entry.prev_mac, last.entry.entry_mac,
+            "EntryMacs not chained"
+        );
+        self.0.push_back(LeaderLogEntry { entry, response });
+    }
+
+    fn pop_last(&mut self) -> LeaderLogEntry {
+        assert!(
+            self.0.len() > 1,
+            "there should always be at least one entry in the log"
+        );
+        self.0.pop_back().unwrap()
+    }
+
+    fn pop_first(&mut self) -> LeaderLogEntry {
+        assert!(
+            self.0.len() > 1,
+            "there should always be at least one entry in the log"
+        );
+        self.0.pop_front().unwrap()
+    }
+
+    // Takes the response from the first entry in the log replacing it with None.
+    // Returns the response and its related EntryMac.
+    fn take_first_response(&mut self) -> (EntryMac, Option<NoiseResponse>) {
+        let e = self.0.front_mut().unwrap();
+        (e.entry.entry_mac.clone(), e.response.take())
+    }
 }
 
 #[derive(Debug)]
@@ -568,8 +644,7 @@ impl<P: Platform> Hsm<P> {
                                 committed: leader.committed,
                                 owned_range: leader
                                     .log
-                                    .back()
-                                    .expect("leader's log is never empty")
+                                    .last()
                                     .entry
                                     .partition
                                     .as_ref()
@@ -963,7 +1038,7 @@ impl<P: Platform> Hsm<P> {
                     .expect("We've already validated that this HSM is a member of the group"),
             );
         };
-        let stepdown_index = leader.log.back().unwrap().entry.index;
+        let stepdown_index = leader.log.last().entry.index;
         self.stepdown_at(request.group, leader, stepdown_index)
     }
 
@@ -981,41 +1056,20 @@ impl<P: Platform> Hsm<P> {
             // are uncommitted entries after that we still need to move to
             // stepdown so that these uncommitted entries get reported as
             // abandoned.
-            Some(c)
-                if c == stepdown_index
-                    && leader
-                        .log
-                        .back()
-                        .expect("leader log should never be empty")
-                        .entry
-                        .index
-                        == stepdown_index =>
-            {
+            Some(c) if c == stepdown_index && leader.log.last().entry.index == stepdown_index => {
                 StepDownResponse::Complete {
                     last: stepdown_index,
                 }
             }
             _ => {
-                // If we're stepping down at a index that's part way through the
-                // log truncate the log after stepdown_index and build the set
-                // of abandoned entries.
+                // Anything after the stepdown index is never going to commit
+                // and is flagged as abandoned.
                 let mut abandoned: Vec<EntryMac> = Vec::new();
-                if let Some(offset) = stepdown_index
-                    .0
-                    .checked_sub(leader.log.front().unwrap().entry.index.0)
-                {
-                    if let Ok(offset) = (offset + 1).try_into() {
-                        if offset < leader.log.len() {
-                            abandoned = leader
-                                .log
-                                .iter()
-                                .skip(offset)
-                                .map(|e| e.entry.entry_mac.clone())
-                                .collect();
-                            leader.log.truncate(offset);
-                        }
-                    }
+                while leader.log.last().entry.index > stepdown_index {
+                    let e = leader.log.pop_last();
+                    abandoned.push(e.entry.entry_mac);
                 }
+
                 self.volatile.stepping_down.insert(
                     group,
                     SteppingDownVolatileGroupState {
@@ -1114,7 +1168,7 @@ impl<P: Platform> Hsm<P> {
                 return Response::NotLeader;
             };
 
-            let last_entry = &leader.log.back().unwrap().entry;
+            let last_entry = &leader.log.last().entry;
 
             // Note: The owned_range found in the last entry might not have
             // committed yet. We think that's OK. The source group won't
@@ -1209,10 +1263,7 @@ impl<P: Platform> Hsm<P> {
             }
             .build(&self.realm_keys.mac);
 
-            leader.log.push_back(LeaderLogEntry {
-                entry: entry.clone(),
-                response: None,
-            });
+            leader.log.push(entry.clone(), None);
 
             TransferOutResponse::Ok { entry, delta }
         })();
@@ -1282,7 +1333,7 @@ impl<P: Platform> Hsm<P> {
                 destination,
                 partition,
                 at: transferring_at,
-            }) = &leader.log.back().unwrap().entry.transferring_out
+            }) = &leader.log.last().entry.transferring_out
             else {
                 return Response::NotTransferring;
             };
@@ -1336,7 +1387,7 @@ impl<P: Platform> Hsm<P> {
             }
             leader.incoming = None;
 
-            let last_entry = &leader.log.back().unwrap().entry;
+            let last_entry = &leader.log.last().entry;
             let needs_merge = match &last_entry.partition {
                 None => false,
                 Some(part) => match part.range.join(&request.transferring.range) {
@@ -1404,10 +1455,7 @@ impl<P: Platform> Hsm<P> {
             }
             .build(&self.realm_keys.mac);
 
-            leader.log.push_back(LeaderLogEntry {
-                entry: entry.clone(),
-                response: None,
-            });
+            leader.log.push(entry.clone(), None);
 
             leader.tree = Some(Tree::with_existing_root(
                 partition.root_hash,
@@ -1445,7 +1493,7 @@ impl<P: Platform> Hsm<P> {
                 return Response::NotLeader;
             };
 
-            let last_entry = &leader.log.back().unwrap().entry;
+            let last_entry = &leader.log.last().entry;
             if let Some(transferring_out) = &last_entry.transferring_out {
                 if transferring_out.destination != request.destination
                     || transferring_out.partition.range != request.range
@@ -1467,10 +1515,7 @@ impl<P: Platform> Hsm<P> {
             }
             .build(&self.realm_keys.mac);
 
-            leader.log.push_back(LeaderLogEntry {
-                entry: entry.clone(),
-                response: None,
-            });
+            leader.log.push(entry.clone(), None);
 
             Response::Ok(entry)
         })();
@@ -1491,7 +1536,7 @@ impl<P: Platform> Hsm<P> {
             Some(realm) if realm.id == request.realm => {
                 if realm.groups.contains_key(&request.group) {
                     if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
-                        if (leader.log.back().unwrap().entry)
+                        if (leader.log.last().entry)
                             .partition
                             .as_ref()
                             .filter(|partition| partition.range.contains(&request.record_id))
@@ -1552,7 +1597,7 @@ impl<P: Platform> Hsm<P> {
                 Some(realm) if realm.id == request.realm => {
                     if realm.groups.contains_key(&request.group) {
                         if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
-                            if (leader.log.back().unwrap().entry)
+                            if (leader.log.last().entry)
                                 .partition
                                 .as_ref()
                                 .filter(|partition| partition.range.contains(&request.record_id))
@@ -1564,14 +1609,7 @@ impl<P: Platform> Hsm<P> {
                                 // are not leader anymore. This also stops this
                                 // replying with state proof and the agent
                                 // endlessly retrying.
-                                if request.index
-                                    > leader
-                                        .log
-                                        .back()
-                                        .expect("leader.log should never be empty")
-                                        .entry
-                                        .index
-                                {
+                                if request.index > leader.log.last().entry.index {
                                     self.handle_stepdown_as_leader(
                                         metrics,
                                         StepDownRequest {
@@ -1704,7 +1742,7 @@ fn handle_app_request(
 
     let (root_hash, store_delta) = merkle.update_overlay(rng, change);
 
-    let last_entry = leader.log.back().unwrap();
+    let last_entry = leader.log.last();
     let new_entry = LogEntryBuilder {
         hsm,
         realm: request.realm,
@@ -1719,10 +1757,8 @@ fn handle_app_request(
     }
     .build(&keys.mac);
 
-    leader.log.push_back(LeaderLogEntry {
-        entry: new_entry.clone(),
-        response: Some(secrets_response),
-    });
+    leader.log.push(new_entry.clone(), Some(secrets_response));
+
     AppResponse::Ok {
         entry: new_entry,
         delta: store_delta,
@@ -2013,6 +2049,155 @@ mod tests {
             "serialized persistent state is {} bytes",
             s.len()
         );
+    }
+
+    fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
+        let hsm = HsmId([8; 16]);
+        let e = LogEntry {
+            index: LogIndex(42),
+            partition: None,
+            transferring_out: None,
+            prev_mac: EntryMac::from([3; 32]),
+            entry_mac: EntryMac::from([42; 32]),
+            hsm,
+        };
+        let mut log = LeaderLog::new(e.clone());
+        let e2 = LogEntry {
+            index: LogIndex(43),
+            partition: None,
+            transferring_out: None,
+            prev_mac: e.entry_mac.clone(),
+            entry_mac: EntryMac::from([43; 32]),
+            hsm,
+        };
+        log.push(
+            e2.clone(),
+            Some(NoiseResponse::Transport {
+                ciphertext: vec![43, 43, 43],
+            }),
+        );
+        let e3 = LogEntry {
+            index: LogIndex(44),
+            partition: None,
+            transferring_out: None,
+            prev_mac: e2.entry_mac.clone(),
+            entry_mac: EntryMac::from([44; 32]),
+            hsm,
+        };
+        log.push(
+            e3.clone(),
+            Some(NoiseResponse::Transport {
+                ciphertext: vec![44, 44, 44],
+            }),
+        );
+        (log, [e.entry_mac, e2.entry_mac, e3.entry_mac])
+    }
+
+    #[test]
+    #[should_panic(expected = "not sequential")]
+    fn leader_log_index_sequential() {
+        let (mut log, macs) = make_leader_log();
+        let e = LogEntry {
+            index: LogIndex(55),
+            partition: None,
+            transferring_out: None,
+            prev_mac: macs[2].clone(),
+            entry_mac: EntryMac::from([44; 32]),
+            hsm: HsmId([1; 16]),
+        };
+        log.push(e, None);
+    }
+
+    #[test]
+    #[should_panic(expected = "not chained")]
+    fn leader_log_mac_chain() {
+        let (mut log, _) = make_leader_log();
+        let last = log.last();
+        let e = LogEntry {
+            index: last.entry.index.next(),
+            partition: None,
+            transferring_out: None,
+            prev_mac: EntryMac::from([45; 32]),
+            entry_mac: EntryMac::from([45; 32]),
+            hsm: last.entry.hsm,
+        };
+        log.push(e, None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn leader_log_cant_empty_pop_first() {
+        let (mut log, _) = make_leader_log();
+        assert_eq!(LogIndex(42), log.pop_first().entry.index);
+        assert_eq!(LogIndex(43), log.pop_first().entry.index);
+        log.pop_first();
+    }
+
+    #[test]
+    #[should_panic]
+    fn leader_log_cant_empty_pop_last() {
+        let (mut log, _) = make_leader_log();
+        assert_eq!(LogIndex(44), log.pop_last().entry.index);
+        assert_eq!(LogIndex(43), log.pop_last().entry.index);
+        log.pop_last();
+    }
+
+    #[test]
+    fn leader_log_first_last() {
+        let (mut log, _) = make_leader_log();
+        assert_eq!(LogIndex(42), log.first().entry.index);
+        assert_eq!(LogIndex(44), log.last().entry.index);
+        log.pop_last();
+        assert_eq!(LogIndex(43), log.last().entry.index);
+    }
+
+    #[test]
+    fn leader_log_with_index() {
+        let (log, _) = make_leader_log();
+        assert_eq!(
+            LogIndex(44),
+            log.with_index(LogIndex(44)).unwrap().entry.index
+        );
+        assert_eq!(
+            LogIndex(42),
+            log.with_index(LogIndex(42)).unwrap().entry.index
+        );
+        assert_eq!(
+            LogIndex(43),
+            log.with_index(LogIndex(43)).unwrap().entry.index
+        );
+        assert!(log.with_index(LogIndex(41)).is_none());
+        assert!(log.with_index(LogIndex(45)).is_none());
+        assert!(log.with_index(LogIndex::FIRST).is_none());
+        assert!(log.with_index(LogIndex(u64::MAX)).is_none());
+    }
+
+    #[test]
+    fn leader_log_take_first() {
+        let (mut log, macs) = make_leader_log();
+        assert_eq!(LogIndex(42), log.pop_first().entry.index);
+
+        let (mac, res) = log.take_first_response();
+        assert_eq!(macs[1], mac);
+        match res {
+            Some(NoiseResponse::Transport { ciphertext }) => {
+                assert_eq!(vec![43, 43, 43], ciphertext)
+            }
+            _ => panic!("should of taken a noise response"),
+        }
+        let (mac, res) = log.take_first_response();
+        assert!(res.is_none());
+        assert_eq!(macs[1], mac);
+        assert!(log.pop_first().response.is_none());
+
+        let (mac, res) = log.take_first_response();
+        assert_eq!(macs[2], mac);
+        match res {
+            Some(NoiseResponse::Transport { ciphertext }) => {
+                assert_eq!(vec![44, 44, 44], ciphertext)
+            }
+            _ => panic!("should of taken a noise response"),
+        }
     }
 
     #[test]
