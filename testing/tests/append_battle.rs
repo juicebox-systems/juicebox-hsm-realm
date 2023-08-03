@@ -195,7 +195,7 @@ async fn make_app_request_to_agents(
 async fn make_all_agents_leader(agent_client: &Client<AgentService>, realm: &RealmResult) {
     let start = Instant::now();
     let group = *realm.groups.last().unwrap();
-    'outer: loop {
+    loop {
         let res = join_all(realm.agents.iter().map(|agent| {
             rpc::send(
                 agent_client,
@@ -211,20 +211,22 @@ async fn make_all_agents_leader(agent_client: &Client<AgentService>, realm: &Rea
 
         // There may be HSMs that are still stepping down, so we need to wait for those to complete
         // before they can become leader again.
-        for r in &res {
-            if matches!(r, Ok(BecomeLeaderResponse::StepdownInProgress)) {
-                if start.elapsed() > Duration::from_secs(5) {
-                    panic!("Timed out waiting for stepdown to complete");
-                }
-                sleep(Duration::from_millis(5)).await;
-                continue 'outer;
+        if res
+            .iter()
+            .any(|r| matches!(r, Ok(BecomeLeaderResponse::StepdownInProgress)))
+        {
+            if start.elapsed() > TIMEOUT {
+                panic!("Timed out waiting for stepdown to complete");
             }
+            sleep(Duration::from_millis(5)).await;
+            continue;
         }
+
         assert!(res
             .into_iter()
             .all(|r| r.is_ok_and(|r| r == BecomeLeaderResponse::Ok)));
 
-        // check that they all think they're leader.
+        // Check that they all think they're leader.
         assert_eq!(realm.agents.len(), num_leaders(agent_client, realm).await);
         return;
     }
