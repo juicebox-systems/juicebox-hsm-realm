@@ -135,15 +135,15 @@ impl<P: Platform> Hsm<P> {
                                     // as abandoned. We remove them from the log as
                                     // they're not going to get committed, and we need
                                     // to rebuild the log with the persisted entries.
-                                    while sd.log.last().entry.index >= entry.index {
+                                    while sd.log.last_index() >= entry.index {
                                         let e = sd.log.pop_last();
                                         sd.abandoned.push(e.entry.entry_mac);
                                     }
-                                    sd.log.push(entry, None);
+                                    sd.log.append(entry, None);
                                 }
                                 LogEntryStatus::FutureIndex => {
-                                    // push will verify the index & mac chain.
-                                    sd.log.push(entry, None);
+                                    // append will verify the index & mac chain.
+                                    sd.log.append(entry, None);
                                 }
                             }
                         }
@@ -218,7 +218,7 @@ impl<P: Platform> Hsm<P> {
                     // against entries we have. For a new leader this won't be
                     // able to commit until the witnesses catch up to at least
                     // the log entry that the new leader started from.
-                    if let Some(log_entry) = log.with_index(captured.index) {
+                    if let Some(log_entry) = log.get_index(captured.index) {
                         if log_entry.entry.entry_mac == captured.mac {
                             election.vote(captured.hsm, captured.index);
                         } else {
@@ -252,17 +252,16 @@ impl<P: Platform> Hsm<P> {
 
             // trim the prefix of leader.log and collect up the responses
             let mut responses = Vec::new();
-            while log.first().entry.index < commit_index {
+            while log.first_index() < commit_index {
                 let e = log.pop_first();
                 if let Some(r) = e.response {
                     responses.push((e.entry.entry_mac, r));
                 }
             }
-            assert_eq!(commit_index, log.first().entry.index);
+            assert_eq!(commit_index, log.first_index());
             // This ensures we don't try to empty the log entirely.
-            let (mac, res) = log.take_first_response();
-            if let Some(r) = res {
-                responses.push((mac, r));
+            if let Some((mac, res)) = log.take_first_response() {
+                responses.push((mac, res));
             }
             *committed = Some(commit_index);
 
@@ -314,16 +313,14 @@ enum LogEntryStatus {
 // if its diverged. If it has that would indicate that some other HSM became
 // leader and successfully wrote a log entry.
 fn has_log_diverged(our_log: &LeaderLog, captured: &LogEntry) -> LogEntryStatus {
-    let our_first_idx = our_log.first().entry.index;
-    if captured.index < our_first_idx {
+    if captured.index < our_log.first_index() {
         return LogEntryStatus::PriorIndex;
     }
-    let our_last_idx = our_log.last().entry.index;
-    if captured.index > our_last_idx {
+    if captured.index > our_log.last_index() {
         return LogEntryStatus::FutureIndex;
     }
     let our_entry = our_log
-        .with_index(captured.index)
+        .get_index(captured.index)
         .expect("We already validated this is in range");
 
     if our_entry.entry.entry_mac != captured.entry_mac {

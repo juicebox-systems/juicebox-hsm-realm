@@ -297,9 +297,17 @@ impl LeaderLog {
         self.0.back().expect("LeaderLog should never be empty")
     }
 
-    fn with_index(&self, index: LogIndex) -> Option<&LeaderLogEntry> {
-        let first = self.first().entry.index;
-        let last = self.last().entry.index;
+    fn first_index(&self) -> LogIndex {
+        self.first().entry.index
+    }
+
+    fn last_index(&self) -> LogIndex {
+        self.last().entry.index
+    }
+
+    fn get_index(&self, index: LogIndex) -> Option<&LeaderLogEntry> {
+        let first = self.first_index();
+        let last = self.last_index();
         if index < first || index > last {
             return None;
         }
@@ -317,7 +325,7 @@ impl LeaderLog {
     // Adds a new entry to the end of the log. Will panic if the LogIndex of the
     // new entry is not the next in the sequence. Will panic if the prev_mac of
     // the new entry does not match the entry_mac of the last entry.
-    fn push(&mut self, entry: LogEntry, response: Option<NoiseResponse>) {
+    fn append(&mut self, entry: LogEntry, response: Option<NoiseResponse>) {
         let last = self.last();
         assert_eq!(
             entry.index,
@@ -348,10 +356,10 @@ impl LeaderLog {
     }
 
     // Takes the response from the first entry in the log replacing it with None.
-    // Returns the response and its related EntryMac.
-    fn take_first_response(&mut self) -> (EntryMac, Option<NoiseResponse>) {
+    // Returns the response and its related EntryMac if there was one, None otherwise.
+    fn take_first_response(&mut self) -> Option<(EntryMac, NoiseResponse)> {
         let e = self.0.front_mut().unwrap();
-        (e.entry.entry_mac.clone(), e.response.take())
+        e.response.take().map(|r| (e.entry.entry_mac.clone(), r))
     }
 }
 
@@ -1046,14 +1054,14 @@ impl<P: Platform> Hsm<P> {
             };
         };
         let stepdown_index = match stepdown {
-            StepDownPoint::LastLogIndex => leader.log.last().entry.index,
+            StepDownPoint::LastLogIndex => leader.log.last_index(),
             StepDownPoint::LogIndex(index) => index,
         };
 
         // If we've committed to the stepdown index and there are no log entries
         // that get abandoned we can go straight to the Witness state.
         if let Some(committed) = leader.committed {
-            if committed == stepdown_index && leader.log.last().entry.index == stepdown_index {
+            if committed == stepdown_index && leader.log.last_index() == stepdown_index {
                 return StepDownResponse::Complete {
                     last: stepdown_index,
                 };
@@ -1064,7 +1072,7 @@ impl<P: Platform> Hsm<P> {
         // Anything after the stepdown index is never going to commit and is
         // flagged as abandoned.
         let mut abandoned: Vec<EntryMac> = Vec::new();
-        while leader.log.last().entry.index > stepdown_index {
+        while leader.log.last_index() > stepdown_index {
             let e = leader.log.pop_last();
             abandoned.push(e.entry.entry_mac);
         }
@@ -1258,7 +1266,7 @@ impl<P: Platform> Hsm<P> {
             }
             .build(&self.realm_keys.mac);
 
-            leader.log.push(entry.clone(), None);
+            leader.log.append(entry.clone(), None);
 
             TransferOutResponse::Ok { entry, delta }
         })();
@@ -1450,7 +1458,7 @@ impl<P: Platform> Hsm<P> {
             }
             .build(&self.realm_keys.mac);
 
-            leader.log.push(entry.clone(), None);
+            leader.log.append(entry.clone(), None);
 
             leader.tree = Some(Tree::with_existing_root(
                 partition.root_hash,
@@ -1510,7 +1518,7 @@ impl<P: Platform> Hsm<P> {
             }
             .build(&self.realm_keys.mac);
 
-            leader.log.push(entry.clone(), None);
+            leader.log.append(entry.clone(), None);
 
             Response::Ok(entry)
         })();
@@ -1615,7 +1623,7 @@ impl<P: Platform> Hsm<P> {
             // know about then some other HSM wrote a log entry and therefore we
             // are not leader anymore. This also stops this replying with stale
             // proof and the agent endlessly retrying.
-            if request.index > leader.log.last().entry.index {
+            if request.index > leader.log.last_index() {
                 self.handle_stepdown_as_leader(
                     metrics,
                     StepDownRequest {
@@ -1749,7 +1757,7 @@ fn handle_app_request(
     }
     .build(&keys.mac);
 
-    leader.log.push(new_entry.clone(), Some(secrets_response));
+    leader.log.append(new_entry.clone(), Some(secrets_response));
 
     AppResponse::Ok {
         entry: new_entry,
@@ -2069,7 +2077,7 @@ mod tests {
             entry_mac: EntryMac::from([43; 32]),
             hsm,
         };
-        log.push(
+        log.append(
             e2.clone(),
             Some(NoiseResponse::Transport {
                 ciphertext: vec![43, 43, 43],
@@ -2083,7 +2091,7 @@ mod tests {
             entry_mac: EntryMac::from([44; 32]),
             hsm,
         };
-        log.push(
+        log.append(
             e3.clone(),
             Some(NoiseResponse::Transport {
                 ciphertext: vec![44, 44, 44],
@@ -2104,7 +2112,7 @@ mod tests {
             entry_mac: EntryMac::from([44; 32]),
             hsm: HsmId([1; 16]),
         };
-        log.push(e, None);
+        log.append(e, None);
     }
 
     #[test]
@@ -2120,7 +2128,7 @@ mod tests {
             entry_mac: EntryMac::from([45; 32]),
             hsm: last.entry.hsm,
         };
-        log.push(e, None);
+        log.append(e, None);
     }
 
     #[test]
@@ -2146,6 +2154,8 @@ mod tests {
         let (mut log, _) = make_leader_log();
         assert_eq!(LogIndex(42), log.first().entry.index);
         assert_eq!(LogIndex(44), log.last().entry.index);
+        assert_eq!(LogIndex(42), log.first_index());
+        assert_eq!(LogIndex(44), log.last_index());
         log.pop_last();
         assert_eq!(LogIndex(43), log.last().entry.index);
     }
@@ -2155,20 +2165,20 @@ mod tests {
         let (log, _) = make_leader_log();
         assert_eq!(
             LogIndex(44),
-            log.with_index(LogIndex(44)).unwrap().entry.index
+            log.get_index(LogIndex(44)).unwrap().entry.index
         );
         assert_eq!(
             LogIndex(42),
-            log.with_index(LogIndex(42)).unwrap().entry.index
+            log.get_index(LogIndex(42)).unwrap().entry.index
         );
         assert_eq!(
             LogIndex(43),
-            log.with_index(LogIndex(43)).unwrap().entry.index
+            log.get_index(LogIndex(43)).unwrap().entry.index
         );
-        assert!(log.with_index(LogIndex(41)).is_none());
-        assert!(log.with_index(LogIndex(45)).is_none());
-        assert!(log.with_index(LogIndex::FIRST).is_none());
-        assert!(log.with_index(LogIndex(u64::MAX)).is_none());
+        assert!(log.get_index(LogIndex(41)).is_none());
+        assert!(log.get_index(LogIndex(45)).is_none());
+        assert!(log.get_index(LogIndex::FIRST).is_none());
+        assert!(log.get_index(LogIndex(u64::MAX)).is_none());
     }
 
     #[test]
@@ -2176,27 +2186,24 @@ mod tests {
         let (mut log, macs) = make_leader_log();
         assert_eq!(LogIndex(42), log.pop_first().entry.index);
 
-        let (mac, res) = log.take_first_response();
-        assert_eq!(macs[1], mac);
-        match res {
-            Some(NoiseResponse::Transport { ciphertext }) => {
-                assert_eq!(vec![43, 43, 43], ciphertext)
+        match log.take_first_response() {
+            Some((mac, NoiseResponse::Transport { ciphertext })) => {
+                assert_eq!(vec![43, 43, 43], ciphertext);
+                assert_eq!(macs[1], mac);
             }
             _ => panic!("should of taken a noise response"),
         }
-        let (mac, res) = log.take_first_response();
-        assert!(res.is_none());
-        assert_eq!(macs[1], mac);
+        assert!(log.take_first_response().is_none());
         assert!(log.pop_first().response.is_none());
 
-        let (mac, res) = log.take_first_response();
-        assert_eq!(macs[2], mac);
-        match res {
-            Some(NoiseResponse::Transport { ciphertext }) => {
-                assert_eq!(vec![44, 44, 44], ciphertext)
+        match log.take_first_response() {
+            Some((mac, NoiseResponse::Transport { ciphertext })) => {
+                assert_eq!(vec![44, 44, 44], ciphertext);
+                assert_eq!(macs[2], mac);
             }
             _ => panic!("should of taken a noise response"),
         }
+        assert!(log.take_first_response().is_none());
     }
 
     #[test]
