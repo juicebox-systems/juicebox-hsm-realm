@@ -1050,41 +1050,37 @@ impl<P: Platform> Hsm<P> {
             StepDownPoint::LogIndex(index) => index,
         };
 
-        let result = match leader.committed {
-            // Even if we've already committed to the stepdown index, if there
-            // are uncommitted entries after that we still need to move to
-            // stepdown so that these uncommitted entries get reported as
-            // abandoned.
-            Some(c) if c == stepdown_index && leader.log.last().entry.index == stepdown_index => {
-                StepDownResponse::Complete {
+        // If we've committed to the stepdown index and there are no log entries
+        // that get abandoned we can go straight to the Witness state.
+        if let Some(committed) = leader.committed {
+            if committed == stepdown_index && leader.log.last().entry.index == stepdown_index {
+                return StepDownResponse::Complete {
                     last: stepdown_index,
-                }
+                };
             }
-            _ => {
-                // Anything after the stepdown index is never going to commit
-                // and is flagged as abandoned.
-                let mut abandoned: Vec<EntryMac> = Vec::new();
-                while leader.log.last().entry.index > stepdown_index {
-                    let e = leader.log.pop_last();
-                    abandoned.push(e.entry.entry_mac);
-                }
+        }
+        // Otherwise we need to transition to SteppingDown.
 
-                self.volatile.stepping_down.insert(
-                    group,
-                    SteppingDownVolatileGroupState {
-                        log: leader.log,
-                        committed: leader.committed,
-                        stepdown_at: stepdown_index,
-                        abandoned,
-                    },
-                );
-                StepDownResponse::InProgress {
-                    last: stepdown_index,
-                }
-            }
-        };
-        info!(?group, ?stepdown_index, ?result, "stepdown_at");
-        result
+        // Anything after the stepdown index is never going to commit and is
+        // flagged as abandoned.
+        let mut abandoned: Vec<EntryMac> = Vec::new();
+        while leader.log.last().entry.index > stepdown_index {
+            let e = leader.log.pop_last();
+            abandoned.push(e.entry.entry_mac);
+        }
+
+        self.volatile.stepping_down.insert(
+            group,
+            SteppingDownVolatileGroupState {
+                log: leader.log,
+                committed: leader.committed,
+                stepdown_at: stepdown_index,
+                abandoned,
+            },
+        );
+        StepDownResponse::InProgress {
+            last: stepdown_index,
+        }
     }
 
     fn handle_persist_state(
