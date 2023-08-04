@@ -77,18 +77,31 @@ impl HsmGenerator {
             let agent_port = self.port.next();
             let agent_address = SocketAddr::from(([127, 0, 0, 1], agent_port)).to_string();
             let agent_url = Url::parse(&format!("http://{agent_address}")).unwrap();
-            let mut cmd = Command::new(path_to_target.join(mode).join("entrust_agent"));
+            let mut cmd = Command::new(
+                path_to_target
+                    .join("target")
+                    .join(mode)
+                    .join("entrust_agent"),
+            );
             if metrics.report_metrics(next_is_leader) {
                 cmd.arg("--metrics").arg("1000");
             };
             next_is_leader = false;
             cmd.arg("--listen").arg(agent_address);
-            cmd.arg("--image").arg(format!(
-                "target/powerpc-unknown-linux-gnu/{mode}/entrust-hsm.sar",
-            ));
-            cmd.arg("--userdata").arg(format!(
-                "target/powerpc-unknown-linux-gnu/{mode}/userdata.sar"
-            ));
+            cmd.arg("--image").arg(
+                path_to_target
+                    .join("target")
+                    .join("powerpc-unknown-linux-gnu")
+                    .join(mode)
+                    .join("entrust-hsm.sar"),
+            );
+            cmd.arg("--userdata").arg(
+                path_to_target
+                    .join("target")
+                    .join("powerpc-unknown-linux-gnu")
+                    .join(mode)
+                    .join("userdata.sar"),
+            );
             bigtable.add_to_cmd(&mut cmd);
             process_group.spawn(&mut cmd);
             agent_urls.push(agent_url);
