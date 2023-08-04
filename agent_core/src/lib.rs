@@ -70,11 +70,13 @@ struct AgentInner<T> {
 
 #[derive(Debug)]
 struct State {
+    /// State about a group that's needed while the HSM is Leader or SteppingDown.
     leader: HashMap<(RealmId, GroupId), LeaderState>,
     // Captures that have been persisted to NVRAM in the HSM.
     captures: Vec<Captured>,
 }
 
+// State about a group that is used in the Leader or SteppingDown state.
 #[derive(Debug)]
 struct LeaderState {
     /// Log entries may be received out of order from the HSM. They are buffered

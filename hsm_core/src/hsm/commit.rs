@@ -214,10 +214,10 @@ impl<P: Platform> Hsm<P> {
                     && captured.realm == request.realm
                     && verify_capture(captured)
                 {
-                    // Ensure the entry MAC is valid for this log by checking
-                    // it against entries we have. For a new leader this won't
-                    // be able to commit until the witnesses catch up to a log
-                    // entry written by the new leader.
+                    // Ensure the entry MAC is valid for this log by checking it
+                    // against entries we have. For a new leader this won't be
+                    // able to commit until the witnesses catch up to at least
+                    // the log entry that the new leader started from.
                     if let Some(log_entry) = log.with_index(captured.index) {
                         if log_entry.entry.entry_mac == captured.mac {
                             election.vote(captured.hsm, captured.index);
