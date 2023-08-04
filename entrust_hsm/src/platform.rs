@@ -274,8 +274,9 @@ impl NVRam for NCipher {
                 data.len()
             )));
         }
+        let len = data.len() as u32;
         data.resize(NVRAM_LEN_OFFSET, 0);
-        data.extend(&to_be4(data.len()));
+        data.extend(&to_be4(len));
 
         let mut cmd = M_Command::new(Cmd_NVMemOp);
         cmd.args.nvmemop.op = NVMemOpType_Write;
