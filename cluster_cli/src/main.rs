@@ -12,7 +12,6 @@ use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_realm_api::types::RealmId;
 use observability::{logging, metrics};
 use secret_manager::new_google_secret_manager;
-use store::{self};
 
 mod commands;
 mod statuses;
