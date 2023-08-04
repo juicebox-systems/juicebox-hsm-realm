@@ -118,7 +118,9 @@ pub fn doc_splits_details(dir: &Path) {
         .1
         .set("fillcolor", "gold1");
 
-    let Node::Interior(left_root) = left_tree.get_node(&KeyVec::new(), &left_tree.root) else {panic!()};
+    let Node::Interior(left_root) = left_tree.get_node(&KeyVec::new(), &left_tree.root) else {
+        panic!()
+    };
 
     let left_branch = left_root.branch(Dir::Left).as_ref().unwrap();
     left.node_mut(&hash_id(&left_branch.hash))
@@ -133,7 +135,9 @@ pub fn doc_splits_details(dir: &Path) {
         .1
         .set("fillcolor", "gold1");
 
-    let Node::Interior(right_root) = right_tree.get_node(&KeyVec::new(), &right_tree.root) else {panic!()};
+    let Node::Interior(right_root) = right_tree.get_node(&KeyVec::new(), &right_tree.root) else {
+        panic!()
+    };
     let left_branch = right_root.branch(Dir::Left).as_ref().unwrap();
     right
         .node_mut(&hash_id(&left_branch.hash))
@@ -184,7 +188,9 @@ fn split_dot_tree_at(
 
     // move a child edge to the other side of the split
     // if the child was also split, move to the split side of the child.
-    let Node::Interior(int) = tree.get_node(prefix, node) else { panic!() };
+    let Node::Interior(int) = tree.get_node(prefix, node) else {
+        panic!()
+    };
     let dir = Dir::from(split_key.at(prefix.len()));
 
     let child_hash = int.branch(dir).as_ref().unwrap().hash;

@@ -9,7 +9,6 @@ use chacha20poly1305::aead::Aead;
 use core::fmt::Debug;
 use core::time::Duration;
 use digest::Digest;
-use hashbrown::hash_map::Entry;
 use hsm_api::merkle::StoreDelta;
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
@@ -39,17 +38,16 @@ use hsm_api::rpc::{
     HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction, Nanos,
 };
 use hsm_api::{
-    AppRequest, AppRequestType, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CaptureNextRequest, CaptureNextResponse, Captured, CompleteTransferRequest,
-    CompleteTransferResponse, DataHash, EntryMac, GroupId, GroupMemberRole, GroupStatus,
-    HandshakeRequest, HandshakeResponse, HsmId, HsmRealmStatement, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus, LogEntry, LogIndex,
-    NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, OwnedRange, Partition,
-    PersistStateRequest, PersistStateResponse, PublicKey, RealmStatus, RecordId, StatusRequest,
-    StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse,
-    TransferNonce, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
-    TransferOutResponse, TransferStatementRequest, TransferStatementResponse, TransferringOut,
-    CONFIGURATION_LIMIT, GROUPS_LIMIT,
+    AppRequest, AppRequestType, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, Captured,
+    CompleteTransferRequest, CompleteTransferResponse, DataHash, EntryMac, GroupId,
+    GroupMemberRole, GroupStatus, HandshakeRequest, HandshakeResponse, HsmId, HsmRealmStatement,
+    JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, LeaderStatus,
+    LogEntry, LogIndex, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
+    OwnedRange, Partition, PersistStateRequest, PersistStateResponse, PublicKey, RealmStatus,
+    RecordId, StatusRequest, StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest,
+    TransferInResponse, TransferNonce, TransferNonceRequest, TransferNonceResponse,
+    TransferOutRequest, TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
+    TransferringOut, CONFIGURATION_LIMIT, GROUPS_LIMIT,
 };
 use juicebox_marshalling::{self as marshalling, bytes, DeserializationError};
 use juicebox_noise::server as noise;
@@ -94,6 +92,7 @@ fn create_random_realm_id(rng: &mut impl CryptoRng) -> RealmId {
 }
 
 struct LogEntryBuilder {
+    hsm: HsmId,
     realm: RealmId,
     group: GroupId,
     index: LogIndex,
@@ -105,6 +104,7 @@ struct LogEntryBuilder {
 impl LogEntryBuilder {
     fn build(self, key: &MacKey) -> LogEntry {
         let entry_mac = key.log_entry_mac(&EntryMacMessage {
+            hsm: self.hsm,
             realm: self.realm,
             group: self.group,
             index: self.index,
@@ -114,6 +114,7 @@ impl LogEntryBuilder {
         });
 
         LogEntry {
+            hsm: self.hsm,
             index: self.index,
             partition: self.partition,
             transferring_out: self.transferring_out,
@@ -145,7 +146,7 @@ impl NodeHasher for MerkleHasher {
 }
 
 /// A private key used to encrypt/decrypt record values.
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct RecordEncryptionKey(#[serde(with = "bytes")] [u8; 32]);
 
 impl RecordEncryptionKey {
@@ -162,6 +163,7 @@ pub struct Hsm<P: Platform> {
     realm_keys: RealmKeys,
 }
 
+#[derive(Clone, Copy)]
 pub enum MetricsReporting {
     // If disabled, then per request metrics won't be reported back to the agent
     // even if the request asks for them.
@@ -169,6 +171,7 @@ pub enum MetricsReporting {
     Enabled,
 }
 
+#[derive(Clone)]
 pub struct HsmOptions {
     pub name: String,
     pub tree_overlay_size: u16,
@@ -177,6 +180,7 @@ pub struct HsmOptions {
     pub metrics: MetricsReporting,
 }
 
+#[derive(Clone)]
 pub struct RealmKeys {
     pub communication: (x25519::StaticSecret, x25519::PublicKey),
     pub record: RecordEncryptionKey,
@@ -227,7 +231,7 @@ struct VolatileState {
 }
 
 struct LeaderVolatileGroupState {
-    log: VecDeque<LeaderLogEntry>, // never empty
+    log: LeaderLog, // never empty
     committed: Option<LogIndex>,
     incoming: Option<TransferNonce>,
     /// This is `Some` if and only if the last entry in `log` owns a partition.
@@ -242,10 +246,7 @@ impl LeaderVolatileGroupState {
             .as_ref()
             .map(|p| Tree::with_existing_root(p.root_hash, options.tree_overlay_size));
         Self {
-            log: VecDeque::from([LeaderLogEntry {
-                entry: last_entry,
-                response: None,
-            }]),
+            log: LeaderLog::new(last_entry),
             committed: None,
             incoming: None,
             tree,
@@ -258,8 +259,11 @@ struct SteppingDownVolatileGroupState {
     // This contains uncommitted log entries generated while leader and log
     // entries from the new leader that are needed to complete a commit. Never
     // empty.
-    log: VecDeque<LeaderLogEntry>,
+    log: LeaderLog,
     committed: Option<LogIndex>,
+    // EntryMacs that were returned from app_request but will never commit
+    // because the in memory leader log and the persisted log have diverged.
+    abandoned: Vec<EntryMac>,
     // The last log index owned by this leader. When this (or some index after
     // it) is committed the stepdown is complete.
     stepdown_at: LogIndex,
@@ -270,6 +274,93 @@ struct LeaderLogEntry {
     /// A possible response to the client. This must not be externalized until
     /// after the entry has been committed.
     response: Option<NoiseResponse>,
+}
+
+// A contiguous series of Log entries.
+//
+// invariant: contains at least one log entry at all times.
+struct LeaderLog(VecDeque<LeaderLogEntry>);
+
+impl LeaderLog {
+    fn new(entry: LogEntry) -> Self {
+        Self(VecDeque::from([LeaderLogEntry {
+            entry,
+            response: None,
+        }]))
+    }
+
+    fn first(&self) -> &LeaderLogEntry {
+        self.0.front().expect("LeaderLog should never be empty")
+    }
+
+    fn last(&self) -> &LeaderLogEntry {
+        self.0.back().expect("LeaderLog should never be empty")
+    }
+
+    fn first_index(&self) -> LogIndex {
+        self.first().entry.index
+    }
+
+    fn last_index(&self) -> LogIndex {
+        self.last().entry.index
+    }
+
+    fn get_index(&self, index: LogIndex) -> Option<&LeaderLogEntry> {
+        let first = self.first_index();
+        let last = self.last_index();
+        if index < first || index > last {
+            return None;
+        }
+        let offset = index.0 - first.0;
+        // Should run out of memory before hitting this limit for usize==u32
+        let offset = usize::try_from(offset).expect("LeaderLog too large");
+        let entry = self
+            .0
+            .get(offset)
+            .expect("we already validated the offset is in range");
+        assert_eq!(entry.entry.index, index);
+        Some(entry)
+    }
+
+    // Adds a new entry to the end of the log. Will panic if the LogIndex of the
+    // new entry is not the next in the sequence. Will panic if the prev_mac of
+    // the new entry does not match the entry_mac of the last entry.
+    fn append(&mut self, entry: LogEntry, response: Option<NoiseResponse>) {
+        let last = self.last();
+        assert_eq!(
+            entry.index,
+            last.entry.index.next(),
+            "LogIndex not sequential"
+        );
+        assert_eq!(
+            entry.prev_mac, last.entry.entry_mac,
+            "EntryMacs not chained"
+        );
+        self.0.push_back(LeaderLogEntry { entry, response });
+    }
+
+    fn pop_last(&mut self) -> LeaderLogEntry {
+        assert!(
+            self.0.len() > 1,
+            "there should always be at least one entry in the log"
+        );
+        self.0.pop_back().unwrap()
+    }
+
+    fn pop_first(&mut self) -> LeaderLogEntry {
+        assert!(
+            self.0.len() > 1,
+            "there should always be at least one entry in the log"
+        );
+        self.0.pop_front().unwrap()
+    }
+
+    // Takes the response from the first entry in the log replacing it with None.
+    // Returns the response and its related EntryMac if there was one, None otherwise.
+    fn take_first_response(&mut self) -> Option<(EntryMac, NoiseResponse)> {
+        let e = self.0.front_mut().unwrap();
+        e.response.take().map(|r| (e.entry.entry_mac.clone(), r))
+    }
 }
 
 #[derive(Debug)]
@@ -561,8 +652,7 @@ impl<P: Platform> Hsm<P> {
                                 committed: leader.committed,
                                 owned_range: leader
                                     .log
-                                    .back()
-                                    .expect("leader's log is never empty")
+                                    .last()
                                     .entry
                                     .partition
                                     .as_ref()
@@ -619,6 +709,7 @@ impl<P: Platform> Hsm<P> {
             let (root_hash, delta) = Tree::<MerkleHasher>::new_tree(&range);
 
             let entry = LogEntryBuilder {
+                hsm: self.persistent.id,
                 realm,
                 group,
                 index: LogIndex::FIRST,
@@ -740,7 +831,11 @@ impl<P: Platform> Hsm<P> {
             }
 
             let Ok(configuration) = GroupConfiguration::from_sorted_including_local(
-                request.members.iter().map(|(id, _)| *id).collect::<Vec<HsmId>>(),
+                request
+                    .members
+                    .iter()
+                    .map(|(id, _)| *id)
+                    .collect::<Vec<HsmId>>(),
                 &self.persistent.id,
             ) else {
                 return Response::InvalidConfiguration;
@@ -769,6 +864,7 @@ impl<P: Platform> Hsm<P> {
             }
 
             let entry = LogEntryBuilder {
+                hsm: self.persistent.id,
                 realm: request.realm,
                 group,
                 index: LogIndex::FIRST,
@@ -849,99 +945,6 @@ impl<P: Platform> Hsm<P> {
                     captured: None,
                 });
             Response::Ok
-        })();
-
-        trace!(hsm = self.options.name, ?response);
-        response
-    }
-
-    fn handle_capture_next(
-        &mut self,
-        _metrics: &mut Metrics<P>,
-        request: CaptureNextRequest,
-    ) -> CaptureNextResponse {
-        type Response = CaptureNextResponse;
-        trace!(hsm = self.options.name, ?request);
-
-        let response = (|| {
-            if request.entries.is_empty() {
-                return Response::MissingEntries;
-            }
-
-            match &self.persistent.realm {
-                None => Response::InvalidRealm,
-
-                Some(realm) => {
-                    if realm.id != request.realm {
-                        return Response::InvalidRealm;
-                    }
-
-                    if realm.groups.get(&request.group).is_none() {
-                        return Response::InvalidGroup;
-                    }
-
-                    for entry in request.entries {
-                        if self
-                            .realm_keys
-                            .mac
-                            .log_entry_mac(&EntryMacMessage::new(
-                                request.realm,
-                                request.group,
-                                &entry,
-                            ))
-                            .verify(&entry.entry_mac)
-                            .is_err()
-                        {
-                            return Response::InvalidMac;
-                        }
-
-                        let e = self.volatile.captured.entry(request.group);
-                        match &e {
-                            Entry::Vacant(_) => {
-                                if entry.index != LogIndex::FIRST {
-                                    return Response::MissingPrev;
-                                }
-                                if entry.prev_mac != EntryMac::zero() {
-                                    return Response::InvalidChain;
-                                }
-                            }
-                            Entry::Occupied(v) => {
-                                let (captured_index, captured_mac) = v.get();
-                                if entry.index != captured_index.next() {
-                                    return Response::MissingPrev;
-                                }
-                                if entry.prev_mac != *captured_mac {
-                                    return Response::InvalidChain;
-                                }
-                            }
-                        }
-
-                        // If we're stepping down we need to get the commit
-                        // index up to the stepping down index. It's not
-                        // possible for the agent to create a commit request
-                        // with that exact index as the witnesses may have
-                        // already passed the index and they can't generate a
-                        // capture statement for an earlier index. So while
-                        // stepping down we collect the new log entries that
-                        // we're witnessing into the stepping down log. Commit
-                        // can then successfully process a commit request that
-                        // is after the stepdown index and complete the
-                        // stepdown.
-                        if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
-                            let last = &sd.log.back().unwrap().entry;
-                            if entry.index == last.index.next() && entry.prev_mac == last.entry_mac
-                            {
-                                sd.log.push_back(LeaderLogEntry {
-                                    entry: entry.clone(),
-                                    response: None,
-                                });
-                            }
-                        }
-                        e.insert((entry.index, entry.entry_mac));
-                    }
-                    Response::Ok
-                }
-            }
         })();
 
         trace!(hsm = self.options.name, ?response);
@@ -1029,7 +1032,7 @@ impl<P: Platform> Hsm<P> {
         trace!(hsm = self.options.name, ?request);
 
         let Some(realm) = &self.persistent.realm else {
-             return Response::InvalidRealm;
+            return Response::InvalidRealm;
         };
         if realm.id != request.realm {
             return Response::InvalidRealm;
@@ -1037,27 +1040,54 @@ impl<P: Platform> Hsm<P> {
         let Some(_group) = realm.groups.get(&request.group) else {
             return Response::InvalidGroup;
         };
-        let Some(leader) = self.volatile.leader.remove(&request.group) else {
-            return Response::NotLeader;
+        self.stepdown_at(request.group, StepDownPoint::LastLogIndex)
+    }
+
+    // Move to the stepping down state. Stepdown will end once the committed log
+    // index >= stepdown_index and any abandoned entries have been reported
+    // through a commit request.
+    fn stepdown_at(&mut self, group: GroupId, stepdown: StepDownPoint) -> StepDownResponse {
+        let Some(mut leader) = self.volatile.leader.remove(&group) else {
+            return match self.current_role(&group) {
+                Some(role) => StepDownResponse::NotLeader(role),
+                None => StepDownResponse::InvalidGroup,
+            };
         };
-        let stepdown_index = leader.log.back().unwrap().entry.index;
-        match leader.committed {
-            Some(c) if c == stepdown_index => Response::Complete {
-                last: stepdown_index,
-            },
-            _ => {
-                self.volatile.stepping_down.insert(
-                    request.group,
-                    SteppingDownVolatileGroupState {
-                        log: leader.log,
-                        committed: leader.committed,
-                        stepdown_at: stepdown_index,
-                    },
-                );
-                Response::InProgress {
+        let stepdown_index = match stepdown {
+            StepDownPoint::LastLogIndex => leader.log.last_index(),
+            StepDownPoint::LogIndex(index) => index,
+        };
+
+        // If we've committed to the stepdown index and there are no log entries
+        // that get abandoned we can go straight to the Witness state.
+        if let Some(committed) = leader.committed {
+            if committed == stepdown_index && leader.log.last_index() == stepdown_index {
+                return StepDownResponse::Complete {
                     last: stepdown_index,
-                }
+                };
             }
+        }
+        // Otherwise we need to transition to SteppingDown.
+
+        // Anything after the stepdown index is never going to commit and is
+        // flagged as abandoned.
+        let mut abandoned: Vec<EntryMac> = Vec::new();
+        while leader.log.last_index() > stepdown_index {
+            let e = leader.log.pop_last();
+            abandoned.push(e.entry.entry_mac);
+        }
+
+        self.volatile.stepping_down.insert(
+            group,
+            SteppingDownVolatileGroupState {
+                log: leader.log,
+                committed: leader.committed,
+                stepdown_at: stepdown_index,
+                abandoned,
+            },
+        );
+        StepDownResponse::InProgress {
+            last: stepdown_index,
         }
     }
 
@@ -1141,7 +1171,7 @@ impl<P: Platform> Hsm<P> {
                 return Response::NotLeader;
             };
 
-            let last_entry = &leader.log.back().unwrap().entry;
+            let last_entry = &leader.log.last().entry;
 
             // Note: The owned_range found in the last entry might not have
             // committed yet. We think that's OK. The source group won't
@@ -1222,6 +1252,7 @@ impl<P: Platform> Hsm<P> {
 
             let index = last_entry.index.next();
             let entry = LogEntryBuilder {
+                hsm: self.persistent.id,
                 realm: request.realm,
                 group: request.source,
                 index,
@@ -1235,10 +1266,7 @@ impl<P: Platform> Hsm<P> {
             }
             .build(&self.realm_keys.mac);
 
-            leader.log.push_back(LeaderLogEntry {
-                entry: entry.clone(),
-                response: None,
-            });
+            leader.log.append(entry.clone(), None);
 
             TransferOutResponse::Ok { entry, delta }
         })();
@@ -1308,7 +1336,8 @@ impl<P: Platform> Hsm<P> {
                 destination,
                 partition,
                 at: transferring_at,
-            }) = &leader.log.back().unwrap().entry.transferring_out else {
+            }) = &leader.log.last().entry.transferring_out
+            else {
                 return Response::NotTransferring;
             };
             if *destination != request.destination {
@@ -1361,7 +1390,7 @@ impl<P: Platform> Hsm<P> {
             }
             leader.incoming = None;
 
-            let last_entry = &leader.log.back().unwrap().entry;
+            let last_entry = &leader.log.last().entry;
             let needs_merge = match &last_entry.partition {
                 None => false,
                 Some(part) => match part.range.join(&request.transferring.range) {
@@ -1419,6 +1448,7 @@ impl<P: Platform> Hsm<P> {
             };
 
             let entry = LogEntryBuilder {
+                hsm: self.persistent.id,
                 realm: request.realm,
                 group: request.destination,
                 index: last_entry.index.next(),
@@ -1428,10 +1458,7 @@ impl<P: Platform> Hsm<P> {
             }
             .build(&self.realm_keys.mac);
 
-            leader.log.push_back(LeaderLogEntry {
-                entry: entry.clone(),
-                response: None,
-            });
+            leader.log.append(entry.clone(), None);
 
             leader.tree = Some(Tree::with_existing_root(
                 partition.root_hash,
@@ -1450,7 +1477,7 @@ impl<P: Platform> Hsm<P> {
         request: CompleteTransferRequest,
     ) -> CompleteTransferResponse {
         type Response = CompleteTransferResponse;
-        trace!(hsm = self.options.name, ?request);
+        info!(hsm = self.options.name, ?request, "complete transfer");
 
         let response = (|| {
             let Some(realm) = &self.persistent.realm else {
@@ -1469,7 +1496,7 @@ impl<P: Platform> Hsm<P> {
                 return Response::NotLeader;
             };
 
-            let last_entry = &leader.log.back().unwrap().entry;
+            let last_entry = &leader.log.last().entry;
             if let Some(transferring_out) = &last_entry.transferring_out {
                 if transferring_out.destination != request.destination
                     || transferring_out.partition.range != request.range
@@ -1481,6 +1508,7 @@ impl<P: Platform> Hsm<P> {
             }
 
             let entry = LogEntryBuilder {
+                hsm: self.persistent.id,
                 realm: request.realm,
                 group: request.source,
                 index: last_entry.index.next(),
@@ -1490,10 +1518,7 @@ impl<P: Platform> Hsm<P> {
             }
             .build(&self.realm_keys.mac);
 
-            leader.log.push_back(LeaderLogEntry {
-                entry: entry.clone(),
-                response: None,
-            });
+            leader.log.append(entry.clone(), None);
 
             Response::Ok(entry)
         })();
@@ -1514,7 +1539,7 @@ impl<P: Platform> Hsm<P> {
             Some(realm) if realm.id == request.realm => {
                 if realm.groups.contains_key(&request.group) {
                     if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
-                        if (leader.log.back().unwrap().entry)
+                        if (leader.log.last().entry)
                             .partition
                             .as_ref()
                             .filter(|partition| partition.range.contains(&request.record_id))
@@ -1570,40 +1595,77 @@ impl<P: Platform> Hsm<P> {
         let start = metrics.now();
         let mut app_req_name = None;
 
-        let response = match &self.persistent.realm {
-            Some(realm) if realm.id == request.realm => {
-                if realm.groups.contains_key(&request.group) {
-                    if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
-                        if (leader.log.back().unwrap().entry)
-                            .partition
-                            .as_ref()
-                            .filter(|partition| partition.range.contains(&request.record_id))
-                            .is_some()
-                        {
-                            handle_app_request(
-                                request,
-                                &self.realm_keys,
-                                leader,
-                                &mut app_req_name,
-                                &mut self.platform,
-                            )
-                        } else {
-                            Response::NotOwner
-                        }
-                    } else {
-                        Response::NotLeader
-                    }
-                } else {
-                    Response::InvalidGroup
-                }
+        let response = (|| {
+            let Some(realm) = &self.persistent.realm else {
+                return Response::InvalidRealm;
+            };
+            if realm.id != request.realm {
+                return Response::InvalidRealm;
             }
-
-            None | Some(_) => Response::InvalidRealm,
-        };
+            if !realm.groups.contains_key(&request.group) {
+                return Response::InvalidGroup;
+            }
+            let Some(leader) = self.volatile.leader.get_mut(&request.group) else {
+                return Response::NotLeader(
+                    self.current_role(&request.group)
+                        .expect("We already validated that this HSM is a member of the group"),
+                );
+            };
+            if (leader.log.last().entry)
+                .partition
+                .as_ref()
+                .filter(|partition| partition.range.contains(&request.record_id))
+                .is_none()
+            {
+                return Response::NotOwner;
+            }
+            // If we get a request where the log index is newer than anything we
+            // know about then some other HSM wrote a log entry and therefore we
+            // are not leader anymore. This also stops this replying with stale
+            // proof and the agent endlessly retrying.
+            if request.index > leader.log.last_index() {
+                self.handle_stepdown_as_leader(
+                    metrics,
+                    StepDownRequest {
+                        realm: request.realm,
+                        group: request.group,
+                    },
+                );
+                return Response::NotLeader(
+                    self.current_role(&request.group)
+                        .expect("We already validated that this HSM is a member of the group"),
+                );
+            }
+            handle_app_request(
+                request,
+                self.persistent.id,
+                &self.realm_keys,
+                leader,
+                &mut app_req_name,
+                &mut self.platform,
+            )
+        })();
 
         metrics.record(app_req_name.unwrap_or("App::unknown"), start);
         trace!(hsm = self.options.name, ?response);
         response
+    }
+
+    fn current_role(&self, group: &GroupId) -> Option<GroupMemberRole> {
+        if self.volatile.leader.contains_key(group) {
+            Some(GroupMemberRole::Leader)
+        } else if self.volatile.stepping_down.contains_key(group) {
+            Some(GroupMemberRole::SteppingDown)
+        } else if self
+            .persistent
+            .realm
+            .as_ref()
+            .is_some_and(|r| r.groups.contains_key(group))
+        {
+            Some(GroupMemberRole::Witness)
+        } else {
+            None
+        }
     }
 }
 
@@ -1631,6 +1693,7 @@ fn secrets_request_type(r: &SecretsRequest) -> AppRequestType {
 
 fn handle_app_request(
     request: AppRequest,
+    hsm: HsmId,
     keys: &RealmKeys,
     leader: &mut LeaderVolatileGroupState,
     req_name_out: &mut Option<&'static str>,
@@ -1679,8 +1742,9 @@ fn handle_app_request(
 
     let (root_hash, store_delta) = merkle.update_overlay(rng, change);
 
-    let last_entry = leader.log.back().unwrap();
+    let last_entry = leader.log.last();
     let new_entry = LogEntryBuilder {
+        hsm,
         realm: request.realm,
         group: request.group,
         index: last_entry.entry.index.next(),
@@ -1693,10 +1757,8 @@ fn handle_app_request(
     }
     .build(&keys.mac);
 
-    leader.log.push_back(LeaderLogEntry {
-        entry: new_entry.clone(),
-        response: Some(secrets_response),
-    });
+    leader.log.append(new_entry.clone(), Some(secrets_response));
+
     AppResponse::Ok {
         entry: new_entry,
         delta: store_delta,
@@ -1925,15 +1987,34 @@ impl From<AppError> for AppResponse {
     }
 }
 
+enum StepDownPoint {
+    // Step down at the index of the last item in leader log.
+    LastLogIndex,
+    // Step down at this specific log index.
+    LogIndex(LogIndex),
+}
+
 #[cfg(test)]
 mod tests {
+    use alloc::sync::Arc;
+    use core::iter;
+    use rand::Rng;
+    use rand_core::{CryptoRng, OsRng, RngCore};
+    use std::sync::Mutex;
+
     use crate::hash::HashMap;
+    use crate::merkle::testing::MemStore;
     use juicebox_marshalling as marshalling;
+    use juicebox_noise::client::Handshake;
+    use juicebox_realm_api::requests::DeleteResponse;
     use juicebox_realm_api::types::RealmId;
 
     use super::super::hal::MAX_NVRAM_SIZE;
     use super::*;
-    use hsm_api::{EntryMac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT};
+    use hsm_api::{
+        CaptureNextRequest, CaptureNextResponse, CommitRequest, CommitResponse, CommitState,
+        EntryMac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT,
+    };
 
     fn array_big<const N: usize>(i: u8) -> [u8; N] {
         let mut r = [0xff; N];
@@ -1975,5 +2056,1055 @@ mod tests {
             "serialized persistent state is {} bytes",
             s.len()
         );
+    }
+
+    fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
+        let hsm = HsmId([8; 16]);
+        let e = LogEntry {
+            index: LogIndex(42),
+            partition: None,
+            transferring_out: None,
+            prev_mac: EntryMac::from([3; 32]),
+            entry_mac: EntryMac::from([42; 32]),
+            hsm,
+        };
+        let mut log = LeaderLog::new(e.clone());
+        let e2 = LogEntry {
+            index: LogIndex(43),
+            partition: None,
+            transferring_out: None,
+            prev_mac: e.entry_mac.clone(),
+            entry_mac: EntryMac::from([43; 32]),
+            hsm,
+        };
+        log.append(
+            e2.clone(),
+            Some(NoiseResponse::Transport {
+                ciphertext: vec![43, 43, 43],
+            }),
+        );
+        let e3 = LogEntry {
+            index: LogIndex(44),
+            partition: None,
+            transferring_out: None,
+            prev_mac: e2.entry_mac.clone(),
+            entry_mac: EntryMac::from([44; 32]),
+            hsm,
+        };
+        log.append(
+            e3.clone(),
+            Some(NoiseResponse::Transport {
+                ciphertext: vec![44, 44, 44],
+            }),
+        );
+        (log, [e.entry_mac, e2.entry_mac, e3.entry_mac])
+    }
+
+    #[test]
+    #[should_panic(expected = "not sequential")]
+    fn leader_log_index_sequential() {
+        let (mut log, macs) = make_leader_log();
+        let e = LogEntry {
+            index: LogIndex(55),
+            partition: None,
+            transferring_out: None,
+            prev_mac: macs[2].clone(),
+            entry_mac: EntryMac::from([44; 32]),
+            hsm: HsmId([1; 16]),
+        };
+        log.append(e, None);
+    }
+
+    #[test]
+    #[should_panic(expected = "not chained")]
+    fn leader_log_mac_chain() {
+        let (mut log, _) = make_leader_log();
+        let last = log.last();
+        let e = LogEntry {
+            index: last.entry.index.next(),
+            partition: None,
+            transferring_out: None,
+            prev_mac: EntryMac::from([45; 32]),
+            entry_mac: EntryMac::from([45; 32]),
+            hsm: last.entry.hsm,
+        };
+        log.append(e, None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn leader_log_cant_empty_pop_first() {
+        let (mut log, _) = make_leader_log();
+        assert_eq!(LogIndex(42), log.pop_first().entry.index);
+        assert_eq!(LogIndex(43), log.pop_first().entry.index);
+        log.pop_first();
+    }
+
+    #[test]
+    #[should_panic]
+    fn leader_log_cant_empty_pop_last() {
+        let (mut log, _) = make_leader_log();
+        assert_eq!(LogIndex(44), log.pop_last().entry.index);
+        assert_eq!(LogIndex(43), log.pop_last().entry.index);
+        log.pop_last();
+    }
+
+    #[test]
+    fn leader_log_first_last() {
+        let (mut log, _) = make_leader_log();
+        assert_eq!(LogIndex(42), log.first().entry.index);
+        assert_eq!(LogIndex(44), log.last().entry.index);
+        assert_eq!(LogIndex(42), log.first_index());
+        assert_eq!(LogIndex(44), log.last_index());
+        log.pop_last();
+        assert_eq!(LogIndex(43), log.last().entry.index);
+    }
+
+    #[test]
+    fn leader_log_with_index() {
+        let (log, _) = make_leader_log();
+        assert_eq!(
+            LogIndex(44),
+            log.get_index(LogIndex(44)).unwrap().entry.index
+        );
+        assert_eq!(
+            LogIndex(42),
+            log.get_index(LogIndex(42)).unwrap().entry.index
+        );
+        assert_eq!(
+            LogIndex(43),
+            log.get_index(LogIndex(43)).unwrap().entry.index
+        );
+        assert!(log.get_index(LogIndex(41)).is_none());
+        assert!(log.get_index(LogIndex(45)).is_none());
+        assert!(log.get_index(LogIndex::FIRST).is_none());
+        assert!(log.get_index(LogIndex(u64::MAX)).is_none());
+    }
+
+    #[test]
+    fn leader_log_take_first() {
+        let (mut log, macs) = make_leader_log();
+        assert_eq!(LogIndex(42), log.pop_first().entry.index);
+
+        match log.take_first_response() {
+            Some((mac, NoiseResponse::Transport { ciphertext })) => {
+                assert_eq!(vec![43, 43, 43], ciphertext);
+                assert_eq!(macs[1], mac);
+            }
+            _ => panic!("should of taken a noise response"),
+        }
+        assert!(log.take_first_response().is_none());
+        assert!(log.pop_first().response.is_none());
+
+        match log.take_first_response() {
+            Some((mac, NoiseResponse::Transport { ciphertext })) => {
+                assert_eq!(vec![44, 44, 44], ciphertext);
+                assert_eq!(macs[2], mac);
+            }
+            _ => panic!("should of taken a noise response"),
+        }
+        assert!(log.take_first_response().is_none());
+    }
+
+    #[test]
+    fn can_commit_from_other_captures() {
+        // The leader should be able to commit entries using captures from other
+        // HSMs even if it hasn't itself captured to that entry yet.
+
+        let mut cluster = TestCluster::new(3);
+
+        let committed = cluster.commit(cluster.group);
+        assert_eq!(1, committed.len());
+        let commit_index = committed[0].committed;
+
+        // Make a regular request to the leader.
+        let (handshake, res) = cluster.hsms[0].app_request(
+            &cluster.store,
+            cluster.realm,
+            cluster.group,
+            RecordId([3; 32]),
+            SecretsRequest::Delete,
+        );
+        let (entry, delta) = unpack_app_response(&res);
+        cluster.store.append(cluster.group, entry.clone(), delta);
+
+        // Entry is not captured yet, commit shouldn't find anything new.
+        let committed = cluster.commit(cluster.group);
+        assert_eq!(1, committed.len());
+        assert_eq!(commit_index, committed[0].committed);
+
+        // We can capture on the other HSMs and commit, even if the leader
+        // hasn't captured yet.
+        for hsm in &mut cluster.hsms[1..] {
+            hsm.capture_next(&cluster.store, cluster.realm, cluster.group);
+        }
+        let committed = cluster.commit(cluster.group);
+        assert_eq!(1, committed.len());
+        let committed = &committed[0];
+        assert_eq!(committed.committed, entry.index);
+        assert_eq!(committed.role, GroupMemberRole::Leader);
+        assert_eq!(1, committed.responses.len());
+        assert_eq!(entry.entry_mac, committed.responses[0].0);
+        assert!(matches!(
+            finish_handshake(handshake, &committed.responses[0].1),
+            SecretsResponse::Delete(DeleteResponse::Ok)
+        ));
+        assert!(committed.abandoned.is_empty());
+
+        // The leader captures, commit shouldn't do anything as the entry is
+        // already committed.
+        cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group);
+        let captures = cluster.persist_state(cluster.group);
+        let committed2 = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
+        assert_eq!(committed.committed, committed2.committed);
+        assert!(committed2.responses.is_empty());
+        assert!(committed2.abandoned.is_empty());
+        assert_eq!(GroupMemberRole::Leader, committed2.role);
+    }
+
+    #[test]
+    fn app_request_spots_future_log() {
+        // During app_request a HSM can detect that some other HSM wrote
+        // a log entry (by looking at the log index) and step down at that point.
+
+        let mut cluster = TestCluster::new(2);
+        // Make both HSMs leader.
+        let last_entry = cluster.store.latest_log(&cluster.group);
+        for hsm in &mut cluster.hsms {
+            let res = hsm.become_leader(cluster.realm, cluster.group, last_entry.clone());
+            assert!(matches!(res, BecomeLeaderResponse::Ok { .. }));
+        }
+        // Ensure everyone has committed the current log.
+        cluster.capture_next_and_commit_group(cluster.group);
+
+        // Have the first HSM handle a request and write it to the store.
+        let (_handshake, res) = cluster.hsms[0].app_request(
+            &cluster.store,
+            cluster.realm,
+            cluster.group,
+            RecordId([3; 32]),
+            SecretsRequest::Delete,
+        );
+        cluster.append(cluster.group, &res);
+
+        // Have the other HSM try to handle a request, it should spot
+        // that the LogIndex is higher than anything it generated.
+        let (_, res) = cluster.hsms[1].app_request(
+            &cluster.store,
+            cluster.realm,
+            cluster.group,
+            RecordId([3; 32]),
+            SecretsRequest::Delete,
+        );
+        // The 2nd HSM should of stepped down to Witness.
+        assert!(
+            matches!(res, AppResponse::NotLeader(GroupMemberRole::Witness)),
+            "app_request unexpected result: {res:?}"
+        );
+    }
+
+    #[test]
+    fn capture_next_spots_diverged_log_no_inflight_reqs() {
+        // During capture_next processing a leading HSM should spot that its in
+        // memory log has diverged from the externally persisted log. If this
+        // HSM has no uncommitted log entries, it can step down to Witness at
+        // this point.
+
+        let mut cluster = TestCluster::new(2);
+
+        // Make a request to hsms[0] (the original leader) and commit it.
+        let (_, res) = cluster.hsms[0].app_request(
+            &cluster.store,
+            cluster.realm,
+            cluster.group,
+            RecordId([4; 32]),
+            SecretsRequest::Register1,
+        );
+        cluster.append(cluster.group, &res);
+        cluster.capture_next_and_commit_group(cluster.group);
+
+        // Make hsms[1] also a leader.
+        let last_entry = cluster.store.latest_log(&cluster.group);
+        let res = cluster.hsms[1].become_leader(cluster.realm, cluster.group, last_entry);
+        assert!(matches!(res, BecomeLeaderResponse::Ok { .. }));
+
+        // Have hsms[1] handle a request and write it to the store.
+        let (_, res) = cluster.hsms[1].app_request(
+            &cluster.store,
+            cluster.realm,
+            cluster.group,
+            RecordId([4; 32]),
+            SecretsRequest::Recover1,
+        );
+        cluster.append(cluster.group, &res);
+
+        // When the first HSM captures this new entry from a different leader it
+        // should stand down. As it has no requests left to commit, it can go
+        // straight to Witness.
+        assert_eq!(
+            Some(GroupMemberRole::Witness),
+            cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group)
+        );
+    }
+
+    #[test]
+    fn capture_next_spots_diverged_log() {
+        // During capture_next processing a leading HSM should spot that its in
+        // memory log has diverged from the externally persisted log. If this
+        // HSM has uncommitted log entries after the divergence point, it can
+        // transition to stepping down and those uncommitted entries should be
+        // flagged as abandoned during the next commit.
+        //
+        // This also covers the case where the log diverges at the first new
+        // entry in the log after becoming leader.
+
+        let mut cluster = TestCluster::new(3);
+        // Make all the HSMs leader.
+        let last = cluster.store.latest_log(&cluster.group);
+        for hsm in cluster.hsms.iter_mut() {
+            let r = hsm.become_leader(cluster.realm, cluster.group, last.clone());
+            assert!(matches!(r, BecomeLeaderResponse::Ok { .. }));
+        }
+
+        // They all should be able to commit the existing log.
+        cluster.commit(cluster.group);
+
+        // Have them all handle an app request.
+        let responses: Vec<AppResponse> = cluster
+            .hsms
+            .iter_mut()
+            .map(|hsm| {
+                let (_, r) = hsm.app_request(
+                    &cluster.store,
+                    cluster.realm,
+                    cluster.group,
+                    RecordId([3; 32]),
+                    SecretsRequest::Delete,
+                );
+                // Everyone thinks they're leader, these should all succeed.
+                assert!(matches!(r, AppResponse::Ok { .. }));
+                r
+            })
+            .collect();
+
+        // hsm[0] wins the log append battle.
+        cluster.append(cluster.group, &responses[0]);
+
+        // hsm[0] should happily capture next and think its still leader.
+        assert_eq!(
+            Some(GroupMemberRole::Leader),
+            cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group)
+        );
+
+        // The other HSMs should stand down. They have uncommitted entries but
+        // they can't be committed. The HSM should transition to stepping down
+        // and report these uncommitted entries as abandoned.
+        for hsm in &mut cluster.hsms[1..] {
+            assert_eq!(
+                Some(GroupMemberRole::SteppingDown),
+                hsm.capture_next(&cluster.store, cluster.realm, cluster.group)
+            );
+        }
+        let captures = cluster.persist_state(cluster.group);
+        for hsm in &mut cluster.hsms[1..] {
+            let res = hsm.commit(cluster.realm, cluster.group, captures.clone());
+            assert!(res.responses.is_empty());
+            assert_eq!(1, res.abandoned.len());
+            // Nothing left for commit to do, transition back to Witness.
+            assert_eq!(GroupMemberRole::Witness, res.role);
+        }
+    }
+
+    #[test]
+    fn capture_next_spots_diverged_log_pipelined() {
+        // During capture_next processing a leading HSM should spot that its in
+        // memory log has diverged from the externally persisted log. The HSM
+        // can start stepping down at this point. There may be entries after the
+        // divergence point that should be abandoned. There may also be valid
+        // uncommitted entries before the divergence point that can still be
+        // committed.
+
+        let mut cluster = TestCluster::new(3);
+
+        // Have the leader handle a series of (pipelined) requests.
+        let leader1_responses: Vec<AppResponse> = iter::repeat_with(|| {
+            cluster.hsms[0]
+                .app_request(
+                    &cluster.store,
+                    cluster.realm,
+                    cluster.group,
+                    RecordId([3; 32]),
+                    SecretsRequest::Delete,
+                )
+                .1
+        })
+        .take(5)
+        .collect();
+        // The first 2 of these are successfully written to the log.
+        cluster.append(cluster.group, &leader1_responses[0]);
+        cluster.append(cluster.group, &leader1_responses[1]);
+
+        // Make another HSM also leader.
+        let last = cluster.store.latest_log(&cluster.group);
+        cluster.hsms[1].capture_next(&cluster.store, cluster.realm, cluster.group);
+        let r = cluster.hsms[1].become_leader(cluster.realm, cluster.group, last.clone());
+        assert!(matches!(r, BecomeLeaderResponse::Ok { .. }),);
+
+        // Have it handle an app request.
+        let (_, leader2_response) = cluster.hsms[1].app_request(
+            &cluster.store,
+            cluster.realm,
+            cluster.group,
+            RecordId([3; 32]),
+            SecretsRequest::Delete,
+        );
+        // hsm[1] wins the append battle.
+        cluster.append(cluster.group, &leader2_response);
+
+        // When hsm[0] (the original leader) captures the log it should spot
+        // that it diverged and start stepping down.
+        assert_eq!(
+            Some(GroupMemberRole::SteppingDown),
+            cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group)
+        );
+
+        // hsm[0] is stepping down and should commit the log entries that it
+        // successfully wrote to the log.
+        let captures = cluster.persist_state(cluster.group);
+        let commit = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
+        // The first leader should of committed the first 2 responses it generated.
+        let (entry, _) = unpack_app_response(&leader1_responses[0]);
+        assert!(commit.responses.iter().any(|r| r.0 == entry.entry_mac));
+        assert!(!commit.abandoned.contains(&entry.entry_mac));
+
+        let (entry, _) = unpack_app_response(&leader1_responses[1]);
+        assert!(commit.responses.iter().any(|r| r.0 == entry.entry_mac));
+        assert!(!commit.abandoned.contains(&entry.entry_mac));
+        assert_eq!(commit.committed, entry.index);
+
+        // The other requests it handled should be flagged as abandoned, they'll never get committed.
+        for ar in &leader1_responses[2..] {
+            let (entry, _) = unpack_app_response(ar);
+            assert!(commit.abandoned.contains(&entry.entry_mac));
+        }
+        assert_eq!(3, commit.abandoned.len());
+        // its committed everything it can, it can now go back to being a witness.
+        assert_eq!(GroupMemberRole::Witness, commit.role);
+
+        // hsm[1] should be able to commit the new entry it wrote once capture_next has caught up.
+        cluster.capture_next(cluster.group);
+        let captures = cluster.persist_state(cluster.group);
+        let commit = cluster.hsms[1].commit(cluster.realm, cluster.group, captures.clone());
+        let (entry, _) = unpack_app_response(&leader2_response);
+        assert_eq!(entry.index, commit.committed);
+        assert_eq!(1, commit.responses.len());
+        assert_eq!(entry.entry_mac, commit.responses[0].0);
+        assert!(commit.abandoned.is_empty());
+        assert_eq!(GroupMemberRole::Leader, commit.role);
+    }
+
+    #[test]
+    fn capture_next_spots_diverged_log_while_stepping_down() {
+        // A Leading HSM has a number of uncommitted log entries when it is
+        // asked to stepdown. While in this stepping down process, capture_next
+        // spots that the log has diverged. The stepping down index should be
+        // shortened to just before the divergence point, and anything after
+        // that should be flagged as abandoned.
+
+        let mut cluster = TestCluster::new(3);
+        // Have the leader handle a series of (pipelined) requests.
+        let leader1_responses: Vec<AppResponse> = iter::repeat_with(|| {
+            cluster.hsms[0]
+                .app_request(
+                    &cluster.store,
+                    cluster.realm,
+                    cluster.group,
+                    RecordId([3; 32]),
+                    SecretsRequest::Delete,
+                )
+                .1
+        })
+        .take(5)
+        .collect();
+
+        // Ask the HSM to gracefully step down.
+        let res = cluster.hsms[0].stepdown_as_leader(cluster.realm, cluster.group);
+        assert!(matches!(res, StepDownResponse::InProgress { .. }));
+
+        // The first request is successfully written to the log.
+        cluster.append(cluster.group, &leader1_responses[0]);
+        // Should be able to capture & commit this fine.
+        cluster.capture_next(cluster.group);
+        let captures = cluster.persist_state(cluster.group);
+        let res = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
+        assert!(res.abandoned.is_empty());
+        assert_eq!(1, res.responses.len());
+        let (entry, _) = unpack_app_response(&leader1_responses[0]);
+        assert_eq!(entry.entry_mac, res.responses[0].0);
+        assert_eq!(entry.index, res.committed);
+        assert_eq!(GroupMemberRole::SteppingDown, res.role);
+
+        // Write the 2nd request to the log.
+        cluster.append(cluster.group, &leader1_responses[1]);
+
+        // Ask another HSM to also be leader.
+        cluster.hsms[1].capture_next(&cluster.store, cluster.realm, cluster.group);
+        let last_entry = cluster.store.latest_log(&cluster.group);
+        let res = cluster.hsms[1].become_leader(cluster.realm, cluster.group, last_entry);
+        assert!(matches!(res, BecomeLeaderResponse::Ok { .. }));
+
+        // Have the new leader process a request and write to the log
+        let (_, leader2_response) = cluster.hsms[1].app_request(
+            &cluster.store,
+            cluster.realm,
+            cluster.group,
+            RecordId([4; 32]),
+            SecretsRequest::Register1,
+        );
+        cluster.append(cluster.group, &leader2_response);
+
+        // hsms[0] capture next sees this diverged log. Its still stepping down.
+        assert_eq!(
+            Some(GroupMemberRole::SteppingDown),
+            cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group)
+        );
+
+        cluster.capture_next(cluster.group);
+        let captures = cluster.persist_state(cluster.group);
+        // Commit on hsms[0] should release the one entry that got persisted and
+        // abandon the later ones.
+        let mut res = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
+        assert_eq!(GroupMemberRole::Witness, res.role);
+        let (entry2, _) = unpack_app_response(&leader1_responses[1]);
+        assert_eq!(1, res.responses.len());
+        assert_eq!(entry2.entry_mac, res.responses[0].0);
+        // everyone captured the log entry written by the new leader, so we'll commit
+        // to that index.
+        assert_eq!(entry2.index.next(), res.committed);
+
+        res.abandoned.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        let mut expected: Vec<EntryMac> = leader1_responses[2..]
+            .iter()
+            .map(|r| unpack_app_response(r).0.entry_mac)
+            .collect();
+        expected.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        assert_eq!(expected, res.abandoned);
+    }
+
+    fn unpack_app_response(r: &AppResponse) -> (LogEntry, StoreDelta<DataHash>) {
+        if let AppResponse::Ok {
+            entry,
+            delta,
+            request_type: _,
+        } = r
+        {
+            (entry.clone(), delta.clone())
+        } else {
+            panic!("app_request failed {r:?}")
+        }
+    }
+
+    fn finish_handshake(hs: Handshake, resp: &NoiseResponse) -> SecretsResponse {
+        if let NoiseResponse::Handshake {
+            handshake: result, ..
+        } = resp
+        {
+            let app_res = hs.finish(result).unwrap();
+            let secret_response: SecretsResponse = marshalling::from_slice(&app_res.1).unwrap();
+            secret_response
+        } else {
+            panic!("expected a NoiseResponse::Handshake but got {:?}", resp);
+        }
+    }
+
+    struct TestCluster<'a> {
+        hsms: Vec<TestHsm<'a>>,
+        realm: RealmId,
+        group: GroupId,
+        store: TestStore,
+    }
+
+    impl<'a> TestCluster<'a> {
+        fn new(count: usize) -> Self {
+            let mut k = [0u8; 32];
+            OsRng.fill(&mut k);
+            let privk = x25519::StaticSecret::from(k);
+            let pubk = x25519::PublicKey::from(&privk);
+            let keys = RealmKeys {
+                record: RecordEncryptionKey(k),
+                mac: MacKey::from(k),
+                communication: (privk, pubk),
+            };
+
+            let mut store = TestStore::default();
+            let mut hsms: Vec<_> = (0..count)
+                .map(|i| TestHsm::new(format!("hsm_{i}"), keys.clone()))
+                .collect();
+
+            let mut m = Metrics::new("test", MetricsAction::Skip, TestPlatform::default());
+            let realm = hsms[0].hsm.handle_new_realm(&mut m, NewRealmRequest {});
+
+            let (realm, starting_group) = match realm {
+                NewRealmResponse::Ok {
+                    realm,
+                    group: starting_group,
+                    entry,
+                    delta,
+                } => {
+                    store.append(starting_group, entry, delta);
+                    (realm, starting_group)
+                }
+                NewRealmResponse::HaveRealm => panic!(),
+            };
+
+            let realm_statement = hsms[0].status().realm.unwrap().statement;
+            let peer = hsms[0].id;
+            for hsm in &mut hsms[1..] {
+                assert!(matches!(
+                    hsm.hsm.handle_join_realm(
+                        &mut m,
+                        JoinRealmRequest {
+                            realm,
+                            peer,
+                            statement: realm_statement.clone(),
+                        },
+                    ),
+                    JoinRealmResponse::Ok { .. }
+                ));
+            }
+
+            let mut cluster = TestCluster {
+                hsms,
+                realm,
+                group: starting_group,
+                store,
+            };
+            cluster.capture_next_and_commit_group(starting_group);
+            if count == 1 {
+                return cluster;
+            }
+
+            let mut members: Vec<_> = cluster
+                .hsms
+                .iter_mut()
+                .map(|hsm| {
+                    let r = hsm.status();
+                    (r.id, r.realm.unwrap().statement)
+                })
+                .collect();
+            members.sort_by_key(|g| g.0);
+
+            let new_group_resp = cluster.hsms[0].hsm.handle_new_group(
+                &mut m,
+                NewGroupRequest {
+                    realm,
+                    members: members.clone(),
+                },
+            );
+            let NewGroupResponse::Ok {
+                group: new_group,
+                statement,
+                entry,
+            } = new_group_resp
+            else {
+                panic!("new group failed: {:?}", new_group_resp);
+            };
+            cluster
+                .store
+                .append(new_group, entry, StoreDelta::default());
+
+            let config: Vec<HsmId> = members.iter().map(|(id, _stmt)| *id).collect();
+            for hsm in &mut cluster.hsms[1..] {
+                assert_eq!(
+                    hsm.hsm.handle_join_group(
+                        &mut m,
+                        JoinGroupRequest {
+                            realm,
+                            group: new_group,
+                            configuration: config.clone(),
+                            statement: statement.clone(),
+                        },
+                    ),
+                    JoinGroupResponse::Ok
+                );
+            }
+
+            let TransferOutResponse::Ok { entry, delta } = cluster.hsms[0].hsm.handle_transfer_out(
+                &mut m,
+                TransferOutRequest {
+                    realm,
+                    source: starting_group,
+                    destination: new_group,
+                    range: OwnedRange::full(),
+                    index: LogIndex(1),
+                    proof: None,
+                },
+            ) else {
+                panic!("transfer out failed")
+            };
+            cluster.store.append(starting_group, entry.clone(), delta);
+
+            let partition = entry.transferring_out.as_ref().unwrap().partition.clone();
+            let TransferNonceResponse::Ok(nonce) = cluster.hsms[0].hsm.handle_transfer_nonce(
+                &mut m,
+                TransferNonceRequest {
+                    realm,
+                    destination: new_group,
+                },
+            ) else {
+                panic!("failed to generate transfer nonce");
+            };
+            cluster.capture_next_and_commit_group(starting_group);
+            cluster.capture_next_and_commit_group(new_group);
+
+            let transfer_stmt = cluster.hsms[0].hsm.handle_transfer_statement(
+                &mut m,
+                TransferStatementRequest {
+                    realm,
+                    source: starting_group,
+                    destination: new_group,
+                    nonce,
+                },
+            );
+            let TransferStatementResponse::Ok(stmt) = transfer_stmt else {
+                panic!("failed to generate transfer statement: {transfer_stmt:?}");
+            };
+
+            let TransferInResponse::Ok { entry, delta } = cluster.hsms[0].hsm.handle_transfer_in(
+                &mut m,
+                TransferInRequest {
+                    realm,
+                    destination: new_group,
+                    transferring: partition,
+                    proofs: None,
+                    nonce,
+                    statement: stmt,
+                },
+            ) else {
+                panic!("failed to transfer in");
+            };
+            cluster.store.append(new_group, entry, delta);
+
+            let CompleteTransferResponse::Ok(entry) = cluster.hsms[0].hsm.handle_complete_transfer(
+                &mut m,
+                CompleteTransferRequest {
+                    realm,
+                    source: starting_group,
+                    destination: new_group,
+                    range: OwnedRange::full(),
+                },
+            ) else {
+                panic!("failed to complete transfer");
+            };
+
+            cluster
+                .store
+                .append(starting_group, entry, StoreDelta::default());
+            cluster.capture_next_and_commit_group(starting_group);
+            cluster.capture_next_and_commit_group(new_group);
+
+            // We have a group of HSMs all initialized with a group, hsms[0] is the leader.
+            cluster.group = new_group;
+            cluster
+        }
+
+        // Brings each HSM up to date on capture_next and then does a commit.
+        fn capture_next_and_commit_group(&mut self, group: GroupId) -> Vec<CommitState> {
+            self.capture_next(group);
+            self.commit(group)
+        }
+
+        fn capture_next(&mut self, group: GroupId) {
+            for hsm in self.hsms.iter_mut() {
+                if hsm.has_group(group) {
+                    hsm.capture_next(&self.store, self.realm, group);
+                }
+            }
+        }
+
+        // Collects captures from all cluster members, and asks every HSM that thinks its a leader
+        // for the group to do a commit.
+        fn commit(&mut self, group: GroupId) -> Vec<CommitState> {
+            let captures: Vec<Captured> = self.persist_state(group);
+
+            let mut results = Vec::new();
+            for hsm in self.hsms.iter_mut() {
+                if hsm.is_leader(group) {
+                    results.push(hsm.commit(self.realm, group, captures.clone()));
+                }
+            }
+            results
+        }
+
+        fn persist_state(&mut self, group: GroupId) -> Vec<Captured> {
+            self.hsms
+                .iter_mut()
+                .flat_map(|hsm| {
+                    let PersistStateResponse::Ok { captured } = hsm
+                        .hsm
+                        .handle_persist_state(&mut hsm.metrics, PersistStateRequest {});
+                    captured
+                })
+                .filter(|c| c.group == group)
+                .collect()
+        }
+
+        fn append(&mut self, group: GroupId, r: &AppResponse) {
+            if let AppResponse::Ok {
+                entry,
+                delta,
+                request_type: _,
+            } = r
+            {
+                self.store.append(group, entry.clone(), delta.clone());
+            } else {
+                panic!("app_request failed {r:?}");
+            }
+        }
+    }
+
+    struct TestHsm<'a> {
+        hsm: Hsm<TestPlatform>,
+        next_capture: HashMap<(RealmId, GroupId), LogIndex>,
+        metrics: Metrics<'a, TestPlatform>,
+        public_key: x25519_dalek::PublicKey,
+        id: HsmId,
+    }
+
+    impl<'a> TestHsm<'a> {
+        fn new(name: impl Into<String>, keys: RealmKeys) -> Self {
+            let opt = HsmOptions {
+                name: name.into(),
+                tree_overlay_size: 15,
+                max_sessions: 15,
+                metrics: MetricsReporting::Disabled,
+            };
+            let public_key = keys.communication.1;
+            let hsm = Hsm::new(opt, TestPlatform::default(), keys).unwrap();
+            let id = hsm.persistent.id;
+            Self {
+                hsm,
+                next_capture: HashMap::new(),
+                metrics: Metrics::new("test", MetricsAction::Skip, TestPlatform::default()),
+                public_key,
+                id,
+            }
+        }
+
+        fn status(&mut self) -> StatusResponse {
+            self.hsm
+                .handle_status_request(&mut self.metrics, StatusRequest {})
+        }
+
+        fn has_group(&mut self, group: GroupId) -> bool {
+            self.status()
+                .realm
+                .is_some_and(|r| r.groups.iter().any(|g| g.id == group))
+        }
+
+        fn is_leader(&mut self, group: GroupId) -> bool {
+            self.status()
+                .realm
+                .is_some_and(|r| r.groups.iter().any(|g| g.id == group && g.leader.is_some()))
+        }
+
+        fn become_leader(
+            &mut self,
+            realm: RealmId,
+            group: GroupId,
+            last_entry: LogEntry,
+        ) -> BecomeLeaderResponse {
+            self.hsm.handle_become_leader(
+                &mut self.metrics,
+                BecomeLeaderRequest {
+                    realm,
+                    group,
+                    last_entry,
+                },
+            )
+        }
+
+        fn stepdown_as_leader(&mut self, realm: RealmId, group: GroupId) -> StepDownResponse {
+            self.hsm
+                .handle_stepdown_as_leader(&mut self.metrics, StepDownRequest { realm, group })
+        }
+
+        // Makes a CaptureNext request to the HSM if there are any new log
+        // entries to capture. returns the role as returned by capture next. If
+        // there were no new log entries to capture returns None.
+        fn capture_next(
+            &mut self,
+            store: &TestStore,
+            realm: RealmId,
+            group: GroupId,
+        ) -> Option<GroupMemberRole> {
+            let log = store.group_log(&group);
+            let next_capture = self
+                .next_capture
+                .entry((realm, group))
+                .or_insert_with(|| LogIndex::FIRST);
+
+            let offset = (next_capture.0 - log[0].index.0) as usize;
+            if log[offset..].is_empty() {
+                // nothing new to capture
+                return None;
+            }
+            let r = self.hsm.handle_capture_next(
+                &mut self.metrics,
+                CaptureNextRequest {
+                    realm,
+                    group,
+                    entries: log[offset..].to_vec(),
+                },
+            );
+            match r {
+                CaptureNextResponse::Ok(role) => {
+                    *next_capture = log.last().unwrap().index.next();
+                    Some(role)
+                }
+                _ => panic!("capture_next failed: {r:?}"),
+            }
+        }
+
+        fn commit(
+            &mut self,
+            realm: RealmId,
+            group: GroupId,
+            captures: Vec<Captured>,
+        ) -> CommitState {
+            let r = self.hsm.handle_commit(
+                &mut self.metrics,
+                CommitRequest {
+                    realm,
+                    group,
+                    captures,
+                },
+            );
+            if let CommitResponse::Ok(state) = r {
+                state
+            } else {
+                panic!("commit failed {r:?}");
+            }
+        }
+
+        fn app_request(
+            &mut self,
+            store: &TestStore,
+            realm: RealmId,
+            group: GroupId,
+            record_id: RecordId,
+            req: SecretsRequest,
+        ) -> (Handshake, AppResponse) {
+            let req_bytes = marshalling::to_vec(&req).unwrap();
+            let (handshake, req) =
+                Handshake::start(&self.public_key, &req_bytes, &mut OsRng).unwrap();
+
+            let last = store.latest_log(&group);
+            let partition = last.partition.as_ref().unwrap();
+            let proof = store
+                .tree
+                .read(&partition.range, &partition.root_hash, &record_id)
+                .unwrap();
+
+            (
+                handshake,
+                self.hsm.handle_app(
+                    &mut self.metrics,
+                    AppRequest {
+                        realm,
+                        group,
+                        record_id,
+                        session_id: SessionId(OsRng.next_u32()),
+                        encrypted: NoiseRequest::Handshake { handshake: req },
+                        proof,
+                        index: last.index,
+                    },
+                ),
+            )
+        }
+    }
+
+    #[derive(Default)]
+    struct TestStore {
+        logs: HashMap<GroupId, Vec<LogEntry>>,
+        tree: MemStore<DataHash>,
+    }
+
+    impl TestStore {
+        fn append(&mut self, g: GroupId, e: LogEntry, d: StoreDelta<DataHash>) {
+            if let Some(p) = &e.partition {
+                self.tree.apply_store_delta(p.root_hash, d);
+            }
+            self.logs.entry(g).or_default().push(e);
+        }
+
+        fn group_log(&self, g: &GroupId) -> &[LogEntry] {
+            match self.logs.get(g) {
+                Some(log) => log.as_slice(),
+                None => panic!("no log found for group {g:?}"),
+            }
+        }
+
+        fn latest_log(&self, g: &GroupId) -> LogEntry {
+            self.group_log(g).last().unwrap().clone()
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct TestPlatform {
+        nvram: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl RngCore for TestPlatform {
+        fn next_u32(&mut self) -> u32 {
+            OsRng.next_u32()
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            OsRng.next_u64()
+        }
+
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            OsRng.fill_bytes(dest)
+        }
+
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+            OsRng.try_fill_bytes(dest)
+        }
+    }
+    impl CryptoRng for TestPlatform {}
+
+    impl NVRam for TestPlatform {
+        fn read(&self) -> Result<Vec<u8>, IOError> {
+            Ok(self.nvram.lock().unwrap().clone())
+        }
+
+        fn write(&self, data: Vec<u8>) -> Result<(), IOError> {
+            *self.nvram.lock().unwrap() = data;
+            Ok(())
+        }
+    }
+
+    impl Clock for TestPlatform {
+        type Instant = StdInstant;
+
+        fn now(&self) -> Option<Self::Instant> {
+            Some(StdInstant(std::time::Instant::now()))
+        }
+
+        fn elapsed(&self, start: Self::Instant) -> Option<Nanos> {
+            Some(Nanos(
+                start.0.elapsed().as_nanos().try_into().unwrap_or(u32::MAX),
+            ))
+        }
+    }
+
+    struct StdInstant(std::time::Instant);
+    impl core::ops::Sub for StdInstant {
+        type Output = Nanos;
+
+        fn sub(self, rhs: Self) -> Self::Output {
+            Nanos((self.0 - rhs.0).as_nanos().try_into().unwrap_or(u32::MAX))
+        }
     }
 }

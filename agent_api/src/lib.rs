@@ -131,7 +131,7 @@ pub struct BecomeLeaderRequest {
     pub last: Option<LogIndex>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum BecomeLeaderResponse {
     Ok,
     NoHsm,

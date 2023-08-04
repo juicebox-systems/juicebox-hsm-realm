@@ -26,7 +26,9 @@ pub async fn join_realm(
             .as_ref()
             .is_some_and(|realm_status| realm_status.id == realm)
     }) else {
-        return Err(anyhow!("could not find any available HSM that's already in the realm"));
+        return Err(anyhow!(
+            "could not find any available HSM that's already in the realm"
+        ));
     };
 
     cluster_core::join_realm(agents_client, realm, agent_addresses, &existing).await?;

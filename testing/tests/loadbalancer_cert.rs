@@ -76,8 +76,9 @@ async fn sighup_reloads_cert() {
                 }
             };
         assert_ne!(new_server_certs, server_certs);
-        break;
+        return;
     }
+    panic!("load balancer failed to reload certs");
 }
 
 // Returns the server certificates reported by the load balancer over https.

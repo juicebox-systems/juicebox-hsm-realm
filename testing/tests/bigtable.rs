@@ -6,7 +6,7 @@ use store::discovery;
 use agent_api::merkle::TreeStoreReader;
 use bitvec::BitVec;
 use hsm_api::merkle::{NodeKey, StoreDelta};
-use hsm_api::{EntryMac, GroupId, LogEntry, LogIndex, OwnedRange, RecordId};
+use hsm_api::{EntryMac, GroupId, HsmId, LogEntry, LogIndex, OwnedRange, RecordId};
 use hsm_core::hsm::MerkleHasher;
 use hsm_core::merkle::Tree;
 use juicebox_process_group::ProcessGroup;
@@ -69,6 +69,7 @@ async fn read_log_entry() {
         transferring_out: None,
         prev_mac: EntryMac::from([0; 32]),
         entry_mac: EntryMac::from([1; 32]),
+        hsm: HsmId([2; 16]),
     };
     data.append(&REALM, &GROUP_2, &[entry.clone()], StoreDelta::default())
         .await
@@ -153,6 +154,7 @@ async fn last_log_entry_does_not_cross_groups() {
         transferring_out: None,
         prev_mac: EntryMac::from([0; 32]),
         entry_mac: EntryMac::from([1; 32]),
+        hsm: HsmId([2; 16]),
     };
 
     // with a row in group 1, other groups should still see an empty log
@@ -181,6 +183,7 @@ async fn last_log_entry_does_not_cross_groups() {
         transferring_out: None,
         prev_mac: EntryMac::from([2; 32]),
         entry_mac: EntryMac::from([3; 32]),
+        hsm: HsmId([2; 16]),
     };
     data.append(&REALM, &GROUP_3, &[entry3.clone()], StoreDelta::default())
         .await
@@ -313,6 +316,7 @@ async fn append_log_precondition() {
         transferring_out: None,
         prev_mac: EntryMac::from([0; 32]),
         entry_mac: EntryMac::from([1; 32]),
+        hsm: HsmId([2; 16]),
     };
     data.append(&REALM, &GROUP_1, &[entry.clone()], StoreDelta::default())
         .await
@@ -457,6 +461,7 @@ fn create_log_batch(first_idx: LogIndex, prev_mac: EntryMac, count: usize) -> Ve
             transferring_out: None,
             prev_mac,
             entry_mac: EntryMac::from([(index.0 % 255) as u8; 32]),
+            hsm: HsmId([2; 16]),
         };
         prev_mac = e.entry_mac.clone();
         index = index.next();
