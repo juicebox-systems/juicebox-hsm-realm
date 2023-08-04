@@ -1592,59 +1592,54 @@ impl<P: Platform> Hsm<P> {
         let start = metrics.now();
         let mut app_req_name = None;
 
-        let response =
-            match &self.persistent.realm {
-                Some(realm) if realm.id == request.realm => {
-                    if realm.groups.contains_key(&request.group) {
-                        if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
-                            if (leader.log.last().entry)
-                                .partition
-                                .as_ref()
-                                .filter(|partition| partition.range.contains(&request.record_id))
-                                .is_some()
-                            {
-                                // If we get a request where the log index is
-                                // newer than anything we know about then some
-                                // other HSM wrote a log entry and therefore we
-                                // are not leader anymore. This also stops this
-                                // replying with state proof and the agent
-                                // endlessly retrying.
-                                if request.index > leader.log.last().entry.index {
-                                    self.handle_stepdown_as_leader(
-                                        metrics,
-                                        StepDownRequest {
-                                            realm: request.realm,
-                                            group: request.group,
-                                        },
-                                    );
-                                    Response::NotLeader(self.current_role(&request.group).expect(
-                                    "We already validated that this HSM is a member of the group",
-                                ))
-                                } else {
-                                    handle_app_request(
-                                        request,
-                                        self.persistent.id,
-                                        &self.realm_keys,
-                                        leader,
-                                        &mut app_req_name,
-                                        &mut self.platform,
-                                    )
-                                }
-                            } else {
-                                Response::NotOwner
-                            }
-                        } else {
-                            Response::NotLeader(self.current_role(&request.group).expect(
-                                "We already validated that this HSM is a member of the group",
-                            ))
-                        }
-                    } else {
-                        Response::InvalidGroup
-                    }
-                }
-
-                None | Some(_) => Response::InvalidRealm,
+        let response = (|| {
+            let Some(realm) = &self.persistent.realm else {
+                return Response::InvalidRealm;
             };
+            if realm.id != request.realm {
+                return Response::InvalidRealm;
+            }
+            if !realm.groups.contains_key(&request.group) {
+                return Response::InvalidGroup;
+            }
+            let Some(leader) = self.volatile.leader.get_mut(&request.group) else {
+                    return Response::NotLeader(self.current_role(&request.group)
+                        .expect("We already validated that this HSM is a member of the group"));
+            };
+            if (leader.log.last().entry)
+                .partition
+                .as_ref()
+                .filter(|partition| partition.range.contains(&request.record_id))
+                .is_none()
+            {
+                return Response::NotOwner;
+            }
+            // If we get a request where the log index is newer than anything we
+            // know about then some other HSM wrote a log entry and therefore we
+            // are not leader anymore. This also stops this replying with stale
+            // proof and the agent endlessly retrying.
+            if request.index > leader.log.last().entry.index {
+                self.handle_stepdown_as_leader(
+                    metrics,
+                    StepDownRequest {
+                        realm: request.realm,
+                        group: request.group,
+                    },
+                );
+                return Response::NotLeader(
+                    self.current_role(&request.group)
+                        .expect("We already validated that this HSM is a member of the group"),
+                );
+            }
+            handle_app_request(
+                request,
+                self.persistent.id,
+                &self.realm_keys,
+                leader,
+                &mut app_req_name,
+                &mut self.platform,
+            )
+        })();
 
         metrics.record(app_req_name.unwrap_or("App::unknown"), start);
         trace!(hsm = self.options.name, ?response);
