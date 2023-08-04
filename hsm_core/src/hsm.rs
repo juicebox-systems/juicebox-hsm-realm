@@ -2347,6 +2347,9 @@ mod tests {
         // HSM has uncommitted log entries after the divergence point, it can
         // transition to stepping down and those uncommitted entries should be
         // flagged as abandoned during the next commit.
+        //
+        // This also covers the case where the log diverges at the first new
+        // entry in the log after becoming leader.
 
         let mut cluster = TestCluster::new(3);
         // Make all the HSMs leader.
