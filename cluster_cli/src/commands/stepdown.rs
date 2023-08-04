@@ -70,7 +70,7 @@ async fn resolve_stepdown_req(
         }
     }
     if !matches!(stepdown_type, Some(StepdownType::Hsm)) {
-        for (group, realm) in groups {
+        for (realm, group) in groups {
             if group.to_string().to_lowercase().starts_with(&id) {
                 options.push(StepDownRequest::Group { realm, group });
             }
@@ -86,7 +86,7 @@ async fn resolve_stepdown_req(
 async fn collect_cluster_info(
     store: &StoreClient,
     agent_client: &Client<AgentService>,
-) -> anyhow::Result<(HashSet<HsmId>, HashSet<(GroupId, RealmId)>)> {
+) -> anyhow::Result<(HashSet<HsmId>, HashSet<(RealmId, GroupId)>)> {
     let mut hsms = HashSet::new();
     let mut groups = HashSet::new();
     join_all(
@@ -105,7 +105,7 @@ async fn collect_cluster_info(
         hsms.insert(sr.id);
         if let Some(r) = sr.realm {
             for gs in r.groups {
-                groups.insert((gs.id, r.id));
+                groups.insert((r.id, gs.id));
             }
         }
     });
