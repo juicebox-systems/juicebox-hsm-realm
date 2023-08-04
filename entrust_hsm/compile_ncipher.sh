@@ -43,4 +43,4 @@ NFAST_DIR=/opt/nfast/c/csd/lib-ppc-linux-gcc
     ../target/$TARGET/release/libentrust_hsm.a \
     $NFAST_DIR/seelib.a \
     $NFAST_DIR/rtlib/librtusr.a \
-    -ldl -lpthread    
+    -ldl -lm -lpthread
