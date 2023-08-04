@@ -1,20 +1,17 @@
 use anyhow::Context;
-use clap::{command, Parser, Subcommand};
+use clap::{command, Parser, Subcommand, ValueEnum};
 use reqwest::Url;
 use std::process::ExitCode;
 use std::time::Duration;
-use thiserror::Error;
 use tracing::{info, Level};
 
 use agent_api::AgentService;
-use cluster_core::discover_hsm_ids;
 use google::auth;
-use hsm_api::{GroupId, HsmId, OwnedRange, RecordId};
+use hsm_api::{GroupId, OwnedRange, RecordId};
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_realm_api::types::RealmId;
 use observability::{logging, metrics};
 use secret_manager::new_google_secret_manager;
-use store::{self, StoreClient};
 
 mod commands;
 mod statuses;
@@ -120,15 +117,21 @@ enum Command {
         agent: Url,
     },
 
-    /// Ask an HSM to step down as leader for any groups that it's leading.
+    /// Ask an HSM to step down as leader.
     Stepdown {
         /// URL to a cluster manager, which will execute the request. By
         /// default it will find a cluster manager using service discovery.
         #[arg(short, long)]
         cluster: Option<Url>,
 
-        /// A full HSM ID or an unambiguous prefix of an HSM ID.
-        hsm: String,
+        /// Treat the supplied ID specifically as a HSM or group identifier.
+        /// If not set will look for matches against known HSM and group ids
+        /// and act accordingly.
+        #[arg(long = "type", value_enum)]
+        stepdown_type: Option<StepdownType>,
+
+        /// A full or an unambiguous prefix of an HSM or Group ID.
+        id: String,
     },
 
     /// Transfer ownership of user records from one group to another.
@@ -168,6 +171,12 @@ enum Command {
         #[arg(long, value_parser = parse_record_id)]
         end: RecordId,
     },
+}
+
+#[derive(Clone, ValueEnum)]
+enum StepdownType {
+    Hsm,
+    Group,
 }
 
 #[derive(Subcommand)]
@@ -319,43 +328,14 @@ async fn run(args: Args) -> anyhow::Result<()> {
             .await
         }
 
-        Command::Stepdown { cluster, hsm } => {
-            let hsm = resolve_hsm_id(&store, &agents_client, &hsm).await?;
-            commands::stepdown::stepdown(&store, &cluster, hsm).await
+        Command::Stepdown {
+            cluster,
+            stepdown_type,
+            id,
+        } => {
+            commands::stepdown::stepdown(&store, &agents_client, &cluster, stepdown_type, &id).await
         }
     }
-}
-
-async fn resolve_hsm_id(
-    store: &StoreClient,
-    agent_client: &Client<AgentService>,
-    id: &str,
-) -> anyhow::Result<HsmId> {
-    if id.len() == 32 {
-        let h = hex::decode(id).context("error decoding HSM id")?;
-        Ok(HsmId(h.try_into().unwrap()))
-    } else {
-        let id = id.to_lowercase();
-        let ids: Vec<_> = discover_hsm_ids(store, agent_client)
-            .await
-            .context("RPC error to bigtable")?
-            .filter(|(hsm_id, _url)| hsm_id.to_string().to_lowercase().starts_with(&id))
-            .map(|(hsm_id, _url)| hsm_id)
-            .collect();
-        match ids.len() {
-            0 => Err(HsmIdError::NoMatch.into()),
-            1 => Ok(ids[0]),
-            c => Err(HsmIdError::Ambiguous(c).into()),
-        }
-    }
-}
-
-#[derive(Error, Debug)]
-enum HsmIdError {
-    #[error("no HSM with that ID")]
-    NoMatch,
-    #[error("ambiguous HSM ID: {0} HSMs share that prefix")]
-    Ambiguous(usize),
 }
 
 fn parse_realm_id(buf: &str) -> Result<RealmId, hex::FromHexError> {

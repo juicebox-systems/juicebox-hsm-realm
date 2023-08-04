@@ -14,7 +14,7 @@ Commands:
   join-realm     Request HSMs to irreversibly adopt an existing realm
   new-group      Create a new group on a set of agents' HSMs
   new-realm      Create a new realm and group on a single agent's HSM
-  stepdown       Ask an HSM to step down as leader for any groups that it's leading
+  stepdown       Ask an HSM to step down as leader
   transfer       Transfer ownership of user records from one group to another
   help           Print this message or the help of the given subcommand(s)
 
@@ -215,16 +215,17 @@ Options:
 ## `cluster stepdown --help`
 
 ```
-Ask an HSM to step down as leader for any groups that it's leading
+Ask an HSM to step down as leader
 
-Usage: cluster stepdown [OPTIONS] <HSM>
+Usage: cluster stepdown [OPTIONS] <ID>
 
 Arguments:
-  <HSM>  A full HSM ID or an unambiguous prefix of an HSM ID
+  <ID>  A full or an unambiguous prefix of an HSM or Group ID
 
 Options:
-  -c, --cluster <CLUSTER>  URL to a cluster manager, which will execute the request. By default it will find a cluster manager using service discovery
-  -h, --help               Print help
+  -c, --cluster <CLUSTER>     URL to a cluster manager, which will execute the request. By default it will find a cluster manager using service discovery
+      --type <STEPDOWN_TYPE>  Treat the supplied ID specifically as a HSM or group identifier. If not set will look for matches against known HSM and group ids and act accordingly [possible values: hsm, group]
+  -h, --help                  Print help
 
 ```
 

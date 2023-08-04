@@ -15,7 +15,7 @@ impl Rpc<ClusterService> for StepDownRequest {
 }
 
 /// Request that a leader stepdown, and a new group member takeover leadership.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum StepDownRequest {
     /// Have this specific HSM stepdown for all groups it's leading.
     Hsm(HsmId),
