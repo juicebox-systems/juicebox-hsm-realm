@@ -274,7 +274,7 @@ impl NVRam for NCipher {
                 data.len()
             )));
         }
-        let len = data.len() as u32;
+        let len = data.len();
         data.resize(NVRAM_LEN_OFFSET, 0);
         data.extend(&to_be4(len));
 
