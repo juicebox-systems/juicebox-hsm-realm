@@ -1151,43 +1151,36 @@ pub struct CommitRequest {
     pub captures: Vec<Captured>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CommitState {
+    /// The index of the latest log entry the HSM has marked as committed.
+    pub committed: LogIndex,
+    /// A set of responses corresponding to newly committed log entries.
+    ///
+    /// These responses may now be returned to the respective clients whose
+    /// requests caused the log entries to be created.
+    pub responses: Vec<(EntryMac, NoiseResponse)>,
+    /// A set of responses that will never commit. If there are multiple
+    /// leaders then it's possible for the persisted log to diverge from a
+    /// leaders in memory log. In this event there are clients waiting for a
+    /// response that will never commit. These are included here so that the
+    /// agent can signal a failure to those client requests.
+    pub abandoned: Vec<EntryMac>,
+    /// The HSM's latest role in this group.
+    ///
+    /// This is normally the leader role. However, if the HSM was stepping
+    /// down, then this request may have caused the role to complete its
+    /// responsibilities and return to the witness-only role (or it may
+    /// have more to commit and remain in the stepping down role).
+    pub role: GroupMemberRole,
+}
+
 /// Response type for the HSM Commit RPC (see [`CommitRequest`]).
 #[derive(Debug, Deserialize, Serialize)]
 pub enum CommitResponse {
-    /// The HSM successfully committed new entries.
-    Ok {
-        /// The index of the latest log entry the HSM has newly marked as
-        /// committed.
-        committed: LogIndex,
-        /// A set of responses corresponding to committed log entries.
-        ///
-        /// These responses may now be returned to the respective clients whose
-        /// requests caused the log entries to be created.
-        responses: Vec<(EntryMac, NoiseResponse)>,
-        /// A set of responses that will never commit. If there are multiple
-        /// leaders then it's possible for the persisted log to diverge from a
-        /// leaders in memory log. In this event there are clients waiting for a
-        /// response that will never commit. These are included here so that the
-        /// agent can signal a failure to those client requests.
-        abandoned: Vec<EntryMac>,
-        /// The HSM's latest role in this group.
-        ///
-        /// This is normally the leader role. However, if the HSM was stepping
-        /// down, then this request may have caused the role to complete its
-        /// responsibilities and return to the witness-only role (or it may
-        /// have more to commit and remain in the stepping down role).
-        role: GroupMemberRole,
-    },
-    /// The HSM could not mark any further log entries as committed.
-    ///
-    /// The given information was valid and represented a majority of the
-    /// group. However, the [`Captured`] assertions simply had not advanced
-    /// forward in the log enough.
-    AlreadyCommitted {
-        /// The index of the latest log entry the HSM had already marked as
-        /// committed.
-        committed: LogIndex,
-    },
+    /// The HSM successfully committed. The commit index may be the same or
+    /// larger than the previous commit response.
+    Ok(CommitState),
     /// With its current state and the given [`Captured`] assertions, this HSM
     /// could not find an index that a majority of members had captured.
     ///

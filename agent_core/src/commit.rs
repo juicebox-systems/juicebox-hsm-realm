@@ -196,33 +196,20 @@ impl<T: Transport + 'static> Agent<T> {
         let realm = request.realm;
         let group = request.group;
         let response = self.0.hsm.send(request).await;
-        let (new_committed, responses, abandoned, role) = match response {
-            Ok(CommitResponse::Ok {
-                committed,
-                responses,
-                abandoned,
-                role,
-            }) => {
+        let commit_state = match response {
+            Ok(CommitResponse::Ok(state)) => {
                 trace!(
                     agent = self.0.name,
-                    ?committed,
-                    num_responses=?responses.len(),
+                    committed=?state.committed,
+                    num_responses=?state.responses.len(),
                     "HSM committed entry"
                 );
                 self.0.metrics.gauge(
                     "agent.commit.log.index",
-                    committed.0,
+                    state.committed.0,
                     [tag!(?realm), tag!(?group)],
                 );
-                (committed, responses, abandoned, role)
-            }
-            Ok(CommitResponse::AlreadyCommitted { committed: c }) => {
-                info!(
-                    agent = self.0.name,
-                    ?response,
-                    "commit response already committed"
-                );
-                return CommitterStatus::Committing { committed: Some(c) };
+                state
             }
             Ok(CommitResponse::NotLeader(role)) => {
                 info!(agent = self.0.name, ?realm, ?group, "Leader stepped down");
@@ -237,7 +224,14 @@ impl<T: Transport + 'static> Agent<T> {
             }
         };
 
-        let released_count = self.release_client_responses(realm, group, responses, abandoned);
+        let role = commit_state.role;
+        let committed = commit_state.committed;
+        let released_count = self.release_client_responses(
+            realm,
+            group,
+            commit_state.responses,
+            commit_state.abandoned,
+        );
         Span::current().record("released_count", released_count);
 
         // See if we're done stepping down
@@ -247,7 +241,7 @@ impl<T: Transport + 'static> Agent<T> {
             CommitterStatus::NoLongerLeader
         } else {
             CommitterStatus::Committing {
-                committed: Some(new_committed),
+                committed: Some(committed),
             }
         }
     }

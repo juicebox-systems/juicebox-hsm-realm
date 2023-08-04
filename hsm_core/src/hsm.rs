@@ -1043,7 +1043,7 @@ impl<P: Platform> Hsm<P> {
             return match self.current_role(&group) {
                 Some(role) => StepDownResponse::NotLeader(role),
                 None => StepDownResponse::InvalidGroup,
-            }
+            };
         };
         let stepdown_index = match stepdown {
             StepDownPoint::LastLogIndex => leader.log.last().entry.index,
@@ -1602,8 +1602,10 @@ impl<P: Platform> Hsm<P> {
                 return Response::InvalidGroup;
             }
             let Some(leader) = self.volatile.leader.get_mut(&request.group) else {
-                    return Response::NotLeader(self.current_role(&request.group)
-                        .expect("We already validated that this HSM is a member of the group"));
+                return Response::NotLeader(
+                    self.current_role(&request.group)
+                        .expect("We already validated that this HSM is a member of the group"),
+                );
             };
             if (leader.log.last().entry)
                 .partition
@@ -2006,8 +2008,8 @@ mod tests {
     use super::super::hal::MAX_NVRAM_SIZE;
     use super::*;
     use hsm_api::{
-        CaptureNextRequest, CaptureNextResponse, CommitRequest, CommitResponse, EntryMac, GroupId,
-        HsmId, LogIndex, CONFIGURATION_LIMIT,
+        CaptureNextRequest, CaptureNextResponse, CommitRequest, CommitResponse, CommitState,
+        EntryMac, GroupId, HsmId, LogIndex, CONFIGURATION_LIMIT,
     };
 
     fn array_big<const N: usize>(i: u8) -> [u8; N] {
@@ -2207,6 +2209,11 @@ mod tests {
         // HSMs even if it hasn't itself captured to that entry yet.
 
         let mut cluster = TestCluster::new(3);
+
+        let committed = cluster.commit(cluster.group);
+        assert_eq!(1, committed.len());
+        let commit_index = committed[0].committed;
+
         // Make a regular request to the leader.
         let (handshake, res) = cluster.hsms[0].app_request(
             &cluster.store,
@@ -2219,44 +2226,37 @@ mod tests {
         cluster.store.append(cluster.group, entry.clone(), delta);
 
         // Entry is not captured yet, commit shouldn't find anything new.
-        assert!(matches!(
-            cluster.commit(cluster.group).as_slice(),
-            [CommitResponse::AlreadyCommitted { .. }]
-        ));
+        let committed = cluster.commit(cluster.group);
+        assert_eq!(1, committed.len());
+        assert_eq!(commit_index, committed[0].committed);
 
         // We can capture on the other HSMs and commit, even if the leader
         // hasn't captured yet.
         for hsm in &mut cluster.hsms[1..] {
             hsm.capture_next(&cluster.store, cluster.realm, cluster.group);
         }
-        if let [CommitResponse::Ok {
-            committed,
-            responses,
-            abandoned,
-            role,
-        }] = cluster.commit(cluster.group).as_slice()
-        {
-            assert_eq!(*committed, entry.index);
-            assert_eq!(*role, GroupMemberRole::Leader);
-            assert_eq!(1, responses.len());
-            assert_eq!(entry.entry_mac, responses[0].0);
-            assert!(matches!(
-                finish_handshake(handshake, &responses[0].1),
-                SecretsResponse::Delete(DeleteResponse::Ok)
-            ));
-            assert!(abandoned.is_empty());
-        } else {
-            panic!("failed to commit");
-        }
+        let committed = cluster.commit(cluster.group);
+        assert_eq!(1, committed.len());
+        let committed = &committed[0];
+        assert_eq!(committed.committed, entry.index);
+        assert_eq!(committed.role, GroupMemberRole::Leader);
+        assert_eq!(1, committed.responses.len());
+        assert_eq!(entry.entry_mac, committed.responses[0].0);
+        assert!(matches!(
+            finish_handshake(handshake, &committed.responses[0].1),
+            SecretsResponse::Delete(DeleteResponse::Ok)
+        ));
+        assert!(committed.abandoned.is_empty());
 
         // The leader captures, commit shouldn't do anything as the entry is
         // already committed.
         cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group);
         let captures = cluster.persist_state(cluster.group);
-        assert!(matches!(
-            cluster.hsms[0].commit(cluster.realm, cluster.group, captures),
-            CommitResponse::AlreadyCommitted { .. }
-        ));
+        let committed2 = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
+        assert_eq!(committed.committed, committed2.committed);
+        assert!(committed2.responses.is_empty());
+        assert!(committed2.abandoned.is_empty());
+        assert_eq!(GroupMemberRole::Leader, committed2.role);
     }
 
     #[test]
@@ -2402,20 +2402,10 @@ mod tests {
         let captures = cluster.persist_state(cluster.group);
         for hsm in &mut cluster.hsms[1..] {
             let res = hsm.commit(cluster.realm, cluster.group, captures.clone());
-            if let CommitResponse::Ok {
-                responses,
-                abandoned,
-                role,
-                ..
-            } = res
-            {
-                assert!(responses.is_empty());
-                assert_eq!(1, abandoned.len());
-                // Nothing left for commit to do, transition back to Witness.
-                assert_eq!(GroupMemberRole::Witness, role);
-            } else {
-                panic!("commit failed {res:?}");
-            }
+            assert!(res.responses.is_empty());
+            assert_eq!(1, res.abandoned.len());
+            // Nothing left for commit to do, transition back to Witness.
+            assert_eq!(GroupMemberRole::Witness, res.role);
         }
     }
 
@@ -2476,55 +2466,35 @@ mod tests {
         // successfully wrote to the log.
         let captures = cluster.persist_state(cluster.group);
         let commit = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
-        if let CommitResponse::Ok {
-            committed,
-            responses,
-            abandoned,
-            role,
-        } = commit
-        {
-            // The first leader should of committed the first 2 responses it generated.
-            let (entry, _) = unpack_app_response(&leader1_responses[0]);
-            assert!(responses.iter().any(|r| r.0 == entry.entry_mac));
-            assert!(!abandoned.contains(&entry.entry_mac));
+        // The first leader should of committed the first 2 responses it generated.
+        let (entry, _) = unpack_app_response(&leader1_responses[0]);
+        assert!(commit.responses.iter().any(|r| r.0 == entry.entry_mac));
+        assert!(!commit.abandoned.contains(&entry.entry_mac));
 
-            let (entry, _) = unpack_app_response(&leader1_responses[1]);
-            assert!(responses.iter().any(|r| r.0 == entry.entry_mac));
-            assert!(!abandoned.contains(&entry.entry_mac));
-            assert_eq!(committed, entry.index);
+        let (entry, _) = unpack_app_response(&leader1_responses[1]);
+        assert!(commit.responses.iter().any(|r| r.0 == entry.entry_mac));
+        assert!(!commit.abandoned.contains(&entry.entry_mac));
+        assert_eq!(commit.committed, entry.index);
 
-            // The other requests it handled should be flagged as abandoned, they'll never get committed.
-            for ar in &leader1_responses[2..] {
-                let (entry, _) = unpack_app_response(ar);
-                assert!(abandoned.contains(&entry.entry_mac));
-            }
-            assert_eq!(3, abandoned.len());
-            // its committed everything it can, it can now go back to being a witness.
-            assert_eq!(GroupMemberRole::Witness, role);
-        } else {
-            panic!("commit failed {commit:?}");
+        // The other requests it handled should be flagged as abandoned, they'll never get committed.
+        for ar in &leader1_responses[2..] {
+            let (entry, _) = unpack_app_response(ar);
+            assert!(commit.abandoned.contains(&entry.entry_mac));
         }
+        assert_eq!(3, commit.abandoned.len());
+        // its committed everything it can, it can now go back to being a witness.
+        assert_eq!(GroupMemberRole::Witness, commit.role);
 
         // hsm[1] should be able to commit the new entry it wrote once capture_next has caught up.
         cluster.capture_next(cluster.group);
         let captures = cluster.persist_state(cluster.group);
         let commit = cluster.hsms[1].commit(cluster.realm, cluster.group, captures.clone());
-        if let CommitResponse::Ok {
-            committed,
-            responses,
-            abandoned,
-            role,
-        } = commit
-        {
-            let (entry, _) = unpack_app_response(&leader2_response);
-            assert_eq!(entry.index, committed);
-            assert_eq!(1, responses.len());
-            assert_eq!(entry.entry_mac, responses[0].0);
-            assert!(abandoned.is_empty());
-            assert_eq!(GroupMemberRole::Leader, role);
-        } else {
-            panic!("commit failed {commit:?}");
-        }
+        let (entry, _) = unpack_app_response(&leader2_response);
+        assert_eq!(entry.index, commit.committed);
+        assert_eq!(1, commit.responses.len());
+        assert_eq!(entry.entry_mac, commit.responses[0].0);
+        assert!(commit.abandoned.is_empty());
+        assert_eq!(GroupMemberRole::Leader, commit.role);
     }
 
     #[test]
@@ -2561,22 +2531,12 @@ mod tests {
         cluster.capture_next(cluster.group);
         let captures = cluster.persist_state(cluster.group);
         let res = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
-        if let CommitResponse::Ok {
-            committed,
-            responses,
-            abandoned,
-            role,
-        } = res
-        {
-            assert!(abandoned.is_empty());
-            assert_eq!(1, responses.len());
-            let (entry, _) = unpack_app_response(&leader1_responses[0]);
-            assert_eq!(entry.entry_mac, responses[0].0);
-            assert_eq!(entry.index, committed);
-            assert_eq!(GroupMemberRole::SteppingDown, role);
-        } else {
-            panic!("commit failed {res:?}");
-        }
+        assert!(res.abandoned.is_empty());
+        assert_eq!(1, res.responses.len());
+        let (entry, _) = unpack_app_response(&leader1_responses[0]);
+        assert_eq!(entry.entry_mac, res.responses[0].0);
+        assert_eq!(entry.index, res.committed);
+        assert_eq!(GroupMemberRole::SteppingDown, res.role);
 
         // Write the 2nd request to the log.
         cluster.append(cluster.group, &leader1_responses[1]);
@@ -2597,7 +2557,7 @@ mod tests {
         );
         cluster.append(cluster.group, &leader2_response);
 
-        // hsms[0] capture next sees this divereged log. Its still stepping down.
+        // hsms[0] capture next sees this diverged log. Its still stepping down.
         assert_eq!(
             Some(GroupMemberRole::SteppingDown),
             cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group)
@@ -2607,32 +2567,22 @@ mod tests {
         let captures = cluster.persist_state(cluster.group);
         // Commit on hsms[0] should release the one entry that got persisted and
         // abandon the later ones.
-        let res = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
-        if let CommitResponse::Ok {
-            committed,
-            responses,
-            mut abandoned,
-            role,
-        } = res
-        {
-            assert_eq!(GroupMemberRole::Witness, role);
-            let (entry2, _) = unpack_app_response(&leader1_responses[1]);
-            assert_eq!(1, responses.len(), "responses {responses:?}");
-            assert_eq!(entry2.entry_mac, responses[0].0);
-            // everyone captured the log entry written by the new leader, so we'll commit
-            // to that index.
-            assert_eq!(entry2.index.next(), committed);
+        let mut res = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
+        assert_eq!(GroupMemberRole::Witness, res.role);
+        let (entry2, _) = unpack_app_response(&leader1_responses[1]);
+        assert_eq!(1, res.responses.len());
+        assert_eq!(entry2.entry_mac, res.responses[0].0);
+        // everyone captured the log entry written by the new leader, so we'll commit
+        // to that index.
+        assert_eq!(entry2.index.next(), res.committed);
 
-            abandoned.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
-            let mut expected: Vec<EntryMac> = leader1_responses[2..]
-                .iter()
-                .map(|r| unpack_app_response(r).0.entry_mac)
-                .collect();
-            expected.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
-            assert_eq!(expected, abandoned);
-        } else {
-            panic!("commit failed {res:?}");
-        }
+        res.abandoned.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        let mut expected: Vec<EntryMac> = leader1_responses[2..]
+            .iter()
+            .map(|r| unpack_app_response(r).0.entry_mac)
+            .collect();
+        expected.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        assert_eq!(expected, res.abandoned);
     }
 
     fn unpack_app_response(r: &AppResponse) -> (LogEntry, StoreDelta<DataHash>) {
@@ -2853,7 +2803,7 @@ mod tests {
         }
 
         // Brings each HSM up to date on capture_next and then does a commit.
-        fn capture_next_and_commit_group(&mut self, group: GroupId) -> Vec<CommitResponse> {
+        fn capture_next_and_commit_group(&mut self, group: GroupId) -> Vec<CommitState> {
             self.capture_next(group);
             self.commit(group)
         }
@@ -2868,7 +2818,7 @@ mod tests {
 
         // Collects captures from all cluster members, and asks every HSM that thinks its a leader
         // for the group to do a commit.
-        fn commit(&mut self, group: GroupId) -> Vec<CommitResponse> {
+        fn commit(&mut self, group: GroupId) -> Vec<CommitState> {
             let captures: Vec<Captured> = self.persist_state(group);
 
             let mut results = Vec::new();
@@ -3015,7 +2965,7 @@ mod tests {
             realm: RealmId,
             group: GroupId,
             captures: Vec<Captured>,
-        ) -> CommitResponse {
+        ) -> CommitState {
             let r = self.hsm.handle_commit(
                 &mut self.metrics,
                 CommitRequest {
@@ -3024,14 +2974,11 @@ mod tests {
                     captures,
                 },
             );
-            assert!(
-                matches!(
-                    r,
-                    CommitResponse::AlreadyCommitted { .. } | CommitResponse::Ok { .. }
-                ),
-                "commit failed: {r:?}"
-            );
-            r
+            if let CommitResponse::Ok(state) = r {
+                state
+            } else {
+                panic!("commit failed {r:?}");
+            }
         }
 
         fn app_request(

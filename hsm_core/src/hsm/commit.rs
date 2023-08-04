@@ -1,6 +1,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use core::cmp::max;
 use hashbrown::hash_map::Entry;
 use tracing::{info, trace, warn};
 
@@ -9,8 +10,8 @@ use super::mac::{CapturedStatementMessage, CtMac, EntryMacMessage};
 use super::{Hsm, LeaderLog, Metrics, StepDownPoint};
 use election::HsmElection;
 use hsm_api::{
-    CaptureNextRequest, CaptureNextResponse, Captured, CommitRequest, CommitResponse, EntryMac,
-    GroupMemberRole, LogEntry, LogIndex,
+    CaptureNextRequest, CaptureNextResponse, Captured, CommitRequest, CommitResponse, CommitState,
+    EntryMac, GroupMemberRole, LogEntry, LogIndex,
 };
 
 impl<P: Platform> Hsm<P> {
@@ -227,7 +228,7 @@ impl<P: Platform> Hsm<P> {
                 }
             }
 
-            let Ok(commit_index) = election.outcome() else {
+            let Ok(mut commit_index) = election.outcome() else {
                 warn!(
                     hsm = self.options.name,
                     commit_request = ?request,
@@ -237,11 +238,8 @@ impl<P: Platform> Hsm<P> {
             };
 
             if let Some(committed) = committed {
-                if *committed >= commit_index {
-                    return Response::AlreadyCommitted {
-                        committed: *committed,
-                    };
-                }
+                // Don't let the commit_index go backwards from a prior commit.
+                commit_index = max(commit_index, *committed);
             }
 
             trace!(
@@ -283,12 +281,12 @@ impl<P: Platform> Hsm<P> {
                 GroupMemberRole::Leader
             };
 
-            Response::Ok {
+            Response::Ok(CommitState {
                 committed: commit_index,
                 responses,
                 abandoned,
                 role,
-            }
+            })
         })();
 
         trace!(hsm = self.options.name, ?response);
