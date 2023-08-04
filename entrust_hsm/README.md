@@ -6,10 +6,10 @@ You'll need the Entrust/nCipher SDK to be installed (On linux)
 
 `./compile_linux.sh` will compile using the powerpc / linux target
 
-`./compile_ncipherxc.sh` will compile using our custom powerpc / ncipher target. 
+`./compile_ncipherxc.sh` will compile using our custom powerpc / ncipher target.
 
 This generates an `entrust-hsm.elf` file in the relevant `target/$TARGET/release`
-directory. Once correctly code signed (see below) the entrust-agent host process
+directory. Once correctly code signed (see below) the entrust_agent host process
 can be run. This will use the APIs to have the HSM load and start the SEEMachine
 world, and then start handling requests.
 
@@ -93,7 +93,7 @@ they generate.
 
 You should now be able to run the agent manually and see the seeworld & hsm startup.
 ```sh
-LOGLEVEL=debug ./entrust-agent --bigtable-project crucial-limiter-377716 --bigtable-instance simon-ssd -i hsm.sar -u dummy.sar -t
+LOGLEVEL=debug ./entrust_agent --bigtable-project crucial-limiter-377716 --bigtable-instance simon-ssd -i hsm.sar -u dummy.sar -t
 
  INFO src/logging.rs:144: initialized logging to terminal and telemetry to OTLP/Jaeger. you can set verbosity with env var LOGLEVEL. max_level=DEBUG
  INFO src/google_auth.rs:22: initializing Google Cloud authentication with Application Default Credentials
@@ -101,26 +101,26 @@ DEBUG /home/simon/.cargo/git/checkouts/gcp_auth-0a7a4d6a48633ebe/579fae9/src/aut
 DEBUG /home/simon/.cargo/git/checkouts/gcp_auth-0a7a4d6a48633ebe/579fae9/src/authentication_manager.rs:52: Using GCloudAuthorizedUser
  INFO src/realm/store/bigtable.rs:85: Connecting to Bigtable Data instance="simon-ssd" project="crucial-limiter-377716" data_url=https://bigtable.googleapis.com/
  INFO src/realm/store/bigtable.rs:106: Connecting to Bigtable Admin inst="simon-ssd" project="crucial-limiter-377716" admin_url=https://bigtableadmin.googleapis.com/
- INFO entrust-agent/src/main.rs:414: Successfully started SEEWorld
-DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-noise"
+ INFO entrust_agent/src/main.rs:414: Successfully started SEEWorld
+DEBUG entrust_agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-noise"
 DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-noise" key_hash=045f3884d76f004592dd50279316425ec0bff268
-DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-noise"
-DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-noise"
+DEBUG entrust_agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-noise"
+DEBUG entrust_agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-noise"
 DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-noise" key_hash=045f3884d76f004592dd50279316425ec0bff268
-DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-noise"
-DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-mac"
+DEBUG entrust_agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-noise"
+DEBUG entrust_agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-mac"
 DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-mac" key_hash=fd16169ae11bababa274aaf69f4e553a613e9c21
-DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-mac"
-DEBUG entrust-agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-record"
+DEBUG entrust_agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-mac"
+DEBUG entrust_agent/src/main.rs:326: Trying to find key in security world app="simple" ident="jbox-record"
 DEBUG entrust_nfast/src/lib.rs:181: found key app="simple" ident="jbox-record" key_hash=afcda0ad6f3b2aeae9b7d072a47150be8cab54e4
-DEBUG entrust-agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-record"
- INFO entrust-agent/src/main.rs:281: HSMCore started and ready for work
-DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=1.213141ms req="Status"
- INFO entrust-agent/src/main.rs:137: Agent started url=http://127.0.0.1:8082/
-DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=737.381µs req="Status"
+DEBUG entrust_agent/src/main.rs:365: Generated key ticket app="simple" ident="jbox-record"
+ INFO entrust_agent/src/main.rs:281: HSMCore started and ready for work
+DEBUG entrust_agent/src/main.rs:241: Entrust HSM request transacted dur=1.213141ms req="Status"
+ INFO entrust_agent/src/main.rs:137: Agent started url=http://127.0.0.1:8082/
+DEBUG entrust_agent/src/main.rs:241: Entrust HSM request transacted dur=737.381µs req="Status"
  INFO src/realm/agent.rs:341: registering agent with service discovery hsm=34f65c62af130da099a5c7563221fb63 url=http://127.0.0.1:8082/
-DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=731.44µs req="PersistState"
-DEBUG entrust-agent/src/main.rs:241: Entrust HSM request transacted dur=1.042124ms req="PersistState"
+DEBUG entrust_agent/src/main.rs:241: Entrust HSM request transacted dur=731.44µs req="PersistState"
+DEBUG entrust_agent/src/main.rs:241: Entrust HSM request transacted dur=1.042124ms req="PersistState"
 ```
 
 ### About Keys
@@ -177,7 +177,7 @@ target using `compile_linux.sh` which is handy for debugging.
 
 ## Debugging
 
-The entrust-agent supports a --trace flag which'll collect and print logging
+The entrust_agent supports a --trace flag which'll collect and print logging
 written to the trace buffer on the HSM. This requires that the security world
 was created with the 'dseeall' feature enabled. On the HSM side, stdout and stderr are
 routed to the trace buffer. The linux target includes the rust std library so
