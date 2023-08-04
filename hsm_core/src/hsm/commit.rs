@@ -6,7 +6,7 @@ use tracing::{info, trace, warn};
 
 use super::super::hal::Platform;
 use super::mac::{CapturedStatementMessage, CtMac, EntryMacMessage};
-use super::{Hsm, LeaderLog, Metrics};
+use super::{Hsm, LeaderLog, Metrics, StepDownPoint};
 use election::HsmElection;
 use hsm_api::{
     CaptureNextRequest, CaptureNextResponse, Captured, CommitRequest, CommitResponse, EntryMac,
@@ -94,19 +94,13 @@ impl<P: Platform> Hsm<P> {
                                 }
                                 LogEntryStatus::FutureIndex => {
                                     // Some other HSM successfully wrote a log entry, we should stop leading
-                                    let leader =
-                                        self.volatile.leader.remove(&request.group).unwrap();
-                                    let last_idx = leader.log.last().entry.index;
-                                    self.stepdown_at(request.group, leader, last_idx);
+                                    self.stepdown_at(request.group, StepDownPoint::LastLogIndex);
                                 }
                                 LogEntryStatus::EntryMacMismatch => {
                                     // The logs have diverged, we'll stepdown.
-                                    let leader =
-                                        self.volatile.leader.remove(&request.group).unwrap();
                                     self.stepdown_at(
                                         request.group,
-                                        leader,
-                                        entry.index.prev().unwrap(),
+                                        StepDownPoint::LogIndex(entry.index.prev().unwrap()),
                                     );
                                 }
                             }

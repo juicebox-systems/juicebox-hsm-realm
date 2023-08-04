@@ -1032,25 +1032,24 @@ impl<P: Platform> Hsm<P> {
         let Some(_group) = realm.groups.get(&request.group) else {
             return Response::InvalidGroup;
         };
-        let Some(leader) = self.volatile.leader.remove(&request.group) else {
-            return Response::NotLeader(
-                self.current_role(&request.group)
-                    .expect("We've already validated that this HSM is a member of the group"),
-            );
-        };
-        let stepdown_index = leader.log.last().entry.index;
-        self.stepdown_at(request.group, leader, stepdown_index)
+        self.stepdown_at(request.group, StepDownPoint::LastLogIndex)
     }
 
     // Move to the stepping down state. Stepdown will end once the committed log
     // index >= stepdown_index and any abandoned entries have been reported
     // through a commit request.
-    fn stepdown_at(
-        &mut self,
-        group: GroupId,
-        mut leader: LeaderVolatileGroupState,
-        stepdown_index: LogIndex,
-    ) -> StepDownResponse {
+    fn stepdown_at(&mut self, group: GroupId, stepdown: StepDownPoint) -> StepDownResponse {
+        let Some(mut leader) = self.volatile.leader.remove(&group) else {
+            return match self.current_role(&group) {
+                Some(role) => StepDownResponse::NotLeader(role),
+                None => StepDownResponse::InvalidGroup,
+            }
+        };
+        let stepdown_index = match stepdown {
+            StepDownPoint::LastLogIndex => leader.log.last().entry.index,
+            StepDownPoint::LogIndex(index) => index,
+        };
+
         let result = match leader.committed {
             // Even if we've already committed to the stepdown index, if there
             // are uncommitted entries after that we still need to move to
@@ -1980,6 +1979,13 @@ impl From<AppError> for AppResponse {
             AppError::DecodingError => Self::DecodingError,
         }
     }
+}
+
+enum StepDownPoint {
+    // Step down at the index of the last item in leader log.
+    LastLogIndex,
+    // Step down at this specific log index.
+    LogIndex(LogIndex),
 }
 
 #[cfg(test)]
