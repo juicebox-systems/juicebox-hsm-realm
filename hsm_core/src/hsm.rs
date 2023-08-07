@@ -669,55 +669,55 @@ impl<P: Platform> Hsm<P> {
     ) -> NewRealmResponse {
         type Response = NewRealmResponse;
         if self.persistent.realm.is_some() {
-            Response::HaveRealm
-        } else {
-            let realm = create_random_realm_id(&mut self.platform);
-            let group = create_random_group_id(&mut self.platform);
+            return Response::HaveRealm;
+        }
 
-            self.persistent.mutate().realm = Some(PersistentRealmState {
-                id: realm,
-                statement: self
-                    .realm_keys
-                    .mac
-                    .hsm_realm_mac(&HsmRealmStatementMessage {
-                        realm,
-                        hsm: self.persistent.id,
-                        keys: &self.realm_keys,
-                    }),
-                groups: HashMap::from_iter([(
-                    group,
-                    PersistentGroupState {
-                        configuration: GroupConfiguration::from_local(&self.persistent.id),
-                        captured: None,
-                    },
-                )]),
-            });
+        let realm = create_random_realm_id(&mut self.platform);
+        let group = create_random_group_id(&mut self.platform);
 
-            let range = OwnedRange::full();
-            let (root_hash, delta) = Tree::<MerkleHasher>::new_tree(&range);
-
-            let entry = LogEntryBuilder {
-                hsm: self.persistent.id,
-                realm,
+        self.persistent.mutate().realm = Some(PersistentRealmState {
+            id: realm,
+            statement: self
+                .realm_keys
+                .mac
+                .hsm_realm_mac(&HsmRealmStatementMessage {
+                    realm,
+                    hsm: self.persistent.id,
+                    keys: &self.realm_keys,
+                }),
+            groups: HashMap::from_iter([(
                 group,
-                index: LogIndex::FIRST,
-                partition: Some(Partition { range, root_hash }),
-                transferring_out: None,
-                prev_mac: EntryMac::zero(),
-            }
-            .build(&self.realm_keys.mac);
+                PersistentGroupState {
+                    configuration: GroupConfiguration::from_local(&self.persistent.id),
+                    captured: None,
+                },
+            )]),
+        });
 
-            self.volatile.leader.insert(
-                group,
-                LeaderVolatileGroupState::new(entry.clone(), &self.options),
-            );
+        let range = OwnedRange::full();
+        let (root_hash, delta) = Tree::<MerkleHasher>::new_tree(&range);
 
-            Response::Ok {
-                realm,
-                group,
-                entry,
-                delta,
-            }
+        let entry = LogEntryBuilder {
+            hsm: self.persistent.id,
+            realm,
+            group,
+            index: LogIndex::FIRST,
+            partition: Some(Partition { range, root_hash }),
+            transferring_out: None,
+            prev_mac: EntryMac::zero(),
+        }
+        .build(&self.realm_keys.mac);
+
+        self.volatile.leader.insert(
+            group,
+            LeaderVolatileGroupState::new(entry.clone(), &self.options),
+        );
+
+        Response::Ok {
+            realm,
+            group,
+            entry,
+            delta,
         }
     }
 
@@ -729,17 +729,12 @@ impl<P: Platform> Hsm<P> {
     ) -> JoinRealmResponse {
         type Response = JoinRealmResponse;
 
-        match &self.persistent.realm {
-            Some(realm) => {
-                if realm.id == request.realm {
-                    Response::Ok {
-                        hsm: self.persistent.id,
-                    }
-                } else {
-                    Response::HaveOtherRealm
-                }
-            }
-            None => {
+        match is_realm_member(&self.persistent, request.realm) {
+            Ok(_) => Response::Ok {
+                hsm: self.persistent.id,
+            },
+            Err(RealmMemberError::OtherRealm) => Response::HaveOtherRealm,
+            Err(RealmMemberError::NoRealm) => {
                 // Check peer's MAC to make sure this HSM has the same keys.
                 if self
                     .realm_keys
@@ -786,13 +781,9 @@ impl<P: Platform> Hsm<P> {
     ) -> NewGroupResponse {
         type Response = NewGroupResponse;
 
-        let Some(realm) = &self.persistent.realm else {
+        let Ok(realm) = is_realm_member(&self.persistent,request.realm) else {
             return Response::InvalidRealm;
         };
-
-        if realm.id != request.realm {
-            return Response::InvalidRealm;
-        }
 
         if realm.groups.len() >= usize::from(GROUPS_LIMIT) {
             return Response::TooManyGroups;
@@ -883,31 +874,25 @@ impl<P: Platform> Hsm<P> {
             return Response::InvalidConfiguration;
         };
 
-        match &self.persistent.realm {
-            None => return Response::InvalidRealm,
+        let Ok(realm) = is_realm_member(&self.persistent, request.realm) else {
+            return Response::InvalidRealm;
+        };
+        if realm.groups.len() >= usize::from(GROUPS_LIMIT) {
+            return Response::TooManyGroups;
+        }
 
-            Some(realm) => {
-                if realm.id != request.realm {
-                    return Response::InvalidRealm;
-                }
-                if realm.groups.len() >= usize::from(GROUPS_LIMIT) {
-                    return Response::TooManyGroups;
-                }
-
-                if self
-                    .realm_keys
-                    .mac
-                    .group_configuration_mac(&GroupConfigurationStatementMessage {
-                        realm: request.realm,
-                        group: request.group,
-                        configuration: &configuration,
-                    })
-                    .verify(&request.statement)
-                    .is_err()
-                {
-                    return Response::InvalidStatement;
-                }
-            }
+        if self
+            .realm_keys
+            .mac
+            .group_configuration_mac(&GroupConfigurationStatementMessage {
+                realm: request.realm,
+                group: request.group,
+                configuration: &configuration,
+            })
+            .verify(&request.statement)
+            .is_err()
+        {
+            return Response::InvalidStatement;
         }
 
         self.persistent
@@ -936,48 +921,40 @@ impl<P: Platform> Hsm<P> {
         // so make sure they're up to date.
         self.persist_current_captures();
 
-        let configuration = match &self.persistent.realm {
-            None => return Response::InvalidRealm,
+        let group_state = match is_group_member(&self.persistent, request.realm, request.group) {
+            Err(GroupMemberError::InvalidRealm) => return Response::InvalidRealm,
+            Err(GroupMemberError::InvalidGroup) => return Response::InvalidGroup,
+            Ok(group_state) => group_state,
+        };
 
-            Some(realm) => {
-                if realm.id != request.realm {
-                    return Response::InvalidRealm;
+        if self.volatile.stepping_down.get(&request.group).is_some() {
+            return Response::StepdownInProgress;
+        }
+
+        let configuration = match &group_state.captured {
+            None => return Response::NotCaptured { have: None },
+            Some((captured_index, captured_mac)) => {
+                if request.last_entry.index != *captured_index
+                    || request.last_entry.entry_mac != *captured_mac
+                {
+                    return Response::NotCaptured {
+                        have: Some(*captured_index),
+                    };
                 }
-
-                if self.volatile.stepping_down.get(&request.group).is_some() {
-                    return Response::StepdownInProgress;
+                if self
+                    .realm_keys
+                    .mac
+                    .log_entry_mac(&EntryMacMessage::new(
+                        request.realm,
+                        request.group,
+                        &request.last_entry,
+                    ))
+                    .verify(&request.last_entry.entry_mac)
+                    .is_err()
+                {
+                    return Response::InvalidMac;
                 }
-
-                match realm.groups.get(&request.group) {
-                    None => return Response::InvalidGroup,
-
-                    Some(group) => match &group.captured {
-                        None => return Response::NotCaptured { have: None },
-                        Some((captured_index, captured_mac)) => {
-                            if request.last_entry.index != *captured_index
-                                || request.last_entry.entry_mac != *captured_mac
-                            {
-                                return Response::NotCaptured {
-                                    have: Some(*captured_index),
-                                };
-                            }
-                            if self
-                                .realm_keys
-                                .mac
-                                .log_entry_mac(&EntryMacMessage::new(
-                                    request.realm,
-                                    request.group,
-                                    &request.last_entry,
-                                ))
-                                .verify(&request.last_entry.entry_mac)
-                                .is_err()
-                            {
-                                return Response::InvalidMac;
-                            }
-                            group.configuration.to_vec()
-                        }
-                    },
-                }
+                group_state.configuration.to_vec()
             }
         };
 
@@ -997,16 +974,11 @@ impl<P: Platform> Hsm<P> {
     ) -> StepDownResponse {
         type Response = StepDownResponse;
 
-        let Some(realm) = &self.persistent.realm else {
-            return Response::InvalidRealm;
-        };
-        if realm.id != request.realm {
-            return Response::InvalidRealm;
+        match is_group_member(&self.persistent, request.realm, request.group) {
+            Ok(_) => self.stepdown_at(request.group, StepDownPoint::LastLogIndex),
+            Err(GroupMemberError::InvalidRealm) => Response::InvalidRealm,
+            Err(GroupMemberError::InvalidGroup) => Response::InvalidGroup,
         }
-        let Some(_group) = realm.groups.get(&request.group) else {
-            return Response::InvalidGroup;
-        };
-        self.stepdown_at(request.group, StepDownPoint::LastLogIndex)
     }
 
     // Move to the stepping down state. Stepdown will end once the committed log
@@ -1120,53 +1092,41 @@ impl<P: Platform> Hsm<P> {
     ) -> HandshakeResponse {
         type Response = HandshakeResponse;
 
-        match &self.persistent.realm {
-            Some(realm) if realm.id == request.realm => {
-                if realm.groups.contains_key(&request.group) {
-                    if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
-                        if (leader.log.last().entry)
-                            .partition
-                            .as_ref()
-                            .filter(|partition| partition.range.contains(&request.record_id))
-                            .is_some()
-                        {
-                            match noise::Handshake::start(
-                                (
-                                    &self.realm_keys.communication.0,
-                                    &self.realm_keys.communication.1,
-                                ),
-                                &request.handshake,
-                                &mut self.platform,
-                            ) {
-                                Ok((handshake, payload)) if payload.is_empty() => {
-                                    match handshake.finish(&[]) {
-                                        Ok((transport, response)) => {
-                                            leader.sessions.insert(
-                                                (request.record_id, request.session_id),
-                                                transport,
-                                            );
-                                            Response::Ok {
-                                                noise: response,
-                                                session_lifetime: SESSION_LIFETIME,
-                                            }
-                                        }
-                                        Err(_) => Response::SessionError,
-                                    }
-                                }
-                                _ => Response::SessionError,
-                            }
-                        } else {
-                            Response::NotOwner
-                        }
-                    } else {
-                        Response::NotLeader
-                    }
-                } else {
-                    Response::InvalidGroup
-                }
-            }
+        let leader = match is_leader_record_owner(
+            &self.persistent,
+            &mut self.volatile.leader,
+            request.realm,
+            request.group,
+            &request.record_id,
+        ) {
+            Ok(leader) => leader,
+            Err(RecordLeaderError::InvalidRealm) => return Response::InvalidRealm,
+            Err(RecordLeaderError::InvalidGroup) => return Response::InvalidGroup,
+            Err(RecordLeaderError::NotLeader) => return Response::NotLeader,
+            Err(RecordLeaderError::NotOwner) => return Response::NotOwner,
+        };
 
-            None | Some(_) => Response::InvalidRealm,
+        match noise::Handshake::start(
+            (
+                &self.realm_keys.communication.0,
+                &self.realm_keys.communication.1,
+            ),
+            &request.handshake,
+            &mut self.platform,
+        ) {
+            Ok((handshake, payload)) if payload.is_empty() => match handshake.finish(&[]) {
+                Ok((transport, response)) => {
+                    leader
+                        .sessions
+                        .insert((request.record_id, request.session_id), transport);
+                    Response::Ok {
+                        noise: response,
+                        session_lifetime: SESSION_LIFETIME,
+                    }
+                }
+                Err(_) => Response::SessionError,
+            },
+            _ => Response::SessionError,
         }
     }
 
@@ -1178,46 +1138,34 @@ impl<P: Platform> Hsm<P> {
         let mut app_req_name = None;
 
         let response = (|| {
-            let Some(realm) = &self.persistent.realm else {
-                return Response::InvalidRealm;
+            let leader = match is_leader_record_owner(
+                &self.persistent,
+                &mut self.volatile.leader,
+                request.realm,
+                request.group,
+                &request.record_id,
+            ) {
+                Ok(leader) => leader,
+                Err(RecordLeaderError::InvalidRealm) => return Response::InvalidRealm,
+                Err(RecordLeaderError::InvalidGroup) => return Response::InvalidGroup,
+                Err(RecordLeaderError::NotLeader) => {
+                    return Response::NotLeader(self.current_role(&request.group).unwrap())
+                }
+                Err(RecordLeaderError::NotOwner) => return Response::NotOwner,
             };
-            if realm.id != request.realm {
-                return Response::InvalidRealm;
-            }
-            if !realm.groups.contains_key(&request.group) {
-                return Response::InvalidGroup;
-            }
-            let Some(leader) = self.volatile.leader.get_mut(&request.group) else {
-                return Response::NotLeader(
-                    self.current_role(&request.group)
-                        .expect("We already validated that this HSM is a member of the group"),
-                );
-            };
-            if (leader.log.last().entry)
-                .partition
-                .as_ref()
-                .filter(|partition| partition.range.contains(&request.record_id))
-                .is_none()
-            {
-                return Response::NotOwner;
-            }
+
             // If we get a request where the log index is newer than anything we
             // know about then some other HSM wrote a log entry and therefore we
             // are not leader anymore. This also stops this replying with stale
             // proof and the agent endlessly retrying.
             if request.index > leader.log.last_index() {
-                self.handle_stepdown_as_leader(
-                    metrics,
-                    StepDownRequest {
-                        realm: request.realm,
-                        group: request.group,
-                    },
-                );
+                self.stepdown_at(request.group, StepDownPoint::LastLogIndex);
                 return Response::NotLeader(
                     self.current_role(&request.group)
                         .expect("We already validated that this HSM is a member of the group"),
                 );
             }
+
             handle_app_request(
                 request,
                 self.persistent.id,
@@ -1246,6 +1194,111 @@ impl<P: Platform> Hsm<P> {
             Some(GroupMemberRole::Witness)
         } else {
             None
+        }
+    }
+}
+
+fn is_realm_member(
+    state: &PersistentState,
+    realm: RealmId,
+) -> Result<&PersistentRealmState, RealmMemberError> {
+    match &state.realm {
+        Some(r) if r.id == realm => Ok(r),
+        Some(_) => Err(RealmMemberError::OtherRealm),
+        None => Err(RealmMemberError::NoRealm),
+    }
+}
+
+fn is_group_member(
+    state: &PersistentState,
+    realm: RealmId,
+    group: GroupId,
+) -> Result<&PersistentGroupState, GroupMemberError> {
+    is_realm_member(state, realm)?
+        .groups
+        .get(&group)
+        .ok_or(GroupMemberError::InvalidGroup)
+}
+
+fn is_group_leader<'a>(
+    state: &PersistentState,
+    leaders: &'a mut HashMap<GroupId, LeaderVolatileGroupState>,
+    realm: RealmId,
+    group: GroupId,
+) -> Result<&'a mut LeaderVolatileGroupState, GroupLeaderError> {
+    is_group_member(state, realm, group)?;
+    leaders.get_mut(&group).ok_or(GroupLeaderError::NotLeader)
+}
+
+fn is_leader_record_owner<'a>(
+    state: &PersistentState,
+    leaders: &'a mut HashMap<GroupId, LeaderVolatileGroupState>,
+    realm: RealmId,
+    group: GroupId,
+    record: &RecordId,
+) -> Result<&'a mut LeaderVolatileGroupState, RecordLeaderError> {
+    let leader = is_group_leader(state, leaders, realm, group)?;
+    if (leader.log.last().entry)
+        .partition
+        .as_ref()
+        .filter(|partition| partition.range.contains(record))
+        .is_some()
+    {
+        Ok(leader)
+    } else {
+        Err(RecordLeaderError::NotOwner)
+    }
+}
+
+enum RealmMemberError {
+    // Not a member of any realm.
+    NoRealm,
+    // Member of a different realm.
+    OtherRealm,
+}
+
+enum GroupMemberError {
+    InvalidRealm,
+    InvalidGroup,
+}
+
+impl From<RealmMemberError> for GroupMemberError {
+    fn from(value: RealmMemberError) -> Self {
+        match value {
+            RealmMemberError::NoRealm => GroupMemberError::InvalidRealm,
+            RealmMemberError::OtherRealm => GroupMemberError::InvalidRealm,
+        }
+    }
+}
+
+enum GroupLeaderError {
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+}
+
+impl From<GroupMemberError> for GroupLeaderError {
+    fn from(value: GroupMemberError) -> Self {
+        match value {
+            GroupMemberError::InvalidRealm => GroupLeaderError::InvalidRealm,
+            GroupMemberError::InvalidGroup => GroupLeaderError::InvalidGroup,
+        }
+    }
+}
+
+enum RecordLeaderError {
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+    NotOwner,
+}
+
+impl From<GroupLeaderError> for RecordLeaderError {
+    fn from(value: GroupLeaderError) -> Self {
+        match value {
+            GroupLeaderError::InvalidRealm => RecordLeaderError::InvalidRealm,
+            GroupLeaderError::InvalidGroup => RecordLeaderError::InvalidGroup,
+            GroupLeaderError::NotLeader => RecordLeaderError::NotLeader,
         }
     }
 }

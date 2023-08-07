@@ -3,7 +3,7 @@ use tracing::instrument;
 use super::super::hal::{CryptoRng, Platform};
 use super::super::merkle::{proof::ProofError, MergeError, Tree};
 use super::mac::{CtMac, TransferStatementMessage};
-use super::{Hsm, LogEntryBuilder, Metrics};
+use super::{is_group_leader, GroupLeaderError, Hsm, LogEntryBuilder, Metrics};
 use hsm_api::merkle::StoreDelta;
 use hsm_api::{
     CompleteTransferRequest, CompleteTransferResponse, Partition, TransferInRequest,
@@ -21,20 +21,21 @@ impl<P: Platform> Hsm<P> {
     ) -> TransferOutResponse {
         type Response = TransferOutResponse;
 
-        let Some(realm) = &self.persistent.realm else {
-            return Response::InvalidRealm;
+        let leader = match is_group_leader(
+            &self.persistent,
+            &mut self.volatile.leader,
+            request.realm,
+            request.source,
+        ) {
+            Ok(leader) => leader,
+            Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
+            Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
+            Err(GroupLeaderError::NotLeader) => return Response::NotLeader,
         };
-        if realm.id != request.realm {
-            return Response::InvalidRealm;
-        }
 
-        if realm.groups.get(&request.source).is_none() || request.source == request.destination {
+        if request.source == request.destination {
             return Response::InvalidGroup;
         }
-
-        let Some(leader) = self.volatile.leader.get_mut(&request.source) else {
-            return Response::NotLeader;
-        };
 
         let last_entry = &leader.log.last().entry;
 
@@ -144,19 +145,16 @@ impl<P: Platform> Hsm<P> {
     ) -> TransferNonceResponse {
         type Response = TransferNonceResponse;
 
-        let Some(realm) = &self.persistent.realm else {
-            return Response::InvalidRealm;
-        };
-        if realm.id != request.realm {
-            return Response::InvalidRealm;
-        }
-
-        if realm.groups.get(&request.destination).is_none() {
-            return Response::InvalidGroup;
-        }
-
-        let Some(leader) = self.volatile.leader.get_mut(&request.destination) else {
-            return Response::NotLeader;
+        let leader = match is_group_leader(
+            &self.persistent,
+            &mut self.volatile.leader,
+            request.realm,
+            request.destination,
+        ) {
+            Ok(leader) => leader,
+            Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
+            Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
+            Err(GroupLeaderError::NotLeader) => return Response::NotLeader,
         };
 
         let nonce = create_random_transfer_nonce(&mut self.platform);
@@ -172,20 +170,21 @@ impl<P: Platform> Hsm<P> {
     ) -> TransferStatementResponse {
         type Response = TransferStatementResponse;
 
-        let Some(realm) = &self.persistent.realm else {
-            return Response::InvalidRealm;
+        let leader = match is_group_leader(
+            &self.persistent,
+            &mut self.volatile.leader,
+            request.realm,
+            request.source,
+        ) {
+            Ok(leader) => leader,
+            Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
+            Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
+            Err(GroupLeaderError::NotLeader) => return Response::NotLeader,
         };
-        if realm.id != request.realm {
-            return Response::InvalidRealm;
-        }
 
-        if realm.groups.get(&request.source).is_none() || request.source == request.destination {
+        if request.source == request.destination {
             return Response::InvalidGroup;
         }
-
-        let Some(leader) = self.volatile.leader.get_mut(&request.source) else {
-            return Response::NotLeader;
-        };
 
         let Some(TransferringOut {
             destination,
@@ -220,19 +219,16 @@ impl<P: Platform> Hsm<P> {
     ) -> TransferInResponse {
         type Response = TransferInResponse;
 
-        let Some(realm) = &self.persistent.realm else {
-            return Response::InvalidRealm;
-        };
-        if realm.id != request.realm {
-            return Response::InvalidRealm;
-        }
-
-        if realm.groups.get(&request.destination).is_none() {
-            return Response::InvalidGroup;
-        }
-
-        let Some(leader) = self.volatile.leader.get_mut(&request.destination) else {
-            return Response::NotLeader;
+        let leader = match is_group_leader(
+            &self.persistent,
+            &mut self.volatile.leader,
+            request.realm,
+            request.destination,
+        ) {
+            Ok(leader) => leader,
+            Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
+            Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
+            Err(GroupLeaderError::NotLeader) => return Response::NotLeader,
         };
 
         if leader.incoming != Some(request.nonce) {
@@ -325,20 +321,21 @@ impl<P: Platform> Hsm<P> {
     ) -> CompleteTransferResponse {
         type Response = CompleteTransferResponse;
 
-        let Some(realm) = &self.persistent.realm else {
-            return Response::InvalidRealm;
+        let leader = match is_group_leader(
+            &self.persistent,
+            &mut self.volatile.leader,
+            request.realm,
+            request.source,
+        ) {
+            Ok(leader) => leader,
+            Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
+            Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
+            Err(GroupLeaderError::NotLeader) => return Response::NotLeader,
         };
-        if realm.id != request.realm {
-            return Response::InvalidRealm;
-        }
 
-        if realm.groups.get(&request.source).is_none() || request.source == request.destination {
+        if request.source == request.destination {
             return Response::InvalidGroup;
         }
-
-        let Some(leader) = self.volatile.leader.get_mut(&request.source) else {
-            return Response::NotLeader;
-        };
 
         let last_entry = &leader.log.last().entry;
         if let Some(transferring_out) = &last_entry.transferring_out {
