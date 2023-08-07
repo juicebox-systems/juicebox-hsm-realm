@@ -12,7 +12,7 @@ use digest::Digest;
 use hsm_api::merkle::StoreDelta;
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
-use tracing::{info, trace, warn};
+use tracing::{info, instrument, warn};
 use x25519_dalek as x25519;
 
 mod app;
@@ -615,13 +615,13 @@ impl<P: Platform> Hsm<P> {
         }
     }
 
+    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
     fn handle_status_request(
         &mut self,
         _metrics: &mut Metrics<P>,
         request: StatusRequest,
     ) -> StatusResponse {
-        trace!(hsm = self.options.name, ?request);
-        let response = StatusResponse {
+        StatusResponse {
             id: self.persistent.id,
             public_key: PublicKey(self.realm_keys.communication.1.as_bytes().to_vec()),
             realm: self.persistent.realm.as_ref().map(|realm| RealmStatus {
@@ -658,19 +658,17 @@ impl<P: Platform> Hsm<P> {
                     })
                     .collect(),
             }),
-        };
-        trace!(hsm = self.options.name, ?response);
-        response
+        }
     }
 
+    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
     fn handle_new_realm(
         &mut self,
         _metrics: &mut Metrics<P>,
         request: NewRealmRequest,
     ) -> NewRealmResponse {
         type Response = NewRealmResponse;
-        trace!(hsm = self.options.name, ?request);
-        let response = if self.persistent.realm.is_some() {
+        if self.persistent.realm.is_some() {
             Response::HaveRealm
         } else {
             let realm = create_random_realm_id(&mut self.platform);
@@ -720,20 +718,18 @@ impl<P: Platform> Hsm<P> {
                 entry,
                 delta,
             }
-        };
-        trace!(hsm = self.options.name, ?response);
-        response
+        }
     }
 
+    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
     fn handle_join_realm(
         &mut self,
         _metrics: &mut Metrics<P>,
         request: JoinRealmRequest,
     ) -> JoinRealmResponse {
         type Response = JoinRealmResponse;
-        trace!(hsm = self.options.name, ?request);
 
-        let response = match &self.persistent.realm {
+        match &self.persistent.realm {
             Some(realm) => {
                 if realm.id == request.realm {
                     Response::Ok {
@@ -779,48 +775,44 @@ impl<P: Platform> Hsm<P> {
                     Response::Ok { hsm: persistent.id }
                 }
             }
-        };
-
-        trace!(hsm = self.options.name, ?response);
-        response
+        }
     }
 
+    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
     fn handle_new_group(
         &mut self,
         _metrics: &mut Metrics<P>,
         request: NewGroupRequest,
     ) -> NewGroupResponse {
         type Response = NewGroupResponse;
-        trace!(hsm = self.options.name, ?request);
 
-        let response = (|| {
-            let Some(realm) = &self.persistent.realm else {
-                return Response::InvalidRealm;
-            };
+        let Some(realm) = &self.persistent.realm else {
+            return Response::InvalidRealm;
+        };
 
-            if realm.id != request.realm {
-                return Response::InvalidRealm;
-            }
+        if realm.id != request.realm {
+            return Response::InvalidRealm;
+        }
 
-            if realm.groups.len() >= usize::from(GROUPS_LIMIT) {
-                return Response::TooManyGroups;
-            }
+        if realm.groups.len() >= usize::from(GROUPS_LIMIT) {
+            return Response::TooManyGroups;
+        }
 
-            if request.members.iter().any(|(hsm_id, hsm_realm_statement)| {
-                self.realm_keys
-                    .mac
-                    .hsm_realm_mac(&HsmRealmStatementMessage {
-                        realm: realm.id,
-                        hsm: *hsm_id,
-                        keys: &self.realm_keys,
-                    })
-                    .verify(hsm_realm_statement)
-                    .is_err()
-            }) {
-                return Response::InvalidStatement;
-            }
+        if request.members.iter().any(|(hsm_id, hsm_realm_statement)| {
+            self.realm_keys
+                .mac
+                .hsm_realm_mac(&HsmRealmStatementMessage {
+                    realm: realm.id,
+                    hsm: *hsm_id,
+                    keys: &self.realm_keys,
+                })
+                .verify(hsm_realm_statement)
+                .is_err()
+        }) {
+            return Response::InvalidStatement;
+        }
 
-            let Ok(configuration) = GroupConfiguration::from_sorted_including_local(
+        let Ok(configuration) = GroupConfiguration::from_sorted_including_local(
                 request
                     .members
                     .iter()
@@ -831,195 +823,179 @@ impl<P: Platform> Hsm<P> {
                 return Response::InvalidConfiguration;
             };
 
-            let group = create_random_group_id(&mut self.platform);
-            let statement =
-                self.realm_keys
-                    .mac
-                    .group_configuration_mac(&GroupConfigurationStatementMessage {
-                        realm: request.realm,
-                        group,
-                        configuration: &configuration,
-                    });
-
-            {
-                let mut persistent = self.persistent.mutate();
-                let existing = persistent.realm.as_mut().unwrap().groups.insert(
+        let group = create_random_group_id(&mut self.platform);
+        let statement =
+            self.realm_keys
+                .mac
+                .group_configuration_mac(&GroupConfigurationStatementMessage {
+                    realm: request.realm,
                     group,
-                    PersistentGroupState {
-                        configuration,
-                        captured: None,
-                    },
-                );
-                assert!(existing.is_none());
-            }
+                    configuration: &configuration,
+                });
 
-            let entry = LogEntryBuilder {
-                hsm: self.persistent.id,
-                realm: request.realm,
+        {
+            let mut persistent = self.persistent.mutate();
+            let existing = persistent.realm.as_mut().unwrap().groups.insert(
                 group,
-                index: LogIndex::FIRST,
-                partition: None,
-                transferring_out: None,
-                prev_mac: EntryMac::zero(),
-            }
-            .build(&self.realm_keys.mac);
-
-            self.volatile.leader.insert(
-                group,
-                LeaderVolatileGroupState::new(entry.clone(), &self.options),
+                PersistentGroupState {
+                    configuration,
+                    captured: None,
+                },
             );
+            assert!(existing.is_none());
+        }
 
-            Response::Ok {
-                group,
-                statement,
-                entry,
-            }
-        })();
+        let entry = LogEntryBuilder {
+            hsm: self.persistent.id,
+            realm: request.realm,
+            group,
+            index: LogIndex::FIRST,
+            partition: None,
+            transferring_out: None,
+            prev_mac: EntryMac::zero(),
+        }
+        .build(&self.realm_keys.mac);
 
-        trace!(hsm = self.options.name, ?response);
-        response
+        self.volatile.leader.insert(
+            group,
+            LeaderVolatileGroupState::new(entry.clone(), &self.options),
+        );
+
+        Response::Ok {
+            group,
+            statement,
+            entry,
+        }
     }
 
+    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
     fn handle_join_group(
         &mut self,
         _metrics: &mut Metrics<P>,
         request: JoinGroupRequest,
     ) -> JoinGroupResponse {
         type Response = JoinGroupResponse;
-        trace!(hsm = self.options.name, ?request);
 
-        let response = (|| {
-            let Ok(configuration) = GroupConfiguration::from_sorted_including_local(
-                request.configuration,
-                &self.persistent.id,
-            ) else {
-                return Response::InvalidConfiguration;
-            };
+        let Ok(configuration) = GroupConfiguration::from_sorted_including_local(
+            request.configuration,
+            &self.persistent.id,
+        ) else {
+            return Response::InvalidConfiguration;
+        };
 
-            match &self.persistent.realm {
-                None => return Response::InvalidRealm,
+        match &self.persistent.realm {
+            None => return Response::InvalidRealm,
 
-                Some(realm) => {
-                    if realm.id != request.realm {
-                        return Response::InvalidRealm;
-                    }
-                    if realm.groups.len() >= usize::from(GROUPS_LIMIT) {
-                        return Response::TooManyGroups;
-                    }
+            Some(realm) => {
+                if realm.id != request.realm {
+                    return Response::InvalidRealm;
+                }
+                if realm.groups.len() >= usize::from(GROUPS_LIMIT) {
+                    return Response::TooManyGroups;
+                }
 
-                    if self
-                        .realm_keys
-                        .mac
-                        .group_configuration_mac(&GroupConfigurationStatementMessage {
-                            realm: request.realm,
-                            group: request.group,
-                            configuration: &configuration,
-                        })
-                        .verify(&request.statement)
-                        .is_err()
-                    {
-                        return Response::InvalidStatement;
-                    }
+                if self
+                    .realm_keys
+                    .mac
+                    .group_configuration_mac(&GroupConfigurationStatementMessage {
+                        realm: request.realm,
+                        group: request.group,
+                        configuration: &configuration,
+                    })
+                    .verify(&request.statement)
+                    .is_err()
+                {
+                    return Response::InvalidStatement;
                 }
             }
+        }
 
-            self.persistent
-                .mutate()
-                .realm
-                .as_mut()
-                .unwrap()
-                .groups
-                .entry(request.group)
-                .or_insert(PersistentGroupState {
-                    configuration,
-                    captured: None,
-                });
-            Response::Ok
-        })();
-
-        trace!(hsm = self.options.name, ?response);
-        response
+        self.persistent
+            .mutate()
+            .realm
+            .as_mut()
+            .unwrap()
+            .groups
+            .entry(request.group)
+            .or_insert(PersistentGroupState {
+                configuration,
+                captured: None,
+            });
+        Response::Ok
     }
 
+    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
     fn handle_become_leader(
         &mut self,
         _metrics: &mut Metrics<P>,
         request: BecomeLeaderRequest,
     ) -> BecomeLeaderResponse {
         type Response = BecomeLeaderResponse;
-        trace!(hsm = self.options.name, ?request);
 
         // We need to check against the persisted captures for safety reasons,
         // so make sure they're up to date.
         self.persist_current_captures();
 
-        let response = (|| {
-            let configuration = match &self.persistent.realm {
-                None => return Response::InvalidRealm,
+        let configuration = match &self.persistent.realm {
+            None => return Response::InvalidRealm,
 
-                Some(realm) => {
-                    if realm.id != request.realm {
-                        return Response::InvalidRealm;
-                    }
-
-                    if self.volatile.stepping_down.get(&request.group).is_some() {
-                        return Response::StepdownInProgress;
-                    }
-
-                    match realm.groups.get(&request.group) {
-                        None => return Response::InvalidGroup,
-
-                        Some(group) => match &group.captured {
-                            None => return Response::NotCaptured { have: None },
-                            Some((captured_index, captured_mac)) => {
-                                if request.last_entry.index != *captured_index
-                                    || request.last_entry.entry_mac != *captured_mac
-                                {
-                                    return Response::NotCaptured {
-                                        have: Some(*captured_index),
-                                    };
-                                }
-                                if self
-                                    .realm_keys
-                                    .mac
-                                    .log_entry_mac(&EntryMacMessage::new(
-                                        request.realm,
-                                        request.group,
-                                        &request.last_entry,
-                                    ))
-                                    .verify(&request.last_entry.entry_mac)
-                                    .is_err()
-                                {
-                                    return Response::InvalidMac;
-                                }
-                                group.configuration.to_vec()
-                            }
-                        },
-                    }
+            Some(realm) => {
+                if realm.id != request.realm {
+                    return Response::InvalidRealm;
                 }
-            };
 
-            self.volatile
-                .leader
-                .entry(request.group)
-                .or_insert_with(|| {
-                    LeaderVolatileGroupState::new(request.last_entry, &self.options)
-                });
+                if self.volatile.stepping_down.get(&request.group).is_some() {
+                    return Response::StepdownInProgress;
+                }
 
-            Response::Ok { configuration }
-        })();
+                match realm.groups.get(&request.group) {
+                    None => return Response::InvalidGroup,
 
-        trace!(hsm = self.options.name, ?response);
-        response
+                    Some(group) => match &group.captured {
+                        None => return Response::NotCaptured { have: None },
+                        Some((captured_index, captured_mac)) => {
+                            if request.last_entry.index != *captured_index
+                                || request.last_entry.entry_mac != *captured_mac
+                            {
+                                return Response::NotCaptured {
+                                    have: Some(*captured_index),
+                                };
+                            }
+                            if self
+                                .realm_keys
+                                .mac
+                                .log_entry_mac(&EntryMacMessage::new(
+                                    request.realm,
+                                    request.group,
+                                    &request.last_entry,
+                                ))
+                                .verify(&request.last_entry.entry_mac)
+                                .is_err()
+                            {
+                                return Response::InvalidMac;
+                            }
+                            group.configuration.to_vec()
+                        }
+                    },
+                }
+            }
+        };
+
+        self.volatile
+            .leader
+            .entry(request.group)
+            .or_insert_with(|| LeaderVolatileGroupState::new(request.last_entry, &self.options));
+
+        Response::Ok { configuration }
     }
 
+    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
     fn handle_stepdown_as_leader(
         &mut self,
         _metrics: &mut Metrics<P>,
         request: StepDownRequest,
     ) -> StepDownResponse {
         type Response = StepDownResponse;
-        trace!(hsm = self.options.name, ?request);
 
         let Some(realm) = &self.persistent.realm else {
             return Response::InvalidRealm;
@@ -1081,13 +1057,13 @@ impl<P: Platform> Hsm<P> {
         }
     }
 
+    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
     fn handle_persist_state(
         &mut self,
         _metrics: &mut Metrics<P>,
         request: PersistStateRequest,
     ) -> PersistStateResponse {
         type Response = PersistStateResponse;
-        trace!(hsm = self.options.name, ?request);
 
         self.persist_current_captures();
 
@@ -1136,15 +1112,15 @@ impl<P: Platform> Hsm<P> {
         }
     }
 
+    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
     fn handle_handshake(
         &mut self,
         _metrics: &mut Metrics<P>,
         request: HandshakeRequest,
     ) -> HandshakeResponse {
         type Response = HandshakeResponse;
-        trace!(hsm = self.options.name, ?request);
 
-        let response = match &self.persistent.realm {
+        match &self.persistent.realm {
             Some(realm) if realm.id == request.realm => {
                 if realm.groups.contains_key(&request.group) {
                     if let Some(leader) = self.volatile.leader.get_mut(&request.group) {
@@ -1191,15 +1167,12 @@ impl<P: Platform> Hsm<P> {
             }
 
             None | Some(_) => Response::InvalidRealm,
-        };
-
-        trace!(hsm = self.options.name, ?response);
-        response
+        }
     }
 
+    #[instrument(level = "trace", skip(self, metrics), fields(hsm=self.options.name), ret)]
     fn handle_app(&mut self, metrics: &mut Metrics<P>, request: AppRequest) -> AppResponse {
         type Response = AppResponse;
-        trace!(hsm = self.options.name, ?request);
 
         let start = metrics.now();
         let mut app_req_name = None;
@@ -1256,7 +1229,6 @@ impl<P: Platform> Hsm<P> {
         })();
 
         metrics.record(app_req_name.unwrap_or("App::unknown"), start);
-        trace!(hsm = self.options.name, ?response);
         response
     }
 
