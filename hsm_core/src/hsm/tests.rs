@@ -707,13 +707,13 @@ impl<'a> TestCluster<'a> {
             },
         );
         let NewGroupResponse::Ok {
-                group: new_group,
-                statement,
-                entry,
-            } = new_group_resp
-            else {
-                panic!("new group failed: {:?}", new_group_resp);
-            };
+            group: new_group,
+            statement,
+            entry,
+        } = new_group_resp
+        else {
+            panic!("new group failed: {:?}", new_group_resp);
+        };
         cluster
             .store
             .append(new_group, entry, StoreDelta::default());
@@ -735,30 +735,30 @@ impl<'a> TestCluster<'a> {
         }
 
         let TransferOutResponse::Ok { entry, delta } = cluster.hsms[0].hsm.handle_transfer_out(
-                &mut m,
-                TransferOutRequest {
-                    realm,
-                    source: starting_group,
-                    destination: new_group,
-                    range: OwnedRange::full(),
-                    index: LogIndex(1),
-                    proof: None,
-                },
-            ) else {
-                panic!("transfer out failed")
-            };
+            &mut m,
+            TransferOutRequest {
+                realm,
+                source: starting_group,
+                destination: new_group,
+                range: OwnedRange::full(),
+                index: LogIndex(1),
+                proof: None,
+            },
+        ) else {
+            panic!("transfer out failed")
+        };
         cluster.store.append(starting_group, entry.clone(), delta);
 
         let partition = entry.transferring_out.as_ref().unwrap().partition.clone();
         let TransferNonceResponse::Ok(nonce) = cluster.hsms[0].hsm.handle_transfer_nonce(
-                &mut m,
-                TransferNonceRequest {
-                    realm,
-                    destination: new_group,
-                },
-            ) else {
-                panic!("failed to generate transfer nonce");
-            };
+            &mut m,
+            TransferNonceRequest {
+                realm,
+                destination: new_group,
+            },
+        ) else {
+            panic!("failed to generate transfer nonce");
+        };
         cluster.capture_next_and_commit_group(starting_group);
         cluster.capture_next_and_commit_group(new_group);
 
@@ -772,35 +772,35 @@ impl<'a> TestCluster<'a> {
             },
         );
         let TransferStatementResponse::Ok(stmt) = transfer_stmt else {
-                panic!("failed to generate transfer statement: {transfer_stmt:?}");
-            };
+            panic!("failed to generate transfer statement: {transfer_stmt:?}");
+        };
 
         let TransferInResponse::Ok { entry, delta } = cluster.hsms[0].hsm.handle_transfer_in(
-                &mut m,
-                TransferInRequest {
-                    realm,
-                    destination: new_group,
-                    transferring: partition,
-                    proofs: None,
-                    nonce,
-                    statement: stmt,
-                },
-            ) else {
-                panic!("failed to transfer in");
-            };
+            &mut m,
+            TransferInRequest {
+                realm,
+                destination: new_group,
+                transferring: partition,
+                proofs: None,
+                nonce,
+                statement: stmt,
+            },
+        ) else {
+            panic!("failed to transfer in");
+        };
         cluster.store.append(new_group, entry, delta);
 
         let CompleteTransferResponse::Ok(entry) = cluster.hsms[0].hsm.handle_complete_transfer(
-                &mut m,
-                CompleteTransferRequest {
-                    realm,
-                    source: starting_group,
-                    destination: new_group,
-                    range: OwnedRange::full(),
-                },
-            ) else {
-                panic!("failed to complete transfer");
-            };
+            &mut m,
+            CompleteTransferRequest {
+                realm,
+                source: starting_group,
+                destination: new_group,
+                range: OwnedRange::full(),
+            },
+        ) else {
+            panic!("failed to complete transfer");
+        };
 
         cluster
             .store

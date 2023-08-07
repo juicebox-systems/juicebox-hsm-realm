@@ -781,7 +781,7 @@ impl<P: Platform> Hsm<P> {
     ) -> NewGroupResponse {
         type Response = NewGroupResponse;
 
-        let Ok(realm) = is_realm_member(&self.persistent,request.realm) else {
+        let Ok(realm) = is_realm_member(&self.persistent, request.realm) else {
             return Response::InvalidRealm;
         };
 
@@ -804,15 +804,15 @@ impl<P: Platform> Hsm<P> {
         }
 
         let Ok(configuration) = GroupConfiguration::from_sorted_including_local(
-                request
-                    .members
-                    .iter()
-                    .map(|(id, _)| *id)
-                    .collect::<Vec<HsmId>>(),
-                &self.persistent.id,
-            ) else {
-                return Response::InvalidConfiguration;
-            };
+            request
+                .members
+                .iter()
+                .map(|(id, _)| *id)
+                .collect::<Vec<HsmId>>(),
+            &self.persistent.id,
+        ) else {
+            return Response::InvalidConfiguration;
+        };
 
         let group = create_random_group_id(&mut self.platform);
         let statement =
