@@ -519,11 +519,6 @@ impl<P: Platform> Hsm<P> {
         })
     }
 
-    /// Returns true if we're only a witness for the groups on this HSM.
-    pub fn is_witness_only(&self) -> bool {
-        self.volatile.leader.is_empty() && self.volatile.stepping_down.is_empty()
-    }
-
     pub fn handle_request(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, HsmError> {
         let request: HsmRequestContainer = match marshalling::from_slice(request_bytes) {
             Ok(request) => request,
