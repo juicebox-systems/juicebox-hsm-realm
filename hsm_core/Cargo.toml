@@ -16,7 +16,6 @@ ciborium = { workspace = true }
 ciborium-io = { workspace = true }
 digest = { workspace = true }
 election = { workspace = true }
-generic-array = { workspace = true }
 hashbrown = { workspace = true }
 hsm_api = { workspace = true }
 juicebox_marshalling = { workspace = true }

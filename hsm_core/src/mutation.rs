@@ -1,13 +1,13 @@
 use core::ops::{Deref, DerefMut};
 
-pub trait OnMutationFinished<T> {
+pub(crate) trait OnMutationFinished<T> {
     fn finished(&mut self, t: &T);
 }
 
 /// MutationTracker wraps a value and tracks mutations. When the mutation is
 /// complete a callback is executed. This uses Guards that trigger the callback
 /// when they're dropped, similar to how Mutex works.
-pub struct MutationTracker<T, F: OnMutationFinished<T>> {
+pub(crate) struct MutationTracker<T, F: OnMutationFinished<T>> {
     value: T,
     on_finished: F,
 }
@@ -29,7 +29,7 @@ impl<T, F: OnMutationFinished<T>> Deref for MutationTracker<T, F> {
     }
 }
 
-pub struct MutationGuard<'a, T, F: OnMutationFinished<T>> {
+pub(crate) struct MutationGuard<'a, T, F: OnMutationFinished<T>> {
     inner: &'a mut MutationTracker<T, F>,
 }
 
