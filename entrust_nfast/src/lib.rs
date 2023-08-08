@@ -210,12 +210,16 @@ impl Deref for SecurityWorldKey {
 }
 
 pub fn lookup_name(val: u32, table: &[M_ValInfo]) -> Cow<'_, str> {
+    lookup_name_no_default(val, table).unwrap_or_else(|| Cow::Owned(format!("[Unknown:{}]", val)))
+}
+
+pub fn lookup_name_no_default(val: u32, table: &[M_ValInfo]) -> Option<Cow<'_, str>> {
     let cstr = unsafe { NF_Lookup(val, table.as_ptr()) };
     if cstr.is_null() {
-        Cow::Owned(format!("[Unknown:{}]", val))
+        None
     } else {
         let cstr = unsafe { CStr::from_ptr(cstr) };
-        String::from_utf8_lossy(cstr.to_bytes())
+        Some(String::from_utf8_lossy(cstr.to_bytes()))
     }
 }
 
