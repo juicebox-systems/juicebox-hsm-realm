@@ -95,6 +95,9 @@ impl HsmGenerator {
                     .join(mode)
                     .join("entrust-hsm.sar"),
             );
+            if hsm_dir.is_none() {
+                cmd.arg("--reinitialize");
+            }
             cmd.arg("--userdata").arg(
                 path_to_target
                     .join("target")
