@@ -34,7 +34,7 @@ use entrust_nfast::{
 use google::auth;
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use observability::{logging, metrics, metrics_tag as tag};
-use service_core::clap_parsers::parse_duration;
+use service_core::clap_parsers::{parse_duration, parse_listen};
 use service_core::future_task::FutureTasks;
 use service_core::panic;
 
@@ -165,11 +165,6 @@ async fn main() {
         .expect("failed to listen for connections");
     info!(url = %url, "Agent started");
     join_handle.await.unwrap();
-}
-
-fn parse_listen(s: &str) -> Result<SocketAddr, String> {
-    s.parse()
-        .map_err(|e| format!("couldn't parse listen argument: {e}"))
 }
 
 #[derive(Debug)]
