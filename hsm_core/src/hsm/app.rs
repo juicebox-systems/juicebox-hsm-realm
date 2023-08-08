@@ -253,10 +253,11 @@ fn marshal_user_record(u: &UserRecord) -> Result<Vec<u8>, SerializationError> {
     // The actual length is stored at the end of the serialized state.
     // The length is a big endian encoded u32.
     assert!(s.len() < SERIALIZED_RECORD_SIZE - TRAILER_LEN);
+    let len = s.len();
     if should_pad {
         s.resize(SERIALIZED_RECORD_SIZE - TRAILER_LEN, 0);
     }
-    s.extend_from_slice(&to_be4(s.len()));
+    s.extend_from_slice(&to_be4(len));
     Ok(s)
 }
 
