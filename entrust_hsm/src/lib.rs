@@ -34,7 +34,7 @@ use seelib::{
 const MAX_JOB_SIZE_BYTES: usize = 1024 * 1024;
 
 // Set to the tag of the SEEJob when a SEEJob is being processed. Used by the
-// panic handler to return a panic message to the agent.
+// panic handler to return a panic message to the agent. 0 means no active job.
 static ACTIVE_JOB_TAG: AtomicU32 = AtomicU32::new(0);
 
 #[no_mangle]
@@ -52,8 +52,6 @@ pub extern "C" fn rust_main() -> isize {
     #[cfg(not(target_os = "ncipherxc"))]
     std::panic::set_hook(Box::new(|info| {
         println!("{}", info);
-        // Everything is executed on the same one thread, so Ordering::Relaxed is
-        // fine. The only reason its an atomic is to keep the borrow checker happy.
         let tag = ACTIVE_JOB_TAG.load(Ordering::Relaxed);
         if tag != 0 {
             let data = info.to_string().into_bytes();
@@ -203,6 +201,8 @@ fn await_job(buf: &mut Vec<u8>) -> (M_Word, usize) {
             buf.resize(min(len as usize, MAX_JOB_SIZE_BYTES), 0);
             continue;
         }
+        // Everything is executed on the same one thread, so Ordering::Relaxed is
+        // fine. The only reason its an atomic is to keep the borrow checker happy.
         ACTIVE_JOB_TAG.store(tag, Ordering::Relaxed);
         return (tag, len as usize);
     }
