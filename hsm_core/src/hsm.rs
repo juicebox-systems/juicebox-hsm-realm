@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use blake2::Blake2s256;
 use chacha20poly1305::aead::Aead;
-use core::fmt::Debug;
+use core::fmt::{Debug, Display};
 use core::time::Duration;
 use digest::Digest;
 use hsm_api::merkle::StoreDelta;
@@ -362,6 +362,15 @@ impl LeaderLog {
 pub enum HsmError {
     Deserialization(marshalling::DeserializationError),
     Serialization(marshalling::SerializationError),
+}
+
+impl Display for HsmError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            HsmError::Deserialization(err) => write!(f, "{}", err),
+            HsmError::Serialization(err) => write!(f, "{}", err),
+        }
+    }
 }
 
 #[derive(Debug)]

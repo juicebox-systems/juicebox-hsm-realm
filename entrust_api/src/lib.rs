@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use juicebox_marshalling::bytes;
@@ -69,5 +70,35 @@ pub enum WorldSignerError {
 impl From<WorldSignerError> for StartResponse {
     fn from(value: WorldSignerError) -> Self {
         StartResponse::WorldSigner(value)
+    }
+}
+
+// SEEJob response buffers contain a trailing byte indicating the type of the
+// payload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SEEJobResponseType {
+    // The response is the serialized result of executing the job.
+    JobResult,
+    // The response is a panic message in UTF8.
+    PanicMessage,
+    // THe response is a marshalling error message in UTF8.
+    MarshallingError,
+}
+
+impl SEEJobResponseType {
+    pub fn as_byte(&self) -> u8 {
+        match self {
+            SEEJobResponseType::JobResult => 1,
+            SEEJobResponseType::PanicMessage => 2,
+            SEEJobResponseType::MarshallingError => 3,
+        }
+    }
+    pub fn from_byte(b: u8) -> Result<Self, String> {
+        match b {
+            1 => Ok(SEEJobResponseType::JobResult),
+            2 => Ok(SEEJobResponseType::PanicMessage),
+            3 => Ok(SEEJobResponseType::MarshallingError),
+            _ => Err(format!("Invalid SEEJobResponseType value of {b}")),
+        }
     }
 }

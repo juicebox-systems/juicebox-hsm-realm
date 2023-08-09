@@ -6,31 +6,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::Instant;
 use tracing::info;
-use tracing::{instrument, span::Span, trace, warn};
+use tracing::{instrument, span::Span, trace};
 
 use hsm_api::rpc::{HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
-use juicebox_networking::rpc::RpcError;
 use observability::{metrics, metrics_tag as tag};
-
-/// The HSM signalled that the request processing failed, likely due to
-/// serialization or deserialization issues.
-#[derive(Debug)]
-pub struct HsmRpcError;
-
-impl From<HsmRpcError> for RpcError {
-    fn from(_v: HsmRpcError) -> Self {
-        RpcError::Network
-    }
-}
 
 #[async_trait]
 pub trait Transport: fmt::Debug + Send + Sync {
-    type Error: fmt::Debug
-        + From<SerializationError>
-        + From<DeserializationError>
-        + From<HsmRpcError>
-        + Send;
+    type Error: fmt::Debug + From<SerializationError> + From<DeserializationError> + Send;
 
     async fn send_rpc_msg(
         &self,
@@ -113,10 +97,6 @@ impl<T: Transport> HsmClient<T> {
         let res_bytes = self.0.transport.send_rpc_msg(req_name, req_bytes).await?;
 
         let dur = start.elapsed();
-        if res_bytes.is_empty() {
-            warn!(req = req_name, "HSM failed to process RPC request");
-            return Err(HsmRpcError.into());
-        }
         trace!(
             num_bytes = res_bytes.len(),
             req = req_name,

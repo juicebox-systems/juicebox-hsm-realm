@@ -3,7 +3,7 @@ use juicebox_marshalling::{self as marshalling, DeserializationError, Serializat
 use std::fmt::Debug;
 use url::Url;
 
-use agent_core::hsm::{HsmRpcError, Transport};
+use agent_core::hsm::Transport;
 
 #[derive(Clone)]
 pub struct HsmHttpClient {
@@ -55,7 +55,6 @@ pub enum HsmHttpTransportError {
     HttpStatus(reqwest::StatusCode),
     Serialization(marshalling::SerializationError),
     Deserialization(marshalling::DeserializationError),
-    HsmRpcError,
 }
 
 impl From<SerializationError> for HsmHttpTransportError {
@@ -67,11 +66,5 @@ impl From<SerializationError> for HsmHttpTransportError {
 impl From<DeserializationError> for HsmHttpTransportError {
     fn from(value: DeserializationError) -> Self {
         HsmHttpTransportError::Deserialization(value)
-    }
-}
-
-impl From<HsmRpcError> for HsmHttpTransportError {
-    fn from(_: HsmRpcError) -> Self {
-        HsmHttpTransportError::HsmRpcError
     }
 }

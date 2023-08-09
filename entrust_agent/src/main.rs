@@ -15,9 +15,9 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use tracing::{debug, info, instrument, warn, Span};
 
-use agent_core::hsm::{HsmClient, HsmRpcError, Transport};
+use agent_core::hsm::{HsmClient, Transport};
 use agent_core::Agent;
-use entrust_api::{NvRamState, StartRequest, StartResponse, Ticket};
+use entrust_api::{NvRamState, SEEJobResponseType, StartRequest, StartResponse, Ticket};
 use entrust_nfast::{
     find_key, lookup_name_no_default, Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
     Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_GetTicket, Cmd_LoadBuffer,
@@ -178,7 +178,7 @@ pub enum SeeError {
     // The HSM process crashed or was otherwise terminated.
     SeeWorldFailed,
     // HSM Side marshalling errors
-    HsmMarshallingError,
+    HsmMarshallingError(String),
 }
 
 impl Display for SeeError {
@@ -188,8 +188,8 @@ impl Display for SeeError {
             SeeError::Deserialization(err) => write!(f, "Deserialization error: {:?}", err),
             SeeError::NFast(err) => write!(f, "NFastError: {}", err),
             SeeError::SeeWorldFailed => write!(f, "SEEWorld failed"),
-            SeeError::HsmMarshallingError => {
-                write!(f, "HSM Failed to marshal a request or response")
+            SeeError::HsmMarshallingError(msg) => {
+                write!(f, "HSM Marshalling Error: {msg}")
             }
         }
     }
@@ -204,12 +204,6 @@ impl From<DeserializationError> for SeeError {
 impl From<SerializationError> for SeeError {
     fn from(v: SerializationError) -> Self {
         Self::Serialization(v)
-    }
-}
-
-impl From<HsmRpcError> for SeeError {
-    fn from(_v: HsmRpcError) -> Self {
-        Self::HsmMarshallingError
     }
 }
 
@@ -475,10 +469,23 @@ impl TransportInner {
             seeargs: M_ByteBlock::from_vec(&mut data),
         };
         let reply = self.transact(&mut cmd)?;
-        let resp = unsafe { reply.reply.seejob.seereply.as_slice() };
-        let response = resp.to_vec();
+        let mut data = unsafe { reply.reply.seejob.seereply.as_slice().to_vec() };
+        let result = match SEEJobResponseType::from_byte(
+            data.pop()
+                .expect("SEEJob responses should always include the type trailer byte"),
+        ) {
+            Ok(SEEJobResponseType::JobResult) => Ok(data),
+            Ok(SEEJobResponseType::PanicMessage) => {
+                panic!("HSM panicked: {}\n", String::from_utf8_lossy(&data));
+            }
+            Ok(SEEJobResponseType::MarshallingError) => {
+                let msg = String::from_utf8_lossy(&data).to_string();
+                Err(SeeError::HsmMarshallingError(msg))
+            }
+            Err(msg) => Err(SeeError::Deserialization(DeserializationError(msg))),
+        };
         self.collect_trace_buffer();
-        Ok(response)
+        result
     }
 
     // If there's a problem generating a ticket for a key, then we can't start
