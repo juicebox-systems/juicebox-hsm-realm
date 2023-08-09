@@ -1,9 +1,11 @@
 use async_trait::async_trait;
 use clap::Parser;
+use core::slice;
 use std::cmp::min;
 use std::ffi::CString;
 use std::fmt::Display;
 use std::fs;
+use std::iter::zip;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::ptr::null_mut;
@@ -17,20 +19,23 @@ use agent_core::hsm::{HsmClient, HsmRpcError, Transport};
 use agent_core::Agent;
 use entrust_api::{NvRamState, StartRequest, StartResponse, Ticket};
 use entrust_nfast::{
-    find_key, Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
+    find_key, lookup_name_no_default, Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
     Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_GetTicket, Cmd_LoadBuffer,
-    Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine, Cmd_TraceSEEWorld,
-    M_ByteBlock, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args, M_Cmd_CreateSEEWorld_Args,
-    M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args, M_Cmd_SEEJob_Args, M_Cmd_SetSEEMachine_Args,
-    M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID, M_Status, M_Word, ModuleMode_Default,
-    NFKM_cmd_loadblob, NFastApp_Connect, NFastApp_Connection, NFastApp_ConnectionFlags_Privileged,
-    NFastApp_Disconnect, NFastConn, NFastError, Reply, SEEInitStatus_OK, Status_OK,
-    Status_ObjectInUse, Status_SEEWorldFailed, TicketDestination_AnySEEWorld,
+    Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine, Cmd_StatGetValues,
+    Cmd_TraceSEEWorld, M_ByteBlock, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args,
+    M_Cmd_CreateSEEWorld_Args, M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args, M_Cmd_SEEJob_Args,
+    M_Cmd_SetSEEMachine_Args, M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID, M_Status, M_Word,
+    ModuleMode_Default, NFKM_cmd_loadblob, NF_StatID_enumtable, NFastApp_Connect,
+    NFastApp_Connection, NFastApp_ConnectionFlags_Privileged, NFastApp_Disconnect, NFastConn,
+    NFastError, Reply, SEEInitStatus_OK, StatInfo_flags_Counter, StatInfo_flags_Fraction,
+    StatInfo_flags_IPAddress, StatInfo_flags_String, StatNodeTag_ModuleEnvStats,
+    StatNodeTag_PerModule, Status_OK, Status_ObjectInUse, Status_SEEWorldFailed,
+    TicketDestination_AnySEEWorld,
 };
 use google::auth;
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use observability::{logging, metrics, metrics_tag as tag};
-use service_core::clap_parsers::parse_duration;
+use service_core::clap_parsers::{parse_duration, parse_listen};
 use service_core::future_task::FutureTasks;
 use service_core::panic;
 
@@ -163,11 +168,6 @@ async fn main() {
     join_handle.await.unwrap();
 }
 
-fn parse_listen(s: &str) -> Result<SocketAddr, String> {
-    s.parse()
-        .map_err(|e| format!("couldn't parse listen argument: {e}"))
-}
-
 #[derive(Debug)]
 pub enum SeeError {
     // These are agent side marshalling errors.
@@ -233,6 +233,8 @@ impl EntrustSeeTransport {
     ) -> Self {
         let (sender, receiver) = mpsc::channel(16);
 
+        let metrics_clone = metrics.clone();
+        std::thread::spawn(move || collect_entrust_stats(module, metrics_clone));
         tokio::spawn(async move {
             let mut t = TransportInner {
                 tracing,
@@ -252,6 +254,67 @@ impl EntrustSeeTransport {
         });
         Self(sender)
     }
+}
+
+fn collect_entrust_stats(module: u8, mut metrics: metrics::Client) {
+    let interval = Duration::from_secs(1);
+    let mut conn = NFastConn::new();
+    loop {
+        if let Err(err) = collect_entrust_stats_inner(module, &mut conn, &mut metrics) {
+            warn!(?err, "failed to collect stats from HSM");
+        }
+        std::thread::sleep(interval);
+    }
+}
+
+const ALL_STATINFO_FLAG_BITS: u32 = 0b00111111;
+
+fn collect_entrust_stats_inner(
+    module: u8,
+    conn: &mut NFastConn,
+    metrics: &mut metrics::Client,
+) -> Result<(), SeeError> {
+    unsafe { conn.connect()? };
+
+    // see /opt/nfast/c/csd/examples/nfuser/stattree.c for the entrust example on reading stats.
+    let mut stat_path = [
+        StatNodeTag_PerModule,
+        module as u32,
+        StatNodeTag_ModuleEnvStats,
+    ];
+    let mut cmd = M_Command::new(Cmd_StatGetValues);
+    cmd.args.statgetvalues.n_path_tags = stat_path.len() as i32;
+    cmd.args.statgetvalues.path_tags = stat_path.as_mut_ptr();
+
+    unsafe {
+        let reply = conn.transact(&mut cmd)?;
+        let statv = &reply.reply.statgetvalues;
+        let stat_infos = slice::from_raw_parts(statv.statinfos, statv.n_statinfos as usize);
+        let values = slice::from_raw_parts(statv.values, statv.n_values as usize);
+
+        for (stat_info, value) in zip(stat_infos, values.iter().copied()) {
+            if stat_info.flags & (StatInfo_flags_String | StatInfo_flags_IPAddress) != 0 {
+                continue;
+            }
+            let metric_name = match lookup_name_no_default(stat_info.id, &NF_StatID_enumtable) {
+                None => continue,
+                Some(name) => format!("entrust.stat.module.{}", name),
+            };
+
+            if stat_info.flags & StatInfo_flags_Counter != 0 {
+                metrics.count(metric_name, value as i64, metrics::NO_TAGS);
+            } else if stat_info.flags & StatInfo_flags_Fraction != 0 {
+                let (int, frac) = (value >> 16, ((value & 0xFFFF) * 100) >> 16);
+                let result = (int as f32) + ((frac as f32) / 100.0);
+                metrics.gauge(metric_name, result, metrics::NO_TAGS);
+            } else if stat_info.flags & !ALL_STATINFO_FLAG_BITS == 0 {
+                metrics.gauge(metric_name, value, metrics::NO_TAGS);
+            } else {
+                warn!(?metric_name, ?stat_info.flags, "ignoring metric with unknown flags set (probably a new metric type)");
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
