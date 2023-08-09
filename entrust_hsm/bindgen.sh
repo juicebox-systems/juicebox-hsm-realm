@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -eu
+
 # cd to script's directory
 cd -P -- "$(dirname -- "$0")"
 
