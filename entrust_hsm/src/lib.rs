@@ -13,11 +13,7 @@ use alloc::{format, string::String, vec, vec::Vec};
 use core::cmp::min;
 use x25519_dalek as x25519;
 
-use entrust_api::{
-    ChunkCount, ChunkNumber, KeyRole, SEEJobRequestType, SEEJobResponseType, StartRequest,
-    StartResponse, Ticket, Trailer,
-};
-use hsm_core::hash::{HashExt, HashMap};
+use entrust_api::{KeyRole, StartRequest, StartResponse, Ticket};
 use hsm_core::hsm::{
     mac::MacKey, Hsm, HsmOptions, MetricsReporting, RealmKeys, RecordEncryptionKey,
 };
@@ -39,93 +35,21 @@ pub extern "C" fn rust_main() -> isize {
         SEElib_InitComplete(0);
     }
 
-    // Set up the random number generator early since `SEEJobs` has a
-    // randomized hash table.
+    // Register a global random number generator (used for randomized hash
+    // tables). This can be done early since the RNG doesn't depend on the rest
+    // of the platform being initialized.
     register_global_rng();
 
     // We process start jobs until we get a successful HSM instance, then start
     // handling application requests.
-    let mut seejobs = SEEJobs {
-        response_chunks: HashMap::new(),
-        // If there's a rollover problem find it sooner rather than later.
-        next_chunk: ChunkNumber(u32::MAX - 10),
-    };
-    let hsm = process_start_jobs(&mut seejobs, &mut buf);
-    process_hsm_jobs(hsm, &mut seejobs, &mut buf);
+    let hsm = process_start_jobs(&mut buf);
+    process_hsm_jobs(hsm, &mut buf);
     unreachable!()
 }
 
-// SEEJobs deals with chunked responses, and handling requests to get the chunks.
-struct SEEJobs {
-    /// Queue of chunks (packets) of response data to return to the agent.
-    response_chunks: HashMap<ChunkNumber, Vec<u8>>,
-    next_chunk: ChunkNumber,
-}
-
-impl SEEJobs {
-    fn await_job(&mut self, buf: &mut Vec<u8>) -> (M_Word, usize) {
-        loop {
-            let (tag, len) = await_job(buf);
-            if len < Trailer::LEN {
-                unsafe { SEElib_ReturnJob(tag, buf.as_ptr(), 0) };
-                continue;
-            }
-            match SEEJobRequestType::parse(&buf[len - Trailer::LEN..]) {
-                Ok(SEEJobRequestType::ExecuteSEEJob) => return (tag, len - Trailer::LEN),
-                Ok(SEEJobRequestType::ReadResponseChunk(chunk)) => unsafe {
-                    match self.response_chunks.remove(&chunk) {
-                        None => SEElib_ReturnJob(tag, buf.as_ptr(), 0),
-                        Some(data) => {
-                            // The trailer was included in data when it was put into the hashmap.
-                            SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word)
-                        }
-                    };
-                },
-                Err(_) => unsafe {
-                    SEElib_ReturnJob(tag, buf.as_ptr(), 0);
-                },
-            }
-        }
-    }
-
-    fn return_job(&mut self, tag: M_Word, mut data: Vec<u8>) {
-        let chunks: Vec<&[u8]> = data.chunks(8100).collect();
-        if chunks.len() <= 1 {
-            let trailer = SEEJobResponseType::SEEJobSingleResult.as_trailer();
-            data.extend(trailer.serialize());
-            unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
-            return;
-        }
-        assert!(chunks.len() < u16::MAX.into());
-        let first_chunk_num = self.next_chunk;
-        // next_chunk can wrap, that's okay
-        self.next_chunk += chunks.len() as u16;
-
-        let mut chunk_num = first_chunk_num;
-        for chunk in &chunks[1..] {
-            // add the trailer to each chunk.
-            let trailer = SEEJobResponseType::ResultChunk(chunk_num).as_trailer();
-            let mut chunk_data = Vec::with_capacity(chunk.len() + Trailer::LEN);
-            chunk_data.extend_from_slice(chunk);
-            chunk_data.extend(trailer.serialize());
-            self.response_chunks.insert(chunk_num, chunk_data);
-            chunk_num += 1;
-        }
-
-        let job_trailer = SEEJobResponseType::SEEJobPagedResult(
-            ChunkCount(chunks.len() as u16 - 1),
-            first_chunk_num,
-        )
-        .as_trailer();
-        data.truncate(chunks[0].len());
-        data.extend(job_trailer.serialize());
-        unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
-    }
-}
-
-fn process_start_jobs(jobs: &mut SEEJobs, buf: &mut Vec<u8>) -> Hsm<NCipher> {
+fn process_start_jobs(buf: &mut Vec<u8>) -> Hsm<NCipher> {
     loop {
-        let (tag, job_len) = jobs.await_job(buf);
+        let (tag, job_len) = await_job(buf);
 
         let req: Result<StartRequest, _> = marshalling::from_slice(&buf[..job_len]);
         match req {
@@ -135,7 +59,7 @@ fn process_start_jobs(jobs: &mut SEEJobs, buf: &mut Vec<u8>) -> Hsm<NCipher> {
                     Err(res) => (None, res),
                 };
                 let data = marshalling::to_vec(&resp).unwrap();
-                jobs.return_job(tag, data);
+                return_job(tag, data);
                 if let Some(started_hsm) = hsm {
                     return started_hsm;
                 }
@@ -214,15 +138,15 @@ fn start_hsm(req: StartRequest) -> Result<Hsm<NCipher>, StartResponse> {
     .map_err(|err| StartResponse::PersistenceError(format!("{:?}", err)))
 }
 
-fn process_hsm_jobs(mut hsm: Hsm<NCipher>, jobs: &mut SEEJobs, buf: &mut Vec<u8>) {
+fn process_hsm_jobs(mut hsm: Hsm<NCipher>, buf: &mut Vec<u8>) {
     //println!("entrust-hsm init complete, ready for jobs");
     loop {
-        let (tag, job_len) = jobs.await_job(buf);
+        let (tag, job_len) = await_job(buf);
         let result = hsm.handle_request(&buf[..job_len]);
         match result {
             Ok(data) => {
                 //println!("success, returning {} bytes", data.len());
-                jobs.return_job(tag, data);
+                return_job(tag, data);
             }
             Err(_e) => {
                 // There are no valid responses that are empty. We use an empty response to signal
@@ -255,6 +179,10 @@ fn await_job(buf: &mut Vec<u8>) -> (M_Word, usize) {
         }
         return (tag, len as usize);
     }
+}
+
+fn return_job(tag: M_Word, data: Vec<u8>) {
+    unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
 }
 
 // Redeem a ticket for a keyId, then export the key to get its actual bytes.
