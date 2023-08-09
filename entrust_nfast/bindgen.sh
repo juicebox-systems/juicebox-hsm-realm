@@ -1,5 +1,10 @@
 #!/bin/sh
 
+set -eu
+
+# cd to script's directory
+cd -P -- "$(dirname -- "$0")"
+
 bindgen --use-core \
     --output src/nfastapp.rs \
     --allowlist-function "NF.*(Init|Connect|Disconnect|Transact|Submit|Query|Wait|Free_Reply|Lookup)|NFastApp_FreeACL|NFKM_(findkey|freekey|recordkey|cmd_loadblob|getinfo|.*newkey.*|loadadminkeys.*|cert.*|getusablemodule)|RQCard.*" \

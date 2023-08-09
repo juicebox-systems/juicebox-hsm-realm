@@ -13,11 +13,12 @@ pub const Command_flags_state_present: u32 = 16;
 pub const Command_flags_PoolModule: u32 = 32;
 pub const Command_flags_extractstate_present: u32 = 64;
 pub const Command_flags_RetainState: u32 = 128;
+pub const Command_flags_sessionid_present: u32 = 256;
 pub const Command_flags_LongJob: u32 = 65536;
 pub const Command_flags_Resubmit: u32 = 131072;
 pub const Command_flags__reserved: u32 = 4294901760;
-pub const Command_flags__allflags: u32 = 196863;
-pub const Command_flags__presentflags: u32 = 84;
+pub const Command_flags__allflags: u32 = 197119;
+pub const Command_flags__presentflags: u32 = 340;
 pub const Cmd_CreateSEEWorld_Args_flags_EnableDebug: u32 = 65536;
 pub const Cmd_CreateSEEWorld_Args_flags__reserved: u32 = 4294901760;
 pub const Cmd_CreateSEEWorld_Args_flags__allflags: u32 = 65536;
@@ -196,7 +197,9 @@ pub const NFKM_NKF_AssignedACL: u32 = 131072;
 pub type __time_t = ::core::ffi::c_long;
 pub type time_t = __time_t;
 pub type uint32 = ::core::ffi::c_uint;
+pub type uint64 = ::core::ffi::c_ulong;
 pub type M_Word = uint32;
+pub type M_Word64 = uint64;
 pub type M_MustBeZeroWord = ::core::ffi::c_int;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -339,6 +342,11 @@ impl Default for M_ValInfo {
             s.assume_init()
         }
     }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NF_UserData {
+    _unused: [u8; 0],
 }
 pub type M_Tag = M_Word;
 pub type M_KeyID = M_Word;
@@ -653,7 +661,8 @@ pub const Status_TokenTransactionCorrupted: M_Status = 316;
 pub const Status_ConnectionClosed: M_Status = 318;
 pub const Status_TokenSecureChannelVersionError: M_Status = 321;
 pub const Status_InvalidInterfaceName: M_Status = 322;
-pub const Status__Max: M_Status = 323;
+pub const Status_RTCNotSet: M_Status = 324;
+pub const Status__Max: M_Status = 325;
 pub type M_Status = ::core::ffi::c_uint;
 pub const nCErrno_UNKNOWN: M_nCErrno = 1;
 pub const nCErrno_EPERM: M_nCErrno = 2;
@@ -846,6 +855,10 @@ pub const KeyType_DSACommVariableSeed: M_KeyType = 55;
 pub const KeyType_DSACommFIPS186_3: M_KeyType = 56;
 pub const KeyType_X25519Public: M_KeyType = 59;
 pub const KeyType_X25519Private: M_KeyType = 60;
+pub const KeyType_HMACSHA3b224: M_KeyType = 61;
+pub const KeyType_HMACSHA3b256: M_KeyType = 62;
+pub const KeyType_HMACSHA3b384: M_KeyType = 63;
+pub const KeyType_HMACSHA3b512: M_KeyType = 64;
 pub const KeyType_Ed25519Public: M_KeyType = 65;
 pub const KeyType_Ed25519Private: M_KeyType = 66;
 pub const KeyType_TUAKSubscriber: M_KeyType = 67;
@@ -853,7 +866,13 @@ pub const KeyType_TUAKTOP: M_KeyType = 68;
 pub const KeyType_TUAKTOPC: M_KeyType = 69;
 pub const KeyType_DHExPublic: M_KeyType = 73;
 pub const KeyType_DHExPrivate: M_KeyType = 74;
-pub const KeyType__Max: M_KeyType = 75;
+pub const KeyType_KMAC128: M_KeyType = 75;
+pub const KeyType_KMAC256: M_KeyType = 76;
+pub const KeyType_MILENAGEOP: M_KeyType = 77;
+pub const KeyType_MILENAGEOPC: M_KeyType = 78;
+pub const KeyType_MILENAGESubscriber: M_KeyType = 79;
+pub const KeyType_MILENAGERC: M_KeyType = 80;
+pub const KeyType__Max: M_KeyType = 81;
 pub type M_KeyType = ::core::ffi::c_uint;
 pub const ECName_Custom: M_ECName = 1;
 pub const ECName_NISTP192: M_ECName = 2;
@@ -1078,6 +1097,10 @@ pub const Mech_SHA3b224Hash: M_Mech = 205;
 pub const Mech_SHA3b256Hash: M_Mech = 206;
 pub const Mech_SHA3b384Hash: M_Mech = 207;
 pub const Mech_SHA3b512Hash: M_Mech = 208;
+pub const Mech_HMACSHA3b224: M_Mech = 211;
+pub const Mech_HMACSHA3b256: M_Mech = 212;
+pub const Mech_HMACSHA3b384: M_Mech = 213;
+pub const Mech_HMACSHA3b512: M_Mech = 214;
 pub const Mech_Ed25519ph: M_Mech = 217;
 pub const Mech_X25519KeyExchange: M_Mech = 218;
 pub const Mech_Ed25519: M_Mech = 219;
@@ -1089,8 +1112,31 @@ pub const Mech_DHExKeyExchange: M_Mech = 226;
 pub const Mech_DLIESeAEShSHA1DHEx: M_Mech = 227;
 pub const Mech_AESKeyWrapPadded: M_Mech = 228;
 pub const Mech_ECDHCKeyExchange: M_Mech = 229;
+pub const Mech_KMAC128: M_Mech = 230;
+pub const Mech_KMAC256: M_Mech = 231;
 pub const Mech_AESmGCM: M_Mech = 232;
-pub const Mech__Max: M_Mech = 233;
+pub const Mech_None: M_Mech = 233;
+pub const Mech_RSAhSHA3b224pPKCS1: M_Mech = 234;
+pub const Mech_RSAhSHA3b256pPKCS1: M_Mech = 235;
+pub const Mech_RSAhSHA3b384pPKCS1: M_Mech = 236;
+pub const Mech_RSAhSHA3b512pPKCS1: M_Mech = 237;
+pub const Mech_RSAhSHA3b224pPSS: M_Mech = 238;
+pub const Mech_RSAhSHA3b256pPSS: M_Mech = 239;
+pub const Mech_RSAhSHA3b384pPSS: M_Mech = 240;
+pub const Mech_RSAhSHA3b512pPSS: M_Mech = 241;
+pub const Mech_RSApPKCS1OAEPhSHA3b224: M_Mech = 242;
+pub const Mech_RSApPKCS1OAEPhSHA3b256: M_Mech = 243;
+pub const Mech_RSApPKCS1OAEPhSHA3b384: M_Mech = 244;
+pub const Mech_RSApPKCS1OAEPhSHA3b512: M_Mech = 245;
+pub const Mech_ECDSAhSHA3b224: M_Mech = 256;
+pub const Mech_ECDSAhSHA3b256: M_Mech = 257;
+pub const Mech_ECDSAhSHA3b384: M_Mech = 258;
+pub const Mech_ECDSAhSHA3b512: M_Mech = 259;
+pub const Mech_ARIAmCBCi128pPKCS5: M_Mech = 260;
+pub const Mech_ARIAmECBpPKCS5: M_Mech = 261;
+pub const Mech_ARIAmCBCMACi0pPKCS5: M_Mech = 262;
+pub const Mech_ARIAmCBCMACi0pNONE: M_Mech = 263;
+pub const Mech__Max: M_Mech = 264;
 pub type M_Mech = ::core::ffi::c_uint;
 pub const FileDevice_PhysToken: M_FileDevice = 1;
 pub const FileDevice_NVMem: M_FileDevice = 2;
@@ -1154,15 +1200,24 @@ pub const DeriveMech_ECIESKeyUnwrap: M_DeriveMech = 48;
 pub const DeriveMech_NISTKDFmCTRr8: M_DeriveMech = 49;
 pub const DeriveMech_ECCMQVdNISTCKDF: M_DeriveMech = 50;
 pub const DeriveMech_TUAKTOPC: M_DeriveMech = 51;
-pub const DeriveMech_TUAKf1: M_DeriveMech = 52;
-pub const DeriveMech_TUAKf1s: M_DeriveMech = 53;
-pub const DeriveMech_TUAKf2345: M_DeriveMech = 54;
-pub const DeriveMech_TUAKf5s: M_DeriveMech = 55;
 pub const DeriveMech_DHKA: M_DeriveMech = 56;
 pub const DeriveMech_X25519KA: M_DeriveMech = 57;
 pub const DeriveMech_TestKX: M_DeriveMech = 58;
 pub const DeriveMech_GenerateRSAB36: M_DeriveMech = 59;
-pub const DeriveMech__Max: M_DeriveMech = 60;
+pub const DeriveMech_RSAKeyUnwrap: M_DeriveMech = 60;
+pub const DeriveMech_RSAKeyWrap: M_DeriveMech = 61;
+pub const DeriveMech_RawSign: M_DeriveMech = 62;
+pub const DeriveMech_MILENAGEOPC: M_DeriveMech = 63;
+pub const DeriveMech_MILENAGEAV: M_DeriveMech = 64;
+pub const DeriveMech_MILENAGEResync: M_DeriveMech = 65;
+pub const DeriveMech_MILENAGEGenAUTS: M_DeriveMech = 66;
+pub const DeriveMech_TUAKAV: M_DeriveMech = 67;
+pub const DeriveMech_TUAKGenAUTS: M_DeriveMech = 68;
+pub const DeriveMech_TUAKResync: M_DeriveMech = 69;
+pub const DeriveMech_RawEncryptUnsafe: M_DeriveMech = 70;
+pub const DeriveMech_RawEncryptZeroPadUnsafe: M_DeriveMech = 71;
+pub const DeriveMech_PKCS8EncryptUnsafe: M_DeriveMech = 72;
+pub const DeriveMech__Max: M_DeriveMech = 73;
 pub type M_DeriveMech = ::core::ffi::c_uint;
 pub const ARQCScheme_EMV2000: M_ARQCScheme = 1;
 pub const ARQCScheme_EMV2004: M_ARQCScheme = 2;
@@ -1181,11 +1236,15 @@ pub const KAPrimitive_ECDHdKDF2: M_KAPrimitive = 1;
 pub const KAPrimitive_ECDHCdKDF2: M_KAPrimitive = 2;
 pub const KAPrimitive_PKCS11LSB: M_KAPrimitive = 3;
 pub const KAPrimitive_PKCS11MSB: M_KAPrimitive = 4;
-pub const KAPrimitive__Max: M_KAPrimitive = 5;
+pub const KAPrimitive_RSAWrap: M_KAPrimitive = 5;
+pub const KAPrimitive_ECDHCmDHAESdKDF2: M_KAPrimitive = 6;
+pub const KAPrimitive__Max: M_KAPrimitive = 7;
 pub type M_KAPrimitive = ::core::ffi::c_uint;
 pub const IESCipherMode_Any: M_IESCipherMode = 0;
 pub const IESCipherMode_XORwithHMAC: M_IESCipherMode = 1;
-pub const IESCipherMode__Max: M_IESCipherMode = 2;
+pub const IESCipherMode_AESKeyWrapPadded: M_IESCipherMode = 2;
+pub const IESCipherMode_AESmCTRwHMAC: M_IESCipherMode = 3;
+pub const IESCipherMode__Max: M_IESCipherMode = 4;
 pub type M_IESCipherMode = ::core::ffi::c_uint;
 pub const TestKXGroup_ImpathMODP3072: M_TestKXGroup = 1;
 pub const TestKXGroup_SecureChannelv1: M_TestKXGroup = 2;
@@ -1226,7 +1285,8 @@ pub const ModuleAttribTag_KAL: M_ModuleAttribTag = 14;
 pub const ModuleAttribTag_KLF3: M_ModuleAttribTag = 15;
 pub const ModuleAttribTag_WarrantKLF2: M_ModuleAttribTag = 16;
 pub const ModuleAttribTag_WarrantKLF3: M_ModuleAttribTag = 17;
-pub const ModuleAttribTag__Max: M_ModuleAttribTag = 18;
+pub const ModuleAttribTag_HardwareID: M_ModuleAttribTag = 18;
+pub const ModuleAttribTag__Max: M_ModuleAttribTag = 19;
 pub type M_ModuleAttribTag = ::core::ffi::c_uint;
 pub const ModuleType_None: M_ModuleType = 0;
 pub const ModuleType_Clyde: M_ModuleType = 2;
@@ -1251,7 +1311,8 @@ pub const SEEMachineType_PowerPCSXF: M_SEEMachineType = 2;
 pub const SEEMachineType_Virtual: M_SEEMachineType = 3;
 pub const SEEMachineType_ARMtype2: M_SEEMachineType = 4;
 pub const SEEMachineType_PowerPCELF: M_SEEMachineType = 5;
-pub const SEEMachineType__Max: M_SEEMachineType = 6;
+pub const SEEMachineType_PowerPC64: M_SEEMachineType = 6;
+pub const SEEMachineType__Max: M_SEEMachineType = 7;
 pub type M_SEEMachineType = ::core::ffi::c_uint;
 pub const FeatureGoldCertVendor_VeriSign: M_FeatureGoldCertVendor = 1;
 pub const FeatureGoldCertVendor_InternalTestingOnly: M_FeatureGoldCertVendor = 2;
@@ -1454,7 +1515,10 @@ pub const Cmd_ChangeShareGroupPIN: M_Cmd = 239;
 pub const Cmd_HotReset: M_Cmd = 240;
 pub const Cmd_DevTest: M_Cmd = 241;
 pub const Cmd_ListRemoteServerPermissionEx: M_Cmd = 242;
-pub const Cmd__Max: M_Cmd = 243;
+pub const Cmd_SessionCreate: M_Cmd = 243;
+pub const Cmd_SessionDestroy: M_Cmd = 244;
+pub const Cmd_CreateSEEConnection: M_Cmd = 245;
+pub const Cmd__Max: M_Cmd = 246;
 pub type M_Cmd = ::core::ffi::c_uint;
 pub const ModuleMode_Default: M_ModuleMode = 0;
 pub const ModuleMode_Maintenance: M_ModuleMode = 1;
@@ -1778,8 +1842,10 @@ pub const StatID_SpSensorCmdFails: M_StatID = 145;
 pub const StatID_JobsStarted: M_StatID = 146;
 pub const StatID_JobsComplete: M_StatID = 147;
 pub const StatID_RepliesQueued: M_StatID = 148;
-pub const StatID_ReservedMax: M_StatID = 1000;
-pub const StatID__Max: M_StatID = 1001;
+pub const StatID_NVMFreeSpace: M_StatID = 149;
+pub const StatID_NVMWearLevel: M_StatID = 150;
+pub const StatID_NVMWornBlocks: M_StatID = 151;
+pub const StatID__Max: M_StatID = 152;
 pub type M_StatID = ::core::ffi::c_uint;
 pub const StatNodeTag_ServerGlobals: M_StatNodeTag = 1;
 pub const StatNodeTag_Connections: M_StatNodeTag = 2;
@@ -6523,6 +6589,195 @@ impl Default for M_KeyType_KCDSAPublic_Data {
     }
 }
 #[repr(C)]
+#[derive(Copy, Clone)]
+pub union M_MILENAGESecret {
+    pub bytes: [::core::ffi::c_uchar; 16usize],
+    pub words: [M_Word; 4usize],
+}
+#[test]
+fn bindgen_test_layout_M_MILENAGESecret() {
+    const UNINIT: ::core::mem::MaybeUninit<M_MILENAGESecret> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_MILENAGESecret>(),
+        16usize,
+        concat!("Size of: ", stringify!(M_MILENAGESecret))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_MILENAGESecret>(),
+        4usize,
+        concat!("Alignment of ", stringify!(M_MILENAGESecret))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).bytes) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_MILENAGESecret),
+            "::",
+            stringify!(bytes)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).words) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_MILENAGESecret),
+            "::",
+            stringify!(words)
+        )
+    );
+}
+impl Default for M_MILENAGESecret {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_MILENAGESecret {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "M_MILENAGESecret {{ union }}")
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_KeyType_MILENAGEOP_Data {
+    pub data: M_MILENAGESecret,
+}
+#[test]
+fn bindgen_test_layout_M_KeyType_MILENAGEOP_Data() {
+    const UNINIT: ::core::mem::MaybeUninit<M_KeyType_MILENAGEOP_Data> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_KeyType_MILENAGEOP_Data>(),
+        16usize,
+        concat!("Size of: ", stringify!(M_KeyType_MILENAGEOP_Data))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_KeyType_MILENAGEOP_Data>(),
+        4usize,
+        concat!("Alignment of ", stringify!(M_KeyType_MILENAGEOP_Data))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).data) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_KeyType_MILENAGEOP_Data),
+            "::",
+            stringify!(data)
+        )
+    );
+}
+impl Default for M_KeyType_MILENAGEOP_Data {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_KeyType_MILENAGEOP_Data {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "M_KeyType_MILENAGEOP_Data {{ data: {:?} }}", self.data)
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union M_MILENAGERCBYTES {
+    pub bytes: [::core::ffi::c_uchar; 85usize],
+}
+#[test]
+fn bindgen_test_layout_M_MILENAGERCBYTES() {
+    const UNINIT: ::core::mem::MaybeUninit<M_MILENAGERCBYTES> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_MILENAGERCBYTES>(),
+        85usize,
+        concat!("Size of: ", stringify!(M_MILENAGERCBYTES))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_MILENAGERCBYTES>(),
+        1usize,
+        concat!("Alignment of ", stringify!(M_MILENAGERCBYTES))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).bytes) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_MILENAGERCBYTES),
+            "::",
+            stringify!(bytes)
+        )
+    );
+}
+impl Default for M_MILENAGERCBYTES {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_MILENAGERCBYTES {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "M_MILENAGERCBYTES {{ union }}")
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_KeyType_MILENAGERC_Data {
+    pub data: M_MILENAGERCBYTES,
+}
+#[test]
+fn bindgen_test_layout_M_KeyType_MILENAGERC_Data() {
+    const UNINIT: ::core::mem::MaybeUninit<M_KeyType_MILENAGERC_Data> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_KeyType_MILENAGERC_Data>(),
+        85usize,
+        concat!("Size of: ", stringify!(M_KeyType_MILENAGERC_Data))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_KeyType_MILENAGERC_Data>(),
+        1usize,
+        concat!("Alignment of ", stringify!(M_KeyType_MILENAGERC_Data))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).data) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_KeyType_MILENAGERC_Data),
+            "::",
+            stringify!(data)
+        )
+    );
+}
+impl Default for M_KeyType_MILENAGERC_Data {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_KeyType_MILENAGERC_Data {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "M_KeyType_MILENAGERC_Data {{ data: {:?} }}", self.data)
+    }
+}
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct M_KeyType_RSAPrivate_Data {
     pub p: M_Bignum,
@@ -6828,6 +7083,8 @@ pub union M_KeyType__Data {
     pub kcdsacomm: M_KeyType_KCDSAComm_Data,
     pub kcdsaprivate: M_KeyType_KCDSAPrivate_Data,
     pub kcdsapublic: M_KeyType_KCDSAPublic_Data,
+    pub milenageop: M_KeyType_MILENAGEOP_Data,
+    pub milenagerc: M_KeyType_MILENAGERC_Data,
     pub rsaprivate: M_KeyType_RSAPrivate_Data,
     pub rsapublic: M_KeyType_RSAPublic_Data,
     pub random: M_KeyType_Random_Data,
@@ -7015,6 +7272,26 @@ fn bindgen_test_layout_M_KeyType__Data() {
             stringify!(M_KeyType__Data),
             "::",
             stringify!(kcdsapublic)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).milenageop) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_KeyType__Data),
+            "::",
+            stringify!(milenageop)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).milenagerc) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_KeyType__Data),
+            "::",
+            stringify!(milenagerc)
         )
     );
     assert_eq!(
@@ -8999,6 +9276,46 @@ impl Default for M_Mech_KCDSAHAS160_Cipher {
     }
 }
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct M_Mech_KMAC128_Cipher {
+    pub tag: M_ByteBlock,
+}
+#[test]
+fn bindgen_test_layout_M_Mech_KMAC128_Cipher() {
+    const UNINIT: ::core::mem::MaybeUninit<M_Mech_KMAC128_Cipher> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_Mech_KMAC128_Cipher>(),
+        16usize,
+        concat!("Size of: ", stringify!(M_Mech_KMAC128_Cipher))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_Mech_KMAC128_Cipher>(),
+        8usize,
+        concat!("Alignment of ", stringify!(M_Mech_KMAC128_Cipher))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).tag) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Mech_KMAC128_Cipher),
+            "::",
+            stringify!(tag)
+        )
+    );
+}
+impl Default for M_Mech_KMAC128_Cipher {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct M_Mech_MD5Hash_Cipher {
     pub h: M_Hash16,
@@ -9461,6 +9778,7 @@ pub union M_Mech__Cipher {
     pub has160hash: M_Mech_HAS160Hash_Cipher,
     pub imech: M_Mech_Imech_Cipher,
     pub kcdsahas160: M_Mech_KCDSAHAS160_Cipher,
+    pub kmac128: M_Mech_KMAC128_Cipher,
     pub md5hash: M_Mech_MD5Hash_Cipher,
     pub ripemd160hash: M_Mech_RIPEMD160Hash_Cipher,
     pub rsappkcs1: M_Mech_RSApPKCS1_Cipher,
@@ -9684,6 +10002,16 @@ fn bindgen_test_layout_M_Mech__Cipher() {
             stringify!(M_Mech__Cipher),
             "::",
             stringify!(kcdsahas160)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).kmac128) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Mech__Cipher),
+            "::",
+            stringify!(kmac128)
         )
     );
     assert_eq!(
@@ -10295,6 +10623,56 @@ impl Default for M_Mech_GenericGCM128_IV {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct M_Mech_KMAC128_IV {
+    pub lenbits: M_Word,
+    pub domain: M_ByteBlock,
+}
+#[test]
+fn bindgen_test_layout_M_Mech_KMAC128_IV() {
+    const UNINIT: ::core::mem::MaybeUninit<M_Mech_KMAC128_IV> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_Mech_KMAC128_IV>(),
+        24usize,
+        concat!("Size of: ", stringify!(M_Mech_KMAC128_IV))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_Mech_KMAC128_IV>(),
+        8usize,
+        concat!("Alignment of ", stringify!(M_Mech_KMAC128_IV))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).lenbits) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Mech_KMAC128_IV),
+            "::",
+            stringify!(lenbits)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).domain) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Mech_KMAC128_IV),
+            "::",
+            stringify!(domain)
+        )
+    );
+}
+impl Default for M_Mech_KMAC128_IV {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct M_Mech_RSApPKCS1OAEP_IV {
     pub p: M_ByteBlock,
 }
@@ -10344,6 +10722,7 @@ pub union M_Mech__IV {
     pub generic64: M_Mech_Generic64_IV,
     pub generic64mac: M_Mech_Generic64MAC_IV,
     pub genericgcm128: M_Mech_GenericGCM128_IV,
+    pub kmac128: M_Mech_KMAC128_IV,
     pub rsappkcs1oaep: M_Mech_RSApPKCS1OAEP_IV,
 }
 #[test]
@@ -10438,6 +10817,16 @@ fn bindgen_test_layout_M_Mech__IV() {
             stringify!(M_Mech__IV),
             "::",
             stringify!(genericgcm128)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).kmac128) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Mech__IV),
+            "::",
+            stringify!(kmac128)
         )
     );
     assert_eq!(
@@ -12214,8 +12603,104 @@ impl Default for M_KAPrimitive_ECDHdKDF2_KADetails {
 }
 #[repr(C)]
 #[derive(Copy, Clone)]
+pub struct M_IV {
+    pub mech: M_Mech,
+    pub iv: M_Mech__IV,
+}
+#[test]
+fn bindgen_test_layout_M_IV() {
+    const UNINIT: ::core::mem::MaybeUninit<M_IV> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_IV>(),
+        48usize,
+        concat!("Size of: ", stringify!(M_IV))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_IV>(),
+        8usize,
+        concat!("Alignment of ", stringify!(M_IV))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).mech) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_IV),
+            "::",
+            stringify!(mech)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).iv) as usize - ptr as usize },
+        8usize,
+        concat!("Offset of field: ", stringify!(M_IV), "::", stringify!(iv))
+    );
+}
+impl Default for M_IV {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_IV {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "M_IV {{ mech: {:?}, iv: {:?} }}", self.mech, self.iv)
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_KAPrimitive_RSAWrap_KADetails {
+    pub iv: M_IV,
+}
+#[test]
+fn bindgen_test_layout_M_KAPrimitive_RSAWrap_KADetails() {
+    const UNINIT: ::core::mem::MaybeUninit<M_KAPrimitive_RSAWrap_KADetails> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_KAPrimitive_RSAWrap_KADetails>(),
+        48usize,
+        concat!("Size of: ", stringify!(M_KAPrimitive_RSAWrap_KADetails))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_KAPrimitive_RSAWrap_KADetails>(),
+        8usize,
+        concat!("Alignment of ", stringify!(M_KAPrimitive_RSAWrap_KADetails))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).iv) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_KAPrimitive_RSAWrap_KADetails),
+            "::",
+            stringify!(iv)
+        )
+    );
+}
+impl Default for M_KAPrimitive_RSAWrap_KADetails {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_KAPrimitive_RSAWrap_KADetails {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "M_KAPrimitive_RSAWrap_KADetails {{ iv: {:?} }}", self.iv)
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
 pub union M_KAPrimitive__KADetails {
     pub ecdhdkdf2: M_KAPrimitive_ECDHdKDF2_KADetails,
+    pub rsawrap: M_KAPrimitive_RSAWrap_KADetails,
 }
 #[test]
 fn bindgen_test_layout_M_KAPrimitive__KADetails() {
@@ -12224,7 +12709,7 @@ fn bindgen_test_layout_M_KAPrimitive__KADetails() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::core::mem::size_of::<M_KAPrimitive__KADetails>(),
-        16usize,
+        48usize,
         concat!("Size of: ", stringify!(M_KAPrimitive__KADetails))
     );
     assert_eq!(
@@ -12240,6 +12725,16 @@ fn bindgen_test_layout_M_KAPrimitive__KADetails() {
             stringify!(M_KAPrimitive__KADetails),
             "::",
             stringify!(ecdhdkdf2)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).rsawrap) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_KAPrimitive__KADetails),
+            "::",
+            stringify!(rsawrap)
         )
     );
 }
@@ -12270,7 +12765,7 @@ fn bindgen_test_layout_M_KAParams() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::core::mem::size_of::<M_KAParams>(),
-        24usize,
+        56usize,
         concat!("Size of: ", stringify!(M_KAParams))
     );
     assert_eq!(
@@ -12341,7 +12836,7 @@ fn bindgen_test_layout_M_DeriveMech_ECDHKA_DKParams() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::core::mem::size_of::<M_DeriveMech_ECDHKA_DKParams>(),
-        32usize,
+        64usize,
         concat!("Size of: ", stringify!(M_DeriveMech_ECDHKA_DKParams))
     );
     assert_eq!(
@@ -12361,7 +12856,7 @@ fn bindgen_test_layout_M_DeriveMech_ECDHKA_DKParams() {
     );
     assert_eq!(
         unsafe { ::core::ptr::addr_of!((*ptr).keytype) as usize - ptr as usize },
-        24usize,
+        56usize,
         concat!(
             "Offset of field: ",
             stringify!(M_DeriveMech_ECDHKA_DKParams),
@@ -12371,7 +12866,7 @@ fn bindgen_test_layout_M_DeriveMech_ECDHKA_DKParams() {
     );
     assert_eq!(
         unsafe { ::core::ptr::addr_of!((*ptr).keylenbits) as usize - ptr as usize },
-        28usize,
+        60usize,
         concat!(
             "Offset of field: ",
             stringify!(M_DeriveMech_ECDHKA_DKParams),
@@ -12396,6 +12891,122 @@ impl ::core::fmt::Debug for M_DeriveMech_ECDHKA_DKParams {
             "M_DeriveMech_ECDHKA_DKParams {{ kaparams: {:?}, keytype: {:?}, keylenbits: {:?} }}",
             self.kaparams, self.keytype, self.keylenbits
         )
+    }
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct M_IESCipherMode_AESKeyWrapPadded_IESDetails {
+    pub keylenbits: M_Word,
+}
+#[test]
+fn bindgen_test_layout_M_IESCipherMode_AESKeyWrapPadded_IESDetails() {
+    const UNINIT: ::core::mem::MaybeUninit<M_IESCipherMode_AESKeyWrapPadded_IESDetails> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_IESCipherMode_AESKeyWrapPadded_IESDetails>(),
+        4usize,
+        concat!(
+            "Size of: ",
+            stringify!(M_IESCipherMode_AESKeyWrapPadded_IESDetails)
+        )
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_IESCipherMode_AESKeyWrapPadded_IESDetails>(),
+        4usize,
+        concat!(
+            "Alignment of ",
+            stringify!(M_IESCipherMode_AESKeyWrapPadded_IESDetails)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).keylenbits) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_IESCipherMode_AESKeyWrapPadded_IESDetails),
+            "::",
+            stringify!(keylenbits)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct M_IESCipherMode_AESmCTRwHMAC_IESDetails {
+    pub enckeylenbits: M_Word,
+    pub mackeylenbits: M_Word,
+    pub mactaglenbits: M_Word,
+    pub mac: M_Mech,
+}
+#[test]
+fn bindgen_test_layout_M_IESCipherMode_AESmCTRwHMAC_IESDetails() {
+    const UNINIT: ::core::mem::MaybeUninit<M_IESCipherMode_AESmCTRwHMAC_IESDetails> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_IESCipherMode_AESmCTRwHMAC_IESDetails>(),
+        16usize,
+        concat!(
+            "Size of: ",
+            stringify!(M_IESCipherMode_AESmCTRwHMAC_IESDetails)
+        )
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_IESCipherMode_AESmCTRwHMAC_IESDetails>(),
+        4usize,
+        concat!(
+            "Alignment of ",
+            stringify!(M_IESCipherMode_AESmCTRwHMAC_IESDetails)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).enckeylenbits) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_IESCipherMode_AESmCTRwHMAC_IESDetails),
+            "::",
+            stringify!(enckeylenbits)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).mackeylenbits) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_IESCipherMode_AESmCTRwHMAC_IESDetails),
+            "::",
+            stringify!(mackeylenbits)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).mactaglenbits) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_IESCipherMode_AESmCTRwHMAC_IESDetails),
+            "::",
+            stringify!(mactaglenbits)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).mac) as usize - ptr as usize },
+        12usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_IESCipherMode_AESmCTRwHMAC_IESDetails),
+            "::",
+            stringify!(mac)
+        )
+    );
+}
+impl Default for M_IESCipherMode_AESmCTRwHMAC_IESDetails {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
     }
 }
 #[repr(C)]
@@ -12469,6 +13080,8 @@ impl Default for M_IESCipherMode_XORwithHMAC_IESDetails {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub union M_IESCipherMode__IESDetails {
+    pub aeskeywrappadded: M_IESCipherMode_AESKeyWrapPadded_IESDetails,
+    pub aesmctrwhmac: M_IESCipherMode_AESmCTRwHMAC_IESDetails,
     pub xorwithhmac: M_IESCipherMode_XORwithHMAC_IESDetails,
 }
 #[test]
@@ -12478,13 +13091,33 @@ fn bindgen_test_layout_M_IESCipherMode__IESDetails() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::core::mem::size_of::<M_IESCipherMode__IESDetails>(),
-        12usize,
+        16usize,
         concat!("Size of: ", stringify!(M_IESCipherMode__IESDetails))
     );
     assert_eq!(
         ::core::mem::align_of::<M_IESCipherMode__IESDetails>(),
         4usize,
         concat!("Alignment of ", stringify!(M_IESCipherMode__IESDetails))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).aeskeywrappadded) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_IESCipherMode__IESDetails),
+            "::",
+            stringify!(aeskeywrappadded)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).aesmctrwhmac) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_IESCipherMode__IESDetails),
+            "::",
+            stringify!(aesmctrwhmac)
+        )
     );
     assert_eq!(
         unsafe { ::core::ptr::addr_of!((*ptr).xorwithhmac) as usize - ptr as usize },
@@ -12523,7 +13156,7 @@ fn bindgen_test_layout_M_IESParams() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::core::mem::size_of::<M_IESParams>(),
-        16usize,
+        20usize,
         concat!("Size of: ", stringify!(M_IESParams))
     );
     assert_eq!(
@@ -12584,7 +13217,7 @@ fn bindgen_test_layout_M_DeriveMech_ECIESKeyUnwrap_DKParams() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::core::mem::size_of::<M_DeriveMech_ECIESKeyUnwrap_DKParams>(),
-        48usize,
+        80usize,
         concat!(
             "Size of: ",
             stringify!(M_DeriveMech_ECIESKeyUnwrap_DKParams)
@@ -12610,7 +13243,7 @@ fn bindgen_test_layout_M_DeriveMech_ECIESKeyUnwrap_DKParams() {
     );
     assert_eq!(
         unsafe { ::core::ptr::addr_of!((*ptr).iesparams) as usize - ptr as usize },
-        24usize,
+        56usize,
         concat!(
             "Offset of field: ",
             stringify!(M_DeriveMech_ECIESKeyUnwrap_DKParams),
@@ -12620,7 +13253,7 @@ fn bindgen_test_layout_M_DeriveMech_ECIESKeyUnwrap_DKParams() {
     );
     assert_eq!(
         unsafe { ::core::ptr::addr_of!((*ptr).keytype) as usize - ptr as usize },
-        40usize,
+        76usize,
         concat!(
             "Offset of field: ",
             stringify!(M_DeriveMech_ECIESKeyUnwrap_DKParams),
@@ -12656,7 +13289,7 @@ fn bindgen_test_layout_M_DeriveMech_ECIESKeyWrap_DKParams() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::core::mem::size_of::<M_DeriveMech_ECIESKeyWrap_DKParams>(),
-        40usize,
+        80usize,
         concat!("Size of: ", stringify!(M_DeriveMech_ECIESKeyWrap_DKParams))
     );
     assert_eq!(
@@ -12679,7 +13312,7 @@ fn bindgen_test_layout_M_DeriveMech_ECIESKeyWrap_DKParams() {
     );
     assert_eq!(
         unsafe { ::core::ptr::addr_of!((*ptr).iesparams) as usize - ptr as usize },
-        24usize,
+        56usize,
         concat!(
             "Offset of field: ",
             stringify!(M_DeriveMech_ECIESKeyWrap_DKParams),
@@ -13043,6 +13676,364 @@ fn bindgen_test_layout_M_DeriveMech_KDPKeyWrapDES3_DKParams() {
         )
     );
 }
+pub type M_DeriveMech_MILENAGEAV_DKParams_flags = M_Word;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union M_AKASequence {
+    pub bytes: [::core::ffi::c_uchar; 6usize],
+}
+#[test]
+fn bindgen_test_layout_M_AKASequence() {
+    const UNINIT: ::core::mem::MaybeUninit<M_AKASequence> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_AKASequence>(),
+        6usize,
+        concat!("Size of: ", stringify!(M_AKASequence))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_AKASequence>(),
+        1usize,
+        concat!("Alignment of ", stringify!(M_AKASequence))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).bytes) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_AKASequence),
+            "::",
+            stringify!(bytes)
+        )
+    );
+}
+impl Default for M_AKASequence {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_AKASequence {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "M_AKASequence {{ union }}")
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union M_AKAAMF {
+    pub bytes: [::core::ffi::c_uchar; 2usize],
+}
+#[test]
+fn bindgen_test_layout_M_AKAAMF() {
+    const UNINIT: ::core::mem::MaybeUninit<M_AKAAMF> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_AKAAMF>(),
+        2usize,
+        concat!("Size of: ", stringify!(M_AKAAMF))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_AKAAMF>(),
+        1usize,
+        concat!("Alignment of ", stringify!(M_AKAAMF))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).bytes) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_AKAAMF),
+            "::",
+            stringify!(bytes)
+        )
+    );
+}
+impl Default for M_AKAAMF {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_AKAAMF {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "M_AKAAMF {{ union }}")
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union M_AKARandom {
+    pub bytes: [::core::ffi::c_uchar; 16usize],
+    pub words: [M_Word; 4usize],
+}
+#[test]
+fn bindgen_test_layout_M_AKARandom() {
+    const UNINIT: ::core::mem::MaybeUninit<M_AKARandom> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_AKARandom>(),
+        16usize,
+        concat!("Size of: ", stringify!(M_AKARandom))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_AKARandom>(),
+        4usize,
+        concat!("Alignment of ", stringify!(M_AKARandom))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).bytes) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_AKARandom),
+            "::",
+            stringify!(bytes)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).words) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_AKARandom),
+            "::",
+            stringify!(words)
+        )
+    );
+}
+impl Default for M_AKARandom {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_AKARandom {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "M_AKARandom {{ union }}")
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_DeriveMech_MILENAGEAV_DKParams {
+    pub flags: M_DeriveMech_MILENAGEAV_DKParams_flags,
+    pub sqn: M_AKASequence,
+    pub amf: M_AKAAMF,
+    pub rand: *mut M_AKARandom,
+}
+#[test]
+fn bindgen_test_layout_M_DeriveMech_MILENAGEAV_DKParams() {
+    const UNINIT: ::core::mem::MaybeUninit<M_DeriveMech_MILENAGEAV_DKParams> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_DeriveMech_MILENAGEAV_DKParams>(),
+        24usize,
+        concat!("Size of: ", stringify!(M_DeriveMech_MILENAGEAV_DKParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_DeriveMech_MILENAGEAV_DKParams>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(M_DeriveMech_MILENAGEAV_DKParams)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_MILENAGEAV_DKParams),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).sqn) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_MILENAGEAV_DKParams),
+            "::",
+            stringify!(sqn)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).amf) as usize - ptr as usize },
+        10usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_MILENAGEAV_DKParams),
+            "::",
+            stringify!(amf)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).rand) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_MILENAGEAV_DKParams),
+            "::",
+            stringify!(rand)
+        )
+    );
+}
+impl Default for M_DeriveMech_MILENAGEAV_DKParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_DeriveMech_MILENAGEAV_DKParams {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(
+            f,
+            "M_DeriveMech_MILENAGEAV_DKParams {{ flags: {:?}, sqn: {:?}, amf: {:?}, rand: {:?} }}",
+            self.flags, self.sqn, self.amf, self.rand
+        )
+    }
+}
+pub type M_DeriveMech_MILENAGEResync_DKParams_flags = M_Word;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union M_MILENAGEAUTS {
+    pub bytes: [::core::ffi::c_uchar; 14usize],
+}
+#[test]
+fn bindgen_test_layout_M_MILENAGEAUTS() {
+    const UNINIT: ::core::mem::MaybeUninit<M_MILENAGEAUTS> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_MILENAGEAUTS>(),
+        14usize,
+        concat!("Size of: ", stringify!(M_MILENAGEAUTS))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_MILENAGEAUTS>(),
+        1usize,
+        concat!("Alignment of ", stringify!(M_MILENAGEAUTS))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).bytes) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_MILENAGEAUTS),
+            "::",
+            stringify!(bytes)
+        )
+    );
+}
+impl Default for M_MILENAGEAUTS {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_MILENAGEAUTS {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "M_MILENAGEAUTS {{ union }}")
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_DeriveMech_MILENAGEResync_DKParams {
+    pub flags: M_DeriveMech_MILENAGEResync_DKParams_flags,
+    pub amf: M_AKAAMF,
+    pub rand: M_AKARandom,
+    pub auts: M_MILENAGEAUTS,
+}
+#[test]
+fn bindgen_test_layout_M_DeriveMech_MILENAGEResync_DKParams() {
+    const UNINIT: ::core::mem::MaybeUninit<M_DeriveMech_MILENAGEResync_DKParams> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_DeriveMech_MILENAGEResync_DKParams>(),
+        40usize,
+        concat!(
+            "Size of: ",
+            stringify!(M_DeriveMech_MILENAGEResync_DKParams)
+        )
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_DeriveMech_MILENAGEResync_DKParams>(),
+        4usize,
+        concat!(
+            "Alignment of ",
+            stringify!(M_DeriveMech_MILENAGEResync_DKParams)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_MILENAGEResync_DKParams),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).amf) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_MILENAGEResync_DKParams),
+            "::",
+            stringify!(amf)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).rand) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_MILENAGEResync_DKParams),
+            "::",
+            stringify!(rand)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).auts) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_MILENAGEResync_DKParams),
+            "::",
+            stringify!(auts)
+        )
+    );
+}
+impl Default for M_DeriveMech_MILENAGEResync_DKParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_DeriveMech_MILENAGEResync_DKParams {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "M_DeriveMech_MILENAGEResync_DKParams {{ flags: {:?}, amf: {:?}, rand: {:?}, auts: {:?} }}" , self . flags , self . amf , self . rand , self . auts)
+    }
+}
 pub type M_DeriveMech_NISTKDFmCTRpRijndaelCMACr32_DKParams_flags = M_Word;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -13231,56 +14222,6 @@ impl Default for M_DeriveMech_NISTKDFmCTRr8_DKParams {
             ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
             s.assume_init()
         }
-    }
-}
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct M_IV {
-    pub mech: M_Mech,
-    pub iv: M_Mech__IV,
-}
-#[test]
-fn bindgen_test_layout_M_IV() {
-    const UNINIT: ::core::mem::MaybeUninit<M_IV> = ::core::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
-    assert_eq!(
-        ::core::mem::size_of::<M_IV>(),
-        48usize,
-        concat!("Size of: ", stringify!(M_IV))
-    );
-    assert_eq!(
-        ::core::mem::align_of::<M_IV>(),
-        8usize,
-        concat!("Alignment of ", stringify!(M_IV))
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).mech) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_IV),
-            "::",
-            stringify!(mech)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).iv) as usize - ptr as usize },
-        8usize,
-        concat!("Offset of field: ", stringify!(M_IV), "::", stringify!(iv))
-    );
-}
-impl Default for M_IV {
-    fn default() -> Self {
-        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-            s.assume_init()
-        }
-    }
-}
-impl ::core::fmt::Debug for M_IV {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        write!(f, "M_IV {{ mech: {:?}, iv: {:?} }}", self.mech, self.iv)
     }
 }
 #[repr(C)]
@@ -13518,6 +14459,139 @@ impl Default for M_DeriveMech_RSAComponents_DKParams {
             ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
             s.assume_init()
         }
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_DeriveMech_RSAKeyUnwrap_DKParams {
+    pub kaparams: M_KAParams,
+    pub iesparams: M_IESParams,
+    pub keytype: M_KeyType,
+}
+#[test]
+fn bindgen_test_layout_M_DeriveMech_RSAKeyUnwrap_DKParams() {
+    const UNINIT: ::core::mem::MaybeUninit<M_DeriveMech_RSAKeyUnwrap_DKParams> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_DeriveMech_RSAKeyUnwrap_DKParams>(),
+        80usize,
+        concat!("Size of: ", stringify!(M_DeriveMech_RSAKeyUnwrap_DKParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_DeriveMech_RSAKeyUnwrap_DKParams>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(M_DeriveMech_RSAKeyUnwrap_DKParams)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).kaparams) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_RSAKeyUnwrap_DKParams),
+            "::",
+            stringify!(kaparams)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).iesparams) as usize - ptr as usize },
+        56usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_RSAKeyUnwrap_DKParams),
+            "::",
+            stringify!(iesparams)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).keytype) as usize - ptr as usize },
+        76usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_RSAKeyUnwrap_DKParams),
+            "::",
+            stringify!(keytype)
+        )
+    );
+}
+impl Default for M_DeriveMech_RSAKeyUnwrap_DKParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_DeriveMech_RSAKeyUnwrap_DKParams {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "M_DeriveMech_RSAKeyUnwrap_DKParams {{ kaparams: {:?}, iesparams: {:?}, keytype: {:?} }}" , self . kaparams , self . iesparams , self . keytype)
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_DeriveMech_RSAKeyWrap_DKParams {
+    pub kaparams: M_KAParams,
+    pub iesparams: M_IESParams,
+}
+#[test]
+fn bindgen_test_layout_M_DeriveMech_RSAKeyWrap_DKParams() {
+    const UNINIT: ::core::mem::MaybeUninit<M_DeriveMech_RSAKeyWrap_DKParams> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_DeriveMech_RSAKeyWrap_DKParams>(),
+        80usize,
+        concat!("Size of: ", stringify!(M_DeriveMech_RSAKeyWrap_DKParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_DeriveMech_RSAKeyWrap_DKParams>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(M_DeriveMech_RSAKeyWrap_DKParams)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).kaparams) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_RSAKeyWrap_DKParams),
+            "::",
+            stringify!(kaparams)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).iesparams) as usize - ptr as usize },
+        56usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_RSAKeyWrap_DKParams),
+            "::",
+            stringify!(iesparams)
+        )
+    );
+}
+impl Default for M_DeriveMech_RSAKeyWrap_DKParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_DeriveMech_RSAKeyWrap_DKParams {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(
+            f,
+            "M_DeriveMech_RSAKeyWrap_DKParams {{ kaparams: {:?}, iesparams: {:?} }}",
+            self.kaparams, self.iesparams
+        )
     }
 }
 #[repr(C)]
@@ -13775,6 +14849,66 @@ impl ::core::fmt::Debug for M_DeriveMech_RawEncryptZeroPad_DKParams {
             f,
             "M_DeriveMech_RawEncryptZeroPad_DKParams {{ iv: {:?}, padlen: {:?} }}",
             self.iv, self.padlen
+        )
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_DeriveMech_RawSign_DKParams {
+    pub iv: M_IV,
+    pub dst_type: M_KeyType,
+}
+#[test]
+fn bindgen_test_layout_M_DeriveMech_RawSign_DKParams() {
+    const UNINIT: ::core::mem::MaybeUninit<M_DeriveMech_RawSign_DKParams> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_DeriveMech_RawSign_DKParams>(),
+        56usize,
+        concat!("Size of: ", stringify!(M_DeriveMech_RawSign_DKParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_DeriveMech_RawSign_DKParams>(),
+        8usize,
+        concat!("Alignment of ", stringify!(M_DeriveMech_RawSign_DKParams))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).iv) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_RawSign_DKParams),
+            "::",
+            stringify!(iv)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).dst_type) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_RawSign_DKParams),
+            "::",
+            stringify!(dst_type)
+        )
+    );
+}
+impl Default for M_DeriveMech_RawSign_DKParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_DeriveMech_RawSign_DKParams {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(
+            f,
+            "M_DeriveMech_RawSign_DKParams {{ iv: {:?}, dst_type: {:?} }}",
+            self.iv, self.dst_type
         )
     }
 }
@@ -14121,6 +15255,348 @@ impl ::core::fmt::Debug for M_DeriveMech_SignedKDPKeyWrapDES3_DKParams {
         write ! (f , "M_DeriveMech_SignedKDPKeyWrapDES3_DKParams {{ flags: {:?}, mech: {:?}, beginauth: {:?}, sig: {:?} }}" , self . flags , self . mech , self . beginauth , self . sig)
     }
 }
+pub type M_DeriveMech_TUAKAV_DKParams_flags = M_Word;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_DeriveMech_TUAKAV_DKParams {
+    pub flags: M_DeriveMech_TUAKAV_DKParams_flags,
+    pub sqn: M_AKASequence,
+    pub amf: M_AKAAMF,
+    pub rand: *mut M_AKARandom,
+    pub maclen: M_Word,
+    pub reslen: M_Word,
+    pub cklen: M_Word,
+    pub iklen: M_Word,
+    pub iterations: M_Word,
+}
+#[test]
+fn bindgen_test_layout_M_DeriveMech_TUAKAV_DKParams() {
+    const UNINIT: ::core::mem::MaybeUninit<M_DeriveMech_TUAKAV_DKParams> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_DeriveMech_TUAKAV_DKParams>(),
+        48usize,
+        concat!("Size of: ", stringify!(M_DeriveMech_TUAKAV_DKParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_DeriveMech_TUAKAV_DKParams>(),
+        8usize,
+        concat!("Alignment of ", stringify!(M_DeriveMech_TUAKAV_DKParams))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKAV_DKParams),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).sqn) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKAV_DKParams),
+            "::",
+            stringify!(sqn)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).amf) as usize - ptr as usize },
+        10usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKAV_DKParams),
+            "::",
+            stringify!(amf)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).rand) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKAV_DKParams),
+            "::",
+            stringify!(rand)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).maclen) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKAV_DKParams),
+            "::",
+            stringify!(maclen)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).reslen) as usize - ptr as usize },
+        28usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKAV_DKParams),
+            "::",
+            stringify!(reslen)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).cklen) as usize - ptr as usize },
+        32usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKAV_DKParams),
+            "::",
+            stringify!(cklen)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).iklen) as usize - ptr as usize },
+        36usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKAV_DKParams),
+            "::",
+            stringify!(iklen)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).iterations) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKAV_DKParams),
+            "::",
+            stringify!(iterations)
+        )
+    );
+}
+impl Default for M_DeriveMech_TUAKAV_DKParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_DeriveMech_TUAKAV_DKParams {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "M_DeriveMech_TUAKAV_DKParams {{ flags: {:?}, sqn: {:?}, amf: {:?}, rand: {:?}, maclen: {:?}, reslen: {:?}, cklen: {:?}, iklen: {:?}, iterations: {:?} }}" , self . flags , self . sqn , self . amf , self . rand , self . maclen , self . reslen , self . cklen , self . iklen , self . iterations)
+    }
+}
+pub type M_DeriveMech_TUAKGenAUTS_DKParams_flags = M_Word;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_DeriveMech_TUAKGenAUTS_DKParams {
+    pub flags: M_DeriveMech_TUAKGenAUTS_DKParams_flags,
+    pub sqn: M_AKASequence,
+    pub amf: M_AKAAMF,
+    pub rand: *mut M_AKARandom,
+    pub maclen: M_Word,
+    pub iterations: M_Word,
+}
+#[test]
+fn bindgen_test_layout_M_DeriveMech_TUAKGenAUTS_DKParams() {
+    const UNINIT: ::core::mem::MaybeUninit<M_DeriveMech_TUAKGenAUTS_DKParams> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_DeriveMech_TUAKGenAUTS_DKParams>(),
+        32usize,
+        concat!("Size of: ", stringify!(M_DeriveMech_TUAKGenAUTS_DKParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_DeriveMech_TUAKGenAUTS_DKParams>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(M_DeriveMech_TUAKGenAUTS_DKParams)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKGenAUTS_DKParams),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).sqn) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKGenAUTS_DKParams),
+            "::",
+            stringify!(sqn)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).amf) as usize - ptr as usize },
+        10usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKGenAUTS_DKParams),
+            "::",
+            stringify!(amf)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).rand) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKGenAUTS_DKParams),
+            "::",
+            stringify!(rand)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).maclen) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKGenAUTS_DKParams),
+            "::",
+            stringify!(maclen)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).iterations) as usize - ptr as usize },
+        28usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKGenAUTS_DKParams),
+            "::",
+            stringify!(iterations)
+        )
+    );
+}
+impl Default for M_DeriveMech_TUAKGenAUTS_DKParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_DeriveMech_TUAKGenAUTS_DKParams {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "M_DeriveMech_TUAKGenAUTS_DKParams {{ flags: {:?}, sqn: {:?}, amf: {:?}, rand: {:?}, maclen: {:?}, iterations: {:?} }}" , self . flags , self . sqn , self . amf , self . rand , self . maclen , self . iterations)
+    }
+}
+pub type M_DeriveMech_TUAKResync_DKParams_flags = M_Word;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_DeriveMech_TUAKResync_DKParams {
+    pub flags: M_DeriveMech_TUAKResync_DKParams_flags,
+    pub amf: M_AKAAMF,
+    pub rand: M_AKARandom,
+    pub auts: M_ByteBlock,
+    pub maclen: M_Word,
+    pub iterations: M_Word,
+}
+#[test]
+fn bindgen_test_layout_M_DeriveMech_TUAKResync_DKParams() {
+    const UNINIT: ::core::mem::MaybeUninit<M_DeriveMech_TUAKResync_DKParams> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_DeriveMech_TUAKResync_DKParams>(),
+        48usize,
+        concat!("Size of: ", stringify!(M_DeriveMech_TUAKResync_DKParams))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_DeriveMech_TUAKResync_DKParams>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(M_DeriveMech_TUAKResync_DKParams)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKResync_DKParams),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).amf) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKResync_DKParams),
+            "::",
+            stringify!(amf)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).rand) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKResync_DKParams),
+            "::",
+            stringify!(rand)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).auts) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKResync_DKParams),
+            "::",
+            stringify!(auts)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).maclen) as usize - ptr as usize },
+        40usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKResync_DKParams),
+            "::",
+            stringify!(maclen)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).iterations) as usize - ptr as usize },
+        44usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech_TUAKResync_DKParams),
+            "::",
+            stringify!(iterations)
+        )
+    );
+}
+impl Default for M_DeriveMech_TUAKResync_DKParams {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_DeriveMech_TUAKResync_DKParams {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "M_DeriveMech_TUAKResync_DKParams {{ flags: {:?}, amf: {:?}, rand: {:?}, auts: {:?}, maclen: {:?}, iterations: {:?} }}" , self . flags , self . amf , self . rand , self . auts , self . maclen , self . iterations)
+    }
+}
 pub type M_DeriveMech_TUAKTOPC_DKParams_flags = M_Word;
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]
@@ -14163,452 +15639,6 @@ fn bindgen_test_layout_M_DeriveMech_TUAKTOPC_DKParams() {
             stringify!(iterations)
         )
     );
-}
-pub type M_DeriveMech_TUAKf1_DKParams_flags = M_Word;
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union M_TUAKRandom {
-    pub bytes: [::core::ffi::c_uchar; 16usize],
-    pub words: [M_Word; 4usize],
-}
-#[test]
-fn bindgen_test_layout_M_TUAKRandom() {
-    const UNINIT: ::core::mem::MaybeUninit<M_TUAKRandom> = ::core::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
-    assert_eq!(
-        ::core::mem::size_of::<M_TUAKRandom>(),
-        16usize,
-        concat!("Size of: ", stringify!(M_TUAKRandom))
-    );
-    assert_eq!(
-        ::core::mem::align_of::<M_TUAKRandom>(),
-        4usize,
-        concat!("Alignment of ", stringify!(M_TUAKRandom))
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).bytes) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_TUAKRandom),
-            "::",
-            stringify!(bytes)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).words) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_TUAKRandom),
-            "::",
-            stringify!(words)
-        )
-    );
-}
-impl Default for M_TUAKRandom {
-    fn default() -> Self {
-        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-            s.assume_init()
-        }
-    }
-}
-impl ::core::fmt::Debug for M_TUAKRandom {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        write!(f, "M_TUAKRandom {{ union }}")
-    }
-}
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union M_TUAKSequence {
-    pub bytes: [::core::ffi::c_uchar; 6usize],
-}
-#[test]
-fn bindgen_test_layout_M_TUAKSequence() {
-    const UNINIT: ::core::mem::MaybeUninit<M_TUAKSequence> = ::core::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
-    assert_eq!(
-        ::core::mem::size_of::<M_TUAKSequence>(),
-        6usize,
-        concat!("Size of: ", stringify!(M_TUAKSequence))
-    );
-    assert_eq!(
-        ::core::mem::align_of::<M_TUAKSequence>(),
-        1usize,
-        concat!("Alignment of ", stringify!(M_TUAKSequence))
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).bytes) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_TUAKSequence),
-            "::",
-            stringify!(bytes)
-        )
-    );
-}
-impl Default for M_TUAKSequence {
-    fn default() -> Self {
-        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-            s.assume_init()
-        }
-    }
-}
-impl ::core::fmt::Debug for M_TUAKSequence {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        write!(f, "M_TUAKSequence {{ union }}")
-    }
-}
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union M_TUAKAMF {
-    pub bytes: [::core::ffi::c_uchar; 2usize],
-}
-#[test]
-fn bindgen_test_layout_M_TUAKAMF() {
-    const UNINIT: ::core::mem::MaybeUninit<M_TUAKAMF> = ::core::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
-    assert_eq!(
-        ::core::mem::size_of::<M_TUAKAMF>(),
-        2usize,
-        concat!("Size of: ", stringify!(M_TUAKAMF))
-    );
-    assert_eq!(
-        ::core::mem::align_of::<M_TUAKAMF>(),
-        1usize,
-        concat!("Alignment of ", stringify!(M_TUAKAMF))
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).bytes) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_TUAKAMF),
-            "::",
-            stringify!(bytes)
-        )
-    );
-}
-impl Default for M_TUAKAMF {
-    fn default() -> Self {
-        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-            s.assume_init()
-        }
-    }
-}
-impl ::core::fmt::Debug for M_TUAKAMF {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        write!(f, "M_TUAKAMF {{ union }}")
-    }
-}
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct M_DeriveMech_TUAKf1_DKParams {
-    pub flags: M_DeriveMech_TUAKf1_DKParams_flags,
-    pub maclen: M_Word,
-    pub keytype: M_KeyType,
-    pub rand: M_TUAKRandom,
-    pub sqn: M_TUAKSequence,
-    pub amf: M_TUAKAMF,
-    pub iterations: M_Word,
-}
-#[test]
-fn bindgen_test_layout_M_DeriveMech_TUAKf1_DKParams() {
-    const UNINIT: ::core::mem::MaybeUninit<M_DeriveMech_TUAKf1_DKParams> =
-        ::core::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
-    assert_eq!(
-        ::core::mem::size_of::<M_DeriveMech_TUAKf1_DKParams>(),
-        40usize,
-        concat!("Size of: ", stringify!(M_DeriveMech_TUAKf1_DKParams))
-    );
-    assert_eq!(
-        ::core::mem::align_of::<M_DeriveMech_TUAKf1_DKParams>(),
-        4usize,
-        concat!("Alignment of ", stringify!(M_DeriveMech_TUAKf1_DKParams))
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf1_DKParams),
-            "::",
-            stringify!(flags)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).maclen) as usize - ptr as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf1_DKParams),
-            "::",
-            stringify!(maclen)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).keytype) as usize - ptr as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf1_DKParams),
-            "::",
-            stringify!(keytype)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).rand) as usize - ptr as usize },
-        12usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf1_DKParams),
-            "::",
-            stringify!(rand)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).sqn) as usize - ptr as usize },
-        28usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf1_DKParams),
-            "::",
-            stringify!(sqn)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).amf) as usize - ptr as usize },
-        34usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf1_DKParams),
-            "::",
-            stringify!(amf)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).iterations) as usize - ptr as usize },
-        36usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf1_DKParams),
-            "::",
-            stringify!(iterations)
-        )
-    );
-}
-impl Default for M_DeriveMech_TUAKf1_DKParams {
-    fn default() -> Self {
-        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-            s.assume_init()
-        }
-    }
-}
-impl ::core::fmt::Debug for M_DeriveMech_TUAKf1_DKParams {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        write ! (f , "M_DeriveMech_TUAKf1_DKParams {{ flags: {:?}, maclen: {:?}, keytype: {:?}, rand: {:?}, sqn: {:?}, amf: {:?}, iterations: {:?} }}" , self . flags , self . maclen , self . keytype , self . rand , self . sqn , self . amf , self . iterations)
-    }
-}
-pub type M_DeriveMech_TUAKf2345_DKParams_flags = M_Word;
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct M_DeriveMech_TUAKf2345_DKParams {
-    pub flags: M_DeriveMech_TUAKf2345_DKParams_flags,
-    pub keytype: M_KeyType,
-    pub rand: M_TUAKRandom,
-    pub iterations: M_Word,
-    pub reslen: M_Word,
-    pub cklen: M_Word,
-    pub iklen: M_Word,
-}
-#[test]
-fn bindgen_test_layout_M_DeriveMech_TUAKf2345_DKParams() {
-    const UNINIT: ::core::mem::MaybeUninit<M_DeriveMech_TUAKf2345_DKParams> =
-        ::core::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
-    assert_eq!(
-        ::core::mem::size_of::<M_DeriveMech_TUAKf2345_DKParams>(),
-        40usize,
-        concat!("Size of: ", stringify!(M_DeriveMech_TUAKf2345_DKParams))
-    );
-    assert_eq!(
-        ::core::mem::align_of::<M_DeriveMech_TUAKf2345_DKParams>(),
-        4usize,
-        concat!("Alignment of ", stringify!(M_DeriveMech_TUAKf2345_DKParams))
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf2345_DKParams),
-            "::",
-            stringify!(flags)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).keytype) as usize - ptr as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf2345_DKParams),
-            "::",
-            stringify!(keytype)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).rand) as usize - ptr as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf2345_DKParams),
-            "::",
-            stringify!(rand)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).iterations) as usize - ptr as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf2345_DKParams),
-            "::",
-            stringify!(iterations)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).reslen) as usize - ptr as usize },
-        28usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf2345_DKParams),
-            "::",
-            stringify!(reslen)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).cklen) as usize - ptr as usize },
-        32usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf2345_DKParams),
-            "::",
-            stringify!(cklen)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).iklen) as usize - ptr as usize },
-        36usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf2345_DKParams),
-            "::",
-            stringify!(iklen)
-        )
-    );
-}
-impl Default for M_DeriveMech_TUAKf2345_DKParams {
-    fn default() -> Self {
-        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-            s.assume_init()
-        }
-    }
-}
-impl ::core::fmt::Debug for M_DeriveMech_TUAKf2345_DKParams {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        write ! (f , "M_DeriveMech_TUAKf2345_DKParams {{ flags: {:?}, keytype: {:?}, rand: {:?}, iterations: {:?}, reslen: {:?}, cklen: {:?}, iklen: {:?} }}" , self . flags , self . keytype , self . rand , self . iterations , self . reslen , self . cklen , self . iklen)
-    }
-}
-pub type M_DeriveMech_TUAKf5s_DKParams_flags = M_Word;
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct M_DeriveMech_TUAKf5s_DKParams {
-    pub flags: M_DeriveMech_TUAKf5s_DKParams_flags,
-    pub keytype: M_KeyType,
-    pub rand: M_TUAKRandom,
-    pub iterations: M_Word,
-}
-#[test]
-fn bindgen_test_layout_M_DeriveMech_TUAKf5s_DKParams() {
-    const UNINIT: ::core::mem::MaybeUninit<M_DeriveMech_TUAKf5s_DKParams> =
-        ::core::mem::MaybeUninit::uninit();
-    let ptr = UNINIT.as_ptr();
-    assert_eq!(
-        ::core::mem::size_of::<M_DeriveMech_TUAKf5s_DKParams>(),
-        28usize,
-        concat!("Size of: ", stringify!(M_DeriveMech_TUAKf5s_DKParams))
-    );
-    assert_eq!(
-        ::core::mem::align_of::<M_DeriveMech_TUAKf5s_DKParams>(),
-        4usize,
-        concat!("Alignment of ", stringify!(M_DeriveMech_TUAKf5s_DKParams))
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf5s_DKParams),
-            "::",
-            stringify!(flags)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).keytype) as usize - ptr as usize },
-        4usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf5s_DKParams),
-            "::",
-            stringify!(keytype)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).rand) as usize - ptr as usize },
-        8usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf5s_DKParams),
-            "::",
-            stringify!(rand)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).iterations) as usize - ptr as usize },
-        24usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech_TUAKf5s_DKParams),
-            "::",
-            stringify!(iterations)
-        )
-    );
-}
-impl Default for M_DeriveMech_TUAKf5s_DKParams {
-    fn default() -> Self {
-        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-            s.assume_init()
-        }
-    }
-}
-impl ::core::fmt::Debug for M_DeriveMech_TUAKf5s_DKParams {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        write ! (f , "M_DeriveMech_TUAKf5s_DKParams {{ flags: {:?}, keytype: {:?}, rand: {:?}, iterations: {:?} }}" , self . flags , self . keytype , self . rand , self . iterations)
-    }
 }
 pub type M_DeriveMech_TestKX_DKParams_flags = M_Word;
 #[repr(C)]
@@ -14751,23 +15781,28 @@ pub union M_DeriveMech__DKParams {
     pub generatersab36: M_DeriveMech_GenerateRSAB36_DKParams,
     pub hyperledgerclient: M_DeriveMech_HyperledgerClient_DKParams,
     pub kdpkeywrapdes3: M_DeriveMech_KDPKeyWrapDES3_DKParams,
+    pub milenageav: M_DeriveMech_MILENAGEAV_DKParams,
+    pub milenageresync: M_DeriveMech_MILENAGEResync_DKParams,
     pub nistkdfmctrprijndaelcmacr32: M_DeriveMech_NISTKDFmCTRpRijndaelCMACr32_DKParams,
     pub nistkdfmctrr8: M_DeriveMech_NISTKDFmCTRr8_DKParams,
     pub pkcs8decrypt: M_DeriveMech_PKCS8Decrypt_DKParams,
     pub pkcs8decryptex: M_DeriveMech_PKCS8DecryptEx_DKParams,
     pub pkcs8encrypt: M_DeriveMech_PKCS8Encrypt_DKParams,
     pub rsacomponents: M_DeriveMech_RSAComponents_DKParams,
+    pub rsakeyunwrap: M_DeriveMech_RSAKeyUnwrap_DKParams,
+    pub rsakeywrap: M_DeriveMech_RSAKeyWrap_DKParams,
     pub rawdecrypt: M_DeriveMech_RawDecrypt_DKParams,
     pub rawdecryptzeropad: M_DeriveMech_RawDecryptZeroPad_DKParams,
     pub rawencrypt: M_DeriveMech_RawEncrypt_DKParams,
     pub rawencryptzeropad: M_DeriveMech_RawEncryptZeroPad_DKParams,
+    pub rawsign: M_DeriveMech_RawSign_DKParams,
     pub ssl3withdh: M_DeriveMech_SSL3withDH_DKParams,
     pub ssl3withrsa: M_DeriveMech_SSL3withRSA_DKParams,
     pub signedkdpkeywrapdes3: M_DeriveMech_SignedKDPKeyWrapDES3_DKParams,
+    pub tuakav: M_DeriveMech_TUAKAV_DKParams,
+    pub tuakgenauts: M_DeriveMech_TUAKGenAUTS_DKParams,
+    pub tuakresync: M_DeriveMech_TUAKResync_DKParams,
     pub tuaktopc: M_DeriveMech_TUAKTOPC_DKParams,
-    pub tuakf1: M_DeriveMech_TUAKf1_DKParams,
-    pub tuakf2345: M_DeriveMech_TUAKf2345_DKParams,
-    pub tuakf5s: M_DeriveMech_TUAKf5s_DKParams,
     pub testkx: M_DeriveMech_TestKX_DKParams,
 }
 #[test]
@@ -14936,6 +15971,26 @@ fn bindgen_test_layout_M_DeriveMech__DKParams() {
         )
     );
     assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).milenageav) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech__DKParams),
+            "::",
+            stringify!(milenageav)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).milenageresync) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech__DKParams),
+            "::",
+            stringify!(milenageresync)
+        )
+    );
+    assert_eq!(
         unsafe {
             ::core::ptr::addr_of!((*ptr).nistkdfmctrprijndaelcmacr32) as usize - ptr as usize
         },
@@ -14998,6 +16053,26 @@ fn bindgen_test_layout_M_DeriveMech__DKParams() {
         )
     );
     assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).rsakeyunwrap) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech__DKParams),
+            "::",
+            stringify!(rsakeyunwrap)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).rsakeywrap) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech__DKParams),
+            "::",
+            stringify!(rsakeywrap)
+        )
+    );
+    assert_eq!(
         unsafe { ::core::ptr::addr_of!((*ptr).rawdecrypt) as usize - ptr as usize },
         0usize,
         concat!(
@@ -15038,6 +16113,16 @@ fn bindgen_test_layout_M_DeriveMech__DKParams() {
         )
     );
     assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).rawsign) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech__DKParams),
+            "::",
+            stringify!(rawsign)
+        )
+    );
+    assert_eq!(
         unsafe { ::core::ptr::addr_of!((*ptr).ssl3withdh) as usize - ptr as usize },
         0usize,
         concat!(
@@ -15068,6 +16153,36 @@ fn bindgen_test_layout_M_DeriveMech__DKParams() {
         )
     );
     assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).tuakav) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech__DKParams),
+            "::",
+            stringify!(tuakav)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).tuakgenauts) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech__DKParams),
+            "::",
+            stringify!(tuakgenauts)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).tuakresync) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_DeriveMech__DKParams),
+            "::",
+            stringify!(tuakresync)
+        )
+    );
+    assert_eq!(
         unsafe { ::core::ptr::addr_of!((*ptr).tuaktopc) as usize - ptr as usize },
         0usize,
         concat!(
@@ -15075,36 +16190,6 @@ fn bindgen_test_layout_M_DeriveMech__DKParams() {
             stringify!(M_DeriveMech__DKParams),
             "::",
             stringify!(tuaktopc)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).tuakf1) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech__DKParams),
-            "::",
-            stringify!(tuakf1)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).tuakf2345) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech__DKParams),
-            "::",
-            stringify!(tuakf2345)
-        )
-    );
-    assert_eq!(
-        unsafe { ::core::ptr::addr_of!((*ptr).tuakf5s) as usize - ptr as usize },
-        0usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(M_DeriveMech__DKParams),
-            "::",
-            stringify!(tuakf5s)
         )
     );
     assert_eq!(
@@ -16884,6 +17969,60 @@ impl Default for M_ModuleAttribTag_FeatureGoldCert_Value {
     }
 }
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct M_ModuleAttribTag_HardwareID_Value {
+    pub buildpart: M_ASCIIString,
+    pub buildrev: M_ASCIIString,
+}
+#[test]
+fn bindgen_test_layout_M_ModuleAttribTag_HardwareID_Value() {
+    const UNINIT: ::core::mem::MaybeUninit<M_ModuleAttribTag_HardwareID_Value> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_ModuleAttribTag_HardwareID_Value>(),
+        16usize,
+        concat!("Size of: ", stringify!(M_ModuleAttribTag_HardwareID_Value))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_ModuleAttribTag_HardwareID_Value>(),
+        8usize,
+        concat!(
+            "Alignment of ",
+            stringify!(M_ModuleAttribTag_HardwareID_Value)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).buildpart) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_ModuleAttribTag_HardwareID_Value),
+            "::",
+            stringify!(buildpart)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).buildrev) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_ModuleAttribTag_HardwareID_Value),
+            "::",
+            stringify!(buildrev)
+        )
+    );
+}
+impl Default for M_ModuleAttribTag_HardwareID_Value {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct M_ModuleAttribTag_KAL_Value {
     pub hkal: M_KeyHash,
@@ -17530,6 +18669,7 @@ pub union M_ModuleAttribTag__Value {
     pub esn: M_ModuleAttribTag_ESN_Value,
     pub enquiry: M_ModuleAttribTag_Enquiry_Value,
     pub featuregoldcert: M_ModuleAttribTag_FeatureGoldCert_Value,
+    pub hardwareid: M_ModuleAttribTag_HardwareID_Value,
     pub kal: M_ModuleAttribTag_KAL_Value,
     pub klf: M_ModuleAttribTag_KLF_Value,
     pub klf2: M_ModuleAttribTag_KLF2_Value,
@@ -17604,6 +18744,16 @@ fn bindgen_test_layout_M_ModuleAttribTag__Value() {
             stringify!(M_ModuleAttribTag__Value),
             "::",
             stringify!(featuregoldcert)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).hardwareid) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_ModuleAttribTag__Value),
+            "::",
+            stringify!(hardwareid)
         )
     );
     assert_eq!(
@@ -19499,6 +20649,140 @@ impl ::core::fmt::Debug for M_Cmd_CreateClient_Args {
             "M_Cmd_CreateClient_Args {{ flags: {:?}, version: {:?}, data: {:?} }}",
             self.flags, self.version, self.data
         )
+    }
+}
+pub type M_Cmd_CreateSEEConnection_Args_flags = M_Word;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union M_UUID {
+    pub bytes: [::core::ffi::c_uchar; 16usize],
+    pub words: [M_Word; 4usize],
+}
+#[test]
+fn bindgen_test_layout_M_UUID() {
+    const UNINIT: ::core::mem::MaybeUninit<M_UUID> = ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_UUID>(),
+        16usize,
+        concat!("Size of: ", stringify!(M_UUID))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_UUID>(),
+        4usize,
+        concat!("Alignment of ", stringify!(M_UUID))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).bytes) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_UUID),
+            "::",
+            stringify!(bytes)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).words) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_UUID),
+            "::",
+            stringify!(words)
+        )
+    );
+}
+impl Default for M_UUID {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_UUID {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write!(f, "M_UUID {{ union }}")
+    }
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct M_Cmd_CreateSEEConnection_Args {
+    pub flags: M_Cmd_CreateSEEConnection_Args_flags,
+    pub containerid: M_UUID,
+    pub n_identities: ::core::ffi::c_int,
+    pub identities: M_vec_KeyHashEx,
+}
+#[test]
+fn bindgen_test_layout_M_Cmd_CreateSEEConnection_Args() {
+    const UNINIT: ::core::mem::MaybeUninit<M_Cmd_CreateSEEConnection_Args> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_Cmd_CreateSEEConnection_Args>(),
+        32usize,
+        concat!("Size of: ", stringify!(M_Cmd_CreateSEEConnection_Args))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_Cmd_CreateSEEConnection_Args>(),
+        8usize,
+        concat!("Alignment of ", stringify!(M_Cmd_CreateSEEConnection_Args))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_CreateSEEConnection_Args),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).containerid) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_CreateSEEConnection_Args),
+            "::",
+            stringify!(containerid)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).n_identities) as usize - ptr as usize },
+        20usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_CreateSEEConnection_Args),
+            "::",
+            stringify!(n_identities)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).identities) as usize - ptr as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_CreateSEEConnection_Args),
+            "::",
+            stringify!(identities)
+        )
+    );
+}
+impl Default for M_Cmd_CreateSEEConnection_Args {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+impl ::core::fmt::Debug for M_Cmd_CreateSEEConnection_Args {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        write ! (f , "M_Cmd_CreateSEEConnection_Args {{ flags: {:?}, containerid: {:?}, n_identities: {:?}, identities: {:?} }}" , self . flags , self . containerid , self . n_identities , self . identities)
     }
 }
 pub type M_Cmd_CreateSEEWorld_Args_flags = M_Word;
@@ -29230,6 +30514,112 @@ impl ::core::fmt::Debug for M_Cmd_ServerSendShare_Args {
         write ! (f , "M_Cmd_ServerSendShare_Args {{ flags: {:?}, imp: {:?}, token: {:?}, i: {:?}, hkm: {:?}, hkt: {:?}, pin: {:?} }}" , self . flags , self . imp , self . token , self . i , self . hkm , self . hkt , self . pin)
     }
 }
+pub type M_Cmd_SessionCreate_Args_flags = M_Word;
+pub type M_SessionID = M_Word64;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct M_Cmd_SessionCreate_Args {
+    pub flags: M_Cmd_SessionCreate_Args_flags,
+    pub v: M_Word,
+    pub description: M_ASCIIString,
+    pub clientsession: M_SessionID,
+}
+#[test]
+fn bindgen_test_layout_M_Cmd_SessionCreate_Args() {
+    const UNINIT: ::core::mem::MaybeUninit<M_Cmd_SessionCreate_Args> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_Cmd_SessionCreate_Args>(),
+        24usize,
+        concat!("Size of: ", stringify!(M_Cmd_SessionCreate_Args))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_Cmd_SessionCreate_Args>(),
+        8usize,
+        concat!("Alignment of ", stringify!(M_Cmd_SessionCreate_Args))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_SessionCreate_Args),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).v) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_SessionCreate_Args),
+            "::",
+            stringify!(v)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).description) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_SessionCreate_Args),
+            "::",
+            stringify!(description)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).clientsession) as usize - ptr as usize },
+        16usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_SessionCreate_Args),
+            "::",
+            stringify!(clientsession)
+        )
+    );
+}
+impl Default for M_Cmd_SessionCreate_Args {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct M_Cmd_SessionDestroy_Args {
+    pub session: M_SessionID,
+}
+#[test]
+fn bindgen_test_layout_M_Cmd_SessionDestroy_Args() {
+    const UNINIT: ::core::mem::MaybeUninit<M_Cmd_SessionDestroy_Args> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_Cmd_SessionDestroy_Args>(),
+        8usize,
+        concat!("Size of: ", stringify!(M_Cmd_SessionDestroy_Args))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_Cmd_SessionDestroy_Args>(),
+        8usize,
+        concat!("Alignment of ", stringify!(M_Cmd_SessionDestroy_Args))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).session) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_SessionDestroy_Args),
+            "::",
+            stringify!(session)
+        )
+    );
+}
 pub type M_Cmd_SetACL_Args_flags = M_Word;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -31089,6 +32479,7 @@ pub union M_Cmd__Args {
     pub configurepoolmodule: M_Cmd_ConfigurePoolModule_Args,
     pub createbuffer: M_Cmd_CreateBuffer_Args,
     pub createclient: M_Cmd_CreateClient_Args,
+    pub createseeconnection: M_Cmd_CreateSEEConnection_Args,
     pub createseeworld: M_Cmd_CreateSEEWorld_Args,
     pub decrypt: M_Cmd_Decrypt_Args,
     pub derivekey: M_Cmd_DeriveKey_Args,
@@ -31231,6 +32622,8 @@ pub union M_Cmd__Args {
     pub sendshare: M_Cmd_SendShare_Args,
     pub servernoop: M_Cmd_ServerNoOp_Args,
     pub serversendshare: M_Cmd_ServerSendShare_Args,
+    pub sessioncreate: M_Cmd_SessionCreate_Args,
+    pub sessiondestroy: M_Cmd_SessionDestroy_Args,
     pub setacl: M_Cmd_SetACL_Args,
     pub setappdata: M_Cmd_SetAppData_Args,
     pub setappliancetime: M_Cmd_SetApplianceTime_Args,
@@ -31420,6 +32813,16 @@ fn bindgen_test_layout_M_Cmd__Args() {
             stringify!(M_Cmd__Args),
             "::",
             stringify!(createclient)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).createseeconnection) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd__Args),
+            "::",
+            stringify!(createseeconnection)
         )
     );
     assert_eq!(
@@ -32849,6 +34252,26 @@ fn bindgen_test_layout_M_Cmd__Args() {
         )
     );
     assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).sessioncreate) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd__Args),
+            "::",
+            stringify!(sessioncreate)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).sessiondestroy) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd__Args),
+            "::",
+            stringify!(sessiondestroy)
+        )
+    );
+    assert_eq!(
         unsafe { ::core::ptr::addr_of!((*ptr).setacl) as usize - ptr as usize },
         0usize,
         concat!(
@@ -33134,6 +34557,7 @@ pub struct M_Command {
     pub args: M_Cmd__Args,
     pub certs: *mut M_CertificateList,
     pub extractstate: *mut M_ExtractStateParams,
+    pub sessionid: *mut M_SessionID,
 }
 #[test]
 fn bindgen_test_layout_M_Command() {
@@ -33141,7 +34565,7 @@ fn bindgen_test_layout_M_Command() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::core::mem::size_of::<M_Command>(),
-        272usize,
+        280usize,
         concat!("Size of: ", stringify!(M_Command))
     );
     assert_eq!(
@@ -33229,6 +34653,16 @@ fn bindgen_test_layout_M_Command() {
             stringify!(extractstate)
         )
     );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).sessionid) as usize - ptr as usize },
+        272usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Command),
+            "::",
+            stringify!(sessionid)
+        )
+    );
 }
 impl Default for M_Command {
     fn default() -> Self {
@@ -33241,7 +34675,7 @@ impl Default for M_Command {
 }
 impl ::core::fmt::Debug for M_Command {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-        write ! (f , "M_Command {{ tag: {:?}, cmd: {:?}, status: {:?}, flags: {:?}, state: {:?}, args: {:?}, certs: {:?}, extractstate: {:?} }}" , self . tag , self . cmd , self . status , self . flags , self . state , self . args , self . certs , self . extractstate)
+        write ! (f , "M_Command {{ tag: {:?}, cmd: {:?}, status: {:?}, flags: {:?}, state: {:?}, args: {:?}, certs: {:?}, extractstate: {:?}, sessionid: {:?} }}" , self . tag , self . cmd , self . status , self . flags , self . state , self . args , self . certs , self . extractstate , self . sessionid)
     }
 }
 pub type M_StateMap_flags = M_Word;
@@ -36640,6 +38074,48 @@ impl ::core::fmt::Debug for M_Cmd_CreateClient_Reply {
             self.flags, self.client
         )
     }
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct M_Cmd_CreateSEEConnection_Reply {
+    pub initstatus: M_Word,
+    pub worldid: M_KeyID,
+}
+#[test]
+fn bindgen_test_layout_M_Cmd_CreateSEEConnection_Reply() {
+    const UNINIT: ::core::mem::MaybeUninit<M_Cmd_CreateSEEConnection_Reply> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_Cmd_CreateSEEConnection_Reply>(),
+        8usize,
+        concat!("Size of: ", stringify!(M_Cmd_CreateSEEConnection_Reply))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_Cmd_CreateSEEConnection_Reply>(),
+        4usize,
+        concat!("Alignment of ", stringify!(M_Cmd_CreateSEEConnection_Reply))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).initstatus) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_CreateSEEConnection_Reply),
+            "::",
+            stringify!(initstatus)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).worldid) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_CreateSEEConnection_Reply),
+            "::",
+            stringify!(worldid)
+        )
+    );
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]
@@ -43498,6 +44974,60 @@ impl Default for M_Cmd_ServerSendShare_Reply {
         }
     }
 }
+pub type M_Cmd_SessionCreate_Reply_flags = M_Word;
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct M_Cmd_SessionCreate_Reply {
+    pub flags: M_Cmd_SessionCreate_Reply_flags,
+    pub v: M_Word,
+    pub session: M_SessionID,
+}
+#[test]
+fn bindgen_test_layout_M_Cmd_SessionCreate_Reply() {
+    const UNINIT: ::core::mem::MaybeUninit<M_Cmd_SessionCreate_Reply> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<M_Cmd_SessionCreate_Reply>(),
+        16usize,
+        concat!("Size of: ", stringify!(M_Cmd_SessionCreate_Reply))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<M_Cmd_SessionCreate_Reply>(),
+        8usize,
+        concat!("Alignment of ", stringify!(M_Cmd_SessionCreate_Reply))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).flags) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_SessionCreate_Reply),
+            "::",
+            stringify!(flags)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).v) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_SessionCreate_Reply),
+            "::",
+            stringify!(v)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).session) as usize - ptr as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd_SessionCreate_Reply),
+            "::",
+            stringify!(session)
+        )
+    );
+}
 pub type M_Cmd_SetApplianceTime_Reply_flags = M_Word;
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]
@@ -44186,6 +45716,7 @@ pub union M_Cmd__Reply {
     pub configurepoolmodule: M_Cmd_ConfigurePoolModule_Reply,
     pub createbuffer: M_Cmd_CreateBuffer_Reply,
     pub createclient: M_Cmd_CreateClient_Reply,
+    pub createseeconnection: M_Cmd_CreateSEEConnection_Reply,
     pub createseeworld: M_Cmd_CreateSEEWorld_Reply,
     pub decrypt: M_Cmd_Decrypt_Reply,
     pub derivekey: M_Cmd_DeriveKey_Reply,
@@ -44295,6 +45826,7 @@ pub union M_Cmd__Reply {
     pub sendshare: M_Cmd_SendShare_Reply,
     pub servernoop: M_Cmd_ServerNoOp_Reply,
     pub serversendshare: M_Cmd_ServerSendShare_Reply,
+    pub sessioncreate: M_Cmd_SessionCreate_Reply,
     pub setappliancetime: M_Cmd_SetApplianceTime_Reply,
     pub setapplianceupgradestatus: M_Cmd_SetApplianceUpgradeStatus_Reply,
     pub sign: M_Cmd_Sign_Reply,
@@ -44491,6 +46023,16 @@ fn bindgen_test_layout_M_Cmd__Reply() {
             stringify!(M_Cmd__Reply),
             "::",
             stringify!(createclient)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).createseeconnection) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd__Reply),
+            "::",
+            stringify!(createseeconnection)
         )
     );
     assert_eq!(
@@ -45588,6 +47130,16 @@ fn bindgen_test_layout_M_Cmd__Reply() {
         )
     );
     assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).sessioncreate) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(M_Cmd__Reply),
+            "::",
+            stringify!(sessioncreate)
+        )
+    );
+    assert_eq!(
         unsafe { ::core::ptr::addr_of!((*ptr).setappliancetime) as usize - ptr as usize },
         0usize,
         concat!(
@@ -46116,11 +47668,8 @@ impl Default for M_StatInfo {
         }
     }
 }
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct NF_UserData {
-    _unused: [u8; 0],
-}
+pub type M_MinLength = M_Word;
+pub type M_MaxLength = M_Word;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct NF_Free_Context {
@@ -46159,6 +47708,96 @@ impl Default for NF_Free_Context {
             s.assume_init()
         }
     }
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct NF_ByteBlock_Attributes {
+    pub MinLength: M_MinLength,
+    pub MaxLength: M_MaxLength,
+}
+#[test]
+fn bindgen_test_layout_NF_ByteBlock_Attributes() {
+    const UNINIT: ::core::mem::MaybeUninit<NF_ByteBlock_Attributes> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NF_ByteBlock_Attributes>(),
+        8usize,
+        concat!("Size of: ", stringify!(NF_ByteBlock_Attributes))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NF_ByteBlock_Attributes>(),
+        4usize,
+        concat!("Alignment of ", stringify!(NF_ByteBlock_Attributes))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).MinLength) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NF_ByteBlock_Attributes),
+            "::",
+            stringify!(MinLength)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).MaxLength) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NF_ByteBlock_Attributes),
+            "::",
+            stringify!(MaxLength)
+        )
+    );
+}
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct NF_ASCIIString_Attributes {
+    pub MinLength: M_MinLength,
+    pub MaxLength: M_MaxLength,
+}
+#[test]
+fn bindgen_test_layout_NF_ASCIIString_Attributes() {
+    const UNINIT: ::core::mem::MaybeUninit<NF_ASCIIString_Attributes> =
+        ::core::mem::MaybeUninit::uninit();
+    let ptr = UNINIT.as_ptr();
+    assert_eq!(
+        ::core::mem::size_of::<NF_ASCIIString_Attributes>(),
+        8usize,
+        concat!("Size of: ", stringify!(NF_ASCIIString_Attributes))
+    );
+    assert_eq!(
+        ::core::mem::align_of::<NF_ASCIIString_Attributes>(),
+        4usize,
+        concat!("Alignment of ", stringify!(NF_ASCIIString_Attributes))
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).MinLength) as usize - ptr as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NF_ASCIIString_Attributes),
+            "::",
+            stringify!(MinLength)
+        )
+    );
+    assert_eq!(
+        unsafe { ::core::ptr::addr_of!((*ptr).MaxLength) as usize - ptr as usize },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(NF_ASCIIString_Attributes),
+            "::",
+            stringify!(MaxLength)
+        )
+    );
+}
+extern "C" {
+    pub static NF_UnmarshalFast_Cmd_LoadBuffer_Args_chunk_attributes: NF_ByteBlock_Attributes;
+}
+extern "C" {
+    pub static NF_UnmarshalFast_PermissionGroup_moduleserial_attributes: NF_ASCIIString_Attributes;
 }
 extern "C" {
     pub fn NF_Lookup(val: M_Word, vit: *const M_ValInfo) -> *const ::core::ffi::c_char;
@@ -46452,6 +48091,12 @@ extern "C" {
     pub static NF_KDPEncoding_flags_table: [M_ValInfo; 0usize];
 }
 extern "C" {
+    pub static NF_DeriveMech_MILENAGEAV_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_MILENAGEResync_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
     pub static NF_DeriveMech_NISTKDFmCTRpRijndaelCMACr32_DKParams_flags_table: [M_ValInfo; 0usize];
 }
 extern "C" {
@@ -46464,16 +48109,16 @@ extern "C" {
     pub static NF_DeriveMech_SignedKDPKeyWrapDES3_DKParams_flags_table: [M_ValInfo; 0usize];
 }
 extern "C" {
+    pub static NF_DeriveMech_TUAKAV_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_TUAKGenAUTS_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_DeriveMech_TUAKResync_DKParams_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
     pub static NF_DeriveMech_TUAKTOPC_DKParams_flags_table: [M_ValInfo; 0usize];
-}
-extern "C" {
-    pub static NF_DeriveMech_TUAKf1_DKParams_flags_table: [M_ValInfo; 0usize];
-}
-extern "C" {
-    pub static NF_DeriveMech_TUAKf2345_DKParams_flags_table: [M_ValInfo; 0usize];
-}
-extern "C" {
-    pub static NF_DeriveMech_TUAKf5s_DKParams_flags_table: [M_ValInfo; 0usize];
 }
 extern "C" {
     pub static NF_DeriveMech_TestKX_DKParams_flags_table: [M_ValInfo; 0usize];
@@ -46561,6 +48206,9 @@ extern "C" {
 }
 extern "C" {
     pub static NF_Cmd_CreateClient_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_CreateSEEConnection_Args_flags_table: [M_ValInfo; 0usize];
 }
 extern "C" {
     pub static NF_Cmd_CreateSEEWorld_Args_flags_table: [M_ValInfo; 0usize];
@@ -46845,6 +48493,9 @@ extern "C" {
     pub static NF_Cmd_ServerSendShare_Args_flags_table: [M_ValInfo; 0usize];
 }
 extern "C" {
+    pub static NF_Cmd_SessionCreate_Args_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
     pub static NF_Cmd_SetACL_Args_flags_table: [M_ValInfo; 0usize];
 }
 extern "C" {
@@ -47113,6 +48764,9 @@ extern "C" {
 }
 extern "C" {
     pub static NF_Cmd_ServerSendShare_Reply_flags_table: [M_ValInfo; 0usize];
+}
+extern "C" {
+    pub static NF_Cmd_SessionCreate_Reply_flags_table: [M_ValInfo; 0usize];
 }
 extern "C" {
     pub static NF_Cmd_SetApplianceTime_Reply_flags_table: [M_ValInfo; 0usize];

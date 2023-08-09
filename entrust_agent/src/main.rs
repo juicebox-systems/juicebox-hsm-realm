@@ -17,20 +17,16 @@ use tracing::{debug, info, instrument, warn, Span};
 
 use agent_core::hsm::{HsmClient, HsmRpcError, Transport};
 use agent_core::Agent;
-use entrust_api::{
-    NvRamState, SEEJobRequestType, SEEJobResponseType, StartRequest, StartResponse, Ticket,
-    Trailer, TrailerError,
-};
+use entrust_api::{NvRamState, StartRequest, StartResponse, Ticket};
 use entrust_nfast::{
     find_key, lookup_name_no_default, Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
-    Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_ErrorReturn, Cmd_GetTicket,
-    Cmd_LoadBuffer, Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine,
-    Cmd_StatGetValues, Cmd_TraceSEEWorld, M_ByteBlock, M_Cmd_ClearUnitEx_Args,
-    M_Cmd_CreateBuffer_Args, M_Cmd_CreateSEEWorld_Args, M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args,
-    M_Cmd_SEEJob_Args, M_Cmd_SetSEEMachine_Args, M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID,
-    M_Reply, M_Status, M_Word, ModuleMode_Default, NFKM_cmd_loadblob, NF_StatID_enumtable,
-    NFastApp_Connect, NFastApp_Connection, NFastApp_ConnectionFlags_Privileged,
-    NFastApp_Disconnect, NFastApp_Free_Reply, NFastApp_Submit, NFastApp_Wait, NFastConn,
+    Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_GetTicket, Cmd_LoadBuffer,
+    Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine, Cmd_StatGetValues,
+    Cmd_TraceSEEWorld, M_ByteBlock, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args,
+    M_Cmd_CreateSEEWorld_Args, M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args, M_Cmd_SEEJob_Args,
+    M_Cmd_SetSEEMachine_Args, M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID, M_Status, M_Word,
+    ModuleMode_Default, NFKM_cmd_loadblob, NF_StatID_enumtable, NFastApp_Connect,
+    NFastApp_Connection, NFastApp_ConnectionFlags_Privileged, NFastApp_Disconnect, NFastConn,
     NFastError, Reply, SEEInitStatus_OK, StatInfo_flags_Counter, StatInfo_flags_Fraction,
     StatInfo_flags_IPAddress, StatInfo_flags_String, StatNodeTag_ModuleEnvStats,
     StatNodeTag_PerModule, Status_OK, Status_ObjectInUse, Status_SEEWorldFailed,
@@ -220,12 +216,6 @@ impl From<HsmRpcError> for SeeError {
 impl From<NFastError> for SeeError {
     fn from(v: NFastError) -> Self {
         Self::NFast(v)
-    }
-}
-
-impl From<TrailerError> for SeeError {
-    fn from(_: TrailerError) -> Self {
-        Self::HsmMarshallingError
     }
 }
 
@@ -477,11 +467,6 @@ impl TransportInner {
 
     #[instrument(level = "trace", skip(self, data), fields(data_len=data.len()))]
     fn transact_seejob(&mut self, mut data: Vec<u8>) -> Result<Vec<u8>, SeeError> {
-        // SEEJob responses are potentially chunked. See the commentary on
-        // SEEJobRequestType & SEEJobResponseType for more information.
-        let trailer = SEEJobRequestType::ExecuteSEEJob.as_trailer();
-        data.extend(trailer.serialize());
-
         let mut cmd = M_Command::new(Cmd_SEEJob);
         cmd.args.seejob = M_Cmd_SEEJob_Args {
             worldid: self
@@ -491,70 +476,7 @@ impl TransportInner {
         };
         let reply = self.transact(&mut cmd)?;
         let resp = unsafe { reply.reply.seejob.seereply.as_slice() };
-        if resp.len() < Trailer::LEN {
-            return Err(SeeError::HsmMarshallingError);
-        }
-
-        let (response_body, trailer) = resp.split_at(resp.len() - Trailer::LEN);
-        let response = match SEEJobResponseType::parse(trailer)? {
-            SEEJobResponseType::ResultChunk(_) => {
-                panic!("Received unexpected ResultChunk response message from a SEEJob request")
-            }
-            SEEJobResponseType::SEEJobSingleResult => response_body.to_vec(),
-            SEEJobResponseType::SEEJobPagedResult(count, starting_chunk) => {
-                // There are additional chunks for the result of the SEEJob we just executed.
-                // Submit new jobs for each chunk needed, then wait on all the results.
-                let mut result = response_body.to_vec();
-
-                let mut replies = vec![M_Reply::default(); count.0 as usize];
-                for i in 0..count.0 {
-                    let req = SEEJobRequestType::ReadResponseChunk(starting_chunk + i);
-                    let mut req_trailer = req.as_trailer().serialize().to_vec();
-
-                    let mut cmd = M_Command::new(Cmd_SEEJob);
-                    cmd.args.seejob.worldid = self
-                        .world_id
-                        .expect("SEEWorld should have already been started");
-                    cmd.args.seejob.seeargs = M_ByteBlock::from_vec(&mut req_trailer);
-                    let rc = unsafe {
-                        NFastApp_Submit(
-                            self.conn.conn,
-                            null_mut(),
-                            &cmd,
-                            &mut replies[i as usize],
-                            null_mut(),
-                        )
-                    };
-                    assert_eq!(0, rc);
-                }
-
-                for i in 0..count.0 {
-                    let idx = i as usize;
-                    let mut rp: *mut M_Reply = &mut replies[idx];
-                    let rc =
-                        unsafe { NFastApp_Wait(self.conn.conn, null_mut(), &mut rp, null_mut()) };
-                    assert_eq!(0, rc);
-                    assert_ne!(Cmd_ErrorReturn, replies[idx].cmd);
-
-                    let resp = unsafe { replies[idx].reply.seejob.seereply.as_slice() };
-                    let (body, trailer) = resp.split_at(resp.len() - Trailer::LEN);
-                    assert_eq!(
-                        SEEJobResponseType::parse(trailer)?,
-                        SEEJobResponseType::ResultChunk(starting_chunk + i)
-                    );
-                    result.extend_from_slice(body);
-                    unsafe {
-                        NFastApp_Free_Reply(
-                            self.conn.app,
-                            null_mut(),
-                            null_mut(),
-                            &mut replies[idx],
-                        )
-                    };
-                }
-                result
-            }
-        };
+        let response = resp.to_vec();
         self.collect_trace_buffer();
         Ok(response)
     }
