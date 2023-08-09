@@ -35,8 +35,9 @@ pub extern "C" fn rust_main() -> isize {
         SEElib_InitComplete(0);
     }
 
-    // Set up the random number generator early since `SEEJobs` has a
-    // randomized hash table.
+    // Register a global random number generator (used for randomized hash
+    // tables). This can be done early since the RNG doesn't depend on the rest
+    // of the platform being initialized.
     register_global_rng();
 
     // We process start jobs until we get a successful HSM instance, then start
