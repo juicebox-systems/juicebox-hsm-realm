@@ -291,6 +291,18 @@ impl<'a> Value<'a> for u64 {
     }
 }
 
+impl<'a> Value<'a> for f32 {
+    fn into_cow(self) -> Cow<'a, str> {
+        self.to_string().into()
+    }
+}
+
+impl<'a> Value<'a> for f64 {
+    fn into_cow(self) -> Cow<'a, str> {
+        self.to_string().into()
+    }
+}
+
 impl<'a> Value<'a> for usize {
     fn into_cow(self) -> Cow<'a, str> {
         self.to_string().into()
