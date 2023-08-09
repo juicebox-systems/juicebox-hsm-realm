@@ -32,9 +32,9 @@ use entrust_nfast::{
     NFastApp_Connect, NFastApp_Connection, NFastApp_ConnectionFlags_Privileged,
     NFastApp_Disconnect, NFastApp_Free_Reply, NFastApp_Submit, NFastApp_Wait, NFastConn,
     NFastError, Reply, SEEInitStatus_OK, StatInfo_flags_Counter, StatInfo_flags_Fraction,
-    StatInfo_flags_IPAddress, StatInfo_flags_String, StatInfo_flags__allflags,
-    StatNodeTag_ModuleEnvStats, StatNodeTag_PerModule, Status_OK, Status_ObjectInUse,
-    Status_SEEWorldFailed, TicketDestination_AnySEEWorld,
+    StatInfo_flags_IPAddress, StatInfo_flags_String, StatNodeTag_ModuleEnvStats,
+    StatNodeTag_PerModule, Status_OK, Status_ObjectInUse, Status_SEEWorldFailed,
+    TicketDestination_AnySEEWorld,
 };
 use google::auth;
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
@@ -277,6 +277,8 @@ fn collect_entrust_stats(module: u8, mut metrics: metrics::Client) {
     }
 }
 
+const ALL_STATINFO_FLAG_BITS: u32 = 0b00111111;
+
 fn collect_entrust_stats_inner(
     module: u8,
     conn: &mut NFastConn,
@@ -299,6 +301,7 @@ fn collect_entrust_stats_inner(
         let statv = &reply.reply.statgetvalues;
         let stat_infos = slice::from_raw_parts(statv.statinfos, statv.n_statinfos as usize);
         let values = slice::from_raw_parts(statv.values, statv.n_values as usize);
+
         for (stat_info, value) in zip(stat_infos, values.iter().copied()) {
             if stat_info.flags & (StatInfo_flags_String | StatInfo_flags_IPAddress) != 0 {
                 continue;
@@ -314,7 +317,7 @@ fn collect_entrust_stats_inner(
                 let (int, frac) = (value >> 16, ((value & 0xFFFF) * 100) >> 16);
                 let result = (int as f32) + ((frac as f32) / 100.0);
                 metrics.gauge(metric_name, result, metrics::NO_TAGS);
-            } else if stat_info.flags & !StatInfo_flags__allflags == 0 {
+            } else if stat_info.flags & !ALL_STATINFO_FLAG_BITS == 0 {
                 metrics.gauge(metric_name, value, metrics::NO_TAGS);
             } else {
                 warn!(?metric_name, ?stat_info.flags, "ignoring metric with unknown flags set (probably a new metric type)");
