@@ -268,9 +268,9 @@ impl EntrustSeeTransport {
 
 fn collect_entrust_stats(module: u8, mut metrics: metrics::Client) {
     let interval = Duration::from_secs(1);
-    let mut con = NFastConn::new();
+    let mut conn = NFastConn::new();
     loop {
-        if let Err(err) = collect_entrust_stats_inner(module, &mut con, &mut metrics) {
+        if let Err(err) = collect_entrust_stats_inner(module, &mut conn, &mut metrics) {
             warn!(?err, "failed to collect stats from HSM");
         }
         std::thread::sleep(interval);
@@ -279,10 +279,10 @@ fn collect_entrust_stats(module: u8, mut metrics: metrics::Client) {
 
 fn collect_entrust_stats_inner(
     module: u8,
-    con: &mut NFastConn,
+    conn: &mut NFastConn,
     metrics: &mut metrics::Client,
 ) -> Result<(), SeeError> {
-    unsafe { con.connect()? };
+    unsafe { conn.connect()? };
 
     // see /opt/nfast/c/csd/examples/nfuser/stattree.c for the entrust example on reading stats.
     let mut stat_path = [
@@ -295,7 +295,7 @@ fn collect_entrust_stats_inner(
     cmd.args.statgetvalues.path_tags = stat_path.as_mut_ptr();
 
     unsafe {
-        let reply = con.transact(&mut cmd)?;
+        let reply = conn.transact(&mut cmd)?;
         let statv = &reply.reply.statgetvalues;
         let stat_infos = slice::from_raw_parts(statv.statinfos, statv.n_statinfos as usize);
         let values = slice::from_raw_parts(statv.values, statv.n_values as usize);
