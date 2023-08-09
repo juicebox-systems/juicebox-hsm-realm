@@ -212,6 +212,188 @@ fn leader_log_take_first() {
 }
 
 #[test]
+fn capture_next() {
+    let mut cluster = TestCluster::new(1);
+    let mut metrics = Metrics::new("test", MetricsAction::Skip, TestPlatform::default());
+    // Make a regular request to the leader.
+    let (_handshake, res1) = cluster.hsms[0].app_request(
+        &cluster.store,
+        cluster.realm,
+        cluster.group,
+        RecordId([3; 32]),
+        SecretsRequest::Delete,
+    );
+    let (_handshake, res2) = cluster.hsms[0].app_request(
+        &cluster.store,
+        cluster.realm,
+        cluster.group,
+        RecordId([3; 32]),
+        SecretsRequest::Delete,
+    );
+    assert_eq!(
+        CaptureNextResponse::MissingEntries,
+        cluster.hsms[0].hsm.handle_capture_next(
+            &mut metrics,
+            CaptureNextRequest {
+                realm: cluster.realm,
+                group: cluster.group,
+                entries: Vec::new(),
+            },
+        )
+    );
+    let (log_entry, _delta) = unpack_app_response(&res1);
+    assert_eq!(
+        CaptureNextResponse::InvalidRealm,
+        cluster.hsms[0].hsm.handle_capture_next(
+            &mut metrics,
+            CaptureNextRequest {
+                realm: RealmId([42; 16]),
+                group: cluster.group,
+                entries: vec![log_entry.clone()],
+            },
+        )
+    );
+    assert_eq!(
+        CaptureNextResponse::InvalidGroup,
+        cluster.hsms[0].hsm.handle_capture_next(
+            &mut metrics,
+            CaptureNextRequest {
+                realm: cluster.realm,
+                group: GroupId([42; 16]),
+                entries: vec![log_entry.clone()],
+            },
+        )
+    );
+    assert_eq!(
+        CaptureNextResponse::InvalidMac,
+        cluster.hsms[0].hsm.handle_capture_next(
+            &mut metrics,
+            CaptureNextRequest {
+                realm: cluster.realm,
+                group: cluster.group,
+                entries: vec![LogEntry {
+                    entry_mac: EntryMac::from([42; 32]),
+                    ..log_entry.clone()
+                }],
+            },
+        )
+    );
+
+    let (log_entry, _delta) = unpack_app_response(&res2);
+    assert_eq!(
+        CaptureNextResponse::MissingPrev,
+        cluster.hsms[0].hsm.handle_capture_next(
+            &mut metrics,
+            CaptureNextRequest {
+                realm: cluster.realm,
+                group: cluster.group,
+                entries: vec![log_entry.clone()],
+            },
+        )
+    );
+    let bad_prev_mac_entry = LogEntryBuilder {
+        hsm: cluster.hsms[0].id,
+        realm: cluster.realm,
+        group: cluster.group,
+        index: LogIndex(2),
+        partition: log_entry.partition,
+        transferring_out: None,
+        prev_mac: EntryMac::from([42; 32]),
+    }
+    .build(&cluster.hsms[0].hsm.realm_keys.mac);
+    assert_eq!(
+        CaptureNextResponse::InvalidChain,
+        cluster.hsms[0].hsm.handle_capture_next(
+            &mut metrics,
+            CaptureNextRequest {
+                realm: cluster.realm,
+                group: cluster.group,
+                entries: vec![bad_prev_mac_entry],
+            },
+        )
+    );
+
+    let (log_entry1, _delta) = unpack_app_response(&res1);
+    let (log_entry2, _delta) = unpack_app_response(&res2);
+    assert_eq!(
+        CaptureNextResponse::Ok(GroupMemberRole::Leader),
+        cluster.hsms[0].hsm.handle_capture_next(
+            &mut metrics,
+            CaptureNextRequest {
+                realm: cluster.realm,
+                group: cluster.group,
+                entries: vec![log_entry1, log_entry2]
+            }
+        )
+    );
+}
+
+#[test]
+fn persist_captures() {
+    // captured entries don't count until they're persisted.
+    let mut cluster = TestCluster::new(1);
+    let mut metrics = Metrics::new("test", MetricsAction::Skip, TestPlatform::default());
+    let (_handshake, res) = cluster.hsms[0].app_request(
+        &cluster.store,
+        cluster.realm,
+        cluster.group,
+        RecordId([3; 32]),
+        SecretsRequest::Delete,
+    );
+    assert_eq!(
+        LogIndex::FIRST,
+        cluster.hsms[0].status().realm.unwrap().groups[0]
+            .captured
+            .as_ref()
+            .unwrap()
+            .0
+    );
+    let PersistStateResponse::Ok { captured } = cluster.hsms[0]
+        .hsm
+        .handle_persist_state(&mut metrics, PersistStateRequest {});
+    assert_eq!(1, captured.len());
+    assert_eq!(cluster.hsms[0].id, captured[0].hsm);
+    assert_eq!(cluster.realm, captured[0].realm);
+    assert_eq!(cluster.group, captured[0].group);
+    assert_eq!(LogIndex(1), captured[0].index);
+
+    let (log_entry, _delta) = unpack_app_response(&res);
+    cluster.hsms[0].hsm.handle_capture_next(
+        &mut metrics,
+        CaptureNextRequest {
+            realm: cluster.realm,
+            group: cluster.group,
+            entries: vec![log_entry.clone()],
+        },
+    );
+    assert_eq!(
+        LogIndex::FIRST,
+        cluster.hsms[0].status().realm.unwrap().groups[0]
+            .captured
+            .as_ref()
+            .unwrap()
+            .0
+    );
+    let PersistStateResponse::Ok { captured } = cluster.hsms[0]
+        .hsm
+        .handle_persist_state(&mut metrics, PersistStateRequest {});
+    assert_eq!(1, captured.len());
+    assert_eq!(cluster.hsms[0].id, captured[0].hsm);
+    assert_eq!(cluster.realm, captured[0].realm);
+    assert_eq!(cluster.group, captured[0].group);
+    assert_eq!(LogIndex(2), captured[0].index);
+    assert_eq!(log_entry.entry_mac, captured[0].mac);
+
+    assert_eq!(
+        &(LogIndex(2), log_entry.entry_mac),
+        cluster.hsms[0].status().realm.unwrap().groups[0]
+            .captured
+            .as_ref()
+            .unwrap()
+    );
+}
+
+#[test]
 fn can_commit_from_other_captures() {
     // The leader should be able to commit entries using captures from other
     // HSMs even if it hasn't itself captured to that entry yet.
