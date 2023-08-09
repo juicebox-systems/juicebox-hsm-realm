@@ -1,4 +1,5 @@
 #![cfg_attr(target_os = "ncipherxc", no_std)]
+#![cfg_attr(target_os = "ncipherxc", allow(internal_features))]
 #![cfg_attr(target_os = "ncipherxc", feature(lang_items))]
 
 #[cfg(target_os = "ncipherxc")]
@@ -9,11 +10,15 @@ mod seelib;
 
 extern crate alloc;
 
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
 use core::cmp::min;
+use core::sync::atomic::{AtomicU32, Ordering};
 use x25519_dalek as x25519;
 
-use entrust_api::{KeyRole, StartRequest, StartResponse, Ticket};
+use entrust_api::{KeyRole, SEEJobResponseType, StartRequest, StartResponse, Ticket};
 use hsm_core::hsm::{
     mac::MacKey, Hsm, HsmOptions, MetricsReporting, RealmKeys, RecordEncryptionKey,
 };
@@ -28,6 +33,10 @@ use seelib::{
 // We'll refuse SEEJobs that are larger than this.
 const MAX_JOB_SIZE_BYTES: usize = 1024 * 1024;
 
+// Set to the tag of the SEEJob when a SEEJob is being processed. Used by the
+// panic handler to return a panic message to the agent.
+static ACTIVE_JOB_TAG: AtomicU32 = AtomicU32::new(0);
+
 #[no_mangle]
 pub extern "C" fn rust_main() -> isize {
     let mut buf = vec![0; 32 * 1024];
@@ -39,6 +48,19 @@ pub extern "C" fn rust_main() -> isize {
     // tables). This can be done early since the RNG doesn't depend on the rest
     // of the platform being initialized.
     register_global_rng();
+
+    #[cfg(not(target_os = "ncipherxc"))]
+    std::panic::set_hook(Box::new(|info| {
+        println!("{}", info);
+        // Everything is executed on the same one thread, so Ordering::Relaxed is
+        // fine. The only reason its an atomic is to keep the borrow checker happy.
+        let tag = ACTIVE_JOB_TAG.load(Ordering::Relaxed);
+        if tag != 0 {
+            let data = info.to_string().into_bytes();
+            return_job(tag, data, SEEJobResponseType::PanicMessage);
+        }
+        std::process::abort();
+    }));
 
     // We process start jobs until we get a successful HSM instance, then start
     // handling application requests.
@@ -59,7 +81,7 @@ fn process_start_jobs(buf: &mut Vec<u8>) -> Hsm<NCipher> {
                     Err(res) => (None, res),
                 };
                 let data = marshalling::to_vec(&resp).unwrap();
-                return_job(tag, data);
+                return_job(tag, data, SEEJobResponseType::JobResult);
                 if let Some(started_hsm) = hsm {
                     return started_hsm;
                 }
@@ -71,9 +93,13 @@ fn process_start_jobs(buf: &mut Vec<u8>) -> Hsm<NCipher> {
                 // from. The agent though will panic on the failed StartRequest
                 // which'll have the hard server shutdown the SEEWorld.
             }
-            Err(_) => {
+            Err(err) => {
                 // We couldn't deserialize the StartRequest we got
-                unsafe { SEElib_ReturnJob(tag, buf.as_ptr(), 0) };
+                return_job(
+                    tag,
+                    err.to_string().into_bytes(),
+                    SEEJobResponseType::MarshallingError,
+                );
             }
         }
     }
@@ -145,14 +171,14 @@ fn process_hsm_jobs(mut hsm: Hsm<NCipher>, buf: &mut Vec<u8>) {
         let result = hsm.handle_request(&buf[..job_len]);
         match result {
             Ok(data) => {
-                //println!("success, returning {} bytes", data.len());
-                return_job(tag, data);
+                return_job(tag, data, SEEJobResponseType::JobResult);
             }
-            Err(_e) => {
-                // There are no valid responses that are empty. We use an empty response to signal
-                // a marshalling failure.
-                //println!("failed with marshalling error {:?}", _e);
-                unsafe { SEElib_ReturnJob(tag, buf.as_ptr(), 0) };
+            Err(err) => {
+                return_job(
+                    tag,
+                    err.to_string().into_bytes(),
+                    SEEJobResponseType::MarshallingError,
+                );
             }
         };
     }
@@ -177,11 +203,14 @@ fn await_job(buf: &mut Vec<u8>) -> (M_Word, usize) {
             buf.resize(min(len as usize, MAX_JOB_SIZE_BYTES), 0);
             continue;
         }
+        ACTIVE_JOB_TAG.store(tag, Ordering::Relaxed);
         return (tag, len as usize);
     }
 }
 
-fn return_job(tag: M_Word, data: Vec<u8>) {
+fn return_job(tag: M_Word, mut data: Vec<u8>, response_type: SEEJobResponseType) {
+    ACTIVE_JOB_TAG.store(0, Ordering::Relaxed);
+    data.push(response_type.as_byte());
     unsafe { SEElib_ReturnJob(tag, data.as_ptr(), data.len() as M_Word) };
 }
 
