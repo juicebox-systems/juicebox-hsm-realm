@@ -10,6 +10,7 @@ use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
 use rustls::server::ResolvesServerCert;
+use semver::Version;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::error::Error;
@@ -32,7 +33,7 @@ use juicebox_marshalling as marshalling;
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_networking::rpc;
 use juicebox_realm_api::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
-use juicebox_realm_api::types::RealmId;
+use juicebox_realm_api::types::{RealmId, JUICEBOX_VERSION_HEADER};
 use juicebox_realm_auth::validation::Validator as AuthTokenValidator;
 use observability::logging::{Spew, TracingSource};
 use observability::metrics::{self, Tag};
@@ -50,6 +51,7 @@ struct State {
     agent_client: Client<AgentService>,
     realms: Mutex<Arc<HashMap<RealmId, Vec<Partition>>>>,
     metrics: metrics::Client,
+    semver: Version,
 }
 
 static TCP_ACCEPT_SPEW: Spew = Spew::new();
@@ -70,6 +72,7 @@ impl LoadBalancer {
             agent_client: Client::new(ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
             metrics,
+            semver: Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
         }))
     }
 
@@ -235,6 +238,31 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                     return Ok(Response::builder()
                         .status(200)
                         .body(Full::from(Bytes::from("Juicebox load balancer: OK\n")))
+                        .unwrap());
+                }
+
+                let has_valid_version = match request.headers().get(JUICEBOX_VERSION_HEADER) {
+                    Some(version) => match version.to_str() {
+                        Ok(str) => match Version::parse(str) {
+                            Ok(semver) => {
+                                semver.major > state.semver.major
+                                    || (semver.major == state.semver.major
+                                        && semver.minor >= state.semver.minor)
+                            }
+                            Err(_) => false,
+                        },
+                        Err(_) => false,
+                    },
+                    None => false,
+                };
+
+                if !has_valid_version {
+                    return Ok(Response::builder()
+                        .status(426) // Upgrade Required
+                        .body(Full::from(Bytes::from(format!(
+                            "SDK upgrade required to version >={}.{}",
+                            state.semver.major, state.semver.minor
+                        ))))
                         .unwrap());
                 }
 
