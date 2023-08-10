@@ -1,5 +1,7 @@
-use http::StatusCode;
+use http::{HeaderMap, HeaderValue, StatusCode};
+use juicebox_sdk::{JUICEBOX_VERSION_HEADER, VERSION};
 use once_cell::sync::Lazy;
+
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -41,6 +43,13 @@ async fn request_bodysize_check() {
         .timeout(Duration::from_secs(30))
         .use_rustls_tls();
     b = b.add_root_certificate(cluster.lb_cert());
+
+    let mut headers = HeaderMap::new();
+    headers.append(
+        JUICEBOX_VERSION_HEADER,
+        HeaderValue::from_str(VERSION).unwrap(),
+    );
+    b = b.default_headers(headers);
 
     let http = b.build().unwrap();
     let req = vec![1; BODY_SIZE_LIMIT + 1];

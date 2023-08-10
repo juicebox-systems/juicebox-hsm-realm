@@ -7,9 +7,11 @@ use futures::Future;
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
 use hyper::server::conn::http1;
 use hyper::service::Service;
+use hyper::StatusCode;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
 use rustls::server::ResolvesServerCert;
+use semver::Version;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::error::Error;
@@ -32,7 +34,7 @@ use juicebox_marshalling as marshalling;
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_networking::rpc;
 use juicebox_realm_api::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
-use juicebox_realm_api::types::RealmId;
+use juicebox_realm_api::types::{RealmId, JUICEBOX_VERSION_HEADER};
 use juicebox_realm_auth::validation::Validator as AuthTokenValidator;
 use observability::logging::{Spew, TracingSource};
 use observability::metrics::{self, Tag};
@@ -50,6 +52,7 @@ struct State {
     agent_client: Client<AgentService>,
     realms: Mutex<Arc<HashMap<RealmId, Vec<Partition>>>>,
     metrics: metrics::Client,
+    semver: Version,
 }
 
 static TCP_ACCEPT_SPEW: Spew = Spew::new();
@@ -70,6 +73,7 @@ impl LoadBalancer {
             agent_client: Client::new(ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
             metrics,
+            semver: Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
         }))
     }
 
@@ -234,7 +238,35 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                 if request.uri().path() == "/livez" {
                     return Ok(Response::builder()
                         .status(200)
-                        .body(Full::from(Bytes::from("Juicebox load balancer: OK\n")))
+                        .body(Full::from(Bytes::from(format!(
+                            "Juicebox load balancer: {}\n",
+                            state.semver
+                        ))))
+                        .unwrap());
+                }
+
+                let has_valid_version = request
+                    .headers()
+                    .get(JUICEBOX_VERSION_HEADER)
+                    .and_then(|version| version.to_str().ok())
+                    .and_then(|str| Version::parse(str).ok())
+                    .is_some_and(|semver| {
+                        // verify that major.minor is >= to our major.minor
+                        // patch and bugfix versions can be out-of-sync
+                        // to allow the SDK and realm software to make
+                        // changes that don't break protocol compatability
+                        semver.major > state.semver.major
+                            || (semver.major == state.semver.major
+                                && semver.minor >= state.semver.minor)
+                    });
+
+                if !has_valid_version {
+                    return Ok(Response::builder()
+                        .status(StatusCode::UPGRADE_REQUIRED)
+                        .body(Full::from(Bytes::from(format!(
+                            "SDK upgrade required to version >={}.{}",
+                            state.semver.major, state.semver.minor
+                        ))))
                         .unwrap());
                 }
 
