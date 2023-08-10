@@ -394,6 +394,139 @@ fn persist_captures() {
 }
 
 #[test]
+fn commit_captures_verified() {
+    // Commit should verify that the captures supplied are for the realm/group
+    // and have a valid mac.
+
+    let mut cluster = TestCluster::new(3);
+    let mut metrics = Metrics::new("test", MetricsAction::Skip, TestPlatform::default());
+
+    // Make a regular request to the leader.
+    let (_handshake, res) = cluster.hsms[0].app_request(
+        &cluster.store,
+        cluster.realm,
+        cluster.group,
+        RecordId([3; 32]),
+        SecretsRequest::Delete,
+    );
+    cluster.append(cluster.group, &res);
+    cluster.capture_next(cluster.group);
+    // this includes captures for all groups.
+    let captures: Vec<Captured> = cluster
+        .hsms
+        .iter_mut()
+        .flat_map(|hsm| hsm.persist_state())
+        .collect();
+
+    // can't commit a bogus realm or group
+    assert!(matches!(
+        cluster.hsms[0].hsm.handle_commit(
+            &mut metrics,
+            CommitRequest {
+                realm: RealmId([3; 16]),
+                group: cluster.group,
+                captures: captures.clone(),
+            },
+        ),
+        CommitResponse::InvalidRealm
+    ));
+    assert!(matches!(
+        cluster.hsms[0].hsm.handle_commit(
+            &mut metrics,
+            CommitRequest {
+                realm: cluster.realm,
+                group: GroupId([2; 16]),
+                captures: captures.clone(),
+            },
+        ),
+        CommitResponse::InvalidGroup
+    ));
+
+    // Can't use captures from other groups.
+    assert!(matches!(
+        cluster.hsms[0].hsm.handle_commit(
+            &mut metrics,
+            CommitRequest {
+                realm: cluster.realm,
+                group: cluster.group,
+                captures: captures
+                    .iter()
+                    .filter(|c| c.group != cluster.group)
+                    .cloned()
+                    .collect(),
+            },
+        ),
+        CommitResponse::NoQuorum
+    ));
+
+    // Can't commit without a majority
+    assert!(matches!(
+        cluster.hsms[0].hsm.handle_commit(
+            &mut metrics,
+            CommitRequest {
+                realm: cluster.realm,
+                group: cluster.group,
+                captures: captures
+                    .iter()
+                    .filter(|c| c.group == cluster.group)
+                    .take(1)
+                    .cloned()
+                    .collect(),
+            },
+        ),
+        CommitResponse::NoQuorum
+    ));
+
+    // Can't commit with bad capture statement
+    assert!(matches!(
+        cluster.hsms[0].hsm.handle_commit(
+            &mut metrics,
+            CommitRequest {
+                realm: cluster.realm,
+                group: cluster.group,
+                captures: captures
+                    .iter()
+                    .cloned()
+                    .filter(|c| c.group == cluster.group)
+                    .map(|mut c| {
+                        c.index = c.index.next();
+                        c
+                    })
+                    .collect(),
+            },
+        ),
+        CommitResponse::NoQuorum
+    ));
+
+    // Can't commit if we're not leader
+    assert!(matches!(
+        cluster.hsms[1].hsm.handle_commit(
+            &mut metrics,
+            CommitRequest {
+                realm: cluster.realm,
+                group: cluster.group,
+                captures: captures.clone(),
+            },
+        ),
+        CommitResponse::NotLeader(GroupMemberRole::Witness)
+    ));
+
+    // Can commit with the good captures
+    let state = cluster.hsms[0].commit(cluster.realm, cluster.group, captures.clone());
+    assert_eq!(LogIndex(3), state.committed);
+    assert_eq!(GroupMemberRole::Leader, state.role);
+    assert!(state.abandoned.is_empty());
+    assert_eq!(1, state.responses.len());
+
+    // We can commit the same index again, but the response has already been delivered.
+    let state = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
+    assert_eq!(LogIndex(3), state.committed);
+    assert_eq!(GroupMemberRole::Leader, state.role);
+    assert!(state.abandoned.is_empty());
+    assert!(state.responses.is_empty());
+}
+
+#[test]
 fn can_commit_from_other_captures() {
     // The leader should be able to commit entries using captures from other
     // HSMs even if it hasn't itself captured to that entry yet.
@@ -1026,12 +1159,7 @@ impl<'a> TestCluster<'a> {
     fn persist_state(&mut self, group: GroupId) -> Vec<Captured> {
         self.hsms
             .iter_mut()
-            .flat_map(|hsm| {
-                let PersistStateResponse::Ok { captured } = hsm
-                    .hsm
-                    .handle_persist_state(&mut hsm.metrics, PersistStateRequest {});
-                captured
-            })
+            .flat_map(|hsm| hsm.persist_state())
             .filter(|c| c.group == group)
             .collect()
     }
@@ -1093,6 +1221,13 @@ impl<'a> TestHsm<'a> {
         self.status()
             .realm
             .is_some_and(|r| r.groups.iter().any(|g| g.id == group && g.leader.is_some()))
+    }
+
+    fn persist_state(&mut self) -> Vec<Captured> {
+        let PersistStateResponse::Ok { captured } = self
+            .hsm
+            .handle_persist_state(&mut self.metrics, PersistStateRequest {});
+        captured
     }
 
     fn become_leader(
