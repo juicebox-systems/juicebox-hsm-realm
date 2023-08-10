@@ -17,7 +17,6 @@ use juicebox_realm_auth::creation::create_token;
 use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims};
 use juicebox_sdk::{
     AuthToken, Client, ClientBuilder, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper,
-    JUICEBOX_VERSION_HEADER, VERSION,
 };
 
 use super::bigtable::BigtableRunner;
@@ -119,10 +118,6 @@ impl ClusterResult {
             .tokio_sleeper()
             .reqwest_with_options(reqwest::ClientOptions {
                 additional_root_certs: vec![self.lb_cert()],
-                default_headers: HashMap::from([
-                    (JUICEBOX_VERSION_HEADER, VERSION),
-                    ("User-Agent", &format!("JuiceboxSdk-RustDemo/{}", VERSION)),
-                ]),
                 ..reqwest::ClientOptions::default()
             })
             .build()

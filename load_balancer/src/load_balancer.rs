@@ -7,6 +7,7 @@ use futures::Future;
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
 use hyper::server::conn::http1;
 use hyper::service::Service;
+use hyper::StatusCode;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
 use rustls::server::ResolvesServerCert;
@@ -237,28 +238,27 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                 if request.uri().path() == "/livez" {
                     return Ok(Response::builder()
                         .status(200)
-                        .body(Full::from(Bytes::from("Juicebox load balancer: OK\n")))
+                        .body(Full::from(Bytes::from(format!(
+                            "Juicebox load balancer: {}\n",
+                            state.semver.to_string()
+                        ))))
                         .unwrap());
                 }
 
-                let has_valid_version = match request.headers().get(JUICEBOX_VERSION_HEADER) {
-                    Some(version) => match version.to_str() {
-                        Ok(str) => match Version::parse(str) {
-                            Ok(semver) => {
-                                semver.major > state.semver.major
-                                    || (semver.major == state.semver.major
-                                        && semver.minor >= state.semver.minor)
-                            }
-                            Err(_) => false,
-                        },
-                        Err(_) => false,
-                    },
-                    None => false,
-                };
+                let has_valid_version = request
+                    .headers()
+                    .get(JUICEBOX_VERSION_HEADER)
+                    .and_then(|version| version.to_str().ok())
+                    .and_then(|str| Version::parse(str).ok())
+                    .is_some_and(|semver| {
+                        semver.major > state.semver.major
+                            || (semver.major == state.semver.major
+                                && semver.minor >= state.semver.minor)
+                    });
 
                 if !has_valid_version {
                     return Ok(Response::builder()
-                        .status(426) // Upgrade Required
+                        .status(StatusCode::UPGRADE_REQUIRED)
                         .body(Full::from(Bytes::from(format!(
                             "SDK upgrade required to version >={}.{}",
                             state.semver.major, state.semver.minor
