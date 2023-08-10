@@ -52,3 +52,37 @@ impl<'a, T, F: OnMutationFinished<T>> Drop for MutationGuard<'a, T, F> {
         self.inner.on_finished.finished(&self.inner.value);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+
+    use alloc::sync::Arc;
+    use std::sync::Mutex;
+
+    use super::{MutationTracker, OnMutationFinished};
+
+    #[test]
+    fn on_finished() {
+        struct F(Arc<Mutex<i64>>);
+        impl OnMutationFinished<i64> for F {
+            fn finished(&mut self, t: &i64) {
+                *self.0.lock().unwrap() = *t;
+            }
+        }
+
+        let cb = Arc::new(Mutex::new(0));
+        let mut t = MutationTracker::new(1, F(cb.clone()));
+
+        *t.mutate() = 44;
+        assert_eq!(44, *cb.lock().unwrap());
+        {
+            // the callback shouldn't be called until the guard is dropped
+            let mut g = t.mutate();
+            assert_eq!(44, *cb.lock().unwrap());
+            *g = 66;
+            assert_eq!(44, *cb.lock().unwrap());
+        }
+        assert_eq!(66, *cb.lock().unwrap());
+    }
+}
