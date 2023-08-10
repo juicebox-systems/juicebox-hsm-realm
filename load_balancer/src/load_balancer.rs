@@ -251,6 +251,10 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                     .and_then(|version| version.to_str().ok())
                     .and_then(|str| Version::parse(str).ok())
                     .is_some_and(|semver| {
+                        // verify that major.minor is >= to our major.minor
+                        // patch and bugfix versions can be out-of-sync
+                        // to allow the SDK and realm software to make
+                        // changes that don't break protocol compatability
                         semver.major > state.semver.major
                             || (semver.major == state.semver.major
                                 && semver.minor >= state.semver.minor)
