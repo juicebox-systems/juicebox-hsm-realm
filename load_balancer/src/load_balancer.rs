@@ -240,7 +240,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                         .status(200)
                         .body(Full::from(Bytes::from(format!(
                             "Juicebox load balancer: {}\n",
-                            state.semver.to_string()
+                            state.semver
                         ))))
                         .unwrap());
                 }
