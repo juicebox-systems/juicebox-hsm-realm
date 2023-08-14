@@ -81,7 +81,6 @@ clap = { version = "4.3.0", features = ["derive"] }
 cli-table = { version = "0.4.7", default-features = false }
 cluster_api = { path = "cluster_api" }
 cluster_core = { path = "cluster_core" }
-criterion = "0.5.1"
 ctrlc = "3.2.5"
 digest = "0.10.6"
 dogstatsd = "0.8.1"
@@ -148,7 +147,6 @@ serde = { version = "1.0.152", default-features = false, features = [
 ] }
 serde_json = "1.0.94"
 service_core = { path = "service_core" }
-sharks = "0.5.0"
 signal-hook = "0.3.15"
 spin = { version = "0.9.8", default-features = false, features = [
     "once",
@@ -173,7 +171,6 @@ tracing-opentelemetry = { version = "*" }
 # The latest Cargo.toml of tracing-subscriber in Git has an old version number.
 tracing-subscriber = { version = "*", features = ["json"] }
 url = { version = "2.3.1", features = ["serde"] }
-voprf = { version = "0.5.0-pre.4" }
 x25519-dalek = { version = "2.0.0-rc.3", features = [
     "reusable_secrets",
     "serde",
