@@ -327,6 +327,9 @@ jobs:
     - name: Run Merkle tree paper Python
       run: python3 docs/merkle_tree/to_tree.py
 
+    - name: Check SDK dependency versions agree
+      run: ./scripts/check-sdk-deps.py
+
   wasm_demo:
     name: WASM Demo
     runs-on: ubuntu-20.04
