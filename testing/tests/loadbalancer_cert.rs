@@ -29,6 +29,7 @@ async fn sighup_reloads_cert() {
 
     let cluster_args = ClusterConfig {
         load_balancers: 1,
+        cluster_managers: 1,
         realms: vec![RealmConfig {
             hsms: 1,
             groups: 1,

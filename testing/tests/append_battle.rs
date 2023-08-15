@@ -36,6 +36,7 @@ async fn leader_battle() {
 
     let cluster_args = ClusterConfig {
         load_balancers: 1,
+        cluster_managers: 3,
         realms: vec![RealmConfig {
             hsms: 3,
             groups: 1,

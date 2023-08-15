@@ -19,6 +19,7 @@ juicebox_marshalling = { workspace = true }
 juicebox_realm_api = { workspace = true }
 lru-cache = { workspace = true }
 observability = { workspace = true }
+rand_core = { workspace = true, features = ["getrandom"] }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
@@ -28,7 +29,6 @@ url = { workspace = true }
 hsm_core = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
-rand_core = { workspace = true, features = ["getrandom"] }
 reqwest = { workspace = true }
 juicebox_process_group = { workspace = true }
 agent_core = { workspace = true }

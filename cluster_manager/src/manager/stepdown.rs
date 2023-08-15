@@ -32,14 +32,18 @@ impl Manager {
         };
         let mut grants = Vec::with_capacity(stepdowns.len());
         for stepdown in &stepdowns {
-            match self.mark_as_busy(stepdown.realm, stepdown.group) {
-                None => {
+            match self.mark_as_busy(stepdown.realm, stepdown.group).await {
+                Ok(None) => {
                     return Ok(Response::Busy {
                         realm: stepdown.realm,
                         group: stepdown.group,
                     })
                 }
-                Some(grant) => grants.push(grant),
+                Ok(Some(grant)) => grants.push(grant),
+                Err(err) => {
+                    warn!(?err, "GRPC error obtaining lease");
+                    return Ok(Response::NoStore);
+                }
             }
         }
 
@@ -83,7 +87,7 @@ impl Manager {
     async fn assign_leader_post_stepdown(
         &self,
         addresses: &HashMap<HsmId, Url>,
-        grant: &ManagementGrant<'_>,
+        grant: &ManagementGrant,
         stepdown: Stepdown,
         last: Option<LogIndex>,
     ) -> Result<Option<HsmId>, RpcError> {

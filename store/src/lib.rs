@@ -32,6 +32,7 @@ use observability::metrics_tag as tag;
 
 mod base128;
 pub mod discovery;
+mod lease;
 mod merkle;
 mod mutate;
 mod read;
@@ -242,6 +243,10 @@ impl StoreAdminClient {
     /// Creates a little Bigtable table for service discovery.
     pub async fn initialize_discovery(&self) -> Result<(), tonic::Status> {
         discovery::initialize(self.bigtable.clone(), &self.instance).await
+    }
+
+    pub async fn initialize_leases(&self) -> Result<(), tonic::Status> {
+        lease::initialize(self.bigtable.clone(), &self.instance).await
     }
 
     pub async fn initialize_realm(&self, realm: &RealmId) -> Result<(), tonic::Status> {
@@ -939,6 +944,67 @@ impl StoreClient {
         )
         .await
     }
+
+    // Obtain a lease for the specified duration. Only one lease is available at
+    // any one time for a given key. Owner is recorded in the lease table only
+    // for diagnostic purposes.
+    pub async fn obtain_lease(
+        &self,
+        key: impl Into<LeaseKey>,
+        owner: String,
+        dur: Duration,
+        timestamp: SystemTime,
+    ) -> Result<Option<Lease>, tonic::Status> {
+        lease::lease(
+            self.bigtable.clone(),
+            &self.instance,
+            key.into(),
+            owner,
+            dur,
+            timestamp,
+        )
+        .await
+    }
+
+    pub async fn extend_lease(
+        &self,
+        lease: &Lease,
+        dur: Duration,
+        timestamp: SystemTime,
+    ) -> Result<(), ExtendLeaseError> {
+        lease::extend(self.bigtable.clone(), &self.instance, lease, dur, timestamp).await
+    }
+
+    pub async fn end_lease(&self, lease: Lease) -> Result<(), tonic::Status> {
+        lease::end(self.bigtable.clone(), &self.instance, lease).await
+    }
+}
+
+#[derive(Debug)]
+pub enum ExtendLeaseError {
+    Rpc(tonic::Status),
+    NotOwner,
+}
+
+impl From<tonic::Status> for ExtendLeaseError {
+    fn from(value: tonic::Status) -> Self {
+        ExtendLeaseError::Rpc(value)
+    }
+}
+
+pub struct LeaseKey(pub Vec<u8>);
+
+#[derive(Clone)]
+pub struct Lease {
+    key: Vec<u8>,
+    id: Vec<u8>,
+    owner: String,
+}
+
+// Timestamps are in microseconds, but need to be rounded to milliseconds
+// (or coarser depending on table schema).
+pub(crate) fn to_micros(d: Duration) -> i64 {
+    (d.as_millis() * 1000).try_into().unwrap()
 }
 
 #[cfg(test)]

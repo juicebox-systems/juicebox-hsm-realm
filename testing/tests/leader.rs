@@ -27,6 +27,7 @@ async fn leader_handover() {
 
     let cluster_args = ClusterConfig {
         load_balancers: 1,
+        cluster_managers: 2,
         realms: vec![RealmConfig {
             hsms: 3,
             groups: 1,
@@ -109,6 +110,7 @@ async fn leader_handover() {
     let agents = reqwest::Client::new(ClientOptions::default());
     let cluster_realm = cluster.realms[0].realm;
     let cluster_group = cluster.realms[0].groups[1]; // first non-trivial group
+    let mut cluster_manager = cluster.cluster_managers.iter().cycle();
 
     for _ in 1..10 {
         // Find out the current leader HSM and ask the cluster manager it have it stepdown.
@@ -122,7 +124,7 @@ async fn leader_handover() {
 
         rpc::send(
             &agents,
-            &cluster.cluster_manager,
+            cluster_manager.next().unwrap(),
             StepDownRequest::Hsm(hsm_id1),
         )
         .await
@@ -153,7 +155,7 @@ async fn leader_handover() {
         // Now ask for a stepdown based on the realm/group Id.
         rpc::send(
             &agents,
-            &cluster.cluster_manager,
+            cluster_manager.next().unwrap(),
             StepDownRequest::Group {
                 realm: cluster_realm,
                 group: cluster_group,

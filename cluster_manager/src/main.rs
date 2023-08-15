@@ -69,6 +69,11 @@ async fn main() {
         .await
         .expect("Failed to initialize service discovery table");
 
+    store_admin
+        .initialize_leases()
+        .await
+        .expect("Failed to initialize lease table");
+
     let store = args
         .bigtable
         .connect_data(
@@ -81,7 +86,7 @@ async fn main() {
         .await
         .expect("Unable to connect to Bigtable data");
 
-    let manager = Manager::new(store, args.interval);
+    let manager = Manager::new(args.listen.to_string(), store, args.interval);
     let (url, handle) = manager
         .listen(args.listen)
         .await
