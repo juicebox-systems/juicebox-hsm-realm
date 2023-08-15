@@ -155,14 +155,16 @@ tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros"] }
 tokio-rustls = "0.23.4"
 tonic = { version = "0.8.3", features = ["channel", "tls", "tls-webpki-roots"] }
 tower = "0.4.13"
-tracing = { version = "0.2.0", default-features = false, features = [
+# We need https://github.com/tokio-rs/tracing/pull/2335 to quiet down error return
+# values in tokio::instrument, which is not yet unreleased.
+tracing = { git = "https://github.com/tokio-rs/tracing", rev = "a0126b2e2d465e8e6d514acdf128fcef5b863d27", default-features = false, features = [
     "alloc",
     "attributes",
 ] }
-# The latest Cargo.toml of tracing-opentelemetry in Git has an old version number.
-tracing-opentelemetry = { version = "*" }
-# The latest Cargo.toml of tracing-subscriber in Git has an old version number.
-tracing-subscriber = { version = "*", features = ["json"] }
+tracing-opentelemetry = { git = "https://github.com/tokio-rs/tracing", rev = "a0126b2e2d465e8e6d514acdf128fcef5b863d27" }
+tracing-subscriber = { git = "https://github.com/tokio-rs/tracing", rev = "a0126b2e2d465e8e6d514acdf128fcef5b863d27", features = [
+    "json",
+] }
 url = { version = "2.3.1", features = ["serde"] }
 x25519-dalek = { version = "2.0", features = [
     "reusable_secrets",
@@ -173,8 +175,3 @@ x25519-dalek = { version = "2.0", features = [
 [patch.crates-io]
 gcp_auth = { git = "ssh://git@github.com/juicebox-systems/gcp_auth.git", branch = "loam-main" }
 secrecy = { git = "ssh://git@github.com/juicebox-systems/secrecy.git", branch = "loam-main" }
-# We need https://github.com/tokio-rs/tracing/pull/2335 to quiet down error return
-# values in tokio::instrument, which is not yet unreleased.
-tracing = { git = "https://github.com/tokio-rs/tracing" }
-tracing-opentelemetry = { git = "https://github.com/tokio-rs/tracing" }
-tracing-subscriber = { git = "https://github.com/tokio-rs/tracing" }
