@@ -3679,9 +3679,9 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "voprf"
-version = "0.5.0-pre.5"
+version = "0.5.0-pre.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdf4d38259783522c29ed0374a742f63da16509b9dd1d6434a3bf4f63297a9fd"
+checksum = "5214d2771c04b0fb05cc3652fbc749120321515662c1931523ab21968b416047"
 dependencies = [
  "curve25519-dalek",
  "derive-where",
