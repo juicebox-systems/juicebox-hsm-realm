@@ -102,7 +102,10 @@ hsm_api = { path = "hsm_api" }
 hsm_core = { path = "hsm_core" }
 http = "0.2.8"
 http-body-util = "0.1.0-rc.2"
-hyper = { version = "1.0.0-rc.2", features = ["http1", "http2", "server"] }
+# hyper 1.0.0-rc.4 has a breaking change that requires a TokioIo adapter from
+# hyper-util. hyper-util is currently unreleased, so stick with 1.0.0-rc.3 for
+# now.
+hyper = { version = "=1.0.0-rc.3", features = ["http1", "http2", "server"] }
 itertools = { version = "0.11.0" }
 juicebox_sdk = { path = "sdk/rust/sdk", features = ["reqwest", "tokio"] }
 juicebox_marshalling = { path = "sdk/rust/marshalling" }
