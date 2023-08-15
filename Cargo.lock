@@ -910,7 +910,6 @@ dependencies = [
  "entrust_nfast",
  "expect-test",
  "hex",
- "juicebox_realm_api",
 ]
 
 [[package]]

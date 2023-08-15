@@ -10,7 +10,6 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 entrust_nfast = { workspace = true }
 hex = { workspace = true }
-juicebox_realm_api = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }
