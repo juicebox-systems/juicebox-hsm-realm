@@ -347,6 +347,10 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                             )))
                             .expect("TODO"))
                     }
+                    ("/livez" | "/req", _) => Ok(Response::builder()
+                        .status(StatusCode::METHOD_NOT_ALLOWED)
+                        .body(Full::from(Bytes::from("Not Allowed")))
+                        .unwrap()),
                     _ => Ok(Response::builder()
                         .status(StatusCode::NOT_FOUND)
                         .body(Full::from(Bytes::from("Not Found")))
