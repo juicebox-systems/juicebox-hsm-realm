@@ -4,6 +4,7 @@ use bytes::Bytes;
 use digest::Digest;
 use futures::future::join_all;
 use futures::Future;
+use http::Method;
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -245,6 +246,25 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                         .unwrap());
                 }
 
+                if request.uri().path() != "/req" {
+                    return Ok(Response::builder()
+                        .status(StatusCode::NOT_FOUND)
+                        .body(Full::from(Bytes::from("Not Found")))
+                        .unwrap());
+                }
+
+                let response_builder = Response::builder()
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Allow-Headers", "*")
+                    .header("Access-Control-Allow-Methods", "POST");
+
+                if request.method() == Method::OPTIONS {
+                    return Ok(response_builder
+                        .status(StatusCode::OK)
+                        .body(Full::from(Bytes::from("No Content")))
+                        .unwrap());
+                }
+
                 let has_valid_version = request
                     .headers()
                     .get(JUICEBOX_VERSION_HEADER)
@@ -261,7 +281,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                     });
 
                 if !has_valid_version {
-                    return Ok(Response::builder()
+                    return Ok(response_builder
                         .status(StatusCode::UPGRADE_REQUIRED)
                         .body(Full::from(Bytes::from(format!(
                             "SDK upgrade required to version >={}.{}",
@@ -317,8 +337,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                 };
 
                 trace!(load_balancer = state.name, ?response);
-                Ok(Response::builder()
-                    .header("Access-Control-Allow-Origin", "*")
+                Ok(response_builder
                     .status(match response {
                         ClientResponse::Ok(_) => 200,
                         ClientResponse::DecodingError

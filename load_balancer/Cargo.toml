@@ -17,6 +17,7 @@ digest = { workspace = true }
 futures = { workspace = true }
 google = { workspace = true }
 hsm_api = { workspace = true }
+http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 juicebox_marshalling = { workspace = true }
