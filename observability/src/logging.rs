@@ -10,9 +10,7 @@ use std::time::{Duration, Instant};
 use tracing::{info, warn, Level};
 use tracing_subscriber::filter::{FilterFn, LevelFilter};
 use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::subscribe::CollectExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Subscribe;
+use tracing_subscriber::layer::{Layer, SubscriberExt};
 
 pub struct Spew(Mutex<SpewInner>);
 
@@ -145,34 +143,34 @@ pub fn configure_with_options(options: Options) {
     opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
 
     if std::io::stdout().is_terminal() {
-        let text_terminal = tracing_subscriber::fmt::Subscriber::new()
+        let text_terminal = tracing_subscriber::fmt::layer()
             .with_file(true)
             .with_line_number(true)
             .with_span_events(FmtSpan::ACTIVE)
             .with_target(false);
 
-        let telemetry = tracing_opentelemetry::subscriber().with_tracer(tracer);
+        let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-        tracing_subscriber::registry()
+        let subscriber = tracing_subscriber::registry()
             .with(FilterFn::new(|metadata| should_log(metadata.module_path())))
             .with(text_terminal.with_filter(LevelFilter::from_level(log_level)))
-            .with(telemetry)
-            .init();
+            .with(telemetry);
+        tracing::subscriber::set_global_default(subscriber).unwrap();
     } else {
-        let json_terminal = tracing_subscriber::fmt::Subscriber::new()
+        let json_terminal = tracing_subscriber::fmt::layer()
             .json()
             .with_file(true)
             .with_line_number(true)
             .with_span_events(FmtSpan::ACTIVE)
             .with_target(false);
 
-        let telemetry = tracing_opentelemetry::subscriber().with_tracer(tracer);
+        let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-        tracing_subscriber::registry()
+        let subscriber = tracing_subscriber::registry()
             .with(FilterFn::new(|metadata| should_log(metadata.module_path())))
             .with(json_terminal.with_filter(LevelFilter::from_level(log_level)))
-            .with(telemetry)
-            .init();
+            .with(telemetry);
+        tracing::subscriber::set_global_default(subscriber).unwrap();
     }
 
     info!(
@@ -210,7 +208,6 @@ impl ShouldSample for TracingSourceSampler {
         span_kind: &opentelemetry::trace::SpanKind,
         attributes: &opentelemetry::trace::OrderMap<opentelemetry::Key, opentelemetry::Value>,
         links: &[opentelemetry::trace::Link],
-        instrumentation_library: &opentelemetry::InstrumentationLibrary,
     ) -> opentelemetry::trace::SamplingResult {
         let sampler = match parent_context {
             None => &self.default,
@@ -219,15 +216,7 @@ impl ShouldSample for TracingSourceSampler {
                 Some(&TracingSource::BackgroundJob) => &self.background,
             },
         };
-        sampler.should_sample(
-            parent_context,
-            trace_id,
-            name,
-            span_kind,
-            attributes,
-            links,
-            instrumentation_library,
-        )
+        sampler.should_sample(parent_context, trace_id, name, span_kind, attributes, links)
     }
 }
 

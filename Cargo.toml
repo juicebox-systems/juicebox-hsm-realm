@@ -122,9 +122,9 @@ lru-cache = { path = "lru-cache" }
 nix = { version = "0.26.2", default-features = false, features = ["signal"] }
 observability = { path = "observability" }
 once_cell = "1.17.1"
-opentelemetry = { version = "0.18.0", features = ["rt-tokio"] }
-opentelemetry-http = "0.7.0"
-opentelemetry-otlp = "0.11.0"
+opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
+opentelemetry-http = "0.9.0"
+opentelemetry-otlp = "0.13.0"
 prost = "0.11.6"
 prost-types = "0.11.6"
 rand = { version = "0.8.5", default-features = false, features = ["alloc"] }
@@ -158,16 +158,11 @@ tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros"] }
 tokio-rustls = "0.23.4"
 tonic = { version = "0.8.3", features = ["channel", "tls", "tls-webpki-roots"] }
 tower = "0.4.13"
-# We need https://github.com/tokio-rs/tracing/pull/2335 to quiet down error return
-# values in tokio::instrument, which is not yet released.
-tracing = { git = "https://github.com/tokio-rs/tracing", rev = "a0126b2e2d465e8e6d514acdf128fcef5b863d27", default-features = false, features = [
-    "alloc",
+tracing = { version = "0.1.37", default-features = false, features = [
     "attributes",
 ] }
-tracing-opentelemetry = { git = "https://github.com/tokio-rs/tracing", rev = "a0126b2e2d465e8e6d514acdf128fcef5b863d27" }
-tracing-subscriber = { git = "https://github.com/tokio-rs/tracing", rev = "a0126b2e2d465e8e6d514acdf128fcef5b863d27", features = [
-    "json",
-] }
+tracing-opentelemetry = "0.20.0"
+tracing-subscriber = { version = "0.3.17", features = ["json"] }
 url = { version = "2.3.1", features = ["serde"] }
 x25519-dalek = { version = "2.0", features = [
     "reusable_secrets",
