@@ -7,8 +7,6 @@ edition = "2021"
 
 [dependencies]
 ahash = { workspace = true }
-async-recursion = { workspace = true, optional = true }
-async-trait = { workspace = true, optional = true }
 bitvec = { workspace = true }
 blake2 = { workspace = true }
 chacha20poly1305 = { workspace = true }
@@ -31,7 +29,6 @@ tracing = { workspace = true }
 x25519-dalek = { workspace = true }
 
 [dev-dependencies]
-async-recursion = { workspace = true }
 async-trait = { workspace = true }
 cbor-diag = { workspace = true }
 expect-test = { workspace = true }
@@ -41,4 +38,4 @@ rand_core = { workspace = true, features = ["getrandom"] }
 hsm_core = { path = ".", features = ["dot"] }
 
 [features]
-dot = ["async-trait", "async-recursion"]
+dot = []

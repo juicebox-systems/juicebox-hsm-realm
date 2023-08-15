@@ -8,11 +8,8 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
-entrust_api = { workspace = true }
 entrust_nfast = { workspace = true }
 hex = { workspace = true }
-juicebox_realm_api = { workspace = true }
-tracing = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }
