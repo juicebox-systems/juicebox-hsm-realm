@@ -170,7 +170,7 @@ tracing-opentelemetry = { version = "*" }
 # The latest Cargo.toml of tracing-subscriber in Git has an old version number.
 tracing-subscriber = { version = "*", features = ["json"] }
 url = { version = "2.3.1", features = ["serde"] }
-x25519-dalek = { version = "2.0.0", features = [
+x25519-dalek = { version = "2.0", features = [
     "reusable_secrets",
     "serde",
     "static_secrets",
