@@ -548,7 +548,6 @@ dependencies = [
  "hsm_api",
  "juicebox_networking",
  "juicebox_realm_api",
- "serde",
  "store",
  "thiserror",
  "tokio",
@@ -582,7 +581,6 @@ dependencies = [
  "service_core",
  "store",
  "tokio",
- "tonic",
  "tracing 0.2.0",
  "tracing-opentelemetry",
  "url",
@@ -877,7 +875,6 @@ dependencies = [
  "google",
  "juicebox_marshalling",
  "observability",
- "rand_core",
  "service_core",
  "store",
  "tokio",
@@ -910,12 +907,10 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
- "entrust_api",
  "entrust_nfast",
  "expect-test",
  "hex",
  "juicebox_realm_api",
- "tracing 0.2.0",
 ]
 
 [[package]]

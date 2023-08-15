@@ -15,7 +15,6 @@ entrust_nfast = { workspace = true }
 google = { workspace = true }
 juicebox_marshalling = { workspace = true }
 observability = { workspace = true }
-rand_core = { workspace = true, features = ["getrandom"] }
 service_core = { workspace = true }
 store = { workspace = true }
 tokio = { workspace = true }
