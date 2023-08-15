@@ -19,7 +19,7 @@ use juicebox_networking::rpc::LoadBalancerService;
 use juicebox_realm_auth::{creation::create_token, AuthKey, AuthKeyVersion, Claims};
 use juicebox_sdk::{
     AuthToken, Configuration, Pin, PinHashingMode, Policy, RealmId, RecoverError, TokioSleeper,
-    UserInfo, UserSecret,
+    UserInfo, UserSecret, JUICEBOX_VERSION_HEADER, VERSION,
 };
 use observability::metrics_tag as tag;
 use observability::{logging, metrics};
@@ -32,6 +32,8 @@ type Client = juicebox_sdk::Client<
     reqwest::Client<LoadBalancerService>,
     HashMap<RealmId, AuthToken>,
 >;
+
+const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Run many concurrent clients in a single process to benchmark the
 /// performance of a Juicebox cluster.
@@ -157,7 +159,8 @@ async fn run(args: Args) -> anyhow::Result<usize> {
     let shared_http_client = if args.share_http_connections {
         Some(reqwest::Client::new(reqwest::ClientOptions {
             additional_root_certs: certs.clone(),
-            ..reqwest::ClientOptions::default()
+            timeout: TIMEOUT,
+            default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
         }))
     } else {
         None
@@ -396,18 +399,19 @@ impl ClientBuilder {
             })
             .collect();
 
-        juicebox_sdk::ClientBuilder::new()
+        let mut cb = juicebox_sdk::ClientBuilder::new()
             .configuration(self.configuration.clone())
             .auth_token_manager(auth_tokens)
-            .http(match &self.shared_http_client {
-                Some(client) => client.clone(),
-                None => reqwest::Client::new(reqwest::ClientOptions {
-                    additional_root_certs: self.certs.clone(),
-                    ..reqwest::ClientOptions::default()
-                }),
-            })
-            .tokio_sleeper()
-            .build()
+            .tokio_sleeper();
+        cb = match &self.shared_http_client {
+            Some(client) => cb.http(client.clone()),
+            None => cb.reqwest_with_options(reqwest::ClientOptions {
+                additional_root_certs: self.certs.clone(),
+                timeout: TIMEOUT,
+                ..reqwest::ClientOptions::default()
+            }),
+        };
+        cb.build()
     }
 }
 
