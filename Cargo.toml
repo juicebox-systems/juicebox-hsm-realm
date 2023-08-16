@@ -64,29 +64,29 @@ resolver = "2"
 agent_api = { path = "agent_api" }
 agent_core = { path = "agent_core" }
 ahash = { version = "0.8.3", default-features = false }
-anyhow = "1.0.70"
-async-trait = "0.1.64"
+anyhow = "1.0.74"
+async-trait = "0.1.73"
 bitvec = { path = "bitvec" }
 blake2 = { version = "0.10.6", default-features = false }
 bytes = { version = "1.4.0", default-features = false }
-cbor-diag = { version = "0.1.11" }
+cbor-diag = { version = "0.1.12" }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
     "alloc",
 ] }
-ciborium = { version = "0.2.0", default-features = false }
-ciborium-io = { version = "0.2.0", default-features = false }
-clap = { version = "4.3.0", features = ["derive"] }
+ciborium = { version = "0.2.1", default-features = false }
+ciborium-io = { version = "0.2.1", default-features = false }
+clap = { version = "4.3.21", features = ["derive"] }
 cli-table = { version = "0.4.7", default-features = false }
 cluster_api = { path = "cluster_api" }
 cluster_core = { path = "cluster_core" }
-ctrlc = "3.2.5"
-digest = "0.10.6"
+ctrlc = "3.4.0"
+digest = "0.10.7"
 dogstatsd = "0.9.0"
 election = { path = "election" }
 entrust_api = { path = "entrust_api" }
 entrust_nfast = { path = "entrust_nfast" }
 expect-test = "1.4.1"
-futures = "0.3.25"
+futures = "0.3.28"
 # gcp_auth is pinned because we have a local fork.
 gcp_auth = "=0.8.0"
 generic-array = { version = "0.14.7", features = ["serde", "zeroize"] }
@@ -101,8 +101,8 @@ hkdf = "0.12.3"
 hmac = "0.12.1"
 hsm_api = { path = "hsm_api" }
 hsm_core = { path = "hsm_core" }
-http = "0.2.8"
-http-body-util = "0.1.0-rc.2"
+http = "0.2.9"
+http-body-util = "0.1.0-rc.3"
 # hyper 1.0.0-rc.4 has a breaking change that requires a TokioIo adapter from
 # hyper-util. hyper-util is currently unreleased, so stick with 1.0.0-rc.3 for
 # now.
@@ -122,15 +122,15 @@ juicebox_realm_auth = { path = "sdk/rust/realm/auth" }
 lru-cache = { path = "lru-cache" }
 nix = { version = "0.26.2", default-features = false, features = ["signal"] }
 observability = { path = "observability" }
-once_cell = "1.17.1"
+once_cell = "1.18.0"
 opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
 opentelemetry-http = "0.9.0"
 opentelemetry-otlp = "0.13.0"
-prost = "0.11.6"
-prost-types = "0.11.6"
+prost = "0.11.9"
+prost-types = "0.11.9"
 rand = { version = "0.8.5", default-features = false, features = ["alloc"] }
 rand_core = "0.6.4"
-reqwest = { version = "0.11.14", default-features = false, features = [
+reqwest = { version = "0.11.18", default-features = false, features = [
     "rustls-tls",
 ] }
 rustls = "0.21.6"
@@ -139,24 +139,24 @@ rustls-pemfile = "1.0"
 secrecy = { version = "=0.8.0", features = ["serde"] }
 secret_manager = { path = "secret_manager" }
 semver = "1.0.18"
-serde = { version = "1.0.152", default-features = false, features = [
+serde = { version = "1.0.183", default-features = false, features = [
     "alloc",
     "derive",
 ] }
-serde_json = "1.0.94"
+serde_json = "1.0.105"
 service_core = { path = "service_core" }
-signal-hook = "0.3.15"
+signal-hook = "0.3.17"
 spin = { version = "0.9.8", default-features = false, features = [
     "once",
     "mutex",
     "spin_mutex",
 ] }
 store = { path = "store" }
-subtle = { version = "2.4.1", default-features = false }
+subtle = { version = "2.5.0", default-features = false }
 sysinfo = { version = "0.29" }
-tempfile = "3.5.0"
-thiserror = "1.0.40"
-tokio = { version = "1.25.0", features = ["rt-multi-thread", "macros"] }
+tempfile = "3.7.1"
+thiserror = "1.0.46"
+tokio = { version = "1.31.0", features = ["rt-multi-thread", "macros"] }
 tokio-rustls = "0.24.1"
 tonic = { version = "0.9.2", features = ["channel", "tls", "tls-webpki-roots"] }
 tonic-build = "0.9.2"
@@ -166,7 +166,7 @@ tracing = { version = "0.1.37", default-features = false, features = [
 ] }
 tracing-opentelemetry = "0.20.0"
 tracing-subscriber = { version = "0.3.17", features = ["json"] }
-url = { version = "2.3.1", features = ["serde"] }
+url = { version = "2.4.0", features = ["serde"] }
 x25519-dalek = { version = "2.0", features = [
     "reusable_secrets",
     "serde",
