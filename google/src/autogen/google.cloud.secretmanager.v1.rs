@@ -751,7 +751,7 @@ pub mod secret_manager_service_client {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D: TryInto<tonic::transport::Endpoint>,
             D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
@@ -807,11 +807,30 @@ pub mod secret_manager_service_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
         /// Lists [Secrets][google.cloud.secretmanager.v1.Secret].
         pub async fn list_secrets(
             &mut self,
             request: impl tonic::IntoRequest<super::ListSecretsRequest>,
-        ) -> Result<tonic::Response<super::ListSecretsResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::ListSecretsResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -825,13 +844,21 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/ListSecrets",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "ListSecrets",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Creates a new [Secret][google.cloud.secretmanager.v1.Secret] containing no [SecretVersions][google.cloud.secretmanager.v1.SecretVersion].
         pub async fn create_secret(
             &mut self,
             request: impl tonic::IntoRequest<super::CreateSecretRequest>,
-        ) -> Result<tonic::Response<super::Secret>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::Secret>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -845,14 +872,22 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/CreateSecret",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "CreateSecret",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Creates a new [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] containing secret data and attaches
         /// it to an existing [Secret][google.cloud.secretmanager.v1.Secret].
         pub async fn add_secret_version(
             &mut self,
             request: impl tonic::IntoRequest<super::AddSecretVersionRequest>,
-        ) -> Result<tonic::Response<super::SecretVersion>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::SecretVersion>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -866,13 +901,21 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/AddSecretVersion",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "AddSecretVersion",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Gets metadata for a given [Secret][google.cloud.secretmanager.v1.Secret].
         pub async fn get_secret(
             &mut self,
             request: impl tonic::IntoRequest<super::GetSecretRequest>,
-        ) -> Result<tonic::Response<super::Secret>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::Secret>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -886,13 +929,21 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/GetSecret",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "GetSecret",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Updates metadata of an existing [Secret][google.cloud.secretmanager.v1.Secret].
         pub async fn update_secret(
             &mut self,
             request: impl tonic::IntoRequest<super::UpdateSecretRequest>,
-        ) -> Result<tonic::Response<super::Secret>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::Secret>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -906,13 +957,21 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/UpdateSecret",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "UpdateSecret",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Deletes a [Secret][google.cloud.secretmanager.v1.Secret].
         pub async fn delete_secret(
             &mut self,
             request: impl tonic::IntoRequest<super::DeleteSecretRequest>,
-        ) -> Result<tonic::Response<()>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -926,14 +985,25 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/DeleteSecret",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "DeleteSecret",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Lists [SecretVersions][google.cloud.secretmanager.v1.SecretVersion]. This call does not return secret
         /// data.
         pub async fn list_secret_versions(
             &mut self,
             request: impl tonic::IntoRequest<super::ListSecretVersionsRequest>,
-        ) -> Result<tonic::Response<super::ListSecretVersionsResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::ListSecretVersionsResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -947,7 +1017,15 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/ListSecretVersions",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "ListSecretVersions",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Gets metadata for a [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
         ///
@@ -956,7 +1034,7 @@ pub mod secret_manager_service_client {
         pub async fn get_secret_version(
             &mut self,
             request: impl tonic::IntoRequest<super::GetSecretVersionRequest>,
-        ) -> Result<tonic::Response<super::SecretVersion>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::SecretVersion>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -970,7 +1048,15 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/GetSecretVersion",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "GetSecretVersion",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Accesses a [SecretVersion][google.cloud.secretmanager.v1.SecretVersion]. This call returns the secret data.
         ///
@@ -979,7 +1065,10 @@ pub mod secret_manager_service_client {
         pub async fn access_secret_version(
             &mut self,
             request: impl tonic::IntoRequest<super::AccessSecretVersionRequest>,
-        ) -> Result<tonic::Response<super::AccessSecretVersionResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::AccessSecretVersionResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -993,7 +1082,15 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/AccessSecretVersion",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "AccessSecretVersion",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Disables a [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
         ///
@@ -1002,7 +1099,7 @@ pub mod secret_manager_service_client {
         pub async fn disable_secret_version(
             &mut self,
             request: impl tonic::IntoRequest<super::DisableSecretVersionRequest>,
-        ) -> Result<tonic::Response<super::SecretVersion>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::SecretVersion>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1016,7 +1113,15 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/DisableSecretVersion",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "DisableSecretVersion",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Enables a [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
         ///
@@ -1025,7 +1130,7 @@ pub mod secret_manager_service_client {
         pub async fn enable_secret_version(
             &mut self,
             request: impl tonic::IntoRequest<super::EnableSecretVersionRequest>,
-        ) -> Result<tonic::Response<super::SecretVersion>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::SecretVersion>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1039,7 +1144,15 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/EnableSecretVersion",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "EnableSecretVersion",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Destroys a [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
         ///
@@ -1049,7 +1162,7 @@ pub mod secret_manager_service_client {
         pub async fn destroy_secret_version(
             &mut self,
             request: impl tonic::IntoRequest<super::DestroySecretVersionRequest>,
-        ) -> Result<tonic::Response<super::SecretVersion>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::SecretVersion>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1063,7 +1176,15 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/DestroySecretVersion",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "DestroySecretVersion",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Sets the access control policy on the specified secret. Replaces any
         /// existing policy.
@@ -1075,7 +1196,7 @@ pub mod secret_manager_service_client {
             request: impl tonic::IntoRequest<
                 super::super::super::super::iam::v1::SetIamPolicyRequest,
             >,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<super::super::super::super::iam::v1::Policy>,
             tonic::Status,
         > {
@@ -1092,7 +1213,15 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/SetIamPolicy",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "SetIamPolicy",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Gets the access control policy for a secret.
         /// Returns empty policy if the secret exists and does not have a policy set.
@@ -1101,7 +1230,7 @@ pub mod secret_manager_service_client {
             request: impl tonic::IntoRequest<
                 super::super::super::super::iam::v1::GetIamPolicyRequest,
             >,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<super::super::super::super::iam::v1::Policy>,
             tonic::Status,
         > {
@@ -1118,7 +1247,15 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/GetIamPolicy",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "GetIamPolicy",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Returns permissions that a caller has for the specified secret.
         /// If the secret does not exist, this call returns an empty set of
@@ -1132,7 +1269,7 @@ pub mod secret_manager_service_client {
             request: impl tonic::IntoRequest<
                 super::super::super::super::iam::v1::TestIamPermissionsRequest,
             >,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<
                 super::super::super::super::iam::v1::TestIamPermissionsResponse,
             >,
@@ -1151,7 +1288,15 @@ pub mod secret_manager_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.cloud.secretmanager.v1.SecretManagerService/TestIamPermissions",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "google.cloud.secretmanager.v1.SecretManagerService",
+                        "TestIamPermissions",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
     }
 }

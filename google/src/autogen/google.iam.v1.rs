@@ -38,10 +38,12 @@ pub struct GetPolicyOptions {
 /// only if the expression evaluates to `true`. A condition can add constraints
 /// based on attributes of the request, the resource, or both. To learn which
 /// resources support conditions in their IAM policies, see the
-/// [IAM documentation](<https://cloud.google.com/iam/help/conditions/resource-policies>).
+/// [IAM
+/// documentation](<https://cloud.google.com/iam/help/conditions/resource-policies>).
 ///
 /// **JSON example:**
 ///
+/// ```
 ///      {
 ///        "bindings": [
 ///          {
@@ -61,16 +63,19 @@ pub struct GetPolicyOptions {
 ///            "condition": {
 ///              "title": "expirable access",
 ///              "description": "Does not grant access after Sep 2020",
-///              "expression": "request.time < timestamp('2020-10-01T00:00:00.000Z')",
+///              "expression": "request.time <
+///              timestamp('2020-10-01T00:00:00.000Z')",
 ///            }
 ///          }
 ///        ],
 ///        "etag": "BwWWja0YfJA=",
 ///        "version": 3
 ///      }
+/// ```
 ///
 /// **YAML example:**
 ///
+/// ```
 ///      bindings:
 ///      - members:
 ///        - user:mike@example.com
@@ -87,6 +92,7 @@ pub struct GetPolicyOptions {
 ///          expression: request.time < timestamp('2020-10-01T00:00:00.000Z')
 ///      etag: BwWWja0YfJA=
 ///      version: 3
+/// ```
 ///
 /// For a description of IAM and its features, see the
 /// [IAM documentation](<https://cloud.google.com/iam/docs/>).
@@ -116,7 +122,8 @@ pub struct Policy {
     /// specify any valid version or leave the field unset.
     ///
     /// To learn which resources support conditions in their IAM policies, see the
-    /// [IAM documentation](<https://cloud.google.com/iam/help/conditions/resource-policies>).
+    /// [IAM
+    /// documentation](<https://cloud.google.com/iam/help/conditions/resource-policies>).
     #[prost(int32, tag = "1")]
     pub version: i32,
     /// Associates a list of `members`, or principals, with a `role`. Optionally,
@@ -157,7 +164,7 @@ pub struct Binding {
     /// For example, `roles/viewer`, `roles/editor`, or `roles/owner`.
     #[prost(string, tag = "1")]
     pub role: ::prost::alloc::string::String,
-    /// Specifies the principals requesting access for a Cloud Platform resource.
+    /// Specifies the principals requesting access for a Google Cloud resource.
     /// `members` can have the following values:
     ///
     /// * `allUsers`: A special identifier that represents anyone who is
@@ -267,8 +274,8 @@ pub struct Binding {
 ///      }
 ///
 /// For sampleservice, this policy enables DATA_READ, DATA_WRITE and ADMIN_READ
-/// logging. It also exempts jose@example.com from DATA_READ logging, and
-/// aliya@example.com from DATA_WRITE logging.
+/// logging. It also exempts `jose@example.com` from DATA_READ logging, and
+/// `aliya@example.com` from DATA_WRITE logging.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AuditConfig {
@@ -308,7 +315,8 @@ pub struct AuditLogConfig {
     pub log_type: i32,
     /// Specifies the identities that do not cause logging for this type of
     /// permission.
-    /// Follows the same format of \[Binding.members][google.iam.v1.Binding.members\].
+    /// Follows the same format of
+    /// \[Binding.members][google.iam.v1.Binding.members\].
     #[prost(string, repeated, tag = "2")]
     pub exempted_members: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
@@ -388,7 +396,7 @@ pub struct BindingDelta {
     /// Required
     #[prost(string, tag = "2")]
     pub role: ::prost::alloc::string::String,
-    /// A single identity requesting access for a Cloud Platform resource.
+    /// A single identity requesting access for a Google Cloud resource.
     /// Follows the same format of Binding.members.
     /// Required
     #[prost(string, tag = "3")]
@@ -613,7 +621,7 @@ pub mod iam_policy_client {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D: TryInto<tonic::transport::Endpoint>,
             D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
@@ -669,6 +677,22 @@ pub mod iam_policy_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
         /// Sets the access control policy on the specified resource. Replaces any
         /// existing policy.
         ///
@@ -676,7 +700,7 @@ pub mod iam_policy_client {
         pub async fn set_iam_policy(
             &mut self,
             request: impl tonic::IntoRequest<super::SetIamPolicyRequest>,
-        ) -> Result<tonic::Response<super::Policy>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::Policy>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -690,7 +714,10 @@ pub mod iam_policy_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.iam.v1.IAMPolicy/SetIamPolicy",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("google.iam.v1.IAMPolicy", "SetIamPolicy"));
+            self.inner.unary(req, path, codec).await
         }
         /// Gets the access control policy for a resource.
         /// Returns an empty policy if the resource exists and does not have a policy
@@ -698,7 +725,7 @@ pub mod iam_policy_client {
         pub async fn get_iam_policy(
             &mut self,
             request: impl tonic::IntoRequest<super::GetIamPolicyRequest>,
-        ) -> Result<tonic::Response<super::Policy>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::Policy>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -712,7 +739,10 @@ pub mod iam_policy_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.iam.v1.IAMPolicy/GetIamPolicy",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("google.iam.v1.IAMPolicy", "GetIamPolicy"));
+            self.inner.unary(req, path, codec).await
         }
         /// Returns permissions that a caller has on the specified resource.
         /// If the resource does not exist, this will return an empty set of
@@ -724,7 +754,10 @@ pub mod iam_policy_client {
         pub async fn test_iam_permissions(
             &mut self,
             request: impl tonic::IntoRequest<super::TestIamPermissionsRequest>,
-        ) -> Result<tonic::Response<super::TestIamPermissionsResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::TestIamPermissionsResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -738,7 +771,12 @@ pub mod iam_policy_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/google.iam.v1.IAMPolicy/TestIamPermissions",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("google.iam.v1.IAMPolicy", "TestIamPermissions"),
+                );
+            self.inner.unary(req, path, codec).await
         }
     }
 }
