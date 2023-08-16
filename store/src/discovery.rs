@@ -61,6 +61,7 @@ pub(super) async fn initialize(
                 )]),
                 granularity: TimestampGranularity::Unspecified as i32,
                 restore_info: None,
+                change_stream_config: None,
                 deletion_protection: false,
             }),
             initial_splits: Vec::new(),
@@ -97,6 +98,7 @@ pub(super) async fn get_addresses(
             filter: None,
             rows_limit: 0,
             request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+            reversed: false,
         },
     )
     .await

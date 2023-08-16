@@ -350,6 +350,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
                 }),
                 rows_limit: 0,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+                reversed: false,
             },
         )
         .await
@@ -447,6 +448,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
                 }),
                 rows_limit: 0,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+                reversed: false,
             },
         )
         .await

@@ -30,6 +30,12 @@ fn main() {
         .emit_rerun_if_changed(false)
         .include_file("mod.rs")
         .out_dir(output)
+        // See
+        // <https://protobuf.dev/programming-guides/field_presence/#protoc-invocation>.
+        // This flag is no longer necessary starting with protoc v3.15.0.
+        // Debian 11 ("Bullseye") includes v3.12 and Debian 12 ("Bookworm")
+        // includes v3.21.
+        .protoc_arg("--experimental_allow_proto3_optional")
         .compile(
             &[
                 input.join("google/bigtable/v2/bigtable.proto"),

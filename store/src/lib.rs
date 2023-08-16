@@ -265,6 +265,7 @@ impl StoreAdminClient {
                     )]),
                     granularity: TimestampGranularity::Unspecified as i32,
                     restore_info: None,
+                    change_stream_config: None,
                     deletion_protection: false,
                 }),
                 initial_splits: Vec::new(),
@@ -287,6 +288,7 @@ impl StoreAdminClient {
                     )]),
                     granularity: TimestampGranularity::Unspecified as i32,
                     restore_info: None,
+                    change_stream_config: None,
                     deletion_protection: false,
                 }),
                 initial_splits: Vec::new(),
@@ -670,6 +672,7 @@ impl StoreClient {
                 }),
                 rows_limit: 1,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+                reversed: false,
             },
         )
         .await?;
@@ -719,6 +722,7 @@ impl StoreClient {
                 }),
                 rows_limit: 1,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+                reversed: false,
             },
         )
         .await?;
@@ -852,6 +856,7 @@ impl LogEntriesIter {
                 }),
                 rows_limit: 1,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+                reversed: false,
             },
         )
         .await
@@ -887,6 +892,7 @@ impl LogEntriesIter {
                 }),
                 rows_limit: 0,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+                reversed: false,
             },
         )
         .await
