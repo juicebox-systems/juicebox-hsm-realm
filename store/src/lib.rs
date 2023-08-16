@@ -383,7 +383,14 @@ impl StoreClient {
             auth_manager,
             &["https://www.googleapis.com/auth/bigtable.data"],
         );
-        let bigtable = BigtableClient::new(channel);
+        let bigtable = BigtableClient::new(channel)
+            // These limits are based on
+            // <https://github.com/googleapis/google-cloud-go/blob/fbe78a2/bigtable/bigtable.go#L86>.
+            // They don't appear to set similar limits for the admin client,
+            // probably because those messages should fit within gRPC's default
+            // 4 MiB limit.
+            .max_decoding_message_size(1 << 28)
+            .max_encoding_message_size(1 << 28);
         Ok(Self {
             bigtable,
             instance,
