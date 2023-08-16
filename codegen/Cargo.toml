@@ -4,4 +4,4 @@ version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-tonic-build = "0.8.4"
+tonic-build = { workspace = true }
