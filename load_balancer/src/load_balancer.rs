@@ -257,7 +257,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
     #[instrument(level = "trace", name = "Service::call", skip(self, request))]
     fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
         trace!(load_balancer = self.0.name, ?request);
-        let state = self.0.clone();
+        let state = self.clone();
 
         let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
             propagator.extract(&HeaderExtractor(request.headers()))
@@ -267,13 +267,9 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
         Box::pin(
             async move {
                 match (request.uri().path(), request.method()) {
-                    ("/livez", &Method::GET) => Ok(Response::builder()
-                        .status(200)
-                        .body(Full::from(Bytes::from(format!(
-                            "Juicebox load balancer: {}\n",
-                            state.semver
-                        ))))
-                        .unwrap()),
+                    ("/req", &Method::POST) => state.handle_req(request).await,
+                    ("/livez", &Method::GET) => state.handle_livez(request).await,
+
                     ("/req", &Method::OPTIONS) => Ok(Response::builder()
                         .header("Access-Control-Allow-Origin", "*")
                         .header("Access-Control-Allow-Headers", "*")
@@ -281,102 +277,6 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                         .status(StatusCode::OK)
                         .body(Full::from(Bytes::from("No Content")))
                         .unwrap()),
-                    ("/req", &Method::POST) => {
-                        let has_valid_version = request
-                            .headers()
-                            .get(JUICEBOX_VERSION_HEADER)
-                            .and_then(|version| version.to_str().ok())
-                            .and_then(|str| Version::parse(str).ok())
-                            .is_some_and(|semver| {
-                                // verify that major.minor is >= to our major.minor
-                                // patch and bugfix versions can be out-of-sync
-                                // to allow the SDK and realm software to make
-                                // changes that don't break protocol compatability
-                                semver.major > state.semver.major
-                                    || (semver.major == state.semver.major
-                                        && semver.minor >= state.semver.minor)
-                            });
-
-                        if !has_valid_version {
-                            return Ok(Response::builder()
-                                .header("Access-Control-Allow-Origin", "*")
-                                .status(StatusCode::UPGRADE_REQUIRED)
-                                .body(Full::from(Bytes::from(format!(
-                                    "SDK upgrade required to version >={}.{}",
-                                    state.semver.major, state.semver.minor
-                                ))))
-                                .unwrap());
-                        }
-
-                        let response = match Limited::new(request, BODY_SIZE_LIMIT).collect().await
-                        {
-                            Err(err) if err.downcast_ref::<LengthLimitError>().is_some() => {
-                                ClientResponse::PayloadTooLarge
-                            }
-                            Err(err) => return Err(err),
-                            Ok(collected_bytes) => {
-                                let request_bytes = collected_bytes.to_bytes();
-                                match marshalling::from_slice(request_bytes.as_ref()) {
-                                    Err(_) => ClientResponse::DecodingError,
-                                    Ok(request) => {
-                                        let realms = state.realms.lock().unwrap().clone();
-                                        match handle_client_request(
-                                            &request,
-                                            &state.name,
-                                            &realms,
-                                            state.secret_manager.as_ref(),
-                                            &state.agent_client,
-                                            &state.metrics,
-                                        )
-                                        .await
-                                        {
-                                            ClientResponse::Unavailable => {
-                                                // retry with refreshed info about realm endpoints
-                                                let refreshed_realms = Arc::new(
-                                                    refresh(
-                                                        &state.name,
-                                                        &state.store,
-                                                        &state.agent_client,
-                                                    )
-                                                    .await,
-                                                );
-                                                *state.realms.lock().unwrap() =
-                                                    refreshed_realms.clone();
-
-                                                handle_client_request(
-                                                    &request,
-                                                    &state.name,
-                                                    &refreshed_realms,
-                                                    state.secret_manager.as_ref(),
-                                                    &state.agent_client,
-                                                    &state.metrics,
-                                                )
-                                                .await
-                                            }
-                                            response => response,
-                                        }
-                                    }
-                                }
-                            }
-                        };
-
-                        trace!(load_balancer = state.name, ?response);
-                        Ok(Response::builder()
-                            .header("Access-Control-Allow-Origin", "*")
-                            .status(match response {
-                                ClientResponse::Ok(_) => StatusCode::OK,
-                                ClientResponse::DecodingError
-                                | ClientResponse::MissingSession
-                                | ClientResponse::SessionError => StatusCode::BAD_REQUEST,
-                                ClientResponse::InvalidAuth => StatusCode::UNAUTHORIZED,
-                                ClientResponse::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
-                                ClientResponse::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
-                            })
-                            .body(Full::new(Bytes::from(
-                                marshalling::to_vec(&response).expect("TODO"),
-                            )))
-                            .expect("TODO"))
-                    }
                     ("/livez" | "/req", _) => Ok(Response::builder()
                         .status(StatusCode::METHOD_NOT_ALLOWED)
                         .body(Full::from(Bytes::from("Not Allowed")))
@@ -391,6 +291,114 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
             // critical to connecting these spans to the parent.
             .instrument(Span::current()),
         )
+    }
+}
+
+impl LoadBalancer {
+    async fn handle_livez(
+        &self,
+        _request: Request<IncomingBody>,
+    ) -> Result<Response<Full<Bytes>>, Box<dyn Error + Send + Sync>> {
+        Ok(Response::builder()
+            .status(200)
+            .body(Full::from(Bytes::from(format!(
+                "Juicebox load balancer: {}\n",
+                self.0.semver
+            ))))
+            .unwrap())
+    }
+
+    async fn handle_req(
+        &self,
+        request: Request<IncomingBody>,
+    ) -> Result<Response<Full<Bytes>>, Box<dyn Error + Send + Sync>> {
+        let has_valid_version = request
+            .headers()
+            .get(JUICEBOX_VERSION_HEADER)
+            .and_then(|version| version.to_str().ok())
+            .and_then(|str| Version::parse(str).ok())
+            .is_some_and(|semver| {
+                // verify that major.minor is >= to our major.minor
+                // patch and bugfix versions can be out-of-sync
+                // to allow the SDK and realm software to make
+                // changes that don't break protocol compatability
+                semver.major > self.0.semver.major
+                    || (semver.major == self.0.semver.major && semver.minor >= self.0.semver.minor)
+            });
+
+        if !has_valid_version {
+            return Ok(Response::builder()
+                .header("Access-Control-Allow-Origin", "*")
+                .status(StatusCode::UPGRADE_REQUIRED)
+                .body(Full::from(Bytes::from(format!(
+                    "SDK upgrade required to version >={}.{}",
+                    self.0.semver.major, self.0.semver.minor
+                ))))
+                .unwrap());
+        }
+
+        let response = match Limited::new(request, BODY_SIZE_LIMIT).collect().await {
+            Err(err) if err.downcast_ref::<LengthLimitError>().is_some() => {
+                ClientResponse::PayloadTooLarge
+            }
+            Err(err) => return Err(err),
+            Ok(collected_bytes) => {
+                let request_bytes = collected_bytes.to_bytes();
+                match marshalling::from_slice(request_bytes.as_ref()) {
+                    Err(_) => ClientResponse::DecodingError,
+                    Ok(request) => {
+                        let realms = self.0.realms.lock().unwrap().clone();
+                        match handle_client_request(
+                            &request,
+                            &self.0.name,
+                            &realms,
+                            self.0.secret_manager.as_ref(),
+                            &self.0.agent_client,
+                            &self.0.metrics,
+                        )
+                        .await
+                        {
+                            ClientResponse::Unavailable => {
+                                // retry with refreshed info about realm endpoints
+                                let refreshed_realms = Arc::new(
+                                    refresh(&self.0.name, &self.0.store, &self.0.agent_client)
+                                        .await,
+                                );
+                                *self.0.realms.lock().unwrap() = refreshed_realms.clone();
+
+                                handle_client_request(
+                                    &request,
+                                    &self.0.name,
+                                    &refreshed_realms,
+                                    self.0.secret_manager.as_ref(),
+                                    &self.0.agent_client,
+                                    &self.0.metrics,
+                                )
+                                .await
+                            }
+                            response => response,
+                        }
+                    }
+                }
+            }
+        };
+
+        trace!(load_balancer = self.0.name, ?response);
+        Ok(Response::builder()
+            .header("Access-Control-Allow-Origin", "*")
+            .status(match response {
+                ClientResponse::Ok(_) => StatusCode::OK,
+                ClientResponse::DecodingError
+                | ClientResponse::MissingSession
+                | ClientResponse::SessionError => StatusCode::BAD_REQUEST,
+                ClientResponse::InvalidAuth => StatusCode::UNAUTHORIZED,
+                ClientResponse::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+                ClientResponse::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            })
+            .body(Full::new(Bytes::from(
+                marshalling::to_vec(&response).expect("TODO"),
+            )))
+            .expect("TODO"))
     }
 }
 
