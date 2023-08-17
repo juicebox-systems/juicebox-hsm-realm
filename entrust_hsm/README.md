@@ -77,8 +77,8 @@ Sign the SEEMachine software.
 Create and sign a dummy userdata file (the exact contents of this file don't matter).
 
 ```sh
-echo "dummy" > dummy
-/opt/nfast/bin/tct2 --sign-and-pack --infile dummy --outfile=dummy.sar -k jbox-signer --machine-key-ident jbox-signer --machine-type powerPCELF
+echo "dummy" > userdata.dummy
+/opt/nfast/bin/tct2 --sign-and-pack --infile userdata.dummy --outfile=userdata.sar -k jbox-signer --machine-key-ident jbox-signer --machine-type powerPCELF
 ```
 
 Signing will require the OCS card(s) from above to be loaded.
@@ -93,7 +93,7 @@ they generate.
 
 You should now be able to run the agent manually and see the seeworld & hsm startup.
 ```sh
-LOGLEVEL=debug ./entrust_agent --bigtable-project crucial-limiter-377716 --bigtable-instance simon-ssd -i hsm.sar -u dummy.sar -t
+LOGLEVEL=debug ./entrust_agent --bigtable-project crucial-limiter-377716 --bigtable-instance simon-ssd -i hsm.sar -u userdata.sar -t
 
  INFO src/logging.rs:144: initialized logging to terminal and telemetry to OTLP/Jaeger. you can set verbosity with env var LOGLEVEL. max_level=DEBUG
  INFO src/google_auth.rs:22: initializing Google Cloud authentication with Application Default Credentials
