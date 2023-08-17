@@ -6,7 +6,7 @@ use futures::future::join_all;
 use futures::Future;
 use http::Method;
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
-use hyper::server::conn::http1;
+use hyper::server::conn::{http1, http2};
 use hyper::service::Service;
 use hyper::StatusCode;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
@@ -89,10 +89,15 @@ impl LoadBalancer {
         let url = Url::parse(&format!("https://{address}")).unwrap();
         self.start_refresher().await;
 
-        let config = rustls::ServerConfig::builder()
+        let mut config = rustls::ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
             .with_cert_resolver(cert_resolver);
+        assert!(config.alpn_protocols.is_empty());
+        config
+            .alpn_protocols
+            .extend([b"h2".to_vec(), b"http/1.1".to_vec()]);
+
         let acceptor = TlsAcceptor::from(Arc::new(config));
 
         Ok((
@@ -108,6 +113,7 @@ impl LoadBalancer {
                         Ok((stream, _)) => {
                             let acceptor = acceptor.clone();
                             let lb = self.clone();
+                            let metrics = self.0.metrics.clone();
                             tokio::spawn(async move {
                                 match acceptor.accept(stream).await {
                                     Err(error) => {
@@ -119,11 +125,32 @@ impl LoadBalancer {
                                         }
                                     }
                                     Ok(stream) => {
-                                        if let Err(error) =
-                                            http1::Builder::new().serve_connection(stream, lb).await
-                                        {
+                                        let (_, connection) = stream.get_ref();
+                                        let protocol = match connection.alpn_protocol() {
+                                            Some(b"h2") => "h2",
+                                            _ => "http/1.1",
+                                        };
+                                        metrics.incr("load_balancer.connections.count", [protocol]);
+                                        let result = match protocol {
+                                            "h2" => {
+                                                http2::Builder::new(TokioExecutor)
+                                                    .serve_connection(stream, lb)
+                                                    .await
+                                            }
+                                            "http/1.1" => {
+                                                http1::Builder::new()
+                                                    .serve_connection(stream, lb)
+                                                    .await
+                                            }
+                                            _ => unreachable!(),
+                                        };
+                                        if let Err(error) = result {
+                                            metrics.incr(
+                                                "load_balancer.connections.errors",
+                                                [protocol],
+                                            );
                                             if let Some(suppressed) = SERVING_CONNECTION_SPEW.ok() {
-                                                warn!(%error, suppressed, "error serving connection");
+                                                warn!(%error, protocol, suppressed, "error serving connection");
                                             }
                                         }
                                     }
@@ -388,7 +415,7 @@ async fn handle_client_request(
     add_client_response(&mut tags, &result);
     tags.push(tag!(realm: "{:?}", request.realm));
 
-    metrics.timing("load-balancer.request.time", start.elapsed(), tags);
+    metrics.timing("load_balancer.request.time", start.elapsed(), tags);
     result
 }
 
@@ -538,5 +565,22 @@ impl<'a, D: digest::Update> ciborium_io::Write for DigestWriter<'a, D> {
 
     fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
+    }
+}
+
+/// Adapter to use tokio to spawn HTTP2 tasks.
+///
+/// Copied from example on
+/// <https://docs.rs/hyper/1.0.0-rc.4/hyper/rt/trait.Executor.html>.
+#[derive(Clone)]
+struct TokioExecutor;
+
+impl<F> hyper::rt::Executor<F> for TokioExecutor
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    fn execute(&self, future: F) {
+        tokio::spawn(future);
     }
 }
