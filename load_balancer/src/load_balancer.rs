@@ -130,7 +130,10 @@ impl LoadBalancer {
                                             Some(b"h2") => "h2",
                                             _ => "http/1.1",
                                         };
-                                        metrics.incr("load_balancer.connections.count", [protocol]);
+                                        metrics.incr(
+                                            "load_balancer.connections.count",
+                                            [tag!(protocol)],
+                                        );
                                         let result = match protocol {
                                             "h2" => {
                                                 http2::Builder::new(TokioExecutor)
@@ -147,7 +150,7 @@ impl LoadBalancer {
                                         if let Err(error) = result {
                                             metrics.incr(
                                                 "load_balancer.connections.errors",
-                                                [protocol],
+                                                [tag!(protocol)],
                                             );
                                             if let Some(suppressed) = SERVING_CONNECTION_SPEW.ok() {
                                                 warn!(%error, protocol, suppressed, "error serving connection");
