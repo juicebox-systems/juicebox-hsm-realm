@@ -585,7 +585,7 @@ async fn lease() {
         .unwrap();
 
     // someone else can get the lease if its explicitly released.
-    data.end_lease(lease_b).await.unwrap();
+    data.terminate_lease(lease_b).await.unwrap();
     let alice_lease_b = data
         .obtain_lease(
             LeaseId::B,

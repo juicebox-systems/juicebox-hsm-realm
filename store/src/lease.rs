@@ -26,7 +26,7 @@ fn lease_table(instance: &Instance) -> String {
     )
 }
 
-fn lock_table_brief() -> String {
+fn lease_table_brief() -> String {
     String::from("lease")
 }
 
@@ -39,12 +39,12 @@ pub(super) async fn initialize(
     if let Err(e) = bigtable
         .create_table(CreateTableRequest {
             parent: instance.path(),
-            table_id: lock_table_brief(),
+            table_id: lease_table_brief(),
             table: Some(Table {
                 name: String::from(""),
                 cluster_states: HashMap::new(),
                 column_families: HashMap::from([(
-                    String::from("f"),
+                    FAMILY.to_string(),
                     ColumnFamily {
                         gc_rule: Some(GcRule { rule: None }),
                     },
@@ -65,7 +65,7 @@ pub(super) async fn initialize(
     Ok(())
 }
 
-pub(crate) async fn lease(
+pub(crate) async fn obtain(
     mut bigtable: BigtableClient,
     instance: &Instance,
     key: LeaseKey,
@@ -183,7 +183,7 @@ pub(crate) async fn extend(
     }
 }
 
-pub(crate) async fn end(
+pub(crate) async fn terminate(
     mut bigtable: BigtableClient,
     instance: &Instance,
     lease: Lease,

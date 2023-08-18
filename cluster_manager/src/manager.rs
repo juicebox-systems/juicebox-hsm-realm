@@ -89,7 +89,7 @@ impl Drop for ManagementGrant {
         inner.renewer.abort();
         tokio::spawn(async move {
             _ = inner.renewer.await;
-            _ = inner.mgr.0.store.end_lease(inner.lease).await;
+            _ = inner.mgr.0.store.terminate_lease(inner.lease).await;
         });
     }
 }

@@ -955,7 +955,7 @@ impl StoreClient {
         dur: Duration,
         timestamp: SystemTime,
     ) -> Result<Option<Lease>, tonic::Status> {
-        lease::lease(
+        lease::obtain(
             self.bigtable.clone(),
             &self.instance,
             key.into(),
@@ -975,8 +975,8 @@ impl StoreClient {
         lease::extend(self.bigtable.clone(), &self.instance, lease, dur, timestamp).await
     }
 
-    pub async fn end_lease(&self, lease: Lease) -> Result<(), tonic::Status> {
-        lease::end(self.bigtable.clone(), &self.instance, lease).await
+    pub async fn terminate_lease(&self, lease: Lease) -> Result<(), tonic::Status> {
+        lease::terminate(self.bigtable.clone(), &self.instance, lease).await
     }
 }
 
