@@ -992,7 +992,22 @@ impl From<tonic::Status> for ExtendLeaseError {
     }
 }
 
-pub struct LeaseKey(pub Vec<u8>);
+pub enum LeaseType {
+    ClusterManagement,
+}
+
+pub struct LeaseKey(pub LeaseType, pub Vec<u8>);
+
+impl LeaseKey {
+    fn into_bigtable_key(self) -> Vec<u8> {
+        let t = match self.0 {
+            LeaseType::ClusterManagement => b"-cm",
+        };
+        let mut k = self.1;
+        k.extend(t);
+        k
+    }
+}
 
 #[derive(Clone)]
 pub struct Lease {

@@ -25,7 +25,7 @@ use juicebox_networking::rpc::Rpc;
 use juicebox_realm_api::types::RealmId;
 use service_core::rpc::handle_rpc;
 use store::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
-use store::{Lease, LeaseKey, ServiceKind, StoreClient};
+use store::{Lease, LeaseKey, LeaseType, ServiceKind, StoreClient};
 
 mod leader;
 mod stepdown;
@@ -103,7 +103,7 @@ impl From<ManagementLease> for LeaseKey {
         let k = match value {
             ManagementLease::RealmGroup(r, g) => format!("m-{r:?}-{g:?}").into_bytes(),
         };
-        LeaseKey(k)
+        LeaseKey(LeaseType::ClusterManagement, k)
     }
 }
 

@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use reqwest::Url;
 use std::time::{Duration, SystemTime};
-use store::{discovery, ExtendLeaseError, LeaseKey};
+use store::{discovery, ExtendLeaseError, LeaseKey, LeaseType};
 
 use agent_api::merkle::TreeStoreReader;
 use bitvec::BitVec;
@@ -623,8 +623,8 @@ enum LeaseId {
 impl From<LeaseId> for LeaseKey {
     fn from(value: LeaseId) -> Self {
         match value {
-            LeaseId::A => LeaseKey(vec![1]),
-            LeaseId::B => LeaseKey(vec![2, 2]),
+            LeaseId::A => LeaseKey(LeaseType::ClusterManagement, vec![1]),
+            LeaseId::B => LeaseKey(LeaseType::ClusterManagement, vec![2, 2]),
         }
     }
 }

@@ -81,12 +81,13 @@ pub(crate) async fn obtain(
 
     let mut id = vec![0u8; 16];
     OsRng.fill_bytes(&mut id);
+    let key = key.into_bigtable_key();
 
     let response = bigtable
         .check_and_mutate_row(CheckAndMutateRowRequest {
             table_name: lease_table(instance),
             app_profile_id: String::new(),
-            row_key: key.0.clone(),
+            row_key: key.clone(),
             predicate_filter: Some(RowFilter {
                 filter: Some(Filter::TimestampRangeFilter(TimestampRange {
                     // matches cells where the expires timestamp >= now
@@ -122,11 +123,7 @@ pub(crate) async fn obtain(
     if response.into_inner().predicate_matched {
         Ok(None)
     } else {
-        Ok(Some(Lease {
-            key: key.0,
-            id,
-            owner,
-        }))
+        Ok(Some(Lease { key, id, owner }))
     }
 }
 
