@@ -26,11 +26,12 @@ impl Manager {
             };
 
         // Calculate the exact set of step downs needed.
-        let stepdowns = match self.resolve_stepdowns(&req, &addresses).await {
+        let mut stepdowns = match self.resolve_stepdowns(&req, &addresses).await {
             Err(e) => return Ok(e),
             Ok(sd) => sd,
         };
         let mut grants = Vec::with_capacity(stepdowns.len());
+        stepdowns.sort();
         for stepdown in &stepdowns {
             match self.mark_as_busy(stepdown.realm, stepdown.group).await {
                 Ok(None) => {
@@ -190,10 +191,11 @@ impl Manager {
     }
 }
 
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
 struct Stepdown {
-    hsm: HsmId,
-    url: Url,
     group: GroupId,
     realm: RealmId,
+    hsm: HsmId,
+    url: Url,
     config: Vec<HsmId>,
 }
