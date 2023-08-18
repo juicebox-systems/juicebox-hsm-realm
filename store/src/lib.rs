@@ -968,10 +968,10 @@ impl StoreClient {
 
     pub async fn extend_lease(
         &self,
-        lease: &Lease,
+        lease: Lease,
         dur: Duration,
         timestamp: SystemTime,
-    ) -> Result<(), ExtendLeaseError> {
+    ) -> Result<Lease, ExtendLeaseError> {
         lease::extend(self.bigtable.clone(), &self.instance, lease, dur, timestamp).await
     }
 
@@ -1015,6 +1015,13 @@ pub struct Lease {
     key: Vec<u8>,
     id: Vec<u8>,
     owner: String,
+    expires: u64, //Microseconds since EPOCH.
+}
+impl Lease {
+    // The lease is held until this time.
+    pub fn until(&self) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_micros(self.expires)
+    }
 }
 
 // Timestamps are in microseconds, but need to be rounded to milliseconds
@@ -1072,5 +1079,11 @@ mod tests {
                 0xbb, 0x53, 0x4c, 0x60, 0x63, 0x08, 0x42, 0xdb, 0x1e, 0xea
             ]
         );
+    }
+
+    #[test]
+    fn into_bigtable_key() {
+        let k = LeaseKey(LeaseType::ClusterManagement, b"abc".to_vec());
+        assert_eq!(b"abc-cm".to_vec(), k.into_bigtable_key());
     }
 }

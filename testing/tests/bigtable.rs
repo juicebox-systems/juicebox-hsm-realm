@@ -570,7 +570,7 @@ async fn lease() {
 
     // can extend a lease
     data.extend_lease(
-        &lease,
+        lease,
         Duration::from_secs(5),
         now + Duration::from_millis(500),
     )
@@ -610,7 +610,7 @@ async fn lease() {
 
     // can't extend a lease that was expired and someone else grabbed
     assert!(matches!(
-        data.extend_lease(&alice_lease_b, Duration::from_secs(5), SystemTime::now())
+        data.extend_lease(alice_lease_b, Duration::from_secs(5), SystemTime::now())
             .await,
         Err(ExtendLeaseError::NotOwner)
     ));

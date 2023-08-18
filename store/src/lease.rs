@@ -124,17 +124,22 @@ pub(crate) async fn obtain(
     if response.into_inner().predicate_matched {
         Ok(None)
     } else {
-        Ok(Some(Lease { key, id, owner }))
+        Ok(Some(Lease {
+            key,
+            id,
+            owner,
+            expires: expires.try_into().unwrap(),
+        }))
     }
 }
 
 pub(crate) async fn extend(
     mut bigtable: BigtableClient,
     instance: &Instance,
-    lease: &Lease,
+    lease: Lease,
     duration: Duration,
     timestamp: SystemTime,
-) -> Result<(), ExtendLeaseError> {
+) -> Result<Lease, ExtendLeaseError> {
     let now_micros = to_micros(timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap());
     let expires: i64 = now_micros + to_micros(duration);
 
@@ -175,7 +180,12 @@ pub(crate) async fn extend(
         .await?;
 
     if response.into_inner().predicate_matched {
-        Ok(())
+        Ok(Lease {
+            key: lease.key,
+            id: lease.id,
+            owner: lease.owner,
+            expires: expires.try_into().unwrap(),
+        })
     } else {
         Err(ExtendLeaseError::NotOwner)
     }

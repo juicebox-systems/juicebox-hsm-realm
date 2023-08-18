@@ -61,13 +61,18 @@ impl ManagementGrant {
         let lease2 = lease.clone();
         // This task gets aborted when the ManagementGrant is dropped.
         let renewer = tokio::spawn(async move {
+            let mut lease = lease2;
             loop {
                 sleep(LEASE_DURATION / 3).await;
-                mgr2.0
+                let now = SystemTime::now();
+                let expires = lease.until();
+                lease = tokio::select! {
+                    result = mgr2
+                    .0
                     .store
-                    .extend_lease(&lease2, LEASE_DURATION, SystemTime::now())
-                    .await
-                    .expect("error while trying to extend lease");
+                    .extend_lease(lease, LEASE_DURATION, now) => result.expect("failed to extend lease"),
+                    _ = sleep(expires.duration_since(now).unwrap()) => panic!("didn't renew lease in time")
+                }
             }
         });
         ManagementGrant {
@@ -240,7 +245,7 @@ impl Manager {
             )
             .await?
             .map(|lease| {
-                info!(?group, ?realm, "marking group as under active management");
+                info!(?group, ?realm, "marked group as under active management");
                 ManagementGrant::new(self.clone(), realm, group, lease)
             });
         Ok(grant)
