@@ -79,8 +79,9 @@ pub(crate) async fn obtain(
     let now_micros = to_micros(timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap());
     let expires = now_micros + to_micros(duration);
 
-    let mut id = vec![0u8; 16];
-    OsRng.fill_bytes(&mut id);
+    let mut id_bytes = [0u8; 16];
+    OsRng.fill_bytes(&mut id_bytes);
+    let id = hex::encode(id_bytes).into_bytes();
     let key = key.into_bigtable_key();
 
     let response = bigtable

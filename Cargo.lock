@@ -2777,6 +2777,7 @@ dependencies = [
  "futures",
  "gcp_auth",
  "google",
+ "hex",
  "hsm_api",
  "hsm_core",
  "http",
