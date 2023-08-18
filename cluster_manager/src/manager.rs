@@ -89,7 +89,9 @@ impl Drop for ManagementGrant {
         inner.renewer.abort();
         tokio::spawn(async move {
             _ = inner.renewer.await;
-            _ = inner.mgr.0.store.terminate_lease(inner.lease).await;
+            if let Err(err) = inner.mgr.0.store.terminate_lease(inner.lease).await {
+                warn!(?err, "gRPC error while trying to terminate lease");
+            }
         });
     }
 }
