@@ -992,6 +992,7 @@ impl From<tonic::Status> for ExtendLeaseError {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LeaseType {
     ClusterManagement,
 }

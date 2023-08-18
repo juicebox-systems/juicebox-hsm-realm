@@ -101,7 +101,7 @@ pub enum ManagementLease {
 impl From<ManagementLease> for LeaseKey {
     fn from(value: ManagementLease) -> Self {
         let k = match value {
-            ManagementLease::RealmGroup(r, g) => format!("m-{r:?}-{g:?}").into_bytes(),
+            ManagementLease::RealmGroup(r, g) => format!("{r:?}-{g:?}").into_bytes(),
         };
         LeaseKey(LeaseType::ClusterManagement, k)
     }
@@ -254,6 +254,17 @@ mod tests {
     use testing::exec::PortIssuer;
 
     static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8222));
+
+    #[test]
+    fn lease_key() {
+        let lk = ManagementLease::RealmGroup(RealmId([9; 16]), GroupId([3; 16]));
+        let k: LeaseKey = lk.into();
+        assert_eq!(LeaseType::ClusterManagement, k.0);
+        assert_eq!(
+            b"09090909090909090909090909090909-03030303030303030303030303030303".to_vec(),
+            k.1
+        );
+    }
 
     #[tokio::test]
     async fn management_grant() {
