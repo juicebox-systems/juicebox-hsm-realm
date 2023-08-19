@@ -108,7 +108,7 @@ pub enum ManagementLease {
 impl From<ManagementLease> for LeaseKey {
     fn from(value: ManagementLease) -> Self {
         let k = match value {
-            ManagementLease::RealmGroup(r, g) => format!("{r:?}-{g:?}").into_bytes(),
+            ManagementLease::RealmGroup(r, g) => format!("{r:?}-{g:?}"),
         };
         LeaseKey(LeaseType::ClusterManagement, k)
     }
@@ -268,7 +268,7 @@ mod tests {
         let k: LeaseKey = lk.into();
         assert_eq!(LeaseType::ClusterManagement, k.0);
         assert_eq!(
-            b"09090909090909090909090909090909-03030303030303030303030303030303".to_vec(),
+            "09090909090909090909090909090909-03030303030303030303030303030303".to_string(),
             k.1
         );
     }

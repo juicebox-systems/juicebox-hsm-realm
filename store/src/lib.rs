@@ -997,14 +997,14 @@ pub enum LeaseType {
     ClusterManagement,
 }
 
-pub struct LeaseKey(pub LeaseType, pub Vec<u8>);
+pub struct LeaseKey(pub LeaseType, pub String);
 
 impl LeaseKey {
     fn into_bigtable_key(self) -> Vec<u8> {
         let t = match self.0 {
             LeaseType::ClusterManagement => b"-cm",
         };
-        let mut k = self.1;
+        let mut k = self.1.into_bytes();
         k.extend(t);
         k
     }
@@ -1083,7 +1083,7 @@ mod tests {
 
     #[test]
     fn into_bigtable_key() {
-        let k = LeaseKey(LeaseType::ClusterManagement, b"abc".to_vec());
+        let k = LeaseKey(LeaseType::ClusterManagement, "abc".to_string());
         assert_eq!(b"abc-cm".to_vec(), k.into_bigtable_key());
     }
 }

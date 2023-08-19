@@ -31,6 +31,7 @@ impl Manager {
             Ok(sd) => sd,
         };
         let mut grants = Vec::with_capacity(stepdowns.len());
+        // Ensure we take the leases in a consistent order to prevent deadlocks.
         stepdowns.sort();
         for stepdown in &stepdowns {
             match self.mark_as_busy(stepdown.realm, stepdown.group).await {

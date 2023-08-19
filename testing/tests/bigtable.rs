@@ -623,8 +623,8 @@ enum LeaseId {
 impl From<LeaseId> for LeaseKey {
     fn from(value: LeaseId) -> Self {
         match value {
-            LeaseId::A => LeaseKey(LeaseType::ClusterManagement, vec![1]),
-            LeaseId::B => LeaseKey(LeaseType::ClusterManagement, vec![2, 2]),
+            LeaseId::A => LeaseKey(LeaseType::ClusterManagement, String::from("1")),
+            LeaseId::B => LeaseKey(LeaseType::ClusterManagement, String::from("22")),
         }
     }
 }
