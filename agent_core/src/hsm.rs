@@ -3,7 +3,7 @@ use std::fmt::{self, Debug};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
-use tracing::{instrument, span::Span, trace};
+use tracing::{instrument, span::Span};
 
 use hsm_api::rpc::{HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
@@ -60,7 +60,12 @@ impl<T: Transport> HsmClient<T> {
         }))
     }
 
-    #[instrument(level = "trace", name = "HsmClient::send", skip(r), fields(req_name))]
+    #[instrument(
+        level = "trace",
+        name = "HsmClient::send",
+        skip(r),
+        fields(req_name, req_len, resp_len, rpc_dur)
+    )]
     pub async fn send<RPC: HsmRpc + Send>(&self, r: RPC) -> Result<RPC::Response, T::Error> {
         let hsm_req = r.to_req();
         let req_name = hsm_req.name();
@@ -70,22 +75,15 @@ impl<T: Transport> HsmClient<T> {
             req: hsm_req,
             metrics: self.0.metrics_action,
         })?;
+        Span::current().record("req_len", req_bytes.len());
 
-        trace!(
-            num_bytes = req_bytes.len(),
-            req = req_name,
-            "sending HSM RPC request"
-        );
         let start = Instant::now();
         let res_bytes = self.0.transport.send_rpc_msg(req_name, req_bytes).await?;
 
         let dur = start.elapsed();
-        trace!(
-            num_bytes = res_bytes.len(),
-            req = req_name,
-            ?dur,
-            "received HSM RPC response"
-        );
+        Span::current().record("resp_len", res_bytes.len());
+        Span::current().record("rpc_dur", format!("{dur:?}"));
+
         let response: HsmResponseContainer<RPC::Response> = marshalling::from_slice(&res_bytes)?;
         if !response.metrics.is_empty() {
             for (k, dur) in response.metrics {
