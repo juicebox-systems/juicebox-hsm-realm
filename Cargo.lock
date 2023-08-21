@@ -2781,7 +2781,6 @@ dependencies = [
  "juicebox_realm_api",
  "lru-cache",
  "observability",
- "once_cell",
  "rand",
  "rand_core",
  "reqwest",
