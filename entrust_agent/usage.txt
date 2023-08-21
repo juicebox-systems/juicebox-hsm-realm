@@ -13,6 +13,6 @@ Options:
   -t, --trace                         Enable collection of the debugging output from the HSM trace buffer. This requires the Security World to have been created with the `dseeall` feature enabled
   -i, --image <IMAGE>                 The name of the file containing the signed SEEMachine image (in SAR format). Is used to set the SEEMachine image in order to start or restart the SEE World
   -u, --userdata <USERDATA>           The name of the file containing the signed userdata file. Should be signed with the same 'seeinteg' key that the see machine image was signed with. The data in this file isn't used, but the signed file is needed for the ACLs that restrict access to a SEEMachine to work
-      --metrics <METRICS>             HSM Metrics reporting interval in milliseconds [default: no reporting]
+      --metrics                       Report detailed HSM metrics to datadog. [default: no reporting]
       --reinitialize                  Reinitialize the NVRAM state back to blank, effectively making a new HSM
   -h, --help                          Print help

@@ -84,7 +84,7 @@ impl HsmGenerator {
                     .join("entrust_agent"),
             );
             if metrics.report_metrics(next_is_leader) {
-                cmd.arg("--metrics").arg("1000");
+                cmd.arg("--metrics");
             };
             next_is_leader = false;
             cmd.arg("--listen").arg(agent_address);
@@ -126,7 +126,7 @@ impl HsmGenerator {
                 .arg("--listen")
                 .arg(agent_address);
             if metrics.report_metrics(next_is_leader) {
-                cmd.arg("--metrics").arg("1000");
+                cmd.arg("--metrics");
             }
             if let Some(d) = &hsm_dir {
                 cmd.arg("--state-dir").arg(d.as_os_str());

@@ -13,6 +13,7 @@ ctrlc = { workspace = true }
 entrust_api = { workspace = true }
 entrust_nfast = { workspace = true }
 google = { workspace = true }
+hsm_api = { workspace = true }
 juicebox_marshalling = { workspace = true }
 observability = { workspace = true }
 service_core = { workspace = true }

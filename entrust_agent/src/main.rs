@@ -33,9 +33,10 @@ use entrust_nfast::{
     TicketDestination_AnySEEWorld,
 };
 use google::auth;
+use hsm_api::rpc::MetricsAction;
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use observability::{logging, metrics, metrics_tag as tag};
-use service_core::clap_parsers::{parse_duration, parse_listen};
+use service_core::clap_parsers::parse_listen;
 use service_core::future_task::FutureTasks;
 use service_core::panic;
 
@@ -85,9 +86,9 @@ struct Args {
     #[arg(short, long)]
     userdata: PathBuf,
 
-    /// HSM Metrics reporting interval in milliseconds [default: no reporting]
-    #[arg(long, value_parser=parse_duration)]
-    metrics: Option<Duration>,
+    /// Report detailed HSM metrics to datadog. [default: no reporting]
+    #[arg(long, default_value_t = false)]
+    metrics: bool,
 
     /// Reinitialize the NVRAM state back to blank, effectively making a new HSM.
     #[arg(long, default_value_t = false)]
@@ -152,7 +153,11 @@ async fn main() {
         args.reinitialize,
         metrics.clone(),
     );
-    let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics, metrics.clone());
+    let metrics_action = match args.metrics {
+        false => MetricsAction::Skip,
+        true => MetricsAction::Record,
+    };
+    let hsm = HsmClient::new(hsm_t, name.clone(), metrics_action, metrics.clone());
 
     let agent = Agent::new(name, hsm, store, store_admin, metrics);
     let agent_clone = agent.clone();
