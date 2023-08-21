@@ -63,7 +63,6 @@ resolver = "2"
 [workspace.dependencies]
 agent_api = { path = "agent_api" }
 agent_core = { path = "agent_core" }
-ahash = { version = "0.8.3", default-features = false }
 anyhow = "1.0.74"
 async-trait = "0.1.73"
 bitvec = { path = "bitvec" }
