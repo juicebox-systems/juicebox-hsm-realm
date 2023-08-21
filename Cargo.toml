@@ -138,7 +138,7 @@ rustls-pemfile = "1.0"
 secrecy = { version = "=0.8.0", features = ["serde"] }
 secret_manager = { path = "secret_manager" }
 semver = "1.0.18"
-serde = { version = "1.0.183", default-features = false, features = [
+serde = { version = "1.0.185", default-features = false, features = [
     "alloc",
     "derive",
 ] }
