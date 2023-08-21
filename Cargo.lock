@@ -872,7 +872,6 @@ dependencies = [
  "entrust_nfast",
  "expect-test",
  "google",
- "hsm_api",
  "juicebox_marshalling",
  "observability",
  "service_core",

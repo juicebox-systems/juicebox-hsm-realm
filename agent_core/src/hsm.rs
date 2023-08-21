@@ -35,7 +35,6 @@ impl<T: Debug> Debug for HsmClient<T> {
 struct HsmClientInner<T> {
     transport: T,
     name: String,
-    metrics_action: MetricsAction,
     dd_metrics: metrics::Client,
 }
 
@@ -46,16 +45,10 @@ impl<T> Clone for HsmClient<T> {
 }
 
 impl<T: Transport> HsmClient<T> {
-    pub fn new(
-        t: T,
-        name: String,
-        metrics_action: MetricsAction,
-        dd_metrics: metrics::Client,
-    ) -> Self {
+    pub fn new(t: T, name: String, dd_metrics: metrics::Client) -> Self {
         Self(Arc::new(HsmClientInner {
             transport: t,
             name,
-            metrics_action,
             dd_metrics,
         }))
     }
@@ -73,7 +66,7 @@ impl<T: Transport> HsmClient<T> {
 
         let req_bytes = marshalling::to_vec(&HsmRequestContainer {
             req: hsm_req,
-            metrics: self.0.metrics_action,
+            metrics: MetricsAction::Record,
         })?;
         Span::current().record("req_len", req_bytes.len());
 

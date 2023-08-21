@@ -15,7 +15,7 @@ use juicebox_realm_api::types::Policy;
 use juicebox_sdk::{Client, Pin, UserInfo, UserSecret};
 use observability::logging;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
-use testing::exec::hsm_gen::{Entrust, MetricsParticipants};
+use testing::exec::hsm_gen::Entrust;
 
 /// An end-to-end benchmark to stress an HSM.
 #[derive(Debug, Parser)]
@@ -38,10 +38,6 @@ struct Args {
     /// "target/powerpc-unknown-linux-gnu/{mode}/userdata.sar".
     #[arg(long, default_value_t = false)]
     entrust: bool,
-
-    /// Report metrics from HSMs. Options are Leader, All, None.
-    #[arg(long, value_parser=MetricsParticipants::parse, default_value_t=MetricsParticipants::None)]
-    metrics: MetricsParticipants,
 
     /// Name of JSON file containing per-tenant keys for authentication. The
     /// default is to fetch these from Google Secret Manager.
@@ -88,7 +84,6 @@ async fn main() {
                 5
             },
             groups: 1,
-            metrics: args.metrics,
             state_dir: args.state.clone(),
         }],
         bigtable: args.bigtable,

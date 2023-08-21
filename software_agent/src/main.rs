@@ -4,7 +4,6 @@ use clap::Parser;
 use futures::future;
 use hkdf::Hkdf;
 use hmac::SimpleHmac;
-use hsm_api::rpc::MetricsAction;
 use rand::{rngs::OsRng, RngCore};
 use std::fmt::Write;
 use std::fs;
@@ -50,10 +49,6 @@ struct Args {
         value_parser=parse_listen,
     )]
     listen: SocketAddr,
-
-    /// Report detailed HSM metrics to datadog. [default: no reporting]
-    #[arg(long, default_value_t = false)]
-    metrics: bool,
 
     /// Name of the agent in logging [default: agent{listen}]
     #[arg(short, long)]
@@ -130,16 +125,7 @@ async fn main() {
         .await
         .expect("Unable to connect to Bigtable admin");
 
-    let metrics_action = match args.metrics {
-        false => MetricsAction::Skip,
-        true => MetricsAction::Record,
-    };
-    let hsm = HsmClient::new(
-        HsmHttpClient::new(hsm_url),
-        name.clone(),
-        metrics_action,
-        metrics.clone(),
-    );
+    let hsm = HsmClient::new(HsmHttpClient::new(hsm_url), name.clone(), metrics.clone());
     let agent = Agent::new(name, hsm, store, store_admin, metrics);
     let agent_clone = agent.clone();
     shutdown_tasks.add(Box::pin(async move {
@@ -224,7 +210,6 @@ mod tests {
         let hsm_client = HsmClient::new(
             HsmHttpClient::new(hsm_url),
             "test".to_owned(),
-            MetricsAction::Skip,
             metrics::Client::new("bob"),
         );
         hsm_client.send(hsm_api::NewRealmRequest {}).await.unwrap();
@@ -236,7 +221,6 @@ mod tests {
         let hsm2_client = HsmClient::new(
             HsmHttpClient::new(hsm2_url),
             "test".to_owned(),
-            MetricsAction::Skip,
             metrics::Client::new("bob"),
         );
 

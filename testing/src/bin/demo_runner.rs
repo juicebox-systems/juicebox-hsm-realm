@@ -20,7 +20,7 @@ use observability::{logging, metrics};
 use secret_manager::{tenant_secret_name, BulkLoad, SecretManager, SecretsFile};
 use testing::exec::bigtable::BigtableRunner;
 use testing::exec::certs::create_localhost_key_and_cert;
-use testing::exec::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
+use testing::exec::hsm_gen::{Entrust, HsmGenerator};
 
 #[derive(Parser)]
 #[command(
@@ -126,14 +126,7 @@ async fn main() {
 
     info!("creating initial HSM and agents");
     let (group1, realm1_public_key) = hsm_generator
-        .create_hsms(
-            1,
-            MetricsParticipants::None,
-            &mut process_group,
-            PathBuf::new(),
-            &bt_args,
-            None,
-        )
+        .create_hsms(1, &mut process_group, PathBuf::new(), &bt_args, None)
         .await;
     let (realm_id, group_id1) = cluster_core::new_realm(&agents_client, &group1[0])
         .await
@@ -142,24 +135,10 @@ async fn main() {
 
     info!("creating additional groups");
     let (group2, _) = hsm_generator
-        .create_hsms(
-            5,
-            MetricsParticipants::None,
-            &mut process_group,
-            PathBuf::new(),
-            &bt_args,
-            None,
-        )
+        .create_hsms(5, &mut process_group, PathBuf::new(), &bt_args, None)
         .await;
     let (group3, _) = hsm_generator
-        .create_hsms(
-            4,
-            MetricsParticipants::None,
-            &mut process_group,
-            PathBuf::new(),
-            &bt_args,
-            None,
-        )
+        .create_hsms(4, &mut process_group, PathBuf::new(), &bt_args, None)
         .await;
 
     cluster_core::join_realm(
@@ -259,14 +238,7 @@ async fn main() {
         let bigtable = bt_args.clone();
         async move {
             let (agents, public_key) = hsm_generator
-                .create_hsms(
-                    1,
-                    MetricsParticipants::None,
-                    &mut process_group,
-                    PathBuf::new(),
-                    &bigtable,
-                    None,
-                )
+                .create_hsms(1, &mut process_group, PathBuf::new(), &bigtable, None)
                 .await;
             let realm_id = cluster_core::new_realm(&agents_client, &agents[0])
                 .await
