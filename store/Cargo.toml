@@ -27,9 +27,8 @@ tracing = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
+agent_core = { workspace = true }
 hsm_core = { workspace = true, features = ["dot"] }
-once_cell = { workspace = true }
+juicebox_process_group = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
-juicebox_process_group = { workspace = true }
-agent_core = { workspace = true }
