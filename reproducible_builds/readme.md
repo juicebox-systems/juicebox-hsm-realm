@@ -17,10 +17,10 @@ will run the build inside the docker image and print the sha256 checksums
 of the resulting binaries. The results are placed in `target/reproducible`.
 
 `build.sh` assumes you have provided the correct version of the Entrust Codesafe SDK in
-the root project directory as a ZIP file. The current version of the SDK used is 12.80.4.
+the root project directory as a ZIP file. The current version of the SDK used is 13.3.2.
 
 ```
-SHA256(Codesafe_Lin64-12.80.4.zip)= a048cf90ac94b30ed3f8958256a842259aa6899c607ca53f146f880ea7a08e1
+SHA256(Codesafe_Lin64-13.3.2.iso.zip)= 73151a52e1bfada248b2d058fde7dae241ca91179907298eb26e8ff10b91c13d
 ```
 
 The build currently relies on access to some forks that are on github rather than
