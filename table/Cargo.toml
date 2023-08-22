@@ -1,0 +1,10 @@
+[package]
+name = "table"
+version = "0.2.0"
+edition = "2021"
+rust-version = { workspace = true }
+
+[dependencies]
+
+[dev-dependencies]
+expect-test = { workspace = true }

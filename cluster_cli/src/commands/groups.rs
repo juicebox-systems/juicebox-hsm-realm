@@ -1,5 +1,3 @@
-use cli_table::format::{Justify, Separator};
-use cli_table::{print_stdout, Cell, Table};
 use reqwest::Url;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -8,6 +6,7 @@ use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, OwnedRange};
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
 use store::StoreClient;
+use table::{Column, FmtWriteStdOut, Justify, Table, TableStyle};
 
 use crate::get_hsm_statuses;
 
@@ -69,25 +68,23 @@ fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
                 .filter(|(id, _)| id == hsm_id)
                 .map(|(_, status)| status);
             [
-                hsm_id.to_string().cell(),
-                addresses.get(hsm_id).unwrap().to_string().cell(),
-                group_status.role.to_string().cell(),
+                hsm_id.to_string(),
+                addresses.get(hsm_id).unwrap().to_string(),
+                group_status.role.to_string(),
                 match &group_status.captured {
-                    None => "None".cell(),
-                    Some((index, _mac)) => index.to_string().cell(),
-                }
-                .justify(Justify::Right),
+                    None => String::from("None"),
+                    Some((index, _mac)) => index.to_string(),
+                },
                 match leader {
                     Some(LeaderStatus {
                         committed: Some(commit_idx),
                         ..
-                    }) => commit_idx.to_string().cell(),
+                    }) => commit_idx.to_string(),
                     Some(LeaderStatus {
                         committed: None, ..
-                    }) => "None".cell(),
-                    _ => "".cell(),
-                }
-                .justify(Justify::Right),
+                    }) => String::from("None"),
+                    _ => String::from(""),
+                },
             ]
         })
         // Include rows for HSMs in the configuration that didn't respond.
@@ -99,20 +96,26 @@ fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
                 .filter(|hsm_id| !group.members.iter().any(|(h, _)| &h == hsm_id))
                 .map(|hsm_id| {
                     [
-                        hsm_id.to_string().cell(),
-                        "[error: not found]".cell(),
-                        "".cell(),
-                        "".cell(),
-                        "".cell(),
+                        hsm_id.to_string(),
+                        String::from("[error: not found]"),
+                        String::from(""),
+                        String::from(""),
+                        String::from(""),
                     ]
                 }),
         )
         .collect();
 
-    let table = rows
-        .table()
-        .separator(Separator::builder().title(Some(Default::default())).build())
-        .title(["HSM ID", "Agent URL", "Role", "Captured", "Commit"])
-        .color_choice(cli_table::ColorChoice::Never);
-    assert!(print_stdout(table).is_ok());
+    let table = Table::new(
+        [
+            Column::new("HSM ID"),
+            Column::new("Agent URL"),
+            Column::new("Role"),
+            Column::new("Captured").justify(Justify::Right),
+            Column::new("Commit").justify(Justify::Right),
+        ],
+        rows,
+        TableStyle::default(),
+    );
+    table.render(&mut FmtWriteStdOut::stdout()).unwrap();
 }
