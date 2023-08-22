@@ -26,7 +26,7 @@ impl Nanos {
     pub const MAX: Nanos = Nanos(u32::MAX);
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum MetricsAction {
     // Don't record any metrics.
     Skip,

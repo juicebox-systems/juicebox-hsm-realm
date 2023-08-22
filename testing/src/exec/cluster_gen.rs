@@ -21,7 +21,7 @@ use juicebox_sdk::{
 
 use super::bigtable::BigtableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};
-use super::hsm_gen::{Entrust, HsmGenerator, MetricsParticipants};
+use super::hsm_gen::{Entrust, HsmGenerator};
 use super::PortIssuer;
 use agent_api::{AgentService, StatusRequest};
 use cluster_core::{self, NewRealmError};
@@ -46,7 +46,6 @@ pub struct ClusterConfig {
 pub struct RealmConfig {
     pub hsms: u8,
     pub groups: u8,
-    pub metrics: MetricsParticipants,
     pub state_dir: Option<PathBuf>,
 }
 
@@ -318,7 +317,6 @@ async fn create_realm(
     let (agents, key) = hsm_gen
         .create_hsms(
             r.hsms.into(),
-            r.metrics,
             process_group,
             path_to_target,
             bigtable,

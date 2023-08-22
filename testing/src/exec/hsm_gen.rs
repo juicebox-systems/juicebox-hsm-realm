@@ -10,7 +10,7 @@ use juicebox_networking::{
 use juicebox_process_group::ProcessGroup;
 use rand::rngs::OsRng;
 use rand::RngCore;
-use std::fmt::{Display, Write};
+use std::fmt::Write;
 use std::iter;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -58,7 +58,6 @@ impl HsmGenerator {
     pub async fn create_hsms(
         &mut self,
         mut count: usize,
-        metrics: MetricsParticipants,
         process_group: &mut ProcessGroup,
         path_to_target: PathBuf,
         bigtable: &store::Args,
@@ -83,9 +82,6 @@ impl HsmGenerator {
                     .join(mode)
                     .join("entrust_agent"),
             );
-            if metrics.report_metrics(next_is_leader) {
-                cmd.arg("--metrics").arg("1000");
-            };
             next_is_leader = false;
             cmd.arg("--listen").arg(agent_address);
             cmd.arg("--image").arg(
@@ -125,9 +121,6 @@ impl HsmGenerator {
                 .arg(&self.secret)
                 .arg("--listen")
                 .arg(agent_address);
-            if metrics.report_metrics(next_is_leader) {
-                cmd.arg("--metrics").arg("1000");
-            }
             if let Some(d) = &hsm_dir {
                 cmd.arg("--state-dir").arg(d.as_os_str());
             }
@@ -166,44 +159,5 @@ impl HsmGenerator {
             unreachable!()
         });
         join_all(waiters).await.pop().unwrap()
-    }
-}
-
-#[allow(dead_code)] // the compiler doesn't seem to see the usage from hsm_bench
-#[derive(Clone, Copy, Debug)]
-pub enum MetricsParticipants {
-    None,
-    Leader,
-    All,
-}
-
-impl Display for MetricsParticipants {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MetricsParticipants::None => f.write_str("None"),
-            MetricsParticipants::Leader => f.write_str("Leader"),
-            MetricsParticipants::All => f.write_str("All"),
-        }
-    }
-}
-
-impl MetricsParticipants {
-    #[allow(dead_code)] // the compiler doesn't seem to see the usage from hsm_bench
-    pub fn parse(arg: &str) -> Result<MetricsParticipants, String> {
-        let arg = arg.trim().to_ascii_lowercase();
-        match arg.as_str() {
-            "leader" => Ok(MetricsParticipants::Leader),
-            "all" => Ok(MetricsParticipants::All),
-            "none" => Ok(MetricsParticipants::None),
-            _ => Err(String::from("valid options are Leader, All")),
-        }
-    }
-
-    fn report_metrics(&self, is_leader: bool) -> bool {
-        match &self {
-            MetricsParticipants::None => false,
-            MetricsParticipants::Leader => is_leader,
-            MetricsParticipants::All => true,
-        }
     }
 }

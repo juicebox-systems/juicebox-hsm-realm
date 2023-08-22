@@ -9,7 +9,7 @@ use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::Policy;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
-use testing::exec::hsm_gen::{Entrust, MetricsParticipants};
+use testing::exec::hsm_gen::Entrust;
 use testing::exec::PortIssuer;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
@@ -30,7 +30,6 @@ async fn leader_handover() {
         realms: vec![RealmConfig {
             hsms: 3,
             groups: 1,
-            metrics: MetricsParticipants::None,
             state_dir: None,
         }],
         bigtable: bt_args,
