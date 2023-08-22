@@ -13,4 +13,6 @@ http-body-util = { workspace = true }
 hyper = { workspace = true }
 juicebox_marshalling = { workspace = true }
 juicebox_networking = { workspace = true }
+observability = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }

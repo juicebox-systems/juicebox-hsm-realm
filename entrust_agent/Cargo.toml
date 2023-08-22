@@ -9,7 +9,6 @@ edition = "2021"
 agent_core = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
-ctrlc = { workspace = true }
 entrust_api = { workspace = true }
 entrust_nfast = { workspace = true }
 google = { workspace = true }

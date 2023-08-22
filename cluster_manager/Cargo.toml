@@ -12,7 +12,6 @@ bytes = { workspace = true }
 clap = { workspace = true }
 cluster_api = { workspace = true }
 cluster_core = { workspace = true }
-ctrlc = { workspace = true }
 futures = { workspace = true }
 google = { workspace = true }
 hsm_api = { workspace = true }

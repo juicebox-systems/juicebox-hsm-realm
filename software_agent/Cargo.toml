@@ -12,7 +12,6 @@ async-trait = { workspace = true }
 blake2 = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
-ctrlc = { workspace = true, features = ["termination"] }
 futures = { workspace = true }
 google = { workspace = true }
 hex = { workspace = true }

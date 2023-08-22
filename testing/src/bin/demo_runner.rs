@@ -18,6 +18,7 @@ use juicebox_realm_auth::{creation::create_token, Claims};
 use juicebox_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
 use observability::{logging, metrics};
 use secret_manager::{tenant_secret_name, BulkLoad, SecretManager, SecretsFile};
+use service_core::term::install_termination_handler;
 use testing::exec::bigtable::BigtableRunner;
 use testing::exec::certs::create_localhost_key_and_cert;
 use testing::exec::hsm_gen::{Entrust, HsmGenerator};
@@ -48,14 +49,7 @@ async fn main() {
     let metrics = metrics::Client::new("demo_runner");
 
     let mut process_group = ProcessGroup::new();
-
-    ctrlc::set_handler(move || {
-        info!(pid = std::process::id(), "received termination signal");
-        logging::flush();
-        info!(pid = std::process::id(), "exiting");
-        std::process::exit(0);
-    })
-    .expect("error setting signal handler");
+    install_termination_handler();
 
     let bt_args = store::Args {
         instance: String::from("inst"),
