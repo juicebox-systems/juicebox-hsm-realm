@@ -63,7 +63,6 @@ resolver = "2"
 [workspace.dependencies]
 agent_api = { path = "agent_api" }
 agent_core = { path = "agent_core" }
-ahash = { version = "0.8.3", default-features = false }
 anyhow = "1.0.74"
 async-trait = "0.1.73"
 bitvec = { path = "bitvec" }
@@ -134,8 +133,7 @@ reqwest = { version = "0.11.18", default-features = false, features = [
 ] }
 rustls = "0.21.6"
 rustls-pemfile = "1.0"
-# secrecy is pinned because we have a local fork.
-secrecy = { version = "=0.8.0", features = ["serde"] }
+secrecy = { version = "0.8.0", features = ["serde"] }
 secret_manager = { path = "secret_manager" }
 semver = "1.0.18"
 serde = { version = "1.0.185", default-features = false, features = [
@@ -154,6 +152,7 @@ store = { path = "store" }
 subtle = { version = "2.5.0", default-features = false }
 sysinfo = { version = "0.29" }
 tempfile = "3.7.1"
+testing = { path = "testing" }
 thiserror = "1.0.46"
 tokio = { version = "1.31.0", features = ["rt-multi-thread", "macros"] }
 tokio-rustls = "0.24.1"
@@ -174,4 +173,3 @@ x25519-dalek = { version = "2.0", features = [
 
 [patch.crates-io]
 gcp_auth = { git = "ssh://git@github.com/juicebox-systems/gcp_auth.git", branch = "loam-main" }
-secrecy = { git = "ssh://git@github.com/juicebox-systems/secrecy.git", branch = "loam-main" }

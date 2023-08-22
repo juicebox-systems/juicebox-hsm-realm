@@ -19,7 +19,7 @@ use google::auth;
 use hsm_core::hsm::mac::MacKey;
 use hsm_core::hsm::{RealmKeys, RecordEncryptionKey};
 use observability::{logging, metrics};
-use service_core::clap_parsers::{parse_duration, parse_listen};
+use service_core::clap_parsers::parse_listen;
 use service_core::future_task::FutureTasks;
 use service_core::panic;
 
@@ -49,10 +49,6 @@ struct Args {
         value_parser=parse_listen,
     )]
     listen: SocketAddr,
-
-    /// HSM Metrics reporting interval in milliseconds [default: no reporting]
-    #[arg(short, long, value_parser=parse_duration)]
-    metrics: Option<Duration>,
 
     /// Name of the agent in logging [default: agent{listen}]
     #[arg(short, long)]
@@ -129,12 +125,7 @@ async fn main() {
         .await
         .expect("Unable to connect to Bigtable admin");
 
-    let hsm = HsmClient::new(
-        HsmHttpClient::new(hsm_url),
-        name.clone(),
-        args.metrics,
-        metrics.clone(),
-    );
+    let hsm = HsmClient::new(HsmHttpClient::new(hsm_url), name.clone(), metrics.clone());
     let agent = Agent::new(name, hsm, store, store_admin, metrics);
     let agent_clone = agent.clone();
     shutdown_tasks.add(Box::pin(async move {
@@ -219,7 +210,6 @@ mod tests {
         let hsm_client = HsmClient::new(
             HsmHttpClient::new(hsm_url),
             "test".to_owned(),
-            None,
             metrics::Client::new("bob"),
         );
         hsm_client.send(hsm_api::NewRealmRequest {}).await.unwrap();
@@ -231,7 +221,6 @@ mod tests {
         let hsm2_client = HsmClient::new(
             HsmHttpClient::new(hsm2_url),
             "test".to_owned(),
-            None,
             metrics::Client::new("bob"),
         );
 

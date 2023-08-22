@@ -12,7 +12,8 @@ use tracing::{debug, warn};
 use url::Url;
 
 use super::{
-    mutate_rows, read_rows, BigtableClient, BigtableTableAdminClient, Instance, RowKey, ServiceKind,
+    mutate_rows, read_rows, to_micros, BigtableClient, BigtableTableAdminClient, Instance, RowKey,
+    ServiceKind,
 };
 use observability::logging::Spew;
 
@@ -182,13 +183,7 @@ pub(super) async fn set_address(
     // Timestamps are in microseconds, but need to be rounded to milliseconds
     // (or coarser depending on table schema). Come back before April 11, 2262
     // to fix this.
-    let timestamp_micros = (timestamp
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_millis()
-        * 1000)
-        .try_into()
-        .unwrap();
+    let timestamp_micros = to_micros(timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap());
 
     // Row keys are service_kind_key || url. There's one empty cell that has the timestamp.
     let mut row_key = Vec::with_capacity(1 + address.as_str().as_bytes().len());

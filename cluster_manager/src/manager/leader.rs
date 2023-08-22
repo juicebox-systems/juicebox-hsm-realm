@@ -40,18 +40,21 @@ impl Manager {
             .filter(|(_, (_, _, leader))| leader.is_none())
         {
             info!(?group_id, ?realm_id, "Group has no leader");
-            match self.mark_as_busy(realm_id, group_id) {
-                None => {
+            match self.mark_as_busy(realm_id, group_id).await {
+                Ok(None) => {
                     info!(
                         ?group_id,
                         ?realm_id,
                         "Skipping group being managed by some other task"
                     );
                 }
-                Some(grant) => {
+                Ok(Some(grant)) => {
                     // This group doesn't have a leader, we'll pick one and ask it to become leader.
                     assign_group_a_leader(&self.0.agents, &grant, config, None, &hsm_status, None)
                         .await?;
+                }
+                Err(err) => {
+                    warn!(?err, "GRPC error trying to obtain lease");
                 }
             }
         }
@@ -63,7 +66,7 @@ impl Manager {
 /// is responsible for deciding that the group needs a leader.
 pub(super) async fn assign_group_a_leader(
     agent_client: &Client<AgentService>,
-    grant: &ManagementGrant<'_>,
+    grant: &ManagementGrant,
     config: Vec<HsmId>,
     skipping: Option<HsmId>,
     hsm_status: &HashMap<HsmId, (hsm_api::StatusResponse, Url)>,

@@ -10,7 +10,7 @@ use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::requests::{SecretsRequest, BODY_SIZE_LIMIT};
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
-use testing::exec::hsm_gen::{Entrust, MetricsParticipants};
+use testing::exec::hsm_gen::Entrust;
 use testing::exec::PortIssuer;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
@@ -23,10 +23,10 @@ async fn request_bodysize_check() {
 
     let cluster_args = ClusterConfig {
         load_balancers: 1,
+        cluster_managers: 1,
         realms: vec![RealmConfig {
             hsms: 1,
             groups: 1,
-            metrics: MetricsParticipants::None,
             state_dir: None,
         }],
         bigtable: bt_args,

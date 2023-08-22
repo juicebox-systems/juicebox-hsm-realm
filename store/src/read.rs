@@ -89,7 +89,7 @@ pub async fn read_rows(
                     if let Some(suppressed) = STREAM_SPEW.ok() {
                         warn!(?e, code=?e.code(), suppressed, "stream.message error during read_rows");
                     }
-                    if e.code() == Code::Unknown {
+                    if e.code() == Code::Internal {
                         tokio::time::sleep(Duration::from_millis(1)).await;
                         trace!("retrying read_rows");
                         retry_count += 1;

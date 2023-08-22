@@ -35,7 +35,7 @@ use entrust_nfast::{
 use google::auth;
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use observability::{logging, metrics, metrics_tag as tag};
-use service_core::clap_parsers::{parse_duration, parse_listen};
+use service_core::clap_parsers::parse_listen;
 use service_core::future_task::FutureTasks;
 use service_core::panic;
 
@@ -84,10 +84,6 @@ struct Args {
     /// needed for the ACLs that restrict access to a SEEMachine to work.
     #[arg(short, long)]
     userdata: PathBuf,
-
-    /// HSM Metrics reporting interval in milliseconds [default: no reporting]
-    #[arg(long, value_parser=parse_duration)]
-    metrics: Option<Duration>,
 
     /// Reinitialize the NVRAM state back to blank, effectively making a new HSM.
     #[arg(long, default_value_t = false)]
@@ -152,7 +148,7 @@ async fn main() {
         args.reinitialize,
         metrics.clone(),
     );
-    let hsm = HsmClient::new(hsm_t, name.clone(), args.metrics, metrics.clone());
+    let hsm = HsmClient::new(hsm_t, name.clone(), metrics.clone());
 
     let agent = Agent::new(name, hsm, store, store_admin, metrics);
     let agent_clone = agent.clone();

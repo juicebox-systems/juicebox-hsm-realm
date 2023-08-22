@@ -21,7 +21,7 @@ use juicebox_realm_api::types::SessionId;
 use juicebox_sdk::Policy;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig, RealmResult};
-use testing::exec::hsm_gen::{Entrust, MetricsParticipants};
+use testing::exec::hsm_gen::Entrust;
 use testing::exec::PortIssuer;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
@@ -36,10 +36,10 @@ async fn leader_battle() {
 
     let cluster_args = ClusterConfig {
         load_balancers: 1,
+        cluster_managers: 3,
         realms: vec![RealmConfig {
             hsms: 3,
             groups: 1,
-            metrics: MetricsParticipants::All,
             state_dir: None,
         }],
         bigtable: bt_args,

@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use reqwest::Url;
 use std::time::{Duration, SystemTime};
-use store::discovery;
+use store::{discovery, ExtendLeaseError, LeaseKey, LeaseType};
 
 use agent_api::merkle::TreeStoreReader;
 use bitvec::BitVec;
@@ -540,4 +540,91 @@ async fn service_discovery() {
         ],
         data.get_addresses(None).await.unwrap()
     );
+}
+
+#[tokio::test]
+async fn lease() {
+    let mut pg = ProcessGroup::new();
+    let (admin, data) = init_bt(&mut pg, emulator(PORT.next())).await;
+    admin.initialize_leases().await.unwrap();
+
+    let now = SystemTime::now();
+
+    let lease = data
+        .obtain_lease(LeaseId::A, String::from("Bob"), Duration::from_secs(5), now)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // can't get the lease while someone else has it.
+    assert!(data
+        .obtain_lease(
+            LeaseId::A,
+            String::from("Alice"),
+            Duration::from_secs(5),
+            now
+        )
+        .await
+        .unwrap()
+        .is_none());
+
+    // can extend a lease
+    data.extend_lease(
+        lease,
+        Duration::from_secs(5),
+        now + Duration::from_millis(500),
+    )
+    .await
+    .unwrap();
+
+    // can get a different lease
+    let lease_b = data
+        .obtain_lease(LeaseId::B, String::from("Bob"), Duration::from_secs(5), now)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // someone else can get the lease if its explicitly released.
+    data.terminate_lease(lease_b).await.unwrap();
+    let alice_lease_b = data
+        .obtain_lease(
+            LeaseId::B,
+            String::from("Alice"),
+            Duration::from_secs(5),
+            now,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    // can get the lease if it expired.
+    data.obtain_lease(
+        LeaseId::B,
+        String::from("Eve"),
+        Duration::from_secs(5),
+        now + Duration::from_secs(6),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    // can't extend a lease that was expired and someone else grabbed
+    assert!(matches!(
+        data.extend_lease(alice_lease_b, Duration::from_secs(5), SystemTime::now())
+            .await,
+        Err(ExtendLeaseError::NotOwner)
+    ));
+}
+
+enum LeaseId {
+    A,
+    B,
+}
+impl From<LeaseId> for LeaseKey {
+    fn from(value: LeaseId) -> Self {
+        match value {
+            LeaseId::A => LeaseKey(LeaseType::ClusterManagement, String::from("1")),
+            LeaseId::B => LeaseKey(LeaseType::ClusterManagement, String::from("22")),
+        }
+    }
 }

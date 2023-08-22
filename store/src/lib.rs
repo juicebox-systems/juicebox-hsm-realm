@@ -32,6 +32,7 @@ use observability::metrics_tag as tag;
 
 mod base128;
 pub mod discovery;
+mod lease;
 mod merkle;
 mod mutate;
 mod read;
@@ -242,6 +243,10 @@ impl StoreAdminClient {
     /// Creates a little Bigtable table for service discovery.
     pub async fn initialize_discovery(&self) -> Result<(), tonic::Status> {
         discovery::initialize(self.bigtable.clone(), &self.instance).await
+    }
+
+    pub async fn initialize_leases(&self) -> Result<(), tonic::Status> {
+        lease::initialize(self.bigtable.clone(), &self.instance).await
     }
 
     pub async fn initialize_realm(&self, realm: &RealmId) -> Result<(), tonic::Status> {
@@ -939,6 +944,90 @@ impl StoreClient {
         )
         .await
     }
+
+    // Obtain a lease for the specified duration. Only one lease is available at
+    // any one time for a given key. Owner is recorded in the lease table only
+    // for diagnostic purposes.
+    pub async fn obtain_lease(
+        &self,
+        key: impl Into<LeaseKey>,
+        owner: String,
+        dur: Duration,
+        timestamp: SystemTime,
+    ) -> Result<Option<Lease>, tonic::Status> {
+        lease::obtain(
+            self.bigtable.clone(),
+            &self.instance,
+            key.into(),
+            owner,
+            dur,
+            timestamp,
+        )
+        .await
+    }
+
+    pub async fn extend_lease(
+        &self,
+        lease: Lease,
+        dur: Duration,
+        timestamp: SystemTime,
+    ) -> Result<Lease, ExtendLeaseError> {
+        lease::extend(self.bigtable.clone(), &self.instance, lease, dur, timestamp).await
+    }
+
+    pub async fn terminate_lease(&self, lease: Lease) -> Result<(), tonic::Status> {
+        lease::terminate(self.bigtable.clone(), &self.instance, lease).await
+    }
+}
+
+#[derive(Debug)]
+pub enum ExtendLeaseError {
+    Rpc(tonic::Status),
+    NotOwner,
+}
+
+impl From<tonic::Status> for ExtendLeaseError {
+    fn from(value: tonic::Status) -> Self {
+        ExtendLeaseError::Rpc(value)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LeaseType {
+    ClusterManagement,
+}
+
+pub struct LeaseKey(pub LeaseType, pub String);
+
+impl LeaseKey {
+    fn into_bigtable_key(self) -> Vec<u8> {
+        let t = match self.0 {
+            LeaseType::ClusterManagement => b"-cm",
+        };
+        let mut k = self.1.into_bytes();
+        k.extend(t);
+        k
+    }
+}
+
+#[derive(Clone)]
+pub struct Lease {
+    key: Vec<u8>,
+    id: Vec<u8>,
+    owner: String,
+    expires: u64, //Microseconds since EPOCH.
+}
+impl Lease {
+    // The lease is held until this time.
+    pub fn until(&self) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_micros(self.expires)
+    }
+}
+
+// Timestamps are in microseconds, but need to be rounded to milliseconds
+// (or coarser depending on table schema).
+pub(crate) fn to_micros(d: Duration) -> i64 {
+    (d.as_millis() * 1000).try_into().unwrap()
 }
 
 #[cfg(test)]
@@ -990,5 +1079,11 @@ mod tests {
                 0xbb, 0x53, 0x4c, 0x60, 0x63, 0x08, 0x42, 0xdb, 0x1e, 0xea
             ]
         );
+    }
+
+    #[test]
+    fn into_bigtable_key() {
+        let k = LeaseKey(LeaseType::ClusterManagement, "abc".to_string());
+        assert_eq!(b"abc-cm".to_vec(), k.into_bigtable_key());
     }
 }

@@ -53,7 +53,6 @@ dependencies = [
  "election",
  "expect-test",
  "futures",
- "hdrhistogram",
  "hsm_api",
  "http",
  "http-body-util",
@@ -71,17 +70,6 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "url",
-]
-
-[[package]]
-name = "ahash"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c99f64d1e06488f620f932677e24bc6e2897582980441ae90a671415bd7ec2f"
-dependencies = [
- "cfg-if",
- "once_cell",
- "version_check",
 ]
 
 [[package]]
@@ -607,13 +595,17 @@ dependencies = [
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "juicebox_networking",
+ "juicebox_process_group",
  "juicebox_realm_api",
  "observability",
+ "once_cell",
  "opentelemetry",
  "opentelemetry-http",
  "service_core",
  "store",
+ "testing",
  "tokio",
+ "tonic",
  "tracing",
  "tracing-opentelemetry",
  "url",
@@ -1254,7 +1246,6 @@ dependencies = [
 name = "hsm_core"
 version = "0.2.0"
 dependencies = [
- "ahash",
  "async-trait",
  "bitvec",
  "blake2",
@@ -2511,7 +2502,8 @@ dependencies = [
 [[package]]
 name = "secrecy"
 version = "0.8.0"
-source = "git+ssh://git@github.com/juicebox-systems/secrecy.git?branch=loam-main#b50e54817d6c4b919a8062e024bebe34aa3165c5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9bd1c54ea06cfd2f6b63219704de0b9b4f72dcc2b8fdef820be6cd799780e91e"
 dependencies = [
  "serde",
  "zeroize",
@@ -2773,6 +2765,7 @@ dependencies = [
  "futures",
  "gcp_auth",
  "google",
+ "hex",
  "hsm_api",
  "hsm_core",
  "http",
