@@ -75,9 +75,8 @@ have strings in them that aren't fixed up by --remap-path-prefix. e.g.
 
 ### Rust Nightly
 
-Because it has to rebuild the std library the `entrust_hsm` project requires a
-rust nightly toolchain in order to build. We need to pin the specific version
-of nightly used.
+Because it has to rebuild the std library, the `entrust_hsm` project requires a
+Rust toolchain with nightly features in order to build.
 
 ### Entrust SDK
 

@@ -6,7 +6,6 @@ set -eux
 cd -P -- "$(dirname -- "$0")/.."
 
 CARGO_TARGET_DIR=/target; export CARGO_TARGET_DIR
-NIGHTLY=nightly-2023-06-01; export NIGHTLY
 TMPDIR=${TMPDIR:-/tmp}
 OUT_DIR=$(pwd)/target/reproducible
 

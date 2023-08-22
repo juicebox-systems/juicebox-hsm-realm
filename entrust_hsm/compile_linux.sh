@@ -7,12 +7,23 @@ cd -P -- "$(dirname -- "$0")/.."
 TARGET=powerpc-unknown-linux-gnu
 
 TARGET_DIR="${CARGO_TARGET_DIR:-"../target"}"
-NIGHTLY="${NIGHTLY:-"nightly"}"
 
-# Compile Rust code.
-cargo +$NIGHTLY build --target $TARGET --release -Z build-std -p entrust_hsm $@
+if [ -n "${NIGHTLY:-}" ]; then
+    TOOLCHAIN="+$NIGHTLY"
+else
+    # Enable nightly features on stable cargo/rustc.
+    TOOLCHAIN=''
+    export RUSTC_BOOTSTRAP=1
+fi
 
-# cd to project dir
+# Compile Rust code
+cargo $TOOLCHAIN build \
+    --target $TARGET \
+    --release \
+    -Z build-std \
+    -p entrust_hsm \
+    "$@"
+
 cd entrust_hsm
 
 # Compile C code

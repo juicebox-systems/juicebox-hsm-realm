@@ -48,21 +48,21 @@ jobs:
         sudo rm -rf /usr/share/dotnet
       shell: bash
 
-    - name: Install recent nightly
+    - name: Install Rust with source
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: nightly-2023-06-01
-        override: false
+        toolchain: 1.71
+        default: true
         components: rust-src
 
     - name: Install PowerPC cross-compile dependencies
       run: sudo apt update && sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
 
     - name: Cross Compile PowerPC
-      run: ./build-ppc.sh nightly-2023-06-01
+      run: ./build-ppc.sh
 
     - name: Run unit tests on PowerPC
-      run: ./test-ppc.sh nightly-2023-06-01
+      run: ./test-ppc.sh
 
   rust_x86:
     name: Build x86 + Demo
