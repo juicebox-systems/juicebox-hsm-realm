@@ -51,9 +51,10 @@ jobs:
     - name: Install Rust with source
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: 1.71
-        default: true
         components: rust-src
+        default: true
+        profile: minimal
+        toolchain: 1.71
 
     - name: Install PowerPC cross-compile dependencies
       run: sudo apt update && sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
@@ -88,11 +89,12 @@ jobs:
         sudo rm -rf /usr/share/dotnet
       shell: bash
 
-    - name: Install Rust stable toolchain
+    - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
+        default: true
         profile: minimal
-        toolchain: stable
+        toolchain: 1.71
 
     - name: Use Go cache
       uses: actions/cache@v3
@@ -157,11 +159,12 @@ jobs:
         sudo rm -rf /usr/share/dotnet
       shell: bash
 
-    - name: Install Rust stable toolchain
+    - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
+        default: true
         profile: minimal
-        toolchain: stable
+        toolchain: 1.71
 
     - name: Use Go cache
       uses: actions/cache@v3
@@ -233,13 +236,13 @@ jobs:
         # Copy the encoded auth token from local config that actions/checkout configured.
         git config --global http.'https://github.com/'.extraHeader "$(git config --local http.'https://github.com/'.extraHeader)"
 
-    - name: Install Rust stable toolchain
+    - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
         components: rustfmt, clippy
-        override: 'true'
+        default: true
         profile: minimal
-        toolchain: stable
+        toolchain: 1.71
 
     - name: Use Go cache
       uses: actions/cache@v3
@@ -348,11 +351,12 @@ jobs:
         # Copy the encoded auth token from local config that actions/checkout configured.
         git config --global http.'https://github.com/'.extraHeader "$(git config --local http.'https://github.com/'.extraHeader)"
 
-    - name: Install Rust stable toolchain
+    - name: Install Rust
       uses: actions-rs/toolchain@v1
       with:
+        default: true
         profile: minimal
-        toolchain: stable
+        toolchain: 1.71
 
     - name: Use Go cache
       uses: actions/cache@v3
