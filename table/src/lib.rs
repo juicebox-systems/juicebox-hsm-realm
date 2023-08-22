@@ -1,5 +1,6 @@
 use std::cmp::max;
 use std::fmt::{Result, Write};
+use std::io::Stdout;
 use std::iter::zip;
 
 pub struct Table {
@@ -171,6 +172,26 @@ impl Borders {
             Borders::Table => ("+", ""),
             Borders::Cells => ("+", "+"),
         }
+    }
+}
+
+// A wrapper type for StdOut that implements fmt::Write.
+//
+// StdOut doesn't implement both fmt::Write because of how write! duck types
+// between io::Write & fmt::Write.
+pub struct FmtWriteStdOut(pub Stdout);
+
+impl FmtWriteStdOut {
+    pub fn stdout() -> Self {
+        Self(std::io::stdout())
+    }
+}
+
+impl std::fmt::Write for FmtWriteStdOut {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        std::io::Write::write(&mut self.0, s.as_bytes())
+            .map_err(|_| std::fmt::Error)
+            .map(|_| ())
     }
 }
 

@@ -1,13 +1,12 @@
 use reqwest::Url;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::io::{stdout, Stdout};
 
 use agent_api::AgentService;
 use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, OwnedRange};
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
 use store::StoreClient;
-use table::{Column, Justify, Table, TableStyle};
+use table::{Column, FmtWriteStdOut, Justify, Table, TableStyle};
 
 use crate::get_hsm_statuses;
 
@@ -118,15 +117,5 @@ fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
         rows,
         TableStyle::default(),
     );
-    table.render(&mut FmtWriteStdOut(stdout())).unwrap();
-}
-
-struct FmtWriteStdOut(Stdout);
-
-impl std::fmt::Write for FmtWriteStdOut {
-    fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        std::io::Write::write(&mut self.0, s.as_bytes())
-            .map_err(|_| std::fmt::Error)
-            .map(|_| ())
-    }
+    table.render(&mut FmtWriteStdOut::stdout()).unwrap();
 }
