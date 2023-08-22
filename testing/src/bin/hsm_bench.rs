@@ -74,6 +74,7 @@ async fn main() {
 
     let config = ClusterConfig {
         load_balancers: 1,
+        cluster_managers: 2,
         realms: vec![RealmConfig {
             hsms: if args.entrust {
                 // Entrust HSMs cannot participate in the same realm as

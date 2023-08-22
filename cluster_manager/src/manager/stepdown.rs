@@ -26,20 +26,26 @@ impl Manager {
             };
 
         // Calculate the exact set of step downs needed.
-        let stepdowns = match self.resolve_stepdowns(&req, &addresses).await {
+        let mut stepdowns = match self.resolve_stepdowns(&req, &addresses).await {
             Err(e) => return Ok(e),
             Ok(sd) => sd,
         };
         let mut grants = Vec::with_capacity(stepdowns.len());
+        // Ensure we take the leases in a consistent order to prevent deadlocks.
+        stepdowns.sort();
         for stepdown in &stepdowns {
-            match self.mark_as_busy(stepdown.realm, stepdown.group) {
-                None => {
+            match self.mark_as_busy(stepdown.realm, stepdown.group).await {
+                Ok(None) => {
                     return Ok(Response::Busy {
                         realm: stepdown.realm,
                         group: stepdown.group,
                     })
                 }
-                Some(grant) => grants.push(grant),
+                Ok(Some(grant)) => grants.push(grant),
+                Err(err) => {
+                    warn!(?err, "GRPC error obtaining lease");
+                    return Ok(Response::NoStore);
+                }
             }
         }
 
@@ -83,7 +89,7 @@ impl Manager {
     async fn assign_leader_post_stepdown(
         &self,
         addresses: &HashMap<HsmId, Url>,
-        grant: &ManagementGrant<'_>,
+        grant: &ManagementGrant,
         stepdown: Stepdown,
         last: Option<LogIndex>,
     ) -> Result<Option<HsmId>, RpcError> {
@@ -186,10 +192,11 @@ impl Manager {
     }
 }
 
+#[derive(Eq, Ord, PartialEq, PartialOrd)]
 struct Stepdown {
-    hsm: HsmId,
-    url: Url,
     group: GroupId,
     realm: RealmId,
+    hsm: HsmId,
+    url: Url,
     config: Vec<HsmId>,
 }

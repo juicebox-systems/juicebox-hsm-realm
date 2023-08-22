@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
-use std::{env, fs};
+use std::{env, fs, iter};
 use tokio::time::sleep;
 use tracing::{debug, info};
 
@@ -34,6 +34,7 @@ use store::{self, StoreClient};
 #[derive(Debug)]
 pub struct ClusterConfig {
     pub load_balancers: u8,
+    pub cluster_managers: u8,
     pub realms: Vec<RealmConfig>,
     pub bigtable: store::Args,
     pub secrets_file: Option<PathBuf>,
@@ -59,7 +60,7 @@ pub struct ClusterResult {
     pub auth_key: AuthKey,
 
     pub store: StoreClient,
-    pub cluster_manager: Url,
+    pub cluster_managers: Vec<Url>,
 }
 
 impl ClusterResult {
@@ -204,12 +205,16 @@ pub async fn create_cluster(
         .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 
     let (lb_urls, certificates) = create_load_balancers(&args, process_group, &ports);
-    let cluster_manager = start_cluster_manager(
-        &args.bigtable,
-        args.path_to_target.clone(),
-        process_group,
-        &ports,
-    );
+    let cluster_managers: Vec<Url> = iter::repeat_with(|| {
+        start_cluster_manager(
+            &args.bigtable,
+            args.path_to_target.clone(),
+            process_group,
+            &ports,
+        )
+    })
+    .take(args.cluster_managers as usize)
+    .collect();
 
     let mut realms = Vec::with_capacity(args.realms.len());
     let mut hsm_gen = HsmGenerator::new(args.entrust, ports);
@@ -234,7 +239,7 @@ pub async fn create_cluster(
         auth_key_version,
         auth_key,
         store,
-        cluster_manager,
+        cluster_managers,
     })
 }
 
