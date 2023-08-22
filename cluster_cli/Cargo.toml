@@ -14,7 +14,6 @@ path = "src/main.rs"
 agent_api = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
-cli-table = { workspace = true }
 cluster_api = { workspace = true }
 cluster_core = { workspace = true }
 futures = { workspace = true }
@@ -31,6 +30,7 @@ reqwest = { workspace = true }
 secret_manager = { workspace = true }
 serde_json = { workspace = true }
 store = { workspace = true }
+table = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
