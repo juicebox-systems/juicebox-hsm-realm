@@ -59,6 +59,9 @@ default-members = [
 exclude = ["sdk"]
 resolver = "2"
 
+[workspace.package]
+rust-version = "1.71"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
 agent_api = { path = "agent_api" }

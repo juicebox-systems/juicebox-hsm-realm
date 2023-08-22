@@ -6,10 +6,22 @@ cd -P -- "$(dirname -- "$0")/.."
 
 TARGET=e5500-entrust-ncipherxc-gnu
 
-# Compile Rust code
-cargo +nightly build --target entrust_hsm/$TARGET.json --release -Z build-std=core,alloc -p entrust_hsm $@
+if [ -n "${NIGHTLY:-}" ]; then
+    TOOLCHAIN="+$NIGHTLY"
+else
+    # Enable nightly features on stable cargo/rustc.
+    TOOLCHAIN=''
+    export RUSTC_BOOTSTRAP=1
+fi
 
-# cd to project dir
+# Compile Rust code
+cargo $TOOLCHAIN build \
+    --target entrust_hsm/$TARGET.json \
+    --release \
+    -Z build-std=core,alloc \
+    -p entrust_hsm \
+    "$@"
+
 cd entrust_hsm
 
 # Compile C code

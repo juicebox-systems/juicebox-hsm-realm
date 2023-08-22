@@ -164,22 +164,29 @@ cargo run --bin demo_runner -- --demo sdk/swift/demo/.build/debug/demo
 
 ### Cross Compile
 
-Cross compile to powerpc to run on Entrust HSM. The PowerPC CPU in the HSM doesn't support Altivec
-which the rust prebuilt libraries for powerPC assume is available. So we need to build std ourselves
-(or hopefully just core later on). This currently requires the nightly toolchain.
+This section describes how to cross-compile the HSM code to PowerPC so it can
+run on an Entrust HSM. The PowerPC CPU in the HSM doesn't support Altivec
+features, but Rust's prebuilt libraries for PowerPC assume those are available.
+We need to build Rust's standard library crates ourselves. This normally
+[requires the nightly toolchain](https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#build-std),
+but we use a `RUSTC_BOOTSTRAP=1` hack to enable unstable features on the stable
+toolchain (the
+[Linux kernel](https://github.com/torvalds/linux/blob/706a741595047797872e669b3101429ab8d378ef/Makefile#L608)
+does this too).
 
-Install pre-requisites
+Install pre-requisites:
 
 ```sh
 rustup target add powerpc-unknown-linux-gnu
-rustup toolchain install nightly --component rust-src
+rustup component add rust-src
 sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
 ```
 
-The `build-ppc.sh` and `test-ppc.sh` scripts can be used to perform the build or tests for the PPC version.
+The `build-ppc.sh` and `test-ppc.sh` scripts build and test the PowerPC version.
 
 
-In addition to the options set in the scripts the .cargo/config.toml file is used to set the linker and CPU target.
+In addition to the options set in the scripts, the `.cargo/config.toml` file is
+used to set the linker and CPU target.
 
 
 ## Local Bigtable emulator

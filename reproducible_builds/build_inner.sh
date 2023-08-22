@@ -6,16 +6,15 @@ set -eux
 cd -P -- "$(dirname -- "$0")/.."
 
 CARGO_TARGET_DIR=/target; export CARGO_TARGET_DIR
-NIGHTLY=nightly-2023-06-01; export NIGHTLY
 TMPDIR=${TMPDIR:-/tmp}
 OUT_DIR=$(pwd)/target/reproducible
 
-sha256sum Codesafe_Lin64-12.80.4.zip
+sha256sum Codesafe_Lin64-13.3.2.iso.zip
 mkdir -p $TMPDIR/encipher/codesafe
-unzip -d $TMPDIR/encipher Codesafe_Lin64-12.80.4.zip
+unzip -d $TMPDIR/encipher Codesafe_Lin64-13.3.2.iso.zip
 (
     cd $TMPDIR/encipher/codesafe
-    7z x ../Codesafe_Lin64-12.80.4.iso
+    7z x ../Codesafe_Lin64-13.3.2.iso
     tar -C / -xf linux/amd64/csd.tar.gz
 )
 
