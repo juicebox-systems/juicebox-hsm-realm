@@ -10,7 +10,6 @@ use std::fs;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio::runtime::Handle;
 use tracing::info;
 
 use agent_core::hsm::HsmClient;
@@ -20,8 +19,8 @@ use hsm_core::hsm::mac::MacKey;
 use hsm_core::hsm::{RealmKeys, RecordEncryptionKey};
 use observability::{logging, metrics};
 use service_core::clap_parsers::parse_listen;
-use service_core::future_task::FutureTasks;
 use service_core::panic;
+use service_core::term::install_termination_handler;
 
 mod http_hsm;
 
@@ -63,20 +62,7 @@ struct Args {
 async fn main() {
     logging::configure("juicebox-agent");
     panic::set_abort_on_panic();
-
-    let mut shutdown_tasks = FutureTasks::new();
-    let mut shutdown_tasks_clone = shutdown_tasks.clone();
-    let rt = Handle::try_current().unwrap();
-
-    ctrlc::set_handler(move || {
-        info!(pid = std::process::id(), "received termination signal");
-        logging::flush();
-        rt.block_on(async { shutdown_tasks_clone.join_all().await });
-        logging::flush();
-        info!(pid = std::process::id(), "exiting");
-        std::process::exit(0);
-    })
-    .expect("error setting signal handler");
+    let mut shutdown_tasks = install_termination_handler();
 
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));

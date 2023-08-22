@@ -7,6 +7,7 @@ use manager::Manager;
 use observability::{logging, metrics};
 use service_core::clap_parsers::{parse_duration, parse_listen};
 use service_core::panic;
+use service_core::term::install_termination_handler;
 
 mod manager;
 
@@ -34,14 +35,7 @@ struct Args {
 async fn main() {
     logging::configure("cluster-manager");
     panic::set_abort_on_panic();
-
-    ctrlc::set_handler(move || {
-        info!(pid = std::process::id(), "received termination signal");
-        logging::flush();
-        info!(pid = std::process::id(), "exiting");
-        std::process::exit(0);
-    })
-    .expect("error setting signal handler");
+    install_termination_handler();
 
     let args = Args::parse();
     info!(?args, "Parsed command-line args");

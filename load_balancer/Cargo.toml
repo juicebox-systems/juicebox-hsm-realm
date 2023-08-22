@@ -33,7 +33,6 @@ secret_manager = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 service_core = { workspace = true }
-signal-hook = { workspace = true }
 store = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }

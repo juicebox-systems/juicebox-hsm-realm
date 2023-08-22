@@ -1,17 +1,16 @@
 use clap::Parser;
-use signal_hook::consts::signal::*;
-use signal_hook::iterator::Signals;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
+use tokio::signal::unix::{signal, SignalKind};
 use tracing::{info, warn};
 
 use google::auth;
 use observability::{logging, metrics};
 use secret_manager::{new_google_secret_manager, Periodic, SecretManager, SecretsFile};
 use service_core::panic;
+use service_core::term::install_termination_handler;
 
 mod cert;
 mod load_balancer;
@@ -66,34 +65,18 @@ async fn main() {
     );
     let cert_resolver = certs.clone();
 
-    let mut signals =
-        Signals::new([SIGHUP, SIGINT, SIGTERM, SIGQUIT]).expect("Failed to init signal handler");
-
-    // This uses a real thread rather than a tokio task to resolve some weirdness in
-    // logging::flush where the underlying opentelemetry call just hangs forever.
-    thread::Builder::new()
-        .name("signal_handler".into())
-        .spawn(move || {
-            for signal in &mut signals {
-                match signal {
-                    SIGHUP => {
-                        info!("Reloading TLS certificate/key from disk");
-                        match certs.reload() {
-                            Err(err) => warn!(?err, "Failed to reload TLS certificate/key"),
-                            Ok(_) => info!("Successfully reloaded TLS certificate/key from disk"),
-                        }
-                    }
-                    SIGTERM | SIGINT | SIGQUIT => {
-                        info!(pid = std::process::id(), "received termination signal");
-                        logging::flush();
-                        info!(pid = std::process::id(), "exiting");
-                        std::process::exit(0);
-                    }
-                    _ => unreachable!(),
-                }
+    let mut _shutdown_tasks = install_termination_handler();
+    tokio::spawn(async move {
+        let mut hup = signal(SignalKind::hangup()).unwrap();
+        loop {
+            hup.recv().await;
+            info!("Reloading TLS certificate/key from disk");
+            match certs.reload() {
+                Err(err) => warn!(?err, "Failed to reload TLS certificate/key"),
+                Ok(_) => info!("Successfully reloaded TLS certificate/key from disk"),
             }
-        })
-        .unwrap();
+        }
+    });
 
     let auth_manager = if args.bigtable.needs_auth() || args.secrets_file.is_none() {
         Some(

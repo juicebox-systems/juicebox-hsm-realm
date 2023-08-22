@@ -14,6 +14,7 @@ use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::types::Policy;
 use juicebox_sdk::{Client, Pin, UserInfo, UserSecret};
 use observability::logging;
+use service_core::term::install_termination_handler;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use testing::exec::hsm_gen::Entrust;
 
@@ -60,14 +61,7 @@ async fn main() {
     logging::configure("juicebox-hsm-bench");
 
     let mut process_group = ProcessGroup::new();
-
-    ctrlc::set_handler(move || {
-        info!(pid = std::process::id(), "received termination signal");
-        logging::flush();
-        info!(pid = std::process::id(), "exiting");
-        std::process::exit(0);
-    })
-    .expect("error setting signal handler");
+    install_termination_handler();
 
     let args = Args::parse();
     info!(?args, "Parsed command-line args");
