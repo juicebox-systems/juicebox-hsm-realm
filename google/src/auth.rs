@@ -1,6 +1,5 @@
 use gcp_auth::AuthenticationManager;
 use http::HeaderValue;
-use secrecy::ExposeSecret;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
@@ -89,9 +88,8 @@ impl Service<http::Request<BoxBody>> for AuthMiddleware {
                     .await
                     .map_err(Self::Error::Auth)?;
 
-                let mut value =
-                    HeaderValue::try_from(format!("Bearer {}", token.as_str().expose_secret()))
-                        .expect("malformed gcp_auth token");
+                let mut value = HeaderValue::try_from(format!("Bearer {}", token.secret()))
+                    .expect("malformed gcp_auth token");
                 value.set_sensitive(true);
 
                 request.headers_mut().append("authorization", value);
