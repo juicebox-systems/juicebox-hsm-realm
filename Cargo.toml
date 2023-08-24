@@ -90,7 +90,9 @@ entrust_nfast = { path = "entrust_nfast" }
 expect-test = "1.4.1"
 futures = "0.3.28"
 # gcp_auth is pinned because we have a local fork.
-gcp_auth = "=0.9.0"
+gcp_auth = { version = "=0.9.0", default-features = false, features = [
+    "webpki-roots",
+] }
 google = { path = "google" }
 hashbrown = { version = "0.14.0", default-features = false, features = [
     "inline-more",
