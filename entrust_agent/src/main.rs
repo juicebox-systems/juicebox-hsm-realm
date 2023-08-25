@@ -39,7 +39,8 @@ use service_core::panic;
 use service_core::term::install_termination_handler;
 
 /// A host agent for use with an Entrust nCipherXC HSM.
-#[derive(Parser)]
+#[derive(Debug, Parser)]
+#[command(version)]
 struct Args {
     #[command(flatten)]
     bigtable: store::Args,
@@ -96,6 +97,12 @@ async fn main() {
     let mut shutdown_tasks = install_termination_handler();
 
     let args = Args::parse();
+    info!(
+        ?args,
+        version = env!("CARGO_PKG_VERSION"),
+        "starting Entrust Agent"
+    );
+
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
     let metrics = metrics::Client::new("entrust_agent");
 
