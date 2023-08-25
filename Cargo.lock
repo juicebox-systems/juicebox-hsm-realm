@@ -1625,7 +1625,7 @@ checksum = "57bcfdad1b858c2db7c38303a6d2ad4dfaf5eb53dfeb0910128b2c26d6158503"
 
 [[package]]
 name = "load_balancer"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "agent_api",
  "anyhow",
@@ -1649,6 +1649,8 @@ dependencies = [
  "observability",
  "opentelemetry",
  "opentelemetry-http",
+ "pin-project-lite",
+ "reqwest",
  "rustls",
  "rustls-pemfile",
  "secret_manager",

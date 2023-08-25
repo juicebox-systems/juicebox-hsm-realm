@@ -3,7 +3,7 @@ use blake2::Blake2s256;
 use bytes::Bytes;
 use digest::Digest;
 use futures::future::join_all;
-use futures::Future;
+use futures::{select_biased, Future, FutureExt};
 use http::Method;
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
 use hyper::server::conn::{http1, http2};
@@ -23,12 +23,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::time::{self};
+use tokio::time;
 use tokio_rustls::{rustls, TlsAcceptor};
 use tracing::{instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
+use super::server::{HealthCheckStatus, ManagerOptions, ServiceManager};
 use agent_api::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use juicebox_marshalling as marshalling;
@@ -54,6 +55,7 @@ struct State {
     realms: Mutex<Arc<HashMap<RealmId, Vec<Partition>>>>,
     metrics: metrics::Client,
     semver: Version,
+    svc_mgr: ServiceManager,
 }
 
 static TCP_ACCEPT_SPEW: Spew = Spew::new();
@@ -66,6 +68,7 @@ impl LoadBalancer {
         store: StoreClient,
         secret_manager: Box<dyn SecretManager>,
         metrics: metrics::Client,
+        svc_cfg: ManagerOptions,
     ) -> Self {
         Self(Arc::new(State {
             name,
@@ -75,6 +78,7 @@ impl LoadBalancer {
             realms: Mutex::new(Arc::new(HashMap::new())),
             metrics,
             semver: Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
+            svc_mgr: ServiceManager::new(svc_cfg),
         }))
     }
 
@@ -103,8 +107,14 @@ impl LoadBalancer {
         Ok((
             url,
             tokio::spawn(async move {
+                let mgr = self.0.svc_mgr.connection_manager();
+                let mut shutdown_rx = mgr.subscribe_shutdown();
                 loop {
-                    match listener.accept().await {
+                    let accept_result = select_biased! {
+                        _ = shutdown_rx.recv().fuse() => return,
+                        r = listener.accept().fuse() => r
+                    };
+                    match accept_result {
                         Err(error) => {
                             if let Some(suppressed) = TCP_ACCEPT_SPEW.ok() {
                                 warn!(%error, suppressed, "error accepting connection")
@@ -114,6 +124,7 @@ impl LoadBalancer {
                             let acceptor = acceptor.clone();
                             let lb = self.clone();
                             let metrics = self.0.metrics.clone();
+                            let mgr = mgr.clone();
                             tokio::spawn(async move {
                                 match acceptor.accept(stream).await {
                                     Err(error) => {
@@ -136,14 +147,16 @@ impl LoadBalancer {
                                         );
                                         let result = match protocol {
                                             "h2" => {
-                                                http2::Builder::new(TokioExecutor)
-                                                    .serve_connection(stream, lb)
-                                                    .await
+                                                let c = http2::Builder::new(TokioExecutor)
+                                                    .serve_connection(stream, lb);
+                                                let c = mgr.manage(c);
+                                                c.await
                                             }
                                             "http/1.1" => {
-                                                http1::Builder::new()
-                                                    .serve_connection(stream, lb)
-                                                    .await
+                                                let c = http1::Builder::new()
+                                                    .serve_connection(stream, lb);
+                                                let c = mgr.manage(c);
+                                                c.await
                                             }
                                             _ => unreachable!(),
                                         };
@@ -164,6 +177,10 @@ impl LoadBalancer {
                 }
             }),
         ))
+    }
+
+    pub async fn shutdown(&self) {
+        self.0.svc_mgr.shutdown().await;
     }
 
     async fn start_refresher(&self) {
@@ -299,12 +316,15 @@ impl LoadBalancer {
         &self,
         _request: Request<IncomingBody>,
     ) -> Result<Response<Full<Bytes>>, Box<dyn Error + Send + Sync>> {
+        let body = match self.0.svc_mgr.health_check().await {
+            HealthCheckStatus::Ok => {
+                Bytes::from(format!("Juicebox load balancer: {}\n", self.0.semver))
+            }
+            HealthCheckStatus::ShuttingDown => Bytes::from("Shutting down"),
+        };
         Ok(Response::builder()
             .status(200)
-            .body(Full::from(Bytes::from(format!(
-                "Juicebox load balancer: {}\n",
-                self.0.semver
-            ))))
+            .body(Full::from(body))
             .unwrap())
     }
 

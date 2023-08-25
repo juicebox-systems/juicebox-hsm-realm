@@ -35,7 +35,7 @@ struct Args {
 async fn main() {
     logging::configure("cluster-manager");
     panic::set_abort_on_panic();
-    install_termination_handler();
+    install_termination_handler(Duration::from_secs(1));
 
     let args = Args::parse();
     info!(?args, "Parsed command-line args");

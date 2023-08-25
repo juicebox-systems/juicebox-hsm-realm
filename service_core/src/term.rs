@@ -1,12 +1,15 @@
+use std::time::Duration;
+
 use observability::logging;
 use tokio::signal::unix::{signal, SignalKind};
-use tracing::{debug, info};
+use tokio::time::timeout;
+use tracing::{debug, info, warn};
 
 use super::future_task::FutureTasks;
 
 // Registers a termination handler. The returned FutureTasks instance can be used
 // to add additional tasks needed to be run during shutdown.
-pub fn install_termination_handler() -> FutureTasks<()> {
+pub fn install_termination_handler(shutdown_timeout: Duration) -> FutureTasks<()> {
     let mut shutdown_tasks = FutureTasks::<()>::new();
     let shutdown_tasks2 = shutdown_tasks.clone();
 
@@ -21,7 +24,12 @@ pub fn install_termination_handler() -> FutureTasks<()> {
         };
 
         info!(pid = std::process::id(), "received termination signal");
-        shutdown_tasks.join_all().await;
+        if timeout(shutdown_timeout, shutdown_tasks.join_all())
+            .await
+            .is_err()
+        {
+            warn!("Timed out waiting for shutdown tasks to complete");
+        }
 
         // There's an issue with the open telemetry tracer where if you
         // try and shut it down (which is what flush does) from a tokio

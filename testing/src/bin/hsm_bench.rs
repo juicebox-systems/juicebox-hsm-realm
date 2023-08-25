@@ -61,7 +61,7 @@ async fn main() {
     logging::configure("juicebox-hsm-bench");
 
     let mut process_group = ProcessGroup::new();
-    install_termination_handler();
+    install_termination_handler(Duration::from_secs(1));
 
     let args = Args::parse();
     info!(?args, "Parsed command-line args");

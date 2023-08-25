@@ -3,12 +3,29 @@ An HTTP load balancer for one or more realms
 Usage: load_balancer [OPTIONS] --tls-key <TLS_KEY> --tls-cert <TLS_CERT>
 
 Options:
-      --bigtable-project <PROJECT>    The name of the GCP project that contains the bigtable instance [default: prj]
-      --bigtable-instance <INSTANCE>  The name of the bigtable instance to connect to [default: instance]
-      --bigtable-url <URL>            The url to the big table emulator [default uses GCP endpoints]
-  -l, --listen <LISTEN>               The IP/port to listen on [default: 127.0.0.1:8081]
-  -n, --name <NAME>                   Name of the load balancer in logging [default: lb{listen}]
-      --secrets-file <SECRETS_FILE>   Name of JSON file containing per-tenant keys for authentication. The default is to fetch these from Google Secret Manager
-      --tls-key <TLS_KEY>             Name of the file containing the private key for terminating TLS
-      --tls-cert <TLS_CERT>           Name of the PEM file containing the certificate(s) for terminating TLS
-  -h, --help                          Print help
+      --bigtable-project <PROJECT>
+          The name of the GCP project that contains the bigtable instance [default: prj]
+      --bigtable-instance <INSTANCE>
+          The name of the bigtable instance to connect to [default: instance]
+      --bigtable-url <URL>
+          The url to the big table emulator [default uses GCP endpoints]
+  -l, --listen <LISTEN>
+          The IP/port to listen on [default: 127.0.0.1:8081]
+  -n, --name <NAME>
+          Name of the load balancer in logging [default: lb{listen}]
+      --secrets-file <SECRETS_FILE>
+          Name of JSON file containing per-tenant keys for authentication. The default is to fetch these from Google Secret Manager
+      --shutdown-timeout <SHUTDOWN_TIMEOUT>
+          Max length of time to wait for a graceful shutdown to complete. (milliseconds) [default: 60000]
+      --shutdown-min-health-checks <COUNT>
+          Number of health checks to report as shutting down before starting to drain connections [default: 5]
+      --idle-timeout <TIMEOUT>
+          Connections that have been idle longer than this timeout will be closed. (milliseconds) [default: 10000]
+      --tls-key <TLS_KEY>
+          Name of the file containing the private key for terminating TLS
+      --tls-cert <TLS_CERT>
+          Name of the PEM file containing the certificate(s) for terminating TLS
+  -h, --help
+          Print help
+  -V, --version
+          Print version

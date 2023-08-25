@@ -49,7 +49,7 @@ async fn main() {
     let metrics = metrics::Client::new("demo_runner");
 
     let mut process_group = ProcessGroup::new();
-    install_termination_handler();
+    install_termination_handler(Duration::from_secs(1));
 
     let bt_args = store::Args {
         instance: String::from("inst"),

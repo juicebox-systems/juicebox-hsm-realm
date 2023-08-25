@@ -93,7 +93,7 @@ struct Args {
 async fn main() {
     logging::configure("entrust-agent");
     panic::set_abort_on_panic();
-    let mut shutdown_tasks = install_termination_handler();
+    let mut shutdown_tasks = install_termination_handler(Duration::from_secs(10));
 
     let args = Args::parse();
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
@@ -139,7 +139,7 @@ async fn main() {
     let agent = Agent::new(name, hsm, store, store_admin, metrics);
     let agent_clone = agent.clone();
     shutdown_tasks.add(Box::pin(async move {
-        agent_clone.shutdown(Duration::from_secs(10)).await;
+        agent_clone.shutdown().await;
     }));
 
     let (url, join_handle) = agent
