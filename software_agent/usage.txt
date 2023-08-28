@@ -12,3 +12,4 @@ Options:
   -n, --name <NAME>                   Name of the agent in logging [default: agent{listen}]
   -s, --state-dir <STATE_DIR>         Directory to store the persistent state file in [default: a random temp dir]
   -h, --help                          Print help
+  -V, --version                       Print version

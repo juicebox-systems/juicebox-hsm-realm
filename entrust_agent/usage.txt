@@ -15,3 +15,4 @@ Options:
   -u, --userdata <USERDATA>           The name of the file containing the signed userdata file. Should be signed with the same 'seeinteg' key that the see machine image was signed with. The data in this file isn't used, but the signed file is needed for the ACLs that restrict access to a SEEMachine to work
       --reinitialize                  Reinitialize the NVRAM state back to blank, effectively making a new HSM
   -h, --help                          Print help
+  -V, --version                       Print version

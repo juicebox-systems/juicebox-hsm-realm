@@ -28,7 +28,8 @@ use http_hsm::client::HsmHttpClient;
 use http_hsm::host::HttpHsm;
 
 /// A host agent that embeds an insecure software HSM.
-#[derive(Parser)]
+#[derive(Debug, Parser)]
+#[command(version)]
 struct Args {
     #[command(flatten)]
     bigtable: store::Args,
@@ -65,6 +66,12 @@ async fn main() {
     let mut shutdown_tasks = install_termination_handler();
 
     let args = Args::parse();
+    info!(
+        ?args,
+        version = env!("CARGO_PKG_VERSION"),
+        "starting Software Agent"
+    );
+
     let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
     let metrics = metrics::Client::new("software_agent");
 
