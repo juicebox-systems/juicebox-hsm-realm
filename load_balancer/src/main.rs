@@ -50,12 +50,13 @@ struct Args {
     #[arg(long, default_value="60000", value_parser=parse_duration)]
     shutdown_timeout: Duration,
 
-    /// Number of health checks to report as shutting down before starting to drain connections.
-    #[arg(long, default_value_t = 5, name = "COUNT")]
-    shutdown_min_health_checks: usize,
+    /// Length of time to signal that we're going to be shutting down before
+    /// starting the shutdown. (milliseconds)
+    #[arg(long, default_value = "30000", name = "TIME", value_parser=parse_duration)]
+    shutting_down_signalling_time: Duration,
 
     /// Connections that have been idle longer than this timeout will be closed. (milliseconds)
-    #[arg(long, default_value="10000", value_parser=parse_duration, name="TIMEOUT")]
+    #[arg(long, default_value="60000", value_parser=parse_duration, name="TIMEOUT")]
     idle_timeout: Duration,
 
     /// Name of the file containing the private key for terminating TLS.
@@ -146,7 +147,7 @@ async fn main() {
     };
 
     let svc_cfg = ManagerOptions {
-        min_health_checks_before_shutdown: args.shutdown_min_health_checks,
+        shutting_down_time: args.shutting_down_signalling_time,
         conn: ConnectionOptions {
             idle_timeout: args.idle_timeout,
         },

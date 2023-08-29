@@ -5,26 +5,28 @@ use hyper::server::conn::{http1, http2};
 use hyper::service::HttpService;
 use pin_project_lite::pin_project;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{broadcast, watch, Mutex};
+use tokio::sync::{broadcast, watch};
 use tokio::time::{sleep, Instant, Sleep};
 use tracing::{debug, info, warn};
 
 pub struct ManagerOptions {
     pub conn: ConnectionOptions,
-    // The minimum number of health checks that report shutting down
-    // before starting to drain any active requests/connections.
-    pub min_health_checks_before_shutdown: usize,
+    // The amount of time to spend signalling to health check that we're
+    // shutting down before starting to close connections and drain any
+    // remaining active requests.
+    pub shutting_down_time: Duration,
 }
 
 impl Default for ManagerOptions {
     fn default() -> Self {
         Self {
             conn: Default::default(),
-            min_health_checks_before_shutdown: 2,
+            shutting_down_time: Duration::from_secs(30),
         }
     }
 }
@@ -32,8 +34,6 @@ impl Default for ManagerOptions {
 pub struct ServiceManager {
     conn_mgr: Arc<ConnectionManager>,
     shutting_down: AtomicBool,
-    health_checks_since_shutdown: AtomicUsize,
-    shutdown_health_checks: Mutex<Option<watch::Sender<usize>>>,
     options: ManagerOptions,
 }
 
@@ -42,8 +42,6 @@ impl ServiceManager {
         Self {
             conn_mgr: Arc::new(ConnectionManager::new(options.conn.clone())),
             shutting_down: AtomicBool::new(false),
-            health_checks_since_shutdown: AtomicUsize::new(0),
-            shutdown_health_checks: Mutex::new(None),
             options,
         }
     }
@@ -53,16 +51,7 @@ impl ServiceManager {
     }
 
     pub async fn health_check(&self) -> HealthCheckStatus {
-        if self.shutting_down.load(std::sync::atomic::Ordering::SeqCst) {
-            let count = self
-                .health_checks_since_shutdown
-                .fetch_add(1, Ordering::SeqCst);
-
-            if let Some(tx) = self.shutdown_health_checks.lock().await.as_ref() {
-                if let Err(err) = tx.send(count + 1) {
-                    warn!(?err, "failed to send health check count on channel");
-                }
-            }
+        if self.shutting_down.load(Relaxed) {
             HealthCheckStatus::ShuttingDown
         } else {
             HealthCheckStatus::Ok
@@ -76,18 +65,14 @@ impl ServiceManager {
     // ManagerOptions) before proceeding. Then we tell every active connection
     // to do a graceful shutdown and wait til all the connections are closed.
     pub async fn shutdown(&self) {
-        let (tx, mut rx) = watch::channel::<usize>(0);
-        *self.shutdown_health_checks.lock().await = Some(tx);
-        self.health_checks_since_shutdown.store(0, Ordering::SeqCst);
-        self.shutting_down.store(true, Ordering::SeqCst);
+        self.shutdown_inner(sleep(self.options.shutting_down_time))
+            .await;
+    }
 
-        info!("shutdown in progress, waiting for health checks");
-        if let Err(err) = rx
-            .wait_for(|count| *count >= self.options.min_health_checks_before_shutdown)
-            .await
-        {
-            warn!(?err, "failed to wait on the health checks count channel");
-        }
+    // Broken out for testing.
+    async fn shutdown_inner(&self, sleeper: impl Future<Output = ()>) {
+        self.shutting_down.store(true, Relaxed);
+        sleeper.await;
         self.conn_mgr.shutdown().await
     }
 }
@@ -285,7 +270,9 @@ mod tests {
     use hyper::{body::Incoming, Request, Response};
     use std::error::Error;
     use std::net::Ipv4Addr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::net::TcpListener;
+    use tokio::sync::{oneshot, Mutex};
     use tokio::time::timeout;
 
     use super::*;
@@ -300,8 +287,15 @@ mod tests {
         // After we trigger a shutdown, the health should report shutting down
         // but otherwise things should be able to proceed as normal.
         let server2 = server.clone();
+        // Use a oneshot channel as a test shutting down timer.
+        let (tx, rx) = oneshot::channel();
         let shutdown_handle = tokio::spawn(async move {
-            server2.0.server.mgr.shutdown().await;
+            server2
+                .0
+                .server
+                .mgr
+                .shutdown_inner(async { rx.await.unwrap() })
+                .await;
         });
 
         let hc = client.get("http://localhost:4444/livez").send().await;
@@ -336,12 +330,9 @@ mod tests {
         // It takes time for the spawned task to get to the point where its blocking on the response.
         active_rx.wait_for(|count| *count == 1).await.unwrap();
 
-        // After the 2nd health check shutdown should proceed, including no longer accepting connections.
-        let hc = client.get("http://localhost:4444/livez").send().await;
-        assert_eq!(
-            "Shutting down".to_string(),
-            hc.unwrap().text().await.unwrap()
-        );
+        // The shutting down timer expires, shutdown should progress to closing
+        // idle connections and draining pending requests.
+        tx.send(()).unwrap();
         assert!(client
             .get("http://localhost:4444/livez")
             .send()
@@ -375,7 +366,7 @@ mod tests {
                 conn: ConnectionOptions {
                     idle_timeout: Duration::from_secs(5),
                 },
-                min_health_checks_before_shutdown: 2,
+                shutting_down_time: Duration::from_secs(1),
             });
             let (respond_next_tx, respond_next_rx) = broadcast::channel(1);
 
@@ -437,7 +428,7 @@ mod tests {
         fn call(&mut self, request: Request<Incoming>) -> Self::Future {
             let s = self.clone();
             Box::pin(async move {
-                let count = s.0.pending_count.fetch_add(1, Ordering::SeqCst);
+                let count = s.0.pending_count.fetch_add(1, Ordering::Relaxed);
                 s.0.pending_watch.send_replace(count + 1);
 
                 let result = if request.uri().path() == "/livez" {
@@ -457,7 +448,7 @@ mod tests {
                         .unwrap())
                 };
 
-                let count = s.0.pending_count.fetch_sub(1, Ordering::SeqCst);
+                let count = s.0.pending_count.fetch_sub(1, Ordering::Relaxed);
                 s.0.pending_watch.send_replace(count - 1);
 
                 result

@@ -17,10 +17,10 @@ Options:
           Name of JSON file containing per-tenant keys for authentication. The default is to fetch these from Google Secret Manager
       --shutdown-timeout <SHUTDOWN_TIMEOUT>
           Max length of time to wait for a graceful shutdown to complete. (milliseconds) [default: 60000]
-      --shutdown-min-health-checks <COUNT>
-          Number of health checks to report as shutting down before starting to drain connections [default: 5]
+      --shutting-down-signalling-time <TIME>
+          Length of time to signal that we're going to be shutting down before starting the shutdown. (milliseconds) [default: 30000]
       --idle-timeout <TIMEOUT>
-          Connections that have been idle longer than this timeout will be closed. (milliseconds) [default: 10000]
+          Connections that have been idle longer than this timeout will be closed. (milliseconds) [default: 60000]
       --tls-key <TLS_KEY>
           Name of the file containing the private key for terminating TLS
       --tls-cert <TLS_CERT>
