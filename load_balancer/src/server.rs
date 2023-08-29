@@ -114,7 +114,6 @@ pub struct ConnectionManager {
     options: ConnectionOptions,
     connections_changed_tx: broadcast::Sender<ConnectionEvent>,
     connections_count_rx: watch::Receiver<usize>,
-    shutdown: AtomicBool,
     shutdown_tx: broadcast::Sender<()>,
 }
 
@@ -124,7 +123,6 @@ impl ConnectionManager {
         let (conn_tx, mut conn_rx) = broadcast::channel(32);
         let (count_tx, count_rx) = watch::channel(0);
         let cm = Self {
-            shutdown: AtomicBool::new(false),
             shutdown_tx,
             options,
             connections_changed_tx: conn_tx,
@@ -161,7 +159,6 @@ impl ConnectionManager {
     }
 
     async fn shutdown(&self) {
-        self.shutdown.store(true, Ordering::SeqCst);
         let count = self.shutdown_tx.send(()).unwrap_or_default();
         info!(
             subscribers = count,
