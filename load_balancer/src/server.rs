@@ -14,8 +14,10 @@ use tokio::sync::{broadcast, watch};
 use tokio::time::{sleep, Instant, Sleep};
 use tracing::{debug, info, warn};
 
+#[derive(Debug)]
 pub struct ManagerOptions {
-    pub conn: ConnectionOptions,
+    // After this amount of time an idle connection will be close.
+    pub idle_timeout: Duration,
     // The amount of time to spend signalling to health check that we're
     // shutting down before starting to close connections and drain any
     // remaining active requests.
@@ -25,94 +27,30 @@ pub struct ManagerOptions {
 impl Default for ManagerOptions {
     fn default() -> Self {
         Self {
-            conn: Default::default(),
+            idle_timeout: Duration::from_secs(60),
             shutting_down_time: Duration::from_secs(30),
         }
     }
 }
 
-pub struct ServiceManager {
-    conn_mgr: Arc<ConnectionManager>,
-    shutting_down: AtomicBool,
+#[derive(Clone, Debug)]
+pub struct ServiceManager(Arc<ServiceManagerInner>);
+
+#[derive(Debug)]
+struct ServiceManagerInner {
     options: ManagerOptions,
-}
-
-impl ServiceManager {
-    pub fn new(options: ManagerOptions) -> Self {
-        Self {
-            conn_mgr: Arc::new(ConnectionManager::new(options.conn.clone())),
-            shutting_down: AtomicBool::new(false),
-            options,
-        }
-    }
-
-    pub fn connection_manager(&self) -> Arc<ConnectionManager> {
-        self.conn_mgr.clone()
-    }
-
-    pub async fn health_check(&self) -> HealthCheckStatus {
-        if self.shutting_down.load(Relaxed) {
-            HealthCheckStatus::ShuttingDown
-        } else {
-            HealthCheckStatus::Ok
-        }
-    }
-
-    // Perform a graceful shutdown of the service. This performs 2 main steps.
-    // It flags the health check as shutting down, so that CloudFlare will stop
-    // sending requests to this host. We wait for the health check to have been
-    // seen a number of times (see min_health_checks_before_shutdown in
-    // ManagerOptions) before proceeding. Then we tell every active connection
-    // to do a graceful shutdown and wait til all the connections are closed.
-    pub async fn shutdown(&self) {
-        self.shutdown_inner(sleep(self.options.shutting_down_time))
-            .await;
-    }
-
-    // Broken out for testing.
-    async fn shutdown_inner(&self, sleeper: impl Future<Output = ()>) {
-        self.shutting_down.store(true, Relaxed);
-        sleeper.await;
-        self.conn_mgr.shutdown().await
-    }
-}
-
-pub enum HealthCheckStatus {
-    Ok,
-    ShuttingDown,
-}
-
-#[derive(Clone)]
-pub struct ConnectionOptions {
-    pub idle_timeout: Duration,
-}
-
-impl Default for ConnectionOptions {
-    fn default() -> Self {
-        Self {
-            idle_timeout: Duration::from_secs(5),
-        }
-    }
-}
-
-pub struct ConnectionManager {
-    options: ConnectionOptions,
+    shutting_down: AtomicBool,
     connections_changed_tx: broadcast::Sender<ConnectionEvent>,
     connections_count_rx: watch::Receiver<usize>,
     shutdown_tx: broadcast::Sender<()>,
 }
 
-impl ConnectionManager {
-    pub fn new(options: ConnectionOptions) -> Self {
+impl ServiceManager {
+    pub fn new(options: ManagerOptions) -> Self {
         let (shutdown_tx, _) = broadcast::channel(1);
         let (conn_tx, mut conn_rx) = broadcast::channel(32);
         let (count_tx, count_rx) = watch::channel(0);
-        let cm = Self {
-            shutdown_tx,
-            options,
-            connections_changed_tx: conn_tx,
-            connections_count_rx: count_rx,
-        };
+
         tokio::spawn(async move {
             let mut count: usize = 0;
             while let Ok(e) = conn_rx.recv().await {
@@ -124,37 +62,77 @@ impl ConnectionManager {
                 debug!(?count, "active HTTP connections");
             }
         });
-        cm
+
+        Self(Arc::new(ServiceManagerInner {
+            shutting_down: AtomicBool::new(false),
+            options,
+            connections_changed_tx: conn_tx,
+            connections_count_rx: count_rx,
+            shutdown_tx,
+        }))
     }
 
+    // The returned receiver will receive a value When shutdown reaches the
+    // stage where connections should be shutdown.
+    pub fn subscribe_conn_shutdown(&self) -> broadcast::Receiver<()> {
+        self.0.shutdown_tx.subscribe()
+    }
+
+    pub async fn health_check(&self) -> HealthCheckStatus {
+        if self.0.shutting_down.load(Relaxed) {
+            HealthCheckStatus::ShuttingDown
+        } else {
+            HealthCheckStatus::Ok
+        }
+    }
+
+    // Returns a managed version of the supplied hyper connection.
     pub fn manage<C: GracefulShutdown>(&self, conn: C) -> GracefulConnection<C> {
-        self.connections_changed_tx
+        self.0
+            .connections_changed_tx
             .send(ConnectionEvent::Opened)
             .unwrap();
         GracefulConnection::new(
             conn,
-            self.shutdown_tx.subscribe(),
-            self.options.idle_timeout,
-            self.connections_changed_tx.clone(),
+            self.0.shutdown_tx.subscribe(),
+            self.0.options.idle_timeout,
+            self.0.connections_changed_tx.clone(),
         )
     }
 
-    pub fn subscribe_shutdown(&self) -> broadcast::Receiver<()> {
-        self.shutdown_tx.subscribe()
+    // Perform a graceful shutdown of the service. This performs 2 main steps.
+    // It flags the health check as shutting down, so that CloudFlare will stop
+    // sending requests to this host. We wait for the
+    // ['ManagerOptions::shutting_down_time'] amount of time to be sure that
+    // CloudFlare has seen this new state. Then we tell every active connection
+    // to do a graceful shutdown and wait til all the connections are closed.
+    pub async fn shutdown(&self) {
+        self.shutdown_inner(sleep(self.0.options.shutting_down_time))
+            .await;
     }
 
-    async fn shutdown(&self) {
-        let count = self.shutdown_tx.send(()).unwrap_or_default();
+    // Broken out for testing.
+    async fn shutdown_inner(&self, sleeper: impl Future<Output = ()>) {
+        info!("starting service shutdown");
+        self.0.shutting_down.store(true, Relaxed);
+        sleeper.await;
+
+        let count = self.0.shutdown_tx.send(()).unwrap_or_default();
         info!(
             subscribers = count,
             "shutdown in progress, waiting for connections to close"
         );
 
-        let mut count = self.connections_count_rx.clone();
+        let mut count = self.0.connections_count_rx.clone();
         if let Err(err) = count.wait_for(|count| *count == 0).await {
             warn!(?err, "Error waiting for connection count to reach 0");
         };
     }
+}
+
+pub enum HealthCheckStatus {
+    Ok,
+    ShuttingDown,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -167,15 +145,15 @@ pin_project! {
     pub struct GracefulConnection<C>
     where
         // This is a hyper http1::Connection or http2::Connection
-        C:GracefulShutdown,
+        C: GracefulShutdown,
     {
         #[pin]
         conn: C,
         #[pin]
-        idle_timer:Sleep,
-        idle_timeout:Duration,
+        idle_timer: Sleep,
+        idle_timeout: Duration,
         shutdown_rx: broadcast::Receiver<()>,
-        finished_tx: broadcast::Sender<ConnectionEvent>
+        finished_tx: broadcast::Sender<ConnectionEvent>,
     }
 }
 
@@ -361,9 +339,7 @@ mod tests {
         // The returned watch rx monitors the number of active requests excluding health checks.
         async fn new(port: u16) -> (Self, watch::Receiver<usize>) {
             let mgr = ServiceManager::new(ManagerOptions {
-                conn: ConnectionOptions {
-                    idle_timeout: Duration::from_secs(5),
-                },
+                idle_timeout: Duration::from_secs(5),
                 shutting_down_time: Duration::from_secs(1),
             });
             let (respond_next_tx, respond_next_rx) = broadcast::channel(1);
@@ -382,8 +358,8 @@ mod tests {
                 pending_count: AtomicUsize::new(0),
                 pending_watch: pending_tx,
             }));
-            let conn_mgr = service.0.server.mgr.connection_manager();
-            let mut shutdown_rx = conn_mgr.subscribe_shutdown();
+            let mgr = service.0.server.mgr.clone();
+            let mut shutdown_rx = mgr.subscribe_conn_shutdown();
             let service2 = service.clone();
             tokio::spawn(async move {
                 loop {
@@ -392,7 +368,7 @@ mod tests {
                         result = listener.accept().fuse() => result.unwrap(),
                     };
                     let service = service.clone();
-                    let conn_mgr = conn_mgr.clone();
+                    let conn_mgr = mgr.clone();
                     tokio::spawn(async move {
                         let c = http1::Builder::new().serve_connection(stream, service);
                         let c = conn_mgr.manage(c);

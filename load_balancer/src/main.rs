@@ -10,7 +10,7 @@ use tracing::{info, warn};
 use google::auth;
 use observability::{logging, metrics};
 use secret_manager::{new_google_secret_manager, Periodic, SecretManager, SecretsFile};
-use server::{ConnectionOptions, ManagerOptions};
+use server::ManagerOptions;
 use service_core::clap_parsers::{parse_duration, parse_listen};
 use service_core::panic;
 use service_core::term::install_termination_handler;
@@ -147,10 +147,8 @@ async fn main() {
     };
 
     let svc_cfg = ManagerOptions {
+        idle_timeout: args.idle_timeout,
         shutting_down_time: args.shutting_down_signalling_time,
-        conn: ConnectionOptions {
-            idle_timeout: args.idle_timeout,
-        },
     };
     let lb = LoadBalancer::new(name, store, secret_manager, metrics.clone(), svc_cfg);
     let lb_clone = lb.clone();

@@ -107,8 +107,8 @@ impl LoadBalancer {
         Ok((
             url,
             tokio::spawn(async move {
-                let mgr = self.0.svc_mgr.connection_manager();
-                let mut shutdown_rx = mgr.subscribe_shutdown();
+                let mgr = self.0.svc_mgr.clone();
+                let mut shutdown_rx = mgr.subscribe_conn_shutdown();
                 loop {
                     let accept_result = select_biased! {
                         _ = shutdown_rx.recv().fuse() => return,
