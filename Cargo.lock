@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "agent_api"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "async-trait",
  "hsm_api",
@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "agent_core"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "agent_api",
  "anyhow",
@@ -289,7 +289,7 @@ checksum = "b4682ae6287fcf752ecaabbfcc7b6f9b72aa33933dc23a554d853aea8eea8635"
 
 [[package]]
 name = "bitvec"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "juicebox_marshalling",
  "serde",
@@ -491,7 +491,7 @@ checksum = "2da6da31387c7e4ef160ffab6d5e7f00c42626fe39aea70a7b0f1773f7dd6c1b"
 
 [[package]]
 name = "cluster_api"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "hsm_api",
  "juicebox_networking",
@@ -501,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "cluster_bench"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -522,7 +522,7 @@ dependencies = [
 
 [[package]]
 name = "cluster_cli"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "agent_api",
  "anyhow",
@@ -552,7 +552,7 @@ dependencies = [
 
 [[package]]
 name = "cluster_core"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "agent_api",
  "futures",
@@ -569,7 +569,7 @@ dependencies = [
 
 [[package]]
 name = "cluster_manager"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "agent_api",
  "anyhow",
@@ -602,7 +602,7 @@ dependencies = [
 
 [[package]]
 name = "codegen"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "tonic-build",
 ]
@@ -778,7 +778,7 @@ checksum = "a26ae43d7bcc3b814de94796a5e736d4029efb0ee900c12e2d54c993ad1a1e07"
 
 [[package]]
 name = "election"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "hsm_api",
 ]
@@ -794,7 +794,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_agent"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "agent_core",
  "async-trait",
@@ -813,7 +813,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_api"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "juicebox_marshalling",
  "serde",
@@ -821,7 +821,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_hsm"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "entrust_api",
  "hsm_api",
@@ -833,7 +833,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_init"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -844,7 +844,7 @@ dependencies = [
 
 [[package]]
 name = "entrust_nfast"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "hex",
  "thiserror",
@@ -1056,7 +1056,7 @@ checksum = "b6c80984affa11d98d1b88b66ac8853f143217b399d3c74116778ff8fdb4ed2e"
 
 [[package]]
 name = "google"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "gcp_auth",
  "http",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "hsm_api"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "bitvec",
  "blake2",
@@ -1188,7 +1188,7 @@ dependencies = [
 
 [[package]]
 name = "hsm_core"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "async-trait",
  "bitvec",
@@ -1601,7 +1601,6 @@ name = "juicebox_secret_sharing"
 version = "0.2.0"
 dependencies = [
  "curve25519-dalek",
- "itertools 0.11.0",
  "rand_core",
 ]
 
@@ -1625,7 +1624,7 @@ checksum = "57bcfdad1b858c2db7c38303a6d2ad4dfaf5eb53dfeb0910128b2c26d6158503"
 
 [[package]]
 name = "load_balancer"
-version = "0.2.1"
+version = "0.2.3"
 dependencies = [
  "agent_api",
  "anyhow",
@@ -1671,7 +1670,7 @@ checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 
 [[package]]
 name = "lru-cache"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "hashbrown 0.14.0",
 ]
@@ -1699,7 +1698,7 @@ dependencies = [
 
 [[package]]
 name = "merkle_tree_docgen"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "bitvec",
  "clap",
@@ -1852,7 +1851,7 @@ dependencies = [
 
 [[package]]
 name = "observability"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "dogstatsd",
  "opentelemetry",
@@ -2397,7 +2396,7 @@ dependencies = [
 
 [[package]]
 name = "secret_manager"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2472,7 +2471,7 @@ dependencies = [
 
 [[package]]
 name = "service_core"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "bytes",
  "futures",
@@ -2558,7 +2557,7 @@ dependencies = [
 
 [[package]]
 name = "software_agent"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "agent_core",
  "anyhow",
@@ -2609,7 +2608,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "agent_api",
  "agent_core",
@@ -2694,7 +2693,7 @@ dependencies = [
 
 [[package]]
 name = "table"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "expect-test",
 ]
@@ -2714,7 +2713,7 @@ dependencies = [
 
 [[package]]
 name = "testing"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "agent_api",
  "agent_core",
