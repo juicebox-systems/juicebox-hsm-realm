@@ -239,7 +239,6 @@ where
     B: Body + 'static,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     SVC: HttpService<Incoming, ResBody = B>,
-    SVC::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
     fn start_graceful_shutdown(self: Pin<&mut Self>) {
         self.graceful_shutdown();
@@ -252,7 +251,6 @@ where
     B: Body + 'static,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     SVC: HttpService<Incoming, ResBody = B>,
-    SVC::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     EXEC: Http2ConnExec<SVC::Future, B>,
 {
     fn start_graceful_shutdown(self: Pin<&mut Self>) {
