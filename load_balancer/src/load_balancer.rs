@@ -76,9 +76,9 @@ impl LoadBalancer {
             secret_manager,
             agent_client: Client::new(ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
-            metrics,
+            metrics: metrics.clone(),
             semver: Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
-            svc_mgr: ServiceManager::new(svc_cfg),
+            svc_mgr: ServiceManager::new(svc_cfg, metrics),
         }))
     }
 

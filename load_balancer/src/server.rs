@@ -14,6 +14,8 @@ use tokio::sync::{broadcast, watch};
 use tokio::time::{sleep, Instant, Sleep};
 use tracing::{debug, info, warn};
 
+use observability::metrics;
+
 #[derive(Debug)]
 pub struct ManagerOptions {
     // After this amount of time an idle connection will be close.
@@ -46,7 +48,7 @@ struct ServiceManagerInner {
 }
 
 impl ServiceManager {
-    pub fn new(options: ManagerOptions) -> Self {
+    pub fn new(options: ManagerOptions, metrics: metrics::Client) -> Self {
         let (shutdown_tx, _) = broadcast::channel(1);
         let (conn_tx, mut conn_rx) = broadcast::channel(32);
         let (count_tx, count_rx) = watch::channel(0);
@@ -60,6 +62,7 @@ impl ServiceManager {
                 }
                 count_tx.send_replace(count);
                 debug!(?count, "active HTTP connections");
+                metrics.gauge("load_balancer.connections.active", count, metrics::NO_TAGS);
             }
         });
 
@@ -130,6 +133,7 @@ impl ServiceManager {
         if let Err(err) = count.wait_for(|count| *count == 0).await {
             warn!(?err, "Error waiting for connection count to reach 0");
         };
+        info!("service shutdown complete");
     }
 }
 
@@ -341,10 +345,13 @@ mod tests {
     impl TestService {
         // The returned watch rx monitors the number of active requests excluding health checks.
         async fn new(port: u16) -> (Self, watch::Receiver<usize>) {
-            let mgr = ServiceManager::new(ManagerOptions {
-                idle_timeout: Duration::from_secs(5),
-                shutdown_notice_period: Duration::from_secs(1),
-            });
+            let mgr = ServiceManager::new(
+                ManagerOptions {
+                    idle_timeout: Duration::from_secs(5),
+                    shutdown_notice_period: Duration::from_secs(1),
+                },
+                metrics::Client::new("test_service"),
+            );
             let (respond_next_tx, respond_next_rx) = broadcast::channel(1);
 
             let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
