@@ -12,7 +12,7 @@ use service_core::term::install_termination_handler;
 mod manager;
 
 #[derive(Debug, Parser)]
-#[command(about = "Management controller for Juicebox Clusters")]
+#[command(version, about = "Management controller for Juicebox Clusters")]
 struct Args {
     #[command(flatten)]
     bigtable: store::Args,
@@ -38,7 +38,11 @@ async fn main() {
     install_termination_handler(Duration::from_secs(1));
 
     let args = Args::parse();
-    info!(?args, "Parsed command-line args");
+    info!(
+        ?args,
+        version = env!("CARGO_PKG_VERSION"),
+        "starting Cluster Manager"
+    );
     let metrics = metrics::Client::new("cluster_manager");
 
     let auth_manager = if args.bigtable.needs_auth() {

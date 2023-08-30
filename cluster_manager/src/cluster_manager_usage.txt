@@ -9,3 +9,4 @@ Options:
   -l, --listen <LISTEN>               The IP/port to listen on [default: 127.0.0.1:8079]
   -i, --interval <INTERVAL>           Interval for checking the cluster state in milliseconds [default: 2000]
   -h, --help                          Print help
+  -V, --version                       Print version

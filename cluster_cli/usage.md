@@ -23,6 +23,7 @@ Options:
       --bigtable-instance <INSTANCE>  The name of the bigtable instance to connect to [default: instance]
       --bigtable-url <URL>            The url to the big table emulator [default uses GCP endpoints]
   -h, --help                          Print help
+  -V, --version                       Print version
 
 ```
 
