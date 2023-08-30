@@ -35,7 +35,7 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
-    hsm_core::hash::set_global_rng_owned(rand_core::OsRng);
+    hsm_core::hash::set_global_rng(Box::new(rand_core::OsRng));
 
     let o = PathBuf::from("docs/merkle_tree");
     doc_intro(&o);

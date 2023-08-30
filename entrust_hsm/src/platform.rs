@@ -46,7 +46,7 @@ impl NCipher {
 }
 
 pub fn register_global_rng() {
-    hsm_core::hash::set_global_rng_owned(new_rng());
+    hsm_core::hash::set_global_rng(Box::new(new_rng()));
 }
 
 fn new_rng() -> BlockRng<NCipherRngFiller> {

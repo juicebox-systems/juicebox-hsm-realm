@@ -117,7 +117,7 @@ impl HttpHsm {
         name: String,
         realm_keys: RealmKeys,
     ) -> Result<Self, PersistenceError> {
-        hsm_core::hash::set_global_rng_owned(OsRng);
+        hsm_core::hash::set_global_rng(Box::new(OsRng));
         let state_file = state_dir.join(&name);
         Ok(HttpHsm(Arc::new(Mutex::new(Hsm::new(
             HsmOptions {

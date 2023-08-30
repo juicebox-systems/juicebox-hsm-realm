@@ -386,7 +386,7 @@ async fn append_store_delta() {
 
     // The `Tree` instance includes an overlay. It's normally part of the HSM.
     // The overlay includes hash tables which need an RNG registered.
-    hsm_core::hash::set_global_rng_owned(rand_core::OsRng);
+    hsm_core::hash::set_global_rng(Box::new(rand_core::OsRng));
 
     let mut tree = Tree::<MerkleHasher>::with_existing_root(starting_root, 15);
     let vp = tree.latest_proof(rp).unwrap();
