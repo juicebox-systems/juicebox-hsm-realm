@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::{sleep, Instant, Sleep};
 use tracing::{debug, info, warn};
 
@@ -42,7 +42,7 @@ pub struct ServiceManager(Arc<ServiceManagerInner>);
 struct ServiceManagerInner {
     options: ManagerOptions,
     shutdown_scheduled: AtomicBool,
-    connections_changed_tx: broadcast::Sender<ConnectionEvent>,
+    connections_changed_tx: mpsc::Sender<ConnectionEvent>,
     connections_count_rx: watch::Receiver<usize>,
     start_draining_tx: broadcast::Sender<()>,
 }
@@ -50,12 +50,12 @@ struct ServiceManagerInner {
 impl ServiceManager {
     pub fn new(options: ManagerOptions, metrics: metrics::Client) -> Self {
         let (shutdown_tx, _) = broadcast::channel(1);
-        let (conn_tx, mut conn_rx) = broadcast::channel(32);
+        let (conn_tx, mut conn_rx) = mpsc::channel(32);
         let (count_tx, count_rx) = watch::channel(0);
 
         tokio::spawn(async move {
             let mut count: usize = 0;
-            while let Ok(e) = conn_rx.recv().await {
+            while let Some(e) = conn_rx.recv().await {
                 match e {
                     ConnectionEvent::Opened => count += 1,
                     ConnectionEvent::Closed => count -= 1,
@@ -90,10 +90,11 @@ impl ServiceManager {
     }
 
     // Returns a managed version of the supplied hyper connection.
-    pub fn manage<C: GracefulShutdown>(&self, conn: C) -> GracefulConnection<C> {
+    pub async fn manage<C: GracefulShutdown>(&self, conn: C) -> GracefulConnection<C> {
         self.0
             .connections_changed_tx
             .send(ConnectionEvent::Opened)
+            .await
             .unwrap();
         GracefulConnection::new(
             conn,
@@ -160,7 +161,23 @@ pin_project! {
         idle_timer: Sleep,
         idle_timeout: Duration,
         shutdown_rx: broadcast::Receiver<()>,
-        finished_tx: broadcast::Sender<ConnectionEvent>,
+        finished: ConnFinishedGuard,
+    }
+}
+
+struct ConnFinishedGuard {
+    tx: Option<mpsc::Sender<ConnectionEvent>>,
+}
+
+impl Drop for ConnFinishedGuard {
+    fn drop(&mut self) {
+        if let Some(tx) = self.tx.take() {
+            tokio::spawn(async move {
+                if let Err(err) = tx.send(ConnectionEvent::Closed).await {
+                    warn!(?err, "failed to send connection closed event");
+                }
+            });
+        }
     }
 }
 
@@ -169,14 +186,16 @@ impl<C: GracefulShutdown> GracefulConnection<C> {
         conn: C,
         shutdown_rx: broadcast::Receiver<()>,
         idle_timeout: Duration,
-        finished_tx: broadcast::Sender<ConnectionEvent>,
+        finished_tx: mpsc::Sender<ConnectionEvent>,
     ) -> Self {
         Self {
             conn,
             idle_timer: sleep(idle_timeout),
             idle_timeout,
             shutdown_rx,
-            finished_tx,
+            finished: ConnFinishedGuard {
+                tx: Some(finished_tx),
+            },
         }
     }
 }
@@ -201,14 +220,7 @@ where
                 .as_mut()
                 .reset(Instant::now() + *this.idle_timeout);
         }
-        let result = this.conn.poll(cx);
-        if result.is_ready() {
-            // This future is complete which means it has finished processing requests.
-            if this.finished_tx.send(ConnectionEvent::Closed).is_err() {
-                warn!("failed to send connection closed event on channel");
-            }
-        }
-        result
+        this.conn.poll(cx)
     }
 }
 
@@ -381,7 +393,7 @@ mod tests {
                     let conn_mgr = mgr.clone();
                     tokio::spawn(async move {
                         let c = http1::Builder::new().serve_connection(stream, service);
-                        let c = conn_mgr.manage(c);
+                        let c = conn_mgr.manage(c).await;
                         c.await.unwrap();
                     });
                 }

@@ -149,13 +149,13 @@ impl LoadBalancer {
                                             "h2" => {
                                                 let c = http2::Builder::new(TokioExecutor)
                                                     .serve_connection(stream, lb);
-                                                let c = mgr.manage(c);
+                                                let c = mgr.manage(c).await;
                                                 c.await
                                             }
                                             "http/1.1" => {
                                                 let c = http1::Builder::new()
                                                     .serve_connection(stream, lb);
-                                                let c = mgr.manage(c);
+                                                let c = mgr.manage(c).await;
                                                 c.await
                                             }
                                             _ => unreachable!(),
