@@ -26,12 +26,9 @@
 
 extern crate alloc;
 
-use alloc::sync::Arc;
 use blake2::{Blake2s256, Blake2sMac256};
 use core::hash::BuildHasher;
-use core::ops::DerefMut;
 use digest::{Digest, FixedOutput, KeyInit};
-use spin::once::Once;
 use spin::Mutex;
 
 use super::hal::CryptoRng;
@@ -98,14 +95,14 @@ impl BuildHasher for NotRandomized {
 ///
 /// This is typically created implicitly [`Default::default()`]. Its values
 /// come from a random number generator that has been globally registered; see
-/// [`set_global_rng_shared()`] and [`set_global_rng_owned()`]. If the RNG
-/// hasn't been registered, using [`Default`] will panic.
+/// [`set_global_rng()`]. If the RNG hasn't been registered, using [`Default`]
+/// will panic.
 ///
 /// # Example
 ///
 /// ```
-/// use hsm_core::hash::{HashExt, HashMap, set_global_rng_owned};
-/// set_global_rng_owned(rand_core::OsRng);
+/// use hsm_core::hash::{HashExt, HashMap, set_global_rng};
+/// set_global_rng(Box::new(rand_core::OsRng));
 /// // The third generic parameter defaults to RandomState.
 /// let map: HashMap<String, String> = HashMap::new();
 /// ```
@@ -146,11 +143,9 @@ impl<D: Clone + FixedOutput> core::hash::Hasher for Hasher<D> {
 
 impl Default for RandomState {
     fn default() -> Self {
-        match GLOBAL_RNG.get() {
-            Some(mutex) => {
-                let mut locked = mutex.lock();
-                Self::new(locked.deref_mut())
-            }
+        let mut locked = GLOBAL_RNG.lock();
+        match locked.as_deref_mut() {
+            Some(rng) => Self::new(rng),
             None => {
                 #[cfg(not(test))]
                 panic!("need global RNG for hash state");
@@ -161,23 +156,17 @@ impl Default for RandomState {
     }
 }
 
-static GLOBAL_RNG: Once<Arc<Mutex<dyn CryptoRng>>> = Once::new();
+static GLOBAL_RNG: Mutex<Option<Box<dyn CryptoRng>>> = Mutex::new(None);
 
-/// Registers the process-global random number generator used with
-/// [`RandomState`] for randomized hashing of hash tables. This version takes a
-/// reference to an RNG that can be shared for other purposes.
+/// Registers a process-global random number generator used with
+/// [`RandomState`] for randomized hashing of hash tables. This takes ownership
+/// of the provided RNG.
 ///
 /// The global RNG will be registered by the time this function returns. It's
 /// safe to call this more than once. However, if this is called more than once
 /// or concurrently, which RNG is registered is unspecified.
-pub fn set_global_rng_shared(rng: Arc<Mutex<dyn CryptoRng>>) {
-    GLOBAL_RNG.call_once(|| rng);
-}
-
-/// See [`set_global_rng_shared`] except this version takes ownership of the
-/// provided RNG.
-pub fn set_global_rng_owned(rng: impl CryptoRng + 'static) {
-    GLOBAL_RNG.call_once(|| Arc::new(Mutex::new(rng)));
+pub fn set_global_rng(rng: Box<dyn CryptoRng>) {
+    *GLOBAL_RNG.lock() = Some(rng);
 }
 
 #[cfg(test)]
