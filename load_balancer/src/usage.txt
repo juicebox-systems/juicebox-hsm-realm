@@ -17,7 +17,7 @@ Options:
           Name of JSON file containing per-tenant keys for authentication. The default is to fetch these from Google Secret Manager
       --shutdown-timeout <SHUTDOWN_TIMEOUT>
           Max length of time to wait for a graceful shutdown to complete. (milliseconds) [default: 60000]
-      --shutting-down-signalling-time <TIME>
+      --shutdown-notice-period <TIME>
           Length of time to signal that we're going to be shutting down before starting the shutdown. (milliseconds) [default: 30000]
       --idle-timeout <TIMEOUT>
           Connections that have been idle longer than this timeout will be closed. (milliseconds) [default: 60000]

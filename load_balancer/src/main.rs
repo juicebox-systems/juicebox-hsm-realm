@@ -53,7 +53,7 @@ struct Args {
     /// Length of time to signal that we're going to be shutting down before
     /// starting the shutdown. (milliseconds)
     #[arg(long, default_value = "30000", name = "TIME", value_parser=parse_duration)]
-    shutting_down_signalling_time: Duration,
+    shutdown_notice_period: Duration,
 
     /// Connections that have been idle longer than this timeout will be closed. (milliseconds)
     #[arg(long, default_value="60000", value_parser=parse_duration, name="TIMEOUT")]
@@ -148,11 +148,11 @@ async fn main() {
 
     let svc_cfg = ManagerOptions {
         idle_timeout: args.idle_timeout,
-        shutting_down_time: args.shutting_down_signalling_time,
+        shutdown_notice_period: args.shutdown_notice_period,
     };
     let lb = LoadBalancer::new(name, store, secret_manager, metrics.clone(), svc_cfg);
     let lb_clone = lb.clone();
-    shutdown_tasks.add(Box::pin(async move { lb_clone.shutdown().await }));
+    shutdown_tasks.add(Box::pin(async move { lb_clone.shut_down().await }));
 
     let (url, join_handle) = lb
         .listen(args.listen, cert_resolver)

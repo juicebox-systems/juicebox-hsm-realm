@@ -21,14 +21,14 @@ pub struct ManagerOptions {
     // The amount of time to spend signalling to health check that we're
     // shutting down before starting to close connections and drain any
     // remaining active requests.
-    pub shutting_down_time: Duration,
+    pub shutdown_notice_period: Duration,
 }
 
 impl Default for ManagerOptions {
     fn default() -> Self {
         Self {
             idle_timeout: Duration::from_secs(60),
-            shutting_down_time: Duration::from_secs(30),
+            shutdown_notice_period: Duration::from_secs(30),
         }
     }
 }
@@ -39,10 +39,10 @@ pub struct ServiceManager(Arc<ServiceManagerInner>);
 #[derive(Debug)]
 struct ServiceManagerInner {
     options: ManagerOptions,
-    shutting_down: AtomicBool,
+    shutdown_scheduled: AtomicBool,
     connections_changed_tx: broadcast::Sender<ConnectionEvent>,
     connections_count_rx: watch::Receiver<usize>,
-    shutdown_tx: broadcast::Sender<()>,
+    start_draining_tx: broadcast::Sender<()>,
 }
 
 impl ServiceManager {
@@ -64,22 +64,22 @@ impl ServiceManager {
         });
 
         Self(Arc::new(ServiceManagerInner {
-            shutting_down: AtomicBool::new(false),
+            shutdown_scheduled: AtomicBool::new(false),
             options,
             connections_changed_tx: conn_tx,
             connections_count_rx: count_rx,
-            shutdown_tx,
+            start_draining_tx: shutdown_tx,
         }))
     }
 
     // The returned receiver will receive a value When shutdown reaches the
     // stage where connections should be shutdown.
-    pub fn subscribe_conn_shutdown(&self) -> broadcast::Receiver<()> {
-        self.0.shutdown_tx.subscribe()
+    pub fn subscribe_start_draining(&self) -> broadcast::Receiver<()> {
+        self.0.start_draining_tx.subscribe()
     }
 
     pub async fn health_check(&self) -> HealthCheckStatus {
-        if self.0.shutting_down.load(Relaxed) {
+        if self.0.shutdown_scheduled.load(Relaxed) {
             HealthCheckStatus::ShuttingDown
         } else {
             HealthCheckStatus::Ok
@@ -94,30 +94,33 @@ impl ServiceManager {
             .unwrap();
         GracefulConnection::new(
             conn,
-            self.0.shutdown_tx.subscribe(),
+            self.0.start_draining_tx.subscribe(),
             self.0.options.idle_timeout,
             self.0.connections_changed_tx.clone(),
         )
     }
 
-    // Perform a graceful shutdown of the service. This performs 2 main steps.
-    // It flags the health check as shutting down, so that CloudFlare will stop
-    // sending requests to this host. We wait for the
-    // ['ManagerOptions::shutting_down_time'] amount of time to be sure that
-    // CloudFlare has seen this new state. Then we tell every active connection
-    // to do a graceful shutdown and wait til all the connections are closed.
-    pub async fn shutdown(&self) {
-        self.shutdown_inner(sleep(self.0.options.shutting_down_time))
+    // Perform a graceful shutdown of the service. The service goes from live ->
+    // notice_period -> draining -> stopped.
+    //
+    // During the notice period, the health check flags that the service is
+    // going away, but otherwise everything proceeds as normal. CloudFlare will
+    // notice the health check change and stop sending new traffic to this
+    // instance. After the notice period has expired we trigger all the
+    // connections to perform a graceful shutdown. Once all the connections have
+    // drained the service is fully shutdown.
+    pub async fn shut_down(&self) {
+        self.shut_down_inner(sleep(self.0.options.shutdown_notice_period))
             .await;
     }
 
     // Broken out for testing.
-    async fn shutdown_inner(&self, sleeper: impl Future<Output = ()>) {
+    async fn shut_down_inner(&self, sleeper: impl Future<Output = ()>) {
         info!("starting service shutdown");
-        self.0.shutting_down.store(true, Relaxed);
+        self.0.shutdown_scheduled.store(true, Relaxed);
         sleeper.await;
 
-        let count = self.0.shutdown_tx.send(()).unwrap_or_default();
+        let count = self.0.start_draining_tx.send(()).unwrap_or_default();
         info!(
             subscribers = count,
             "shutdown in progress, waiting for connections to close"
@@ -270,7 +273,7 @@ mod tests {
                 .0
                 .server
                 .mgr
-                .shutdown_inner(async { rx.await.unwrap() })
+                .shut_down_inner(async { rx.await.unwrap() })
                 .await;
         });
 
@@ -340,7 +343,7 @@ mod tests {
         async fn new(port: u16) -> (Self, watch::Receiver<usize>) {
             let mgr = ServiceManager::new(ManagerOptions {
                 idle_timeout: Duration::from_secs(5),
-                shutting_down_time: Duration::from_secs(1),
+                shutdown_notice_period: Duration::from_secs(1),
             });
             let (respond_next_tx, respond_next_rx) = broadcast::channel(1);
 
@@ -359,7 +362,7 @@ mod tests {
                 pending_watch: pending_tx,
             }));
             let mgr = service.0.server.mgr.clone();
-            let mut shutdown_rx = mgr.subscribe_conn_shutdown();
+            let mut shutdown_rx = mgr.subscribe_start_draining();
             let service2 = service.clone();
             tokio::spawn(async move {
                 loop {
