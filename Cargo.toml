@@ -78,8 +78,9 @@ cbor-diag = { version = "0.1.12" }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
     "alloc",
 ] }
-ciborium = { version = "0.2.1", default-features = false }
-ciborium-io = { version = "0.2.1", default-features = false }
+# ciborium and ciborium-io are pinned because we have a local fork.
+ciborium = { version = "=0.2.1", default-features = false }
+ciborium-io = { version = "=0.2.1", default-features = false }
 clap = { version = "4.3.21", features = ["derive"] }
 cluster_api = { path = "cluster_api" }
 cluster_core = { path = "cluster_core" }
@@ -185,3 +186,5 @@ x25519-dalek = { version = "2.0", features = [
 
 [patch.crates-io]
 gcp_auth = { git = "ssh://git@github.com/juicebox-systems/gcp_auth.git", rev = "edaccf4e99b7cdcec7646d67c4783e5fa2f46929" }
+ciborium = { git = "ssh://git@github.com/juicebox-systems/ciborium.git", rev = "f0126e50a31d917e8ad0ff5bca78c0e80504eb46" }
+ciborium-io = { git = "ssh://git@github.com/juicebox-systems/ciborium.git", rev = "f0126e50a31d917e8ad0ff5bca78c0e80504eb46" }
