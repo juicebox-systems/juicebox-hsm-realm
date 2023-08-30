@@ -1,13 +1,12 @@
 use http::{HeaderMap, HeaderValue, StatusCode};
-use juicebox_sdk::{JUICEBOX_VERSION_HEADER, VERSION};
 use once_cell::sync::Lazy;
-
 use std::path::PathBuf;
 use std::time::Duration;
 
 use juicebox_networking::rpc::Rpc;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::requests::{SecretsRequest, BODY_SIZE_LIMIT};
+use juicebox_sdk::{JUICEBOX_VERSION_HEADER, VERSION};
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use testing::exec::hsm_gen::Entrust;
@@ -17,7 +16,7 @@ use testing::exec::PortIssuer;
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8444));
 
 #[tokio::test]
-async fn request_bodysize_check() {
+async fn load_balancer() {
     let bt_args = emulator(PORT.next());
     let mut processes = ProcessGroup::new();
 
@@ -77,4 +76,14 @@ async fn request_bodysize_check() {
         .await
         .unwrap();
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
+
+    let res = http
+        .get(cluster.load_balancers[0].join("livez").unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.text().await.unwrap();
+    // This is what CF is looking for
+    assert!(body.contains("Juicebox load balancer: "))
 }

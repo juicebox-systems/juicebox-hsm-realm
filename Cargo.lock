@@ -1648,6 +1648,8 @@ dependencies = [
  "observability",
  "opentelemetry",
  "opentelemetry-http",
+ "pin-project-lite",
+ "reqwest",
  "rustls",
  "rustls-pemfile",
  "secret_manager",

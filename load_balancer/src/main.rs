@@ -1,4 +1,5 @@
 use clap::Parser;
+use futures::future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -9,17 +10,20 @@ use tracing::{info, warn};
 use google::auth;
 use observability::{logging, metrics};
 use secret_manager::{new_google_secret_manager, Periodic, SecretManager, SecretsFile};
+use server::ManagerOptions;
+use service_core::clap_parsers::{parse_duration, parse_listen};
 use service_core::panic;
 use service_core::term::install_termination_handler;
 
 mod cert;
 mod load_balancer;
+mod server;
 
 use cert::CertificateResolver;
 use load_balancer::LoadBalancer;
 
-#[derive(Parser)]
-#[command(about = "An HTTP load balancer for one or more realms")]
+#[derive(Debug, Parser)]
+#[command(version, about = "An HTTP load balancer for one or more realms")]
 struct Args {
     #[command(flatten)]
     bigtable: store::Args,
@@ -42,6 +46,19 @@ struct Args {
     #[arg(long)]
     secrets_file: Option<PathBuf>,
 
+    /// Max length of time to wait for a graceful shutdown to complete. (milliseconds)
+    #[arg(long, default_value="60000", value_parser=parse_duration)]
+    shutdown_timeout: Duration,
+
+    /// Length of time to signal that we're going to be shutting down before
+    /// starting the shutdown. (milliseconds)
+    #[arg(long, default_value = "30000", name = "TIME", value_parser=parse_duration)]
+    shutdown_notice_period: Duration,
+
+    /// Connections that have been idle longer than this timeout will be closed. (milliseconds)
+    #[arg(long, default_value="60000", value_parser=parse_duration, name="TIMEOUT")]
+    idle_timeout: Duration,
+
     /// Name of the file containing the private key for terminating TLS.
     #[arg(long)]
     tls_key: PathBuf,
@@ -57,6 +74,11 @@ async fn main() {
     panic::set_abort_on_panic();
 
     let args = Args::parse();
+    info!(
+        ?args,
+        version = env!("CARGO_PKG_VERSION"),
+        "starting load balancer"
+    );
     let name = args.name.unwrap_or_else(|| format!("lb{}", args.listen));
     let metrics = metrics::Client::new("load_balancer");
 
@@ -65,7 +87,7 @@ async fn main() {
     );
     let cert_resolver = certs.clone();
 
-    let mut _shutdown_tasks = install_termination_handler();
+    let mut shutdown_tasks = install_termination_handler(args.shutdown_timeout);
     tokio::spawn(async move {
         let mut hup = signal(SignalKind::hangup()).unwrap();
         loop {
@@ -124,21 +146,22 @@ async fn main() {
         }
     };
 
-    let lb = LoadBalancer::new(name, store, secret_manager, metrics.clone());
+    let svc_cfg = ManagerOptions {
+        idle_timeout: args.idle_timeout,
+        shutdown_notice_period: args.shutdown_notice_period,
+    };
+    let lb = LoadBalancer::new(name, store, secret_manager, metrics.clone(), svc_cfg);
+    let lb_clone = lb.clone();
+    shutdown_tasks.add(Box::pin(async move { lb_clone.shut_down().await }));
+
     let (url, join_handle) = lb
         .listen(args.listen, cert_resolver)
         .await
         .expect("failed to listen for connections");
     info!(url = %url, "Load balancer started");
     join_handle.await.unwrap();
-
-    logging::flush();
-    info!(pid = std::process::id(), "exiting");
-}
-
-fn parse_listen(s: &str) -> Result<SocketAddr, String> {
-    s.parse()
-        .map_err(|e| format!("couldn't parse listen argument: {e}"))
+    future::pending::<()>().await;
+    unreachable!("the pending future is never ready");
 }
 
 #[cfg(test)]

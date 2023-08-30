@@ -63,7 +63,7 @@ struct Args {
 async fn main() {
     logging::configure("juicebox-agent");
     panic::set_abort_on_panic();
-    let mut shutdown_tasks = install_termination_handler();
+    let mut shutdown_tasks = install_termination_handler(Duration::from_secs(10));
 
     let args = Args::parse();
     info!(
@@ -121,9 +121,7 @@ async fn main() {
     let hsm = HsmClient::new(HsmHttpClient::new(hsm_url), name.clone(), metrics.clone());
     let agent = Agent::new(name, hsm, store, store_admin, metrics);
     let agent_clone = agent.clone();
-    shutdown_tasks.add(Box::pin(async move {
-        agent_clone.shutdown(Duration::from_secs(10)).await
-    }));
+    shutdown_tasks.add(Box::pin(async move { agent_clone.shutdown().await }));
 
     let (url, agent_handle) = agent
         .listen(args.listen)

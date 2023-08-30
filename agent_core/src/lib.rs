@@ -271,7 +271,7 @@ impl<T: Transport + 'static> Agent<T> {
     /// Attempt a graceful shutdown, this includes having the HSM stepdown as leader
     /// if its leading and waiting for all the pending responses to be sent to the
     /// client. Blocks until the shutdown is complete or timeout expires.
-    pub async fn shutdown(&self, timeout: Duration) {
+    pub async fn shutdown(&self) {
         let get_leading = || {
             let state = self.0.state.lock().unwrap();
             state.leader.keys().copied().collect::<Vec<_>>()
@@ -282,7 +282,6 @@ impl<T: Transport + 'static> Agent<T> {
             return;
         }
         info!("Starting graceful agent shutdown");
-        let start = Instant::now();
 
         let maybe_hsm_id = self
             .0
@@ -321,10 +320,6 @@ impl<T: Transport + 'static> Agent<T> {
         info!("Waiting for leadership stepdown(s) to complete.");
         loop {
             if self.0.state.lock().unwrap().leader.is_empty() {
-                return;
-            }
-            if start.elapsed() > timeout {
-                warn!("Timed out waiting for stepdown to complete.");
                 return;
             }
             sleep(Duration::from_millis(20)).await;

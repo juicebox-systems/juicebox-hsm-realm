@@ -28,6 +28,7 @@ juicebox_realm_auth = { workspace = true }
 observability = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
+pin-project-lite = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 secret_manager = { workspace = true }
@@ -43,3 +44,4 @@ url = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }
+reqwest = { workspace = true }
