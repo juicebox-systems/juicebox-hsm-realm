@@ -26,6 +26,7 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use blake2::{Blake2s256, Blake2sMac256};
 use core::hash::BuildHasher;
 use digest::{Digest, FixedOutput, KeyInit};
