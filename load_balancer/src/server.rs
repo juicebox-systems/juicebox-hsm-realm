@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{mpsc, watch};
 use tokio::time::{sleep, Instant, Sleep};
 use tracing::{debug, info, warn};
 
@@ -42,20 +42,20 @@ pub struct ServiceManager(Arc<ServiceManagerInner>);
 struct ServiceManagerInner {
     options: ManagerOptions,
     shutdown_scheduled: AtomicBool,
-    connections_changed_tx: broadcast::Sender<ConnectionEvent>,
+    connections_changed_tx: mpsc::Sender<ConnectionEvent>,
     connections_count_rx: watch::Receiver<usize>,
-    start_draining_tx: broadcast::Sender<()>,
+    start_draining_tx: watch::Sender<bool>,
 }
 
 impl ServiceManager {
     pub fn new(options: ManagerOptions, metrics: metrics::Client) -> Self {
-        let (shutdown_tx, _) = broadcast::channel(1);
-        let (conn_tx, mut conn_rx) = broadcast::channel(32);
+        let (shutdown_tx, _) = watch::channel(false);
+        let (conn_tx, mut conn_rx) = mpsc::channel(32);
         let (count_tx, count_rx) = watch::channel(0);
 
         tokio::spawn(async move {
             let mut count: usize = 0;
-            while let Ok(e) = conn_rx.recv().await {
+            while let Some(e) = conn_rx.recv().await {
                 match e {
                     ConnectionEvent::Opened => count += 1,
                     ConnectionEvent::Closed => count -= 1,
@@ -77,7 +77,7 @@ impl ServiceManager {
 
     // The returned receiver will receive a value When shutdown reaches the
     // stage where connections should be shutdown.
-    pub fn subscribe_start_draining(&self) -> broadcast::Receiver<()> {
+    pub fn subscribe_start_draining(&self) -> watch::Receiver<bool> {
         self.0.start_draining_tx.subscribe()
     }
 
@@ -90,10 +90,11 @@ impl ServiceManager {
     }
 
     // Returns a managed version of the supplied hyper connection.
-    pub fn manage<C: GracefulShutdown>(&self, conn: C) -> GracefulConnection<C> {
+    pub async fn manage<C: GracefulShutdown>(&self, conn: C) -> GracefulConnection<C> {
         self.0
             .connections_changed_tx
             .send(ConnectionEvent::Opened)
+            .await
             .unwrap();
         GracefulConnection::new(
             conn,
@@ -123,11 +124,8 @@ impl ServiceManager {
         self.0.shutdown_scheduled.store(true, Relaxed);
         sleeper.await;
 
-        let count = self.0.start_draining_tx.send(()).unwrap_or_default();
-        info!(
-            subscribers = count,
-            "shutdown in progress, waiting for connections to close"
-        );
+        self.0.start_draining_tx.send_replace(true);
+        info!("shutdown in progress, waiting for connections to close");
 
         let mut count = self.0.connections_count_rx.clone();
         if let Err(err) = count.wait_for(|count| *count == 0).await {
@@ -159,24 +157,42 @@ pin_project! {
         #[pin]
         idle_timer: Sleep,
         idle_timeout: Duration,
-        shutdown_rx: broadcast::Receiver<()>,
-        finished_tx: broadcast::Sender<ConnectionEvent>,
+        start_draining_rx: watch::Receiver<bool>,
+        finished: ConnFinishedGuard,
+    }
+}
+
+struct ConnFinishedGuard {
+    tx: Option<mpsc::Sender<ConnectionEvent>>,
+}
+
+impl Drop for ConnFinishedGuard {
+    fn drop(&mut self) {
+        if let Some(tx) = self.tx.take() {
+            tokio::spawn(async move {
+                if let Err(err) = tx.send(ConnectionEvent::Closed).await {
+                    warn!(?err, "failed to send connection closed event");
+                }
+            });
+        }
     }
 }
 
 impl<C: GracefulShutdown> GracefulConnection<C> {
     fn new(
         conn: C,
-        shutdown_rx: broadcast::Receiver<()>,
+        shutdown_rx: watch::Receiver<bool>,
         idle_timeout: Duration,
-        finished_tx: broadcast::Sender<ConnectionEvent>,
+        finished_tx: mpsc::Sender<ConnectionEvent>,
     ) -> Self {
         Self {
             conn,
             idle_timer: sleep(idle_timeout),
             idle_timeout,
-            shutdown_rx,
-            finished_tx,
+            start_draining_rx: shutdown_rx,
+            finished: ConnFinishedGuard {
+                tx: Some(finished_tx),
+            },
         }
     }
 }
@@ -193,7 +209,7 @@ where
     ) -> std::task::Poll<Self::Output> {
         let mut this = self.project();
         let shutdown =
-            this.idle_timer.as_mut().poll(cx).is_ready() || this.shutdown_rx.try_recv().is_ok();
+            this.idle_timer.as_mut().poll(cx).is_ready() || *this.start_draining_rx.borrow();
         if shutdown {
             this.conn.as_mut().start_graceful_shutdown();
         } else {
@@ -201,14 +217,7 @@ where
                 .as_mut()
                 .reset(Instant::now() + *this.idle_timeout);
         }
-        let result = this.conn.poll(cx);
-        if result.is_ready() {
-            // This future is complete which means it has finished processing requests.
-            if this.finished_tx.send(ConnectionEvent::Closed).is_err() {
-                warn!("failed to send connection closed event on channel");
-            }
-        }
-        result
+        this.conn.poll(cx)
     }
 }
 
@@ -253,9 +262,10 @@ mod tests {
     use hyper::{body::Incoming, Request, Response};
     use std::error::Error;
     use std::net::Ipv4Addr;
+    use std::pin::pin;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::net::TcpListener;
-    use tokio::sync::{oneshot, Mutex};
+    use tokio::sync::{broadcast, oneshot, Mutex};
     use tokio::time::timeout;
 
     use super::*;
@@ -372,16 +382,17 @@ mod tests {
             let mut shutdown_rx = mgr.subscribe_start_draining();
             let service2 = service.clone();
             tokio::spawn(async move {
+                let mut shutdown_f = pin!(shutdown_rx.changed().fuse());
                 loop {
                     let (stream, _) = select_biased! {
-                        _ = shutdown_rx.recv().fuse() => { return; }
+                        _ = shutdown_f => { return; }
                         result = listener.accept().fuse() => result.unwrap(),
                     };
                     let service = service.clone();
                     let conn_mgr = mgr.clone();
                     tokio::spawn(async move {
                         let c = http1::Builder::new().serve_connection(stream, service);
-                        let c = conn_mgr.manage(c);
+                        let c = conn_mgr.manage(c).await;
                         c.await.unwrap();
                     });
                 }
