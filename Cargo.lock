@@ -742,11 +742,12 @@ checksum = "86e3bdc80eee6e16b2b6b0f87fbc98c04bee3455e35174c0de1a125d0688c632"
 
 [[package]]
 name = "dogstatsd"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "458f0b0c785ca109bb5905c11819f9f72b598a53e183e326db44587ecabfc43f"
+checksum = "1de22296c3f60346ab18debb2a4da57b2406734916535ea00220743cb499e732"
 dependencies = [
  "chrono",
+ "retry",
 ]
 
 [[package]]
@@ -2282,6 +2283,15 @@ dependencies = [
  "web-sys",
  "webpki-roots 0.25.2",
  "winreg",
+]
+
+[[package]]
+name = "retry"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9166d72162de3575f950507683fac47e30f6f2c3836b71b7fbc61aa517c9c5f4"
+dependencies = [
+ "rand",
 ]
 
 [[package]]
