@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tonic::body::BoxBody;
 use tonic::transport::{Body, Channel};
-use tower::Service;
+use tower_service::Service;
 use tracing::info;
 
 /// Initializes Google Cloud authentication from Application Default

@@ -349,7 +349,7 @@ dependencies = [
  "bs58",
  "chrono",
  "data-encoding",
- "half 2.3.1",
+ "half",
  "nom",
  "num-bigint",
  "num-rational",
@@ -413,8 +413,7 @@ dependencies = [
 [[package]]
 name = "ciborium"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "effd91f6c78e5a4ace8a5d3c0b6bfaec9e2baaef55f3efc00e45fb2e477ee926"
+source = "git+ssh://git@github.com/juicebox-systems/ciborium.git?rev=f0126e50a31d917e8ad0ff5bca78c0e80504eb46#f0126e50a31d917e8ad0ff5bca78c0e80504eb46"
 dependencies = [
  "ciborium-io",
  "ciborium-ll",
@@ -424,17 +423,14 @@ dependencies = [
 [[package]]
 name = "ciborium-io"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdf919175532b369853f5d5e20b26b43112613fd6fe7aee757e35f7a44642656"
+source = "git+ssh://git@github.com/juicebox-systems/ciborium.git?rev=f0126e50a31d917e8ad0ff5bca78c0e80504eb46#f0126e50a31d917e8ad0ff5bca78c0e80504eb46"
 
 [[package]]
 name = "ciborium-ll"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "defaa24ecc093c77630e6c15e17c51f5e187bf35ee514f4e2d67baaa96dae22b"
+source = "git+ssh://git@github.com/juicebox-systems/ciborium.git?rev=f0126e50a31d917e8ad0ff5bca78c0e80504eb46#f0126e50a31d917e8ad0ff5bca78c0e80504eb46"
 dependencies = [
  "ciborium-io",
- "half 1.8.2",
 ]
 
 [[package]]
@@ -742,11 +738,12 @@ checksum = "86e3bdc80eee6e16b2b6b0f87fbc98c04bee3455e35174c0de1a125d0688c632"
 
 [[package]]
 name = "dogstatsd"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "458f0b0c785ca109bb5905c11819f9f72b598a53e183e326db44587ecabfc43f"
+checksum = "1de22296c3f60346ab18debb2a4da57b2406734916535ea00220743cb499e732"
 dependencies = [
  "chrono",
+ "retry",
 ]
 
 [[package]]
@@ -1063,7 +1060,7 @@ dependencies = [
  "prost",
  "prost-types",
  "tonic",
- "tower",
+ "tower-service",
  "tracing",
 ]
 
@@ -1085,12 +1082,6 @@ dependencies = [
  "tokio-util",
  "tracing",
 ]
-
-[[package]]
-name = "half"
-version = "1.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eabb4a44450da02c90444cf74558da904edde8fb4e9035a9a6a4e15445af0bd7"
 
 [[package]]
 name = "half"
@@ -2285,6 +2276,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "retry"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9166d72162de3575f950507683fac47e30f6f2c3836b71b7fbc61aa517c9c5f4"
+dependencies = [
+ "rand",
+]
+
+[[package]]
 name = "ring"
 version = "0.16.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2960,7 +2960,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ce8c33a8d48bd45d624a6e523445fd21ec13d3653cd51f681abf67418f54eb8"
 dependencies = [
  "cfg-if",
- "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
