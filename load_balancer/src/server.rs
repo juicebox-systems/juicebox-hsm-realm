@@ -44,12 +44,12 @@ struct ServiceManagerInner {
     shutdown_scheduled: AtomicBool,
     connections_changed_tx: mpsc::Sender<ConnectionEvent>,
     connections_count_rx: watch::Receiver<usize>,
-    start_draining_tx: watch::Sender<()>,
+    start_draining_tx: watch::Sender<bool>,
 }
 
 impl ServiceManager {
     pub fn new(options: ManagerOptions, metrics: metrics::Client) -> Self {
-        let (shutdown_tx, _) = watch::channel(());
+        let (shutdown_tx, _) = watch::channel(false);
         let (conn_tx, mut conn_rx) = mpsc::channel(32);
         let (count_tx, count_rx) = watch::channel(0);
 
@@ -77,7 +77,7 @@ impl ServiceManager {
 
     // The returned receiver will receive a value When shutdown reaches the
     // stage where connections should be shutdown.
-    pub fn subscribe_start_draining(&self) -> watch::Receiver<()> {
+    pub fn subscribe_start_draining(&self) -> watch::Receiver<bool> {
         self.0.start_draining_tx.subscribe()
     }
 
@@ -124,7 +124,7 @@ impl ServiceManager {
         self.0.shutdown_scheduled.store(true, Relaxed);
         sleeper.await;
 
-        self.0.start_draining_tx.send_replace(());
+        self.0.start_draining_tx.send_replace(true);
         info!("shutdown in progress, waiting for connections to close");
 
         let mut count = self.0.connections_count_rx.clone();
@@ -157,7 +157,7 @@ pin_project! {
         #[pin]
         idle_timer: Sleep,
         idle_timeout: Duration,
-        shutdown_rx: watch::Receiver<()>,
+        start_draining_rx: watch::Receiver<bool>,
         finished: ConnFinishedGuard,
     }
 }
@@ -181,7 +181,7 @@ impl Drop for ConnFinishedGuard {
 impl<C: GracefulShutdown> GracefulConnection<C> {
     fn new(
         conn: C,
-        shutdown_rx: watch::Receiver<()>,
+        shutdown_rx: watch::Receiver<bool>,
         idle_timeout: Duration,
         finished_tx: mpsc::Sender<ConnectionEvent>,
     ) -> Self {
@@ -189,7 +189,7 @@ impl<C: GracefulShutdown> GracefulConnection<C> {
             conn,
             idle_timer: sleep(idle_timeout),
             idle_timeout,
-            shutdown_rx,
+            start_draining_rx: shutdown_rx,
             finished: ConnFinishedGuard {
                 tx: Some(finished_tx),
             },
@@ -208,8 +208,8 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         let mut this = self.project();
-        let shutdown = this.idle_timer.as_mut().poll(cx).is_ready()
-            || this.shutdown_rx.has_changed().is_ok_and(|v| v);
+        let shutdown =
+            this.idle_timer.as_mut().poll(cx).is_ready() || *this.start_draining_rx.borrow();
         if shutdown {
             this.conn.as_mut().start_graceful_shutdown();
         } else {

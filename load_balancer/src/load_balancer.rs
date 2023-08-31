@@ -109,7 +109,7 @@ impl LoadBalancer {
             tokio::spawn(async move {
                 let mgr = self.0.svc_mgr.clone();
                 let mut start_drain_rx = mgr.subscribe_start_draining();
-                let mut start_drain = pin!(start_drain_rx.changed().fuse());
+                let mut start_drain = pin!(start_drain_rx.wait_for(|start| *start).fuse());
                 loop {
                     let accept_result = select_biased! {
                         _ = start_drain => return,
