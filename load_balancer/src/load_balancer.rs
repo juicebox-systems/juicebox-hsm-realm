@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::iter::zip;
 use std::net::SocketAddr;
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
@@ -109,9 +109,10 @@ impl LoadBalancer {
             tokio::spawn(async move {
                 let mgr = self.0.svc_mgr.clone();
                 let mut start_drain_rx = mgr.subscribe_start_draining();
+                let mut start_drain = pin!(start_drain_rx.changed().fuse());
                 loop {
                     let accept_result = select_biased! {
-                        _ = start_drain_rx.recv().fuse() => return,
+                        _ = start_drain => return,
                         r = listener.accept().fuse() => r
                     };
                     match accept_result {

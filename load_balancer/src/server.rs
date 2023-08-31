@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::{mpsc, watch};
 use tokio::time::{sleep, Instant, Sleep};
 use tracing::{debug, info, warn};
 
@@ -44,12 +44,12 @@ struct ServiceManagerInner {
     shutdown_scheduled: AtomicBool,
     connections_changed_tx: mpsc::Sender<ConnectionEvent>,
     connections_count_rx: watch::Receiver<usize>,
-    start_draining_tx: broadcast::Sender<()>,
+    start_draining_tx: watch::Sender<()>,
 }
 
 impl ServiceManager {
     pub fn new(options: ManagerOptions, metrics: metrics::Client) -> Self {
-        let (shutdown_tx, _) = broadcast::channel(1);
+        let (shutdown_tx, _) = watch::channel(());
         let (conn_tx, mut conn_rx) = mpsc::channel(32);
         let (count_tx, count_rx) = watch::channel(0);
 
@@ -77,7 +77,7 @@ impl ServiceManager {
 
     // The returned receiver will receive a value When shutdown reaches the
     // stage where connections should be shutdown.
-    pub fn subscribe_start_draining(&self) -> broadcast::Receiver<()> {
+    pub fn subscribe_start_draining(&self) -> watch::Receiver<()> {
         self.0.start_draining_tx.subscribe()
     }
 
@@ -124,11 +124,8 @@ impl ServiceManager {
         self.0.shutdown_scheduled.store(true, Relaxed);
         sleeper.await;
 
-        let count = self.0.start_draining_tx.send(()).unwrap_or_default();
-        info!(
-            subscribers = count,
-            "shutdown in progress, waiting for connections to close"
-        );
+        self.0.start_draining_tx.send_replace(());
+        info!("shutdown in progress, waiting for connections to close");
 
         let mut count = self.0.connections_count_rx.clone();
         if let Err(err) = count.wait_for(|count| *count == 0).await {
@@ -160,7 +157,7 @@ pin_project! {
         #[pin]
         idle_timer: Sleep,
         idle_timeout: Duration,
-        shutdown_rx: broadcast::Receiver<()>,
+        shutdown_rx: watch::Receiver<()>,
         finished: ConnFinishedGuard,
     }
 }
@@ -184,7 +181,7 @@ impl Drop for ConnFinishedGuard {
 impl<C: GracefulShutdown> GracefulConnection<C> {
     fn new(
         conn: C,
-        shutdown_rx: broadcast::Receiver<()>,
+        shutdown_rx: watch::Receiver<()>,
         idle_timeout: Duration,
         finished_tx: mpsc::Sender<ConnectionEvent>,
     ) -> Self {
@@ -211,8 +208,8 @@ where
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
         let mut this = self.project();
-        let shutdown =
-            this.idle_timer.as_mut().poll(cx).is_ready() || this.shutdown_rx.try_recv().is_ok();
+        let shutdown = this.idle_timer.as_mut().poll(cx).is_ready()
+            || this.shutdown_rx.has_changed().is_ok_and(|v| v);
         if shutdown {
             this.conn.as_mut().start_graceful_shutdown();
         } else {
@@ -265,9 +262,10 @@ mod tests {
     use hyper::{body::Incoming, Request, Response};
     use std::error::Error;
     use std::net::Ipv4Addr;
+    use std::pin::pin;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::net::TcpListener;
-    use tokio::sync::{oneshot, Mutex};
+    use tokio::sync::{broadcast, oneshot, Mutex};
     use tokio::time::timeout;
 
     use super::*;
@@ -384,9 +382,10 @@ mod tests {
             let mut shutdown_rx = mgr.subscribe_start_draining();
             let service2 = service.clone();
             tokio::spawn(async move {
+                let mut shutdown_f = pin!(shutdown_rx.changed().fuse());
                 loop {
                     let (stream, _) = select_biased! {
-                        _ = shutdown_rx.recv().fuse() => { return; }
+                        _ = shutdown_f => { return; }
                         result = listener.accept().fuse() => result.unwrap(),
                     };
                     let service = service.clone();
