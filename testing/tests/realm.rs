@@ -1,11 +1,14 @@
-use cluster_core::{JoinRealmError, NewRealmError};
-use juicebox_sdk::RealmId;
+use ::reqwest::ClientBuilder;
+use futures::future::join_all;
+use http::StatusCode;
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
-use testing::exec::bigtable::emulator;
 
+use cluster_core::{JoinRealmError, NewRealmError};
 use juicebox_networking::reqwest::{self, ClientOptions};
 use juicebox_process_group::ProcessGroup;
+use juicebox_sdk::RealmId;
+use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use testing::exec::hsm_gen::Entrust;
 use testing::exec::PortIssuer;
@@ -58,5 +61,20 @@ async fn realm() {
     .await;
     assert!(r.is_ok());
 
+    // check the agent health check
+    let http_client = ClientBuilder::new().build().unwrap();
+    for result in join_all(
+        cluster.realms[0]
+            .agents
+            .iter()
+            .map(|url| http_client.get(url.join("/livez").unwrap()).send()),
+    )
+    .await
+    .into_iter()
+    {
+        let resp = result.unwrap();
+        assert_eq!(StatusCode::OK, resp.status());
+        assert!(resp.text().await.unwrap().contains("hsm"));
+    }
     processes.kill();
 }

@@ -74,6 +74,8 @@ struct State {
     leader: HashMap<(RealmId, GroupId), LeaderState>,
     // Captures that have been persisted to NVRAM in the HSM.
     captures: Vec<Captured>,
+    // Set after being successfully registered with service discovery.
+    registered: bool,
 }
 
 // State about a group that is used in the Leader or SteppingDown state.
@@ -137,6 +139,7 @@ impl<T: Transport + 'static> Agent<T> {
             state: Mutex::new(State {
                 leader: HashMap::new(),
                 captures: Vec::new(),
+                registered: false,
             }),
             metrics,
         }))
@@ -374,6 +377,7 @@ impl<T: Transport + 'static> Agent<T> {
             };
             let hsm_id = fn_hsm_id().await;
             info!(hsm=?hsm_id, %url, "registering agent with service discovery");
+            let mut first_registration = true;
             loop {
                 if let Err(e) = agent
                     .store
@@ -383,6 +387,10 @@ impl<T: Transport + 'static> Agent<T> {
                     warn!(err = ?e, "failed to register with service discovery");
                     sleep(discovery::REGISTER_FAILURE_DELAY).await;
                 } else {
+                    if first_registration {
+                        agent.state.lock().unwrap().registered = true;
+                        first_registration = false;
+                    }
                     sleep(discovery::REGISTER_INTERVAL).await;
                 }
             }
@@ -423,6 +431,8 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                 };
                 match path {
                     AppRequest::PATH => handle_rpc(&agent, request, Self::handle_app).await,
+                    StatusRequest::PATH => handle_rpc(&agent, request, Self::handle_status).await,
+                    "livez" => Ok(agent.handle_livez(request).await),
                     BecomeLeaderRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_become_leader).await
                     }
@@ -447,7 +457,6 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                     ReadCapturedRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_read_captured).await
                     }
-                    StatusRequest::PATH => handle_rpc(&agent, request, Self::handle_status).await,
                     TransferInRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_transfer_in).await
                     }
@@ -495,6 +504,40 @@ impl<T: Transport + 'static> Agent<T> {
             hsm: hsm_status.ok(),
             uptime: self.0.boot_time.elapsed(),
         })
+    }
+
+    async fn handle_livez(&self, _request: Request<IncomingBody>) -> Response<Full<Bytes>> {
+        if !self.0.state.lock().unwrap().registered {
+            return Response::builder()
+                .status(http::StatusCode::SERVICE_UNAVAILABLE)
+                .body(Full::from(Bytes::from(
+                    "not yet registered with service discovery",
+                )))
+                .unwrap();
+        }
+        match tokio::time::timeout(
+            Duration::from_secs(1),
+            self.0.hsm.send(hsm_api::StatusRequest {}),
+        )
+        .await
+        {
+            Ok(Ok(status)) => Response::builder()
+                .status(http::StatusCode::OK)
+                .body(Full::from(Bytes::from(format!("hsm id: {:?}", status.id))))
+                .unwrap(),
+
+            Ok(Err(transport_error)) => Response::builder()
+                .status(http::StatusCode::SERVICE_UNAVAILABLE)
+                .body(Full::from(Bytes::from(format!(
+                    "error: {transport_error:?}"
+                ))))
+                .unwrap(),
+
+            Err(elapsed) => Response::builder()
+                .status(http::StatusCode::SERVICE_UNAVAILABLE)
+                .body(Full::from(Bytes::from(format!("timeout: {elapsed:?}"))))
+                .unwrap(),
+        }
     }
 
     async fn handle_new_realm(
