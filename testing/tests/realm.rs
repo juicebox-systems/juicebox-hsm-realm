@@ -76,5 +76,21 @@ async fn realm() {
         assert_eq!(StatusCode::OK, resp.status());
         assert!(resp.text().await.unwrap().contains("hsm"));
     }
+
+    // check the cluster manager health check
+    for result in join_all(
+        cluster
+            .cluster_managers
+            .iter()
+            .map(|url| http_client.get(url.join("/livez").unwrap()).send()),
+    )
+    .await
+    .into_iter()
+    {
+        let resp = result.unwrap();
+        assert_eq!(StatusCode::OK, resp.status());
+        assert!(resp.text().await.unwrap().contains("ok"));
+    }
+
     processes.kill();
 }
