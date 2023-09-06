@@ -36,6 +36,7 @@ mod lease;
 mod merkle;
 mod mutate;
 mod read;
+pub mod tenants;
 
 use merkle::merkle_table_brief;
 use mutate::{mutate_rows, MutateRowsError};
@@ -252,8 +253,6 @@ impl StoreAdminClient {
     pub async fn initialize_realm(&self, realm: &RealmId) -> Result<(), tonic::Status> {
         let mut bigtable = self.bigtable.clone();
 
-        self.initialize_discovery().await?;
-
         // Create table for Merkle trees.
         bigtable
             .create_table(CreateTableRequest {
@@ -299,6 +298,8 @@ impl StoreAdminClient {
                 initial_splits: Vec::new(),
             })
             .await?;
+
+        tenants::initialize(bigtable, &self.instance, realm).await?;
 
         Ok(())
     }

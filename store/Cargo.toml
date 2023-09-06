@@ -10,6 +10,7 @@ rust-version = { workspace = true }
 agent_api = { workspace = true }
 async-trait = { workspace = true }
 bitvec = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 gcp_auth = { workspace = true }
@@ -21,6 +22,7 @@ juicebox_marshalling = { workspace = true }
 juicebox_realm_api = { workspace = true }
 lru-cache = { workspace = true }
 observability = { workspace = true }
+prost-types = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }
 tokio = { workspace = true }
 tonic = { workspace = true }

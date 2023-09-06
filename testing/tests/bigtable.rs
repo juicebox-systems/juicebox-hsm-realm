@@ -1,7 +1,6 @@
 use once_cell::sync::Lazy;
 use reqwest::Url;
 use std::time::{Duration, SystemTime};
-use store::{discovery, ExtendLeaseError, LeaseKey, LeaseType};
 
 use agent_api::merkle::TreeStoreReader;
 use bitvec::BitVec;
@@ -12,7 +11,12 @@ use hsm_core::merkle::Tree;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::types::RealmId;
 use observability::metrics;
-use store::{self, AppendError::LogPrecondition, ServiceKind, StoreAdminClient, StoreClient};
+use store::tenants::UserAccounting;
+use store::AppendError::LogPrecondition;
+use store::{
+    self, discovery, tenants, ExtendLeaseError, LeaseKey, LeaseType, ServiceKind, StoreAdminClient,
+    StoreClient,
+};
 use testing::exec::bigtable::emulator;
 use testing::exec::{bigtable::BigtableRunner, PortIssuer};
 
@@ -43,6 +47,76 @@ async fn init_bt(pg: &mut ProcessGroup, args: store::Args) -> (StoreAdminClient,
         .expect("failed to connect to bigtable data service");
 
     (store_admin, store)
+}
+
+#[tokio::test]
+async fn test_tenant() {
+    let mut pg = ProcessGroup::new();
+    let args = emulator(PORT.next());
+    let (_, data) = init_bt(&mut pg, args).await;
+
+    let n = SystemTime::now();
+    let days_32 = Duration::from_secs(60 * 60 * 24 * 32);
+    let bob = RecordId([1; 32]);
+    let eve = RecordId([2; 32]);
+    let alice = RecordId([3; 32]);
+    let simon = RecordId([4; 32]);
+
+    let events = vec![
+        // bob registered 3 months ago and hasn't done anything since
+        UserAccounting {
+            tenant: "jb".to_string(),
+            id: bob,
+            when: n - (3 * days_32),
+            event: tenants::UserAccountingEvent::SecretRegistered,
+        },
+        // alice registered this month
+        UserAccounting {
+            tenant: "jb".to_string(),
+            id: alice,
+            when: n,
+            event: tenants::UserAccountingEvent::SecretRegistered,
+        },
+        // eve registered last month, and deleted their secret this month
+        UserAccounting {
+            tenant: "jb".to_string(),
+            id: eve.clone(),
+            when: n - days_32,
+            event: tenants::UserAccountingEvent::SecretRegistered,
+        },
+        UserAccounting {
+            tenant: "jb".to_string(),
+            id: eve,
+            when: n,
+            event: tenants::UserAccountingEvent::SecretDeleted,
+        },
+        // simon registered last month & deleted his secret last month.
+        UserAccounting {
+            tenant: "jb".to_string(),
+            id: simon.clone(),
+            when: n - days_32,
+            event: tenants::UserAccountingEvent::SecretRegistered,
+        },
+        UserAccounting {
+            tenant: "jb".to_string(),
+            id: simon,
+            when: n - days_32 + Duration::from_secs(5),
+            event: tenants::UserAccountingEvent::SecretDeleted,
+        },
+    ];
+    data.write_user_accounting(&REALM, &events).await.unwrap();
+
+    let counts = data.count_realm_users(&REALM, n).await.unwrap();
+    // bob, alice & eve.
+    assert_eq!(vec![(String::from("jb"), 3)], counts.tenant_user_counts);
+
+    let counts = data.count_realm_users(&REALM, n - days_32).await.unwrap();
+    // bob, eve, simon
+    assert_eq!(vec![(String::from("jb"), 3)], counts.tenant_user_counts);
+
+    let counts = data.count_realm_users(&REALM, n + days_32).await.unwrap();
+    // bob, alice
+    assert_eq!(vec![(String::from("jb"), 2)], counts.tenant_user_counts);
 }
 
 #[tokio::test]

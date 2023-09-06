@@ -172,6 +172,25 @@ enum Command {
         #[arg(long, value_parser = parse_record_id)]
         end: RecordId,
     },
+
+    /// Report counts of active users by tenant for a month. These are users
+    /// that have a secret stored at some point during the month.
+    UserSummary {
+        /// Restrict the report to just these realms(s). If not set will report
+        /// on realms that are found via service discovery.
+        #[arg(long, value_parser=parse_realm_id)]
+        realm: Vec<RealmId>,
+
+        /// What time period to report on.
+        #[arg(long, value_enum, default_value_t=UserSummaryWhen::ThisMonth)]
+        when: UserSummaryWhen,
+    },
+}
+
+#[derive(Clone, ValueEnum)]
+enum UserSummaryWhen {
+    ThisMonth,
+    LastMonth,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -336,6 +355,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
         } => {
             commands::stepdown::stepdown(&store, &agents_client, &cluster, stepdown_type, &id).await
         }
+
+        Command::UserSummary {
+            realm: realms,
+            when,
+        } => commands::users::user_summary(&store, &agents_client, realms, when).await,
     }
 }
 
@@ -386,6 +410,7 @@ mod tests {
             vec!["cluster", "new-realm", "--help"],
             vec!["cluster", "stepdown", "--help"],
             vec!["cluster", "transfer", "--help"],
+            vec!["cluster", "user-summary", "--help"],
         ] {
             writeln!(actual, "## `{}`", cmd.join(" ")).unwrap();
             writeln!(actual).unwrap();

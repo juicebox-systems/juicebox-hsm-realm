@@ -24,6 +24,7 @@ mod append;
 mod commit;
 pub mod hsm;
 pub mod merkle;
+mod tenants;
 
 use agent_api::merkle::TreeStoreError;
 use agent_api::{
@@ -52,6 +53,7 @@ use observability::metrics::{self};
 use observability::metrics_tag as tag;
 use service_core::rpc::{handle_rpc, HandlerError};
 use store::{self, discovery, LogEntriesIter, ServiceKind};
+use tenants::UserAccountingManager;
 
 #[derive(Debug)]
 pub struct Agent<T>(Arc<AgentInner<T>>);
@@ -66,6 +68,7 @@ struct AgentInner<T> {
     peer_client: Client<AgentService>,
     state: Mutex<State>,
     metrics: metrics::Client,
+    accountant: UserAccountingManager,
 }
 
 #[derive(Debug)]
@@ -133,7 +136,7 @@ impl<T: Transport + 'static> Agent<T> {
             name,
             boot_time: Instant::now(),
             hsm,
-            store,
+            store: store.clone(),
             store_admin,
             peer_client: Client::new(ClientOptions::default()),
             state: Mutex::new(State {
@@ -141,7 +144,8 @@ impl<T: Transport + 'static> Agent<T> {
                 captures: Vec::new(),
                 registered: false,
             }),
-            metrics,
+            metrics: metrics.clone(),
+            accountant: UserAccountingManager::new(store, metrics),
         }))
     }
 
@@ -1247,6 +1251,8 @@ impl<T: Transport + 'static> Agent<T> {
         let group = request.group;
         let tags = [tag!(?realm), tag!(?group)];
         let tenant_tag = tag!(tenant: "{}",request.tenant);
+        let tenant = request.tenant.clone();
+        let record_id = request.record_id.clone();
 
         let start_result = self
             .0
@@ -1284,6 +1290,21 @@ impl<T: Transport + 'static> Agent<T> {
                         "realm.request.count",
                         [tag!(?realm), tenant_tag, tag!(type: "{}", req_type_name)],
                     );
+                    match request_type {
+                        AppRequestType::Register2 => {
+                            self.0
+                                .accountant
+                                .secret_registered(realm, tenant, record_id)
+                                .await
+                        }
+                        AppRequestType::Delete => {
+                            self.0
+                                .accountant
+                                .secret_deleted(realm, tenant, record_id)
+                                .await
+                        }
+                        _ => {}
+                    }
                 }
                 res
             }

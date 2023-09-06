@@ -186,8 +186,13 @@ fn recover3(
 }
 
 fn delete(mut user_record: UserRecord) -> (DeleteResponse, Option<UserRecord>) {
-    user_record.registration_state = RegistrationState::NotRegistered;
-    (DeleteResponse::Ok, Some(user_record))
+    match user_record.registration_state {
+        RegistrationState::NotRegistered => (DeleteResponse::Ok, None),
+        RegistrationState::NoGuesses | RegistrationState::Registered(_) => {
+            user_record.registration_state = RegistrationState::NotRegistered;
+            (DeleteResponse::Ok, Some(user_record))
+        }
+    }
 }
 
 pub enum RecordChange {

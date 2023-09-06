@@ -400,14 +400,14 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.26"
+version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec837a71355b28f6556dbd569b37b3f363091c0bd4b2e735674521b4c5fd9bc5"
+checksum = "d87d9d13be47a5b7c3907137f1290b0459a7f80efb26be8c52afb11963bccb02"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
  "num-traits",
- "winapi",
+ "windows-targets",
 ]
 
 [[package]]
@@ -522,6 +522,7 @@ version = "0.2.3"
 dependencies = [
  "agent_api",
  "anyhow",
+ "chrono",
  "clap",
  "cluster_api",
  "cluster_core",
@@ -543,6 +544,7 @@ dependencies = [
  "table",
  "thiserror",
  "tokio",
+ "tonic",
  "tracing",
 ]
 
@@ -2616,6 +2618,7 @@ dependencies = [
  "agent_core",
  "async-trait",
  "bitvec",
+ "chrono",
  "clap",
  "futures",
  "gcp_auth",
@@ -2629,6 +2632,7 @@ dependencies = [
  "juicebox_realm_api",
  "lru-cache",
  "observability",
+ "prost-types",
  "rand",
  "rand_core",
  "reqwest",
