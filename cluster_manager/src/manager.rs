@@ -9,6 +9,7 @@ use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::net::TcpListener;
@@ -40,6 +41,9 @@ struct ManagerInner {
     name: String,
     store: StoreClient,
     agents: Client<AgentService>,
+    // Set when the initial registration in service discovery completes
+    // successfully.
+    registered: AtomicBool,
 }
 
 /// When drop'd will remove the realm/group lease from the store.
@@ -120,6 +124,7 @@ impl Manager {
             name,
             store,
             agents: Client::new(ClientOptions::default()),
+            registered: AtomicBool::new(false),
         }));
         let manager = m.clone();
         tokio::spawn(async move {
@@ -137,18 +142,28 @@ impl Manager {
             .with_context(|| format!("failed to bind to {address}"))?;
         let url = Url::parse(&format!("http://{address}")).unwrap();
 
-        let store = self.0.store.clone();
+        let manager = self.clone();
         let disco_url = url.clone();
+        let mut first_registration = true;
         tokio::spawn(async move {
             info!(%disco_url, "registering cluster manager with service discovery");
             loop {
-                if let Err(e) = store
+                if let Err(e) = manager
+                    .0
+                    .store
                     .set_address(&disco_url, ServiceKind::ClusterManager, SystemTime::now())
                     .await
                 {
                     warn!(err = ?e, "failed to register with service discovery");
                     sleep(REGISTER_FAILURE_DELAY).await;
                 } else {
+                    if first_registration {
+                        manager
+                            .0
+                            .registered
+                            .store(true, std::sync::atomic::Ordering::Relaxed);
+                        first_registration = false;
+                    }
                     sleep(REGISTER_INTERVAL).await;
                 }
             }
@@ -199,6 +214,7 @@ impl Service<Request<IncomingBody>> for Manager {
                         .unwrap());
                 };
                 match path {
+                    "livez" => Ok(manager.handle_livez()),
                     cluster_api::StepDownRequest::PATH => {
                         handle_rpc(&manager, request, Self::handle_leader_stepdown).await
                     }
@@ -249,6 +265,22 @@ impl Manager {
                 ManagementGrant::new(self.clone(), realm, group, lease)
             });
         Ok(grant)
+    }
+
+    fn handle_livez(&self) -> Response<Full<Bytes>> {
+        if self.0.registered.load(Ordering::Relaxed) {
+            Response::builder()
+                .status(http::StatusCode::OK)
+                .body(Full::from(Bytes::from("ok")))
+                .unwrap()
+        } else {
+            Response::builder()
+                .status(http::StatusCode::SERVICE_UNAVAILABLE)
+                .body(Full::from(Bytes::from(
+                    "not yet registered with service discovery",
+                )))
+                .unwrap()
+        }
     }
 }
 
