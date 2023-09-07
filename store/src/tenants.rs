@@ -103,7 +103,7 @@ pub enum UserAccountingEvent {
 }
 
 impl UserAccountingEvent {
-    fn as_vec(&self) -> Vec<u8> {
+    fn as_bytes(&self) -> Vec<u8> {
         match *self {
             UserAccountingEvent::SecretDeleted => vec![0],
             UserAccountingEvent::SecretRegistered => vec![1],
@@ -140,7 +140,7 @@ impl StoreClient {
                                 family_name: FAMILY.to_string(),
                                 column_qualifier: EVENT_COL.to_vec(),
                                 timestamp_micros: to_day_micros(u.when),
-                                value: u.event.as_vec(),
+                                value: u.event.as_bytes(),
                             })),
                         }],
                     })
@@ -199,10 +199,10 @@ impl StoreClient {
                             RowFilter {
                                 filter: Some(Filter::ValueRangeFilter(ValueRange {
                                     start_value: Some(StartValue::StartValueClosed(
-                                        UserAccountingEvent::SecretRegistered.as_vec(),
+                                        UserAccountingEvent::SecretRegistered.as_bytes(),
                                     )),
                                     end_value: Some(EndValue::EndValueClosed(
-                                        UserAccountingEvent::SecretRegistered.as_vec(),
+                                        UserAccountingEvent::SecretRegistered.as_bytes(),
                                     )),
                                 })),
                             },
