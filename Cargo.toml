@@ -71,6 +71,7 @@ agent_api = { path = "agent_api" }
 agent_core = { path = "agent_core" }
 anyhow = "1.0.74"
 async-trait = "0.1.73"
+bindgen = "0.68.1"
 bitvec = { path = "bitvec" }
 blake2 = { version = "0.10.6", default-features = false }
 bytes = { version = "1.4.0", default-features = false }
