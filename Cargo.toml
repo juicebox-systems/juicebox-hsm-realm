@@ -3,6 +3,7 @@
 members = [
     "agent_api",
     "agent_core",
+    "bigtable",
     "bitvec",
     "cluster_api",
     "cluster_bench",
@@ -34,6 +35,7 @@ members = [
 default-members = [
     "agent_api",
     "agent_core",
+    "bigtable",
     "bitvec",
     "cluster_api",
     "cluster_bench",
@@ -71,6 +73,7 @@ agent_api = { path = "agent_api" }
 agent_core = { path = "agent_core" }
 anyhow = "1.0.74"
 async-trait = "0.1.73"
+bigtable = { path = "bigtable" }
 bitvec = { path = "bitvec" }
 blake2 = { version = "0.10.6", default-features = false }
 bytes = { version = "1.4.0", default-features = false }

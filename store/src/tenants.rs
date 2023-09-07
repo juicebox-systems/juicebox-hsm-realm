@@ -12,20 +12,20 @@ use google::bigtable::v2::{
     ColumnRange, MutateRowsRequest, Mutation, ReadRowsRequest, RowFilter, TimestampRange,
     ValueRange,
 };
-use hsm_api::RecordId;
 use std::collections::HashMap;
 use std::time::SystemTime;
 use tracing::warn;
 
-use super::mutate::{mutate_rows, MutateRowsError};
-use super::read::read_rows_stream;
 use super::{BigtableTableAdminClient, Instance, StoreClient};
+use bigtable::mutate::{mutate_rows, MutateRowsError};
+use bigtable::read::read_rows_stream;
+use hsm_api::RecordId;
 use juicebox_realm_api::types::RealmId;
 
 const FAMILY: &str = "f";
 const EVENT_COL: &[u8] = b"e";
 
-fn tenant_user_table(instance: &Instance, realm: &RealmId) -> String {
+pub fn tenant_user_table(instance: &Instance, realm: &RealmId) -> String {
     format!(
         "{path}/tables/{table}",
         path = instance.path(),
@@ -298,8 +298,8 @@ fn parse_tenant(row_key: &[u8]) -> Option<&str> {
     }
 }
 
-// rounds the supplied time down to midnight and returns the number of micros
-// since the EPOCH for that time.
+// rounds the supplied time down to midnight UTC and returns the number of
+// microseconds since the EPOCH for that time.
 fn to_day_micros(t: SystemTime) -> i64 {
     DateTime::<Utc>::from(t)
         .with_hour(0)

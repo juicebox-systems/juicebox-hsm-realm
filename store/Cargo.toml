@@ -9,11 +9,11 @@ rust-version = { workspace = true }
 [dependencies]
 agent_api = { workspace = true }
 async-trait = { workspace = true }
+bigtable = { workspace = true }
 bitvec = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
-gcp_auth = { workspace = true }
 google = { workspace = true }
 hex = { workspace = true }
 hsm_api = { workspace = true }

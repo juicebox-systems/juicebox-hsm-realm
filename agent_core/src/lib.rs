@@ -1265,6 +1265,7 @@ impl<T: Transport + 'static> Agent<T> {
         match start_result {
             Err(response) => Ok(response),
             Ok((append_request, request_type)) => {
+                let has_delta = !append_request.delta.is_empty();
                 let res = self
                     .0
                     .metrics
@@ -1290,20 +1291,22 @@ impl<T: Transport + 'static> Agent<T> {
                         "realm.request.count",
                         [tag!(?realm), tenant_tag, tag!(type: "{}", req_type_name)],
                     );
-                    match request_type {
-                        AppRequestType::Register2 => {
-                            self.0
-                                .accountant
-                                .secret_registered(realm, tenant, record_id)
-                                .await
+                    if has_delta {
+                        match request_type {
+                            AppRequestType::Register2 => {
+                                self.0
+                                    .accountant
+                                    .secret_registered(realm, tenant, record_id)
+                                    .await
+                            }
+                            AppRequestType::Delete => {
+                                self.0
+                                    .accountant
+                                    .secret_deleted(realm, tenant, record_id)
+                                    .await
+                            }
+                            _ => {}
                         }
-                        AppRequestType::Delete => {
-                            self.0
-                                .accountant
-                                .secret_deleted(realm, tenant, record_id)
-                                .await
-                        }
-                        _ => {}
                     }
                 }
                 res

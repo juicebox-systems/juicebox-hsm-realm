@@ -56,8 +56,9 @@ pub async fn read_rows(
     request: ReadRowsRequest,
 ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
     let mut rows = Vec::new();
-    read_rows_stream(bigtable, request, |key, cells| rows.push((key, cells))).await?;
-    Ok(rows)
+    read_rows_stream(bigtable, request, |key, cells| rows.push((key, cells)))
+        .await
+        .map(|_| rows)
 }
 
 #[instrument(
