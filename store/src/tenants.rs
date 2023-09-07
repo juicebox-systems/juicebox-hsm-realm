@@ -272,12 +272,14 @@ pub struct RealmUserSummary {
 
 fn make_row_key(tenant: &str, id: &RecordId) -> Vec<u8> {
     use std::fmt::Write;
-    let mut k = String::with_capacity(tenant.len() + 1 + (RecordId::NUM_BYTES * 2));
+    let len = tenant.len() + 1 + (RecordId::NUM_BYTES * 2);
+    let mut k = String::with_capacity(len);
     k.push_str(tenant);
     k.push(':');
     for byte in &id.0 {
         write!(k, "{byte:02x}").unwrap();
     }
+    assert_eq!(len, k.len());
     k.into_bytes()
 }
 
@@ -287,7 +289,7 @@ fn parse_tenant(row_key: &[u8]) -> Option<&str> {
     if row_key.len() > RID_LEN + 1 {
         let idx = row_key.len() - RID_LEN - 1;
         if row_key[idx] == b':' {
-            Some(std::str::from_utf8(&row_key[..idx]).unwrap())
+            std::str::from_utf8(&row_key[..idx]).ok()
         } else {
             None
         }
