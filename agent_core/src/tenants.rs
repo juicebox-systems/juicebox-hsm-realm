@@ -35,13 +35,12 @@ impl UserAccountingManager {
                 }
                 metrics.gauge("agent.accounting.batch_size", count, metrics::NO_TAGS);
 
-                for (realm, mut events) in records {
-                    events.sort_by_key(|e| e.when);
+                for (realm, events) in records {
                     for retries in 0..3 {
                         trace!(len = events.len(), ?realm, "writing user accounting batch");
                         match metrics
                             .async_time("agent.accounting.write_time", metrics::NO_TAGS, || {
-                                store.write_user_accounting(&realm, &events)
+                                store.write_user_accounting(&realm, events.clone())
                             })
                             .await
                         {

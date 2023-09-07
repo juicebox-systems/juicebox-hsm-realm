@@ -62,7 +62,7 @@ async fn test_tenant() {
     let alice = RecordId([3; 32]);
     let simon = RecordId([4; 32]);
 
-    let mut events = vec![
+    let events = vec![
         // bob registered 3 months ago and hasn't done anything since
         UserAccounting {
             tenant: "jb".to_string(),
@@ -104,8 +104,7 @@ async fn test_tenant() {
             event: tenants::UserAccountingEvent::SecretDeleted,
         },
     ];
-    events.sort_by_key(|e| e.when);
-    data.write_user_accounting(&REALM, &events).await.unwrap();
+    data.write_user_accounting(&REALM, events).await.unwrap();
 
     let counts = data.count_realm_users(&REALM, n).await.unwrap();
     // bob, alice & eve.

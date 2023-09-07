@@ -112,17 +112,15 @@ impl UserAccountingEvent {
 }
 
 impl StoreClient {
-    // Persist user accounting events to the relevant realm table. records must
-    // be in ascending timestamp order.
+    // Persist user accounting events to the relevant realm table.
     pub async fn write_user_accounting(
         &self,
         realm: &RealmId,
-        records: &[UserAccounting],
+        mut records: Vec<UserAccounting>,
     ) -> Result<(), MutateRowsError> {
-        assert!(
-            records.windows(2).all(|pair| pair[0].when <= pair[1].when),
-            "records should be in ascending timestamp order"
-        );
+        // Sort the records by timestamp so that if there are multiple records
+        // for the same record id, they are applied in timestamp order.
+        records.sort_by_key(|e| e.when);
 
         // Each tenant+recordId gets their own row. There's a cell in the row
         // for each event, with a timestamp that is rounded down to midnight.
