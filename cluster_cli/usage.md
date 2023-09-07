@@ -16,7 +16,7 @@ Commands:
   new-realm      Create a new realm and group on a single agent's HSM
   stepdown       Ask an HSM to step down as leader
   transfer       Transfer ownership of user records from one group to another
-  user-summary   Report counts of active users by tenant for a month. These are users that have a secret stored at some point during the month
+  user-summary   Report counts of active users by tenant for a month. These are users that have a secret stored at some point during the month (in the UTC timezone)
   help           Print this message or the help of the given subcommand(s)
 
 Options:
@@ -272,7 +272,7 @@ Options:
 ## `cluster user-summary --help`
 
 ```
-Report counts of active users by tenant for a month. These are users that have a secret stored at some point during the month
+Report counts of active users by tenant for a month. These are users that have a secret stored at some point during the month (in the UTC timezone)
 
 Usage: cluster user-summary [OPTIONS]
 

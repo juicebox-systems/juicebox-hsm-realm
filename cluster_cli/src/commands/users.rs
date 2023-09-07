@@ -37,16 +37,13 @@ pub(crate) async fn user_summary(
             .await
             .context("counting rows in realm-users table")?;
         if !printed_headers {
-            println!(
-                "{} - {}",
-                DateTime::<Utc>::from(r.start),
-                DateTime::<Utc>::from(r.end)
-            );
-            println!("realm,tenant,users");
+            println!("start,end,realm,tenant,users");
             printed_headers = true;
         }
+        let start = DateTime::<Utc>::from(r.start);
+        let end = DateTime::<Utc>::from(r.end);
         for row in r.tenant_user_counts {
-            println!("{:?},\"{}\",{}", realm, row.0, row.1);
+            println!("{},{},{:?},\"{}\",{}", start, end, realm, row.0, row.1);
         }
     }
     Ok(())
@@ -71,16 +68,13 @@ async fn find_realms(
     )
     .await;
 
-    let mut realms = HashSet::<RealmId>::new();
-    for rs in status
+    let realms: HashSet<RealmId> = status
         .into_iter()
         .filter_map(|s| s.ok())
         .filter_map(|s| s.hsm)
         .filter_map(|s| s.realm)
-    {
-        realms.insert(rs.id);
-    }
-    let mut results = Vec::new();
-    results.extend(realms);
-    Ok(results)
+        .map(|rs| rs.id)
+        .collect();
+
+    Ok(Vec::from_iter(realms))
 }

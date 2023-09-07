@@ -174,7 +174,8 @@ enum Command {
     },
 
     /// Report counts of active users by tenant for a month. These are users
-    /// that have a secret stored at some point during the month.
+    /// that have a secret stored at some point during the month (in the UTC
+    /// timezone)
     UserSummary {
         /// Restrict the report to just these realms(s). If not set will report
         /// on realms that are found via service discovery.
