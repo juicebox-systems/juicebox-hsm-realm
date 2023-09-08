@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context};
-use chrono::{DateTime, Months, Utc};
+use chrono::{DateTime, Datelike, Months, Utc};
 use futures::future::join_all;
 use std::collections::HashSet;
 use std::time::SystemTime;
@@ -17,11 +17,10 @@ pub(crate) async fn user_summary(
     agents_client: &Client<AgentService>,
     mut realms: Vec<RealmId>,
     when: UserSummaryWhen,
+    start: Option<SystemTime>,
+    end: Option<SystemTime>,
 ) -> anyhow::Result<()> {
-    let when = match when {
-        UserSummaryWhen::ThisMonth => SystemTime::now(),
-        UserSummaryWhen::LastMonth => last_month(),
-    };
+    let (start, end) = date_range(when, start, end)?;
     if realms.is_empty() {
         realms = find_realms(store, agents_client)
             .await
@@ -33,7 +32,7 @@ pub(crate) async fn user_summary(
     let mut printed_headers = false;
     for realm in realms {
         let r = store
-            .count_realm_users(&realm, when)
+            .count_realm_users(&realm, start, end)
             .await
             .context("counting rows in realm-users table")?;
         if !printed_headers {
@@ -49,10 +48,25 @@ pub(crate) async fn user_summary(
     Ok(())
 }
 
-fn last_month() -> SystemTime {
-    let d = Utc::now();
-    let prev = d.checked_sub_months(Months::new(1)).unwrap();
-    prev.into()
+fn date_range(
+    w: UserSummaryWhen,
+    start: Option<SystemTime>,
+    end: Option<SystemTime>,
+) -> anyhow::Result<(SystemTime, SystemTime)> {
+    match (start, end) {
+        (Some(s), Some(e)) => Ok((s, e)),
+        (Some(_), None) | (None, Some(_)) => {
+            Err(anyhow!("must specify both start and end dates or neither"))
+        }
+        (None, None) => {
+            let mut start = Utc::now().with_day(1).unwrap();
+            if w == UserSummaryWhen::LastMonth {
+                start = start.checked_sub_months(Months::new(1)).unwrap();
+            }
+            let end = start.checked_add_months(Months::new(1)).unwrap();
+            Ok((start.into(), end.into()))
+        }
+    }
 }
 
 async fn find_realms(

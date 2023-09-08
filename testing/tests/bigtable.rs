@@ -1,3 +1,4 @@
+use chrono::{Datelike, Days, Months, Utc};
 use once_cell::sync::Lazy;
 use reqwest::Url;
 use std::time::{Duration, SystemTime};
@@ -51,72 +52,154 @@ async fn init_bt(pg: &mut ProcessGroup, args: store::Args) -> (StoreAdminClient,
 
 #[tokio::test]
 async fn test_tenant() {
+    use tenants::UserAccountingEvent::*;
+
     let mut pg = ProcessGroup::new();
     let args = emulator(PORT.next());
     let (_, data) = init_bt(&mut pg, args).await;
 
-    let n = SystemTime::now();
-    let days_32 = Duration::from_secs(60 * 60 * 24 * 32);
+    // we need to be able to go a few days either side and stay in the same month.
+    let now = Utc::now().with_day(15).unwrap();
+
     let bob = RecordId([1; 32]);
     let eve = RecordId([2; 32]);
     let alice = RecordId([3; 32]);
     let simon = RecordId([4; 32]);
+    let diego = RecordId([5; 32]);
 
     let events = vec![
         // bob registered 3 months ago and hasn't done anything since
-        UserAccounting {
-            tenant: "jb".to_string(),
-            id: bob,
-            when: n - (3 * days_32),
-            event: tenants::UserAccountingEvent::SecretRegistered,
-        },
+        UserAccounting::new(
+            "jb",
+            bob,
+            now.checked_sub_months(Months::new(3)).unwrap(),
+            SecretRegistered,
+        ),
         // alice registered this month
-        UserAccounting {
-            tenant: "jb".to_string(),
-            id: alice,
-            when: n,
-            event: tenants::UserAccountingEvent::SecretRegistered,
-        },
+        UserAccounting::new("jb", alice, now, SecretRegistered),
         // eve registered last month, and deleted their secret this month
-        UserAccounting {
-            tenant: "jb".to_string(),
-            id: eve.clone(),
-            when: n - days_32,
-            event: tenants::UserAccountingEvent::SecretRegistered,
-        },
-        UserAccounting {
-            tenant: "jb".to_string(),
-            id: eve,
-            when: n,
-            event: tenants::UserAccountingEvent::SecretDeleted,
-        },
+        UserAccounting::new(
+            "jb",
+            eve.clone(),
+            now.checked_sub_months(Months::new(1)).unwrap(),
+            SecretRegistered,
+        ),
+        UserAccounting::new("jb", eve, now, SecretDeleted),
         // simon registered last month & deleted his secret last month.
-        UserAccounting {
-            tenant: "jb".to_string(),
-            id: simon.clone(),
-            when: n - days_32,
-            event: tenants::UserAccountingEvent::SecretRegistered,
-        },
-        UserAccounting {
-            tenant: "jb".to_string(),
-            id: simon,
-            when: n - days_32 + Duration::from_secs(5),
-            event: tenants::UserAccountingEvent::SecretDeleted,
-        },
+        UserAccounting::new(
+            "jb",
+            simon.clone(),
+            now.checked_sub_months(Months::new(1)).unwrap(),
+            SecretRegistered,
+        ),
+        UserAccounting::new(
+            "jb",
+            simon,
+            now.checked_sub_months(Months::new(1))
+                .unwrap()
+                .checked_add_days(Days::new(1))
+                .unwrap(),
+            SecretDeleted,
+        ),
+        // diego registered & deleted a few times in this month
+        UserAccounting::new(
+            "taylacorp",
+            diego.clone(),
+            now.checked_sub_days(Days::new(5)).unwrap(),
+            SecretRegistered,
+        ),
+        UserAccounting::new(
+            "taylacorp",
+            diego.clone(),
+            now.checked_sub_days(Days::new(4)).unwrap(),
+            SecretDeleted,
+        ),
+        UserAccounting::new(
+            "taylacorp",
+            diego.clone(),
+            now.checked_add_days(Days::new(3)).unwrap(),
+            SecretRegistered,
+        ),
+        UserAccounting::new(
+            "taylacorp",
+            diego.clone(),
+            now.checked_add_days(Days::new(4)).unwrap(),
+            SecretDeleted,
+        ),
     ];
     data.write_user_accounting(&REALM, events).await.unwrap();
 
-    let counts = data.count_realm_users(&REALM, n).await.unwrap();
-    // bob, alice & eve.
-    assert_eq!(vec![(String::from("jb"), 3)], counts.tenant_user_counts);
+    // this month
+    let counts = data
+        .count_realm_users(
+            &REALM,
+            now.with_day(1).unwrap(),
+            now.checked_add_months(Months::new(1))
+                .unwrap()
+                .with_day(1)
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // bob, alice, eve, diego
+    assert_eq!(
+        vec![(String::from("jb"), 3), (String::from("taylacorp"), 1)],
+        counts.tenant_user_counts
+    );
 
-    let counts = data.count_realm_users(&REALM, n - days_32).await.unwrap();
+    // last month
+    let counts = data
+        .count_realm_users(
+            &REALM,
+            now.checked_sub_months(Months::new(1))
+                .unwrap()
+                .with_day(1)
+                .unwrap(),
+            now.with_day(1).unwrap(),
+        )
+        .await
+        .unwrap();
     // bob, eve, simon
     assert_eq!(vec![(String::from("jb"), 3)], counts.tenant_user_counts);
 
-    let counts = data.count_realm_users(&REALM, n + days_32).await.unwrap();
-    // bob, alice
-    assert_eq!(vec![(String::from("jb"), 2)], counts.tenant_user_counts);
+    // 3 months ago
+    let counts = data
+        .count_realm_users(
+            &REALM,
+            now.checked_sub_months(Months::new(3))
+                .unwrap()
+                .with_day(1)
+                .unwrap(),
+            now.checked_sub_months(Months::new(2))
+                .unwrap()
+                .with_day(1)
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // bob
+    assert_eq!(vec![(String::from("jb"), 1)], counts.tenant_user_counts);
+
+    // 3 months ago to the end of this month
+    let counts = data
+        .count_realm_users(
+            &REALM,
+            now.checked_sub_months(Months::new(3))
+                .unwrap()
+                .with_day(1)
+                .unwrap(),
+            now.checked_add_months(Months::new(1))
+                .unwrap()
+                .with_day(1)
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // bob,alice,eve,simon,diego
+    assert_eq!(
+        vec![(String::from("jb"), 4), (String::from("taylacorp"), 1)],
+        counts.tenant_user_counts
+    );
 }
 
 #[tokio::test]

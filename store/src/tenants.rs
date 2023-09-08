@@ -1,4 +1,4 @@
-use chrono::{DateTime, Datelike, Months, Timelike, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use google::bigtable::admin::v2::gc_rule::Rule;
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{gc_rule, ColumnFamily, CreateTableRequest, GcRule, Table};
@@ -13,7 +13,8 @@ use google::bigtable::v2::{
     ValueRange,
 };
 use std::collections::HashMap;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
+use thiserror::Error;
 use tracing::warn;
 
 use super::{BigtableTableAdminClient, Instance, StoreClient};
@@ -90,6 +91,22 @@ pub struct UserAccounting {
     pub event: UserAccountingEvent,
 }
 
+impl UserAccounting {
+    pub fn new(
+        tenant: impl Into<String>,
+        id: RecordId,
+        when: impl Into<SystemTime>,
+        event: UserAccountingEvent,
+    ) -> UserAccounting {
+        UserAccounting {
+            tenant: tenant.into(),
+            id,
+            when: when.into(),
+            event,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum UserAccountingEvent {
     // An existing secret was deleted. Note that the count query depends on this
@@ -150,25 +167,32 @@ impl StoreClient {
         .await
     }
 
+    // Returns a count of active users by tenant for the specified realm and
+    // date range. start can't be more than 100 days in the past, or be in the
+    // future. The finest date granularity is a day. Start and end times will be
+    // rounded as appropriately.
     pub async fn count_realm_users(
         &self,
         realm: &RealmId,
-        when: SystemTime,
-    ) -> Result<RealmUserSummary, tonic::Status> {
-        let n = DateTime::<Utc>::from(when);
-        let start = n
-            .with_day(1)
-            .unwrap()
-            .with_hour(0)
-            .unwrap()
-            .with_minute(0)
-            .unwrap()
-            .with_second(0)
-            .unwrap()
-            .with_nanosecond(0)
-            .unwrap();
+        start: impl Into<SystemTime>, // inclusive
+        end: impl Into<SystemTime>,   // exclusive
+    ) -> Result<RealmUserSummary, CountRealmUsersError> {
+        let start = start.into();
+        let end = end.into();
+        let start_micros = to_day_micros(start);
+        let end_micros = to_day_micros(end);
+        if end_micros <= start_micros {
+            return Err(CountRealmUsersError::EndBeforeStart);
+        }
+        match SystemTime::now().duration_since(start) {
+            Ok(d) => {
+                if d.as_secs() > 60 * 60 * 24 * 100 {
+                    return Err(CountRealmUsersError::StartTooOld);
+                }
+            }
+            Err(_) => return Err(CountRealmUsersError::StartInFuture),
+        }
 
-        let end = start.checked_add_months(Months::new(1)).unwrap();
         let f = Filter::Chain(Chain {
             filters: vec![
                 // Just the EVENT_COL cells.
@@ -185,7 +209,7 @@ impl StoreClient {
                 RowFilter {
                     filter: Some(Filter::TimestampRangeFilter(TimestampRange {
                         start_timestamp_micros: 0,
-                        end_timestamp_micros: end.timestamp_micros(),
+                        end_timestamp_micros: end_micros,
                     })),
                 },
                 // Just the most recent one (in the above date range)
@@ -208,7 +232,7 @@ impl StoreClient {
                             },
                             RowFilter {
                                 filter: Some(Filter::TimestampRangeFilter(TimestampRange {
-                                    start_timestamp_micros: start.timestamp_micros(),
+                                    start_timestamp_micros: start_micros,
                                     end_timestamp_micros: 0,
                                 })),
                             },
@@ -253,15 +277,28 @@ impl StoreClient {
         {
             Err(err) => {
                 warn!(?err, "couldn't read from bigtable");
-                Err(err)
+                Err(CountRealmUsersError::StoreRpc(err))
             }
             Ok(_) => Ok(RealmUserSummary {
-                start: start.into(),
-                end: end.into(),
+                start: SystemTime::UNIX_EPOCH
+                    + Duration::from_micros(start_micros.try_into().unwrap()),
+                end: SystemTime::UNIX_EPOCH + Duration::from_micros(end_micros.try_into().unwrap()),
                 tenant_user_counts: results,
             }),
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum CountRealmUsersError {
+    #[error("gRPC error from bigtable: {0}")]
+    StoreRpc(tonic::Status),
+    #[error("start date is too far in the past")]
+    StartTooOld,
+    #[error("start date is in the future")]
+    StartInFuture,
+    #[error("end should be after the start")]
+    EndBeforeStart,
 }
 
 pub struct RealmUserSummary {

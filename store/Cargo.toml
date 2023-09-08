@@ -24,6 +24,7 @@ lru-cache = { workspace = true }
 observability = { workspace = true }
 prost-types = { workspace = true }
 rand_core = { workspace = true, features = ["getrandom"] }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }

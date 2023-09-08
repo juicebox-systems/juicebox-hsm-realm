@@ -1,8 +1,9 @@
 use anyhow::Context;
+use chrono::{LocalResult, TimeZone, Utc};
 use clap::{command, Parser, Subcommand, ValueEnum};
 use reqwest::Url;
 use std::process::ExitCode;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tracing::{info, Level};
 
 use agent_api::AgentService;
@@ -185,10 +186,18 @@ enum Command {
         /// What time period to report on.
         #[arg(long, value_enum, default_value_t=UserSummaryWhen::ThisMonth)]
         when: UserSummaryWhen,
+
+        /// The starting date (inclusive) of a custom time period to report on. format yyyy-mm-dd
+        #[arg(long, value_parser=parse_date_only, conflicts_with="when", requires="end")]
+        start: Option<SystemTime>,
+
+        /// The ending date (exclusive) of a custom time period to report on.
+        #[arg(long, value_parser=parse_date_only, conflicts_with="when", requires="start")]
+        end: Option<SystemTime>,
     },
 }
 
-#[derive(Clone, ValueEnum)]
+#[derive(Clone, Eq, PartialEq, ValueEnum)]
 enum UserSummaryWhen {
     ThisMonth,
     LastMonth,
@@ -360,7 +369,9 @@ async fn run(args: Args) -> anyhow::Result<()> {
         Command::UserSummary {
             realm: realms,
             when,
-        } => commands::users::user_summary(&store, &agents_client, realms, when).await,
+            start,
+            end,
+        } => commands::users::user_summary(&store, &agents_client, realms, when, start, end).await,
     }
 }
 
@@ -388,12 +399,69 @@ fn parse_record_id(buf: &str) -> Result<RecordId, hex::FromHexError> {
     ))
 }
 
+pub fn parse_date_only(s: &str) -> Result<SystemTime, String> {
+    let s = s.trim();
+    if s.len() != 10 {
+        return Err(String::from("Invalid date format: expecting yyyy-mm-dd"));
+    }
+    let year: i32 = s[..4]
+        .parse()
+        .map_err(|e| format!("couldn't parse year: {e}"))?;
+    let month: u32 = s[5..7]
+        .parse()
+        .map_err(|e| format!("couldn't parse month: {e}"))?;
+    let day: u32 = s[8..]
+        .parse()
+        .map_err(|e| format!("couldn't parse day: {e}"))?;
+
+    match Utc.with_ymd_and_hms(year, month, day, 0, 0, 0) {
+        LocalResult::None => Err(format!("'{}' is not a valid date", s)),
+        LocalResult::Ambiguous(_, _) => Err(format!("'{}' is not a valid date", s)),
+        LocalResult::Single(d) => Ok(d.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{DateTime, Datelike};
     use clap::CommandFactory;
     use expect_test::expect_file;
     use std::fmt::Write;
+
+    #[test]
+    fn parse_date() {
+        assert_eq!(
+            Err(String::from("Invalid date format: expecting yyyy-mm-dd")),
+            parse_date_only("2023-mar-11")
+        );
+        assert_eq!(
+            Err(String::from(
+                "couldn't parse year: invalid digit found in string"
+            )),
+            parse_date_only("202 -01-01")
+        );
+        assert_eq!(
+            Err(String::from(
+                "couldn't parse month: invalid digit found in string"
+            )),
+            parse_date_only("2023-q1-01")
+        );
+        assert_eq!(
+            Err(String::from(
+                "couldn't parse day: invalid digit found in string"
+            )),
+            parse_date_only("2023-09-!1")
+        );
+        assert_eq!(
+            Err(String::from("'2023-02-29' is not a valid date")),
+            parse_date_only("2023-02-29")
+        );
+        let d = DateTime::<Utc>::from(parse_date_only("2023-09-08").unwrap());
+        assert_eq!(2023, d.year());
+        assert_eq!(9, d.month());
+        assert_eq!(8, d.day());
+    }
 
     #[test]
     fn test_usage() {

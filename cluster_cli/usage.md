@@ -279,6 +279,8 @@ Usage: cluster user-summary [OPTIONS]
 Options:
       --realm <REALM>  Restrict the report to just these realms(s). If not set will report on realms that are found via service discovery
       --when <WHEN>    What time period to report on [default: this-month] [possible values: this-month, last-month]
+      --start <START>  The starting date (inclusive) of a custom time period to report on. format yyyy-mm-dd
+      --end <END>      The ending date (exclusive) of a custom time period to report on
   -h, --help           Print help
 
 ```
