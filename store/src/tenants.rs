@@ -26,6 +26,9 @@ use juicebox_realm_api::types::RealmId;
 const FAMILY: &str = "f";
 const EVENT_COL: &[u8] = b"e";
 
+const MAX_ACCOUNTING_EVENT_AGE_DAYS: u32 = 100;
+const MAX_ACCOUNTING_EVENT_AGE_SECONDS: u32 = MAX_ACCOUNTING_EVENT_AGE_DAYS * 60 * 60 * 24;
+
 pub fn tenant_user_table(instance: &Instance, realm: &RealmId) -> String {
     format!(
         "{path}/tables/{table}",
@@ -63,7 +66,7 @@ pub(crate) async fn initialize(
                                     },
                                     GcRule {
                                         rule: Some(Rule::MaxAge(prost_types::Duration {
-                                            seconds: 60 * 60 * 24 * 100,
+                                            seconds: MAX_ACCOUNTING_EVENT_AGE_SECONDS.into(),
                                             nanos: 0,
                                         })),
                                     },
@@ -186,7 +189,7 @@ impl StoreClient {
         }
         match SystemTime::now().duration_since(start) {
             Ok(d) => {
-                if d.as_secs() > 60 * 60 * 24 * 100 {
+                if d.as_secs() > MAX_ACCOUNTING_EVENT_AGE_SECONDS.into() {
                     return Err(CountRealmUsersError::StartTooOld);
                 }
             }

@@ -103,25 +103,25 @@ async fn test_tenant() {
         ),
         // diego registered & deleted a few times in this month
         UserAccounting::new(
-            "taylacorp",
+            "teylacorp",
             diego.clone(),
             now.checked_sub_days(Days::new(5)).unwrap(),
             SecretRegistered,
         ),
         UserAccounting::new(
-            "taylacorp",
+            "teylacorp",
             diego.clone(),
             now.checked_sub_days(Days::new(4)).unwrap(),
             SecretDeleted,
         ),
         UserAccounting::new(
-            "taylacorp",
+            "teylacorp",
             diego.clone(),
             now.checked_add_days(Days::new(3)).unwrap(),
             SecretRegistered,
         ),
         UserAccounting::new(
-            "taylacorp",
+            "teylacorp",
             diego.clone(),
             now.checked_add_days(Days::new(4)).unwrap(),
             SecretDeleted,
@@ -143,7 +143,7 @@ async fn test_tenant() {
         .unwrap();
     // bob, alice, eve, diego
     assert_eq!(
-        vec![(String::from("jb"), 3), (String::from("taylacorp"), 1)],
+        vec![(String::from("jb"), 3), (String::from("teylacorp"), 1)],
         counts.tenant_user_counts
     );
 
@@ -197,7 +197,7 @@ async fn test_tenant() {
         .unwrap();
     // bob,alice,eve,simon,diego
     assert_eq!(
-        vec![(String::from("jb"), 4), (String::from("taylacorp"), 1)],
+        vec![(String::from("jb"), 4), (String::from("teylacorp"), 1)],
         counts.tenant_user_counts
     );
 }
