@@ -1,4 +1,7 @@
+use blake2::{Blake2s256, Digest};
 use std::env;
+use std::fs::File;
+use std::io::{copy, Write};
 use std::path::PathBuf;
 
 fn main() {
@@ -6,10 +9,7 @@ fn main() {
     println!("cargo:rustc-link-search=/opt/nfast/c/csd/gcc/lib/");
 
     // Tell cargo to tell rustc to link the entrust libraries.
-    for lib in [
-        "rqcard", "nfkm", "nfstub", "nflog", "cutils", "rqcard", "nfkm", "nfstub", "nflog",
-        "cutils",
-    ] {
+    for lib in ["rqcard", "nfkm", "nfstub", "nflog", "cutils"] {
         println!("cargo:rustc-link-lib={lib}");
     }
 
@@ -58,7 +58,30 @@ fn main() {
 
     // Write the bindings to the $OUT_DIR/bindings.rs file.
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let out_file = out_path.join("bindings.rs");
     bindings
-        .write_to_file(out_path.join("bindings.rs"))
+        .write_to_file(&out_file)
         .expect("Couldn't write bindings!");
+
+    let mut hasher = WritableHash(Blake2s256::new());
+    let mut file = File::open(out_file).expect("Failed to open file {out_file}");
+    copy(&mut file, &mut hasher).expect("Couldn't hash bindings!");
+    let hash = hasher.0.finalize();
+    assert_eq!(
+        "b79f11e9827d399f22e530e31f1527c857e003be1376b33fa14b9e87096f183d",
+        hex::encode(hash)
+    );
+}
+
+struct WritableHash(Blake2s256);
+
+impl Write for WritableHash {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }

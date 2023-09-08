@@ -9,6 +9,8 @@ rust-version = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }
+blake2 = { workspace = true }
+hex = { workspace = true }
 
 [dependencies]
 entrust_api = { workspace = true }

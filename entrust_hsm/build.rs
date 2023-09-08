@@ -1,4 +1,7 @@
+use blake2::{Blake2s256, Digest};
 use std::env;
+use std::fs::File;
+use std::io::{copy, Write};
 use std::path::PathBuf;
 
 fn main() {
@@ -34,7 +37,30 @@ fn main() {
 
     // Write the bindings to the $OUT_DIR/bindings.rs file.
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let out_file = out_path.join("bindings.rs");
     bindings
-        .write_to_file(out_path.join("bindings.rs"))
+        .write_to_file(&out_file)
         .expect("Couldn't write bindings!");
+
+    let mut hasher = WritableHash(Blake2s256::new());
+    let mut file = File::open(out_file).expect("Failed to open file {out_file}");
+    copy(&mut file, &mut hasher).expect("Couldn't hash bindings!");
+    let hash = hasher.0.finalize();
+    assert_eq!(
+        "4a59421bccc2d5e7929febc46418f7cde6192fa9018a4bde2a24f81ccae8453b",
+        hex::encode(hash)
+    );
+}
+
+struct WritableHash(Blake2s256);
+
+impl Write for WritableHash {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
