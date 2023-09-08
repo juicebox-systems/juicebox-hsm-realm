@@ -36,6 +36,7 @@ async fn cluster_bench() {
 
     run_cluster_bench(&cluster, &[]);
     run_cluster_bench(&cluster, &["--conn-pool"]);
+    run_service_checker(&cluster);
 }
 
 fn run_cluster_bench(cluster: &ClusterResult, extra_args: &[&str]) {
@@ -60,5 +61,30 @@ fn run_cluster_bench(cluster: &ClusterResult, extra_args: &[&str]) {
         .arg("--tls-certificate")
         .arg(cluster.certs.cert_file_der.clone());
     cb.args(extra_args);
+    assert!(cb.status().unwrap().success());
+}
+
+fn run_service_checker(cluster: &ClusterResult) {
+    let mut cb = Command::new(
+        PathBuf::from("..")
+            .join("target")
+            .join(if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            })
+            .join("service_checker"),
+    );
+    cb.arg("--configuration")
+        .arg(cluster.configuration().to_json())
+        .arg("--count")
+        .arg("10")
+        .arg("--tenant")
+        .arg("test-acme")
+        .arg("--secrets-file")
+        .arg("../secrets-demo.json")
+        .arg("--tls-certificate")
+        .arg(cluster.certs.cert_file_der.clone());
+
     assert!(cb.status().unwrap().success());
 }

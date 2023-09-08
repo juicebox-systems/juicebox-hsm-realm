@@ -501,7 +501,6 @@ version = "0.2.3"
 dependencies = [
  "anyhow",
  "clap",
- "dogstatsd",
  "futures",
  "google",
  "hdrhistogram",
@@ -2469,6 +2468,28 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "service_checker"
+version = "0.2.3"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dogstatsd",
+ "expect-test",
+ "futures",
+ "juicebox_networking",
+ "juicebox_realm_auth",
+ "juicebox_sdk",
+ "observability",
+ "reqwest",
+ "secret_manager",
+ "serde_json",
+ "service_core",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

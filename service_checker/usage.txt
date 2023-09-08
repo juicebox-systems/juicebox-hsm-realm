@@ -1,0 +1,16 @@
+Runs a number of register/recover/delete requests and reports success/failure via a Datadog health check
+
+Usage: service_checker [OPTIONS] --configuration <JSON> --secrets-file <FILE>
+
+Options:
+      --concurrency <N>              Number of clients to run at a time [default: 1]
+      --configuration <JSON>         The SDK client configuration information, as a JSON string
+      --count <N>                    Number of each operation to do [default: 5]
+      --secrets-file <FILE>          Name of JSON file containing per-tenant keys for authentication
+      --tenant <NAME>                Name of tenant to generate auth tokens for. Must start with "test-" [default: test-juiceboxmonitor]
+      --tls-certificate <PATH>       DER file containing self-signed certificate for connecting to the load balancers over TLS. May be given more than once
+      --env <ENV>                    Name of the environment to include in the service check report to Datadog [default: dev]
+      --timeout <TIMEOUT>            Amount of time to allow for the entire service check operation to run before declaring a failure. in milliseconds [default: 10000]
+      --http-timeout <HTTP_TIMEOUT>  Timeout setting for http requests. in milliseconds [default: 5000]
+  -h, --help                         Print help
+  -V, --version                      Print version
