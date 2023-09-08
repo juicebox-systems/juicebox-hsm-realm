@@ -1,5 +1,4 @@
 #![cfg_attr(target_os = "ncipherxc", no_std)]
-#![cfg_attr(target_os = "ncipherxc", allow(internal_features))]
 #![cfg_attr(target_os = "ncipherxc", feature(lang_items))]
 
 #[cfg(target_os = "ncipherxc")]

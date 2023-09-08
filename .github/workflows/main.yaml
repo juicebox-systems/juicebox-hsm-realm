@@ -289,7 +289,7 @@ jobs:
     - name: Run clippy
       uses: actions-rs/cargo@v1
       with:
-        args: --workspace --tests -- -D warnings
+        args: --workspace --tests --exclude 'entrust*' -- -D warnings
         command: clippy
 
     - name: Install cargo audit

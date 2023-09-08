@@ -1,4 +1,4 @@
-use alloc::{format, vec::Vec};
+use alloc::{boxed::Box, format, vec::Vec};
 use core::{
     cmp::min,
     ops::{Deref, Sub},
