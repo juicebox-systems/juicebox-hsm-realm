@@ -119,8 +119,8 @@ async fn main() -> ExitCode {
 
 // returns the number of benchmark operation errors encountered
 async fn run(args: Args) -> anyhow::Result<usize> {
-    let mut configuration: Configuration =
-        serde_json::from_str(&args.configuration).context("failed to parse configuration")?;
+    let mut configuration =
+        Configuration::from_json(&args.configuration).context("failed to parse configuration")?;
     if configuration.pin_hashing_mode != PinHashingMode::FastInsecure {
         warn!(
             was = ?configuration.pin_hashing_mode,

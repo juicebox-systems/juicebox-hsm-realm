@@ -2477,6 +2477,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dogstatsd",
+ "expect-test",
  "futures",
  "juicebox_networking",
  "juicebox_realm_auth",

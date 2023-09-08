@@ -17,8 +17,8 @@ use juicebox_networking::reqwest;
 use juicebox_networking::rpc::LoadBalancerService;
 use juicebox_realm_auth::{creation::create_token, AuthKey, AuthKeyVersion, Claims};
 use juicebox_sdk::{
-    AuthToken, Configuration, Pin, PinHashingMode, Policy, RealmId, RecoverError, RegisterError,
-    TokioSleeper, UserInfo, UserSecret, JUICEBOX_VERSION_HEADER, VERSION,
+    AuthToken, Configuration, DeleteError, Pin, PinHashingMode, Policy, RealmId, RecoverError,
+    RegisterError, TokioSleeper, UserInfo, UserSecret, JUICEBOX_VERSION_HEADER, VERSION,
 };
 use observability::metrics_tag as tag;
 use observability::{logging, metrics};
@@ -31,8 +31,8 @@ type Client = juicebox_sdk::Client<
     HashMap<RealmId, AuthToken>,
 >;
 
-/// Runs a number of register/recover requests and reports success/failure via a
-/// Datadog health check.
+/// Runs a number of register/recover/delete requests and reports
+/// success/failure via a Datadog health check.
 #[derive(Debug, Parser)]
 #[command(version)]
 struct Args {
@@ -53,7 +53,7 @@ struct Args {
     secrets_file: PathBuf,
 
     /// Name of tenant to generate auth tokens for. Must start with "test-".
-    #[arg(long, value_name = "NAME", default_value = "test-acme")]
+    #[arg(long, value_name = "NAME", default_value = "test-juiceboxmonitor")]
     tenant: String,
 
     /// DER file containing self-signed certificate for connecting to the load
@@ -103,8 +103,8 @@ async fn main() -> ExitCode {
 }
 
 async fn run(args: &Args) -> anyhow::Result<()> {
-    let mut configuration: Configuration =
-        serde_json::from_str(&args.configuration).context("failed to parse configuration")?;
+    let mut configuration =
+        Configuration::from_json(&args.configuration).context("failed to parse configuration")?;
     if configuration.pin_hashing_mode != PinHashingMode::FastInsecure {
         warn!(
             was = ?configuration.pin_hashing_mode,
@@ -166,21 +166,21 @@ async fn run(args: &Args) -> anyhow::Result<()> {
 async fn run_op(user_num: u64, client_builder: Arc<ClientBuilder>) -> Result<(), OpError> {
     trace!(?user_num, "starting register/recover");
     let client = client_builder.build(user_num);
-    let pin = Pin::from(b"thepin".to_vec());
-    let info = UserInfo::from(b"user_info".to_vec());
-    let secret = UserSecret::from(b"its secret".to_vec());
+    let pin = Pin::from(format!("thepin{user_num}").into_bytes());
+    let info = UserInfo::from(format!("user_info{user_num}").into_bytes());
+    let secret = UserSecret::from(format!("its secret{user_num}").into_bytes());
 
     client
         .register(&pin, &secret, &info, Policy { num_guesses: 2 })
         .await?;
 
     let s = client.recover(&pin, &info).await?;
-    if s.expose_secret().eq(secret.expose_secret()) {
-        debug!(?user_num, "recovered correct secret for user");
-        Ok(())
-    } else {
-        Err(OpError::RecoveredIncorrectSecret)
+    if !s.expose_secret().eq(secret.expose_secret()) {
+        return Err(OpError::RecoveredIncorrectSecret);
     }
+    client.delete().await?;
+    debug!(?user_num, "completed register/recover/delete for user");
+    Ok(())
 }
 
 #[derive(Debug, Error)]
@@ -191,6 +191,8 @@ enum OpError {
     Recover(RecoverError),
     #[error("recover returned a different secret to the one registered")]
     RecoveredIncorrectSecret,
+    #[error("delete failed: {0:?}")]
+    Delete(DeleteError),
 }
 
 impl From<RegisterError> for OpError {
@@ -202,6 +204,12 @@ impl From<RegisterError> for OpError {
 impl From<RecoverError> for OpError {
     fn from(value: RecoverError) -> Self {
         OpError::Recover(value)
+    }
+}
+
+impl From<DeleteError> for OpError {
+    fn from(value: DeleteError) -> Self {
+        OpError::Delete(value)
     }
 }
 
@@ -297,5 +305,22 @@ fn report_service_check(r: &anyhow::Result<()>, env: &str) {
                 }),
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use expect_test::expect_file;
+
+    #[test]
+    fn test_usage() {
+        expect_file!["../usage.txt"].assert_eq(
+            &Args::command()
+                .try_get_matches_from(["service_checker", "--help"])
+                .unwrap_err()
+                .to_string(),
+        );
     }
 }
