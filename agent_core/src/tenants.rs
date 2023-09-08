@@ -11,13 +11,13 @@ use store::tenants::{UserAccounting, UserAccountingEvent};
 use store::StoreClient;
 
 #[derive(Debug)]
-pub struct UserAccountingManager {
+pub struct UserAccountingWriter {
     tx: mpsc::Sender<(RealmId, UserAccounting)>,
 }
 
 const MAX_BATCH_SIZE: usize = 200;
 
-impl UserAccountingManager {
+impl UserAccountingWriter {
     pub fn new(store: StoreClient, metrics: metrics::Client) -> Self {
         let (tx, mut rx) = mpsc::channel(256);
         tokio::spawn(async move {
@@ -58,7 +58,7 @@ impl UserAccountingManager {
                 }
             }
         });
-        UserAccountingManager { tx }
+        UserAccountingWriter { tx }
     }
 
     pub async fn secret_registered(&self, realm: RealmId, tenant: String, id: RecordId) {

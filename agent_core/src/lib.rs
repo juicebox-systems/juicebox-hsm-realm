@@ -53,7 +53,7 @@ use observability::metrics::{self};
 use observability::metrics_tag as tag;
 use service_core::rpc::{handle_rpc, HandlerError};
 use store::{self, discovery, LogEntriesIter, ServiceKind};
-use tenants::UserAccountingManager;
+use tenants::UserAccountingWriter;
 
 #[derive(Debug)]
 pub struct Agent<T>(Arc<AgentInner<T>>);
@@ -68,7 +68,7 @@ struct AgentInner<T> {
     peer_client: Client<AgentService>,
     state: Mutex<State>,
     metrics: metrics::Client,
-    accountant: UserAccountingManager,
+    accountant: UserAccountingWriter,
 }
 
 #[derive(Debug)]
@@ -145,7 +145,7 @@ impl<T: Transport + 'static> Agent<T> {
                 registered: false,
             }),
             metrics: metrics.clone(),
-            accountant: UserAccountingManager::new(store, metrics),
+            accountant: UserAccountingWriter::new(store, metrics),
         }))
     }
 
