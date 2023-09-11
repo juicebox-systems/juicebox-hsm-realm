@@ -79,6 +79,10 @@ impl From<WorldSignerError> for StartResponse {
 pub enum SEEJobResponseType {
     // The response is the serialized result of executing the job.
     JobResult,
+    // The response is the serialized result of executing the job. + 4 additional
+    // bytes containing a big endian encoded u32 indicating the number of
+    // nanoseconds that were spent waiting for the next job.
+    JobResultWithIdleTime,
     // The response is a panic message in UTF8.
     PanicMessage,
     // THe response is a marshalling error message in UTF8.
@@ -89,15 +93,17 @@ impl SEEJobResponseType {
     pub fn as_byte(&self) -> u8 {
         match self {
             SEEJobResponseType::JobResult => 1,
-            SEEJobResponseType::PanicMessage => 2,
-            SEEJobResponseType::MarshallingError => 3,
+            SEEJobResponseType::JobResultWithIdleTime => 2,
+            SEEJobResponseType::PanicMessage => 3,
+            SEEJobResponseType::MarshallingError => 4,
         }
     }
     pub fn from_byte(b: u8) -> Result<Self, String> {
         match b {
             1 => Ok(SEEJobResponseType::JobResult),
-            2 => Ok(SEEJobResponseType::PanicMessage),
-            3 => Ok(SEEJobResponseType::MarshallingError),
+            2 => Ok(Self::JobResultWithIdleTime),
+            3 => Ok(SEEJobResponseType::PanicMessage),
+            4 => Ok(SEEJobResponseType::MarshallingError),
             _ => Err(format!("Invalid SEEJobResponseType value of {b}")),
         }
     }

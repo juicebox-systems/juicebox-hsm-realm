@@ -198,21 +198,29 @@ extern "C" {
     fn clock_gettime(c: ClockId, tm: *mut TimeSpec) -> isize;
 }
 
+pub(crate) fn now() -> Option<TimeSpec> {
+    let mut tm = TimeSpec::default();
+    unsafe {
+        match clock_gettime(CLOCK_MONOTONIC, &mut tm) {
+            0 => Some(tm),
+            _ => None,
+        }
+    }
+}
+
+pub(crate) fn elapsed(start: TimeSpec) -> Option<Nanos> {
+    Some(now()? - start)
+}
+
 impl Clock for NCipher {
     type Instant = TimeSpec;
 
     fn now(&self) -> Option<TimeSpec> {
-        let mut tm = TimeSpec::default();
-        unsafe {
-            match clock_gettime(CLOCK_MONOTONIC, &mut tm) {
-                0 => Some(tm),
-                _ => None,
-            }
-        }
+        now()
     }
 
     fn elapsed(&self, start: TimeSpec) -> Option<Nanos> {
-        Some(self.now()? - start)
+        elapsed(start)
     }
 }
 
