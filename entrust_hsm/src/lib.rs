@@ -165,7 +165,11 @@ fn start_hsm(req: StartRequest) -> Result<Hsm<NCipher>, StartResponse> {
 fn process_hsm_jobs(mut hsm: Hsm<NCipher>, buf: &mut Vec<u8>) {
     //println!("entrust-hsm init complete, ready for jobs");
     loop {
-        let start = platform::now();
+        let start = if cfg!(feature = "insecure") {
+            platform::now()
+        } else {
+            None
+        };
         let (tag, job_len) = await_job(buf);
         let idle = start.and_then(platform::elapsed);
 

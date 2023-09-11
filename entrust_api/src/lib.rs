@@ -101,7 +101,7 @@ impl SEEJobResponseType {
     pub fn from_byte(b: u8) -> Result<Self, String> {
         match b {
             1 => Ok(SEEJobResponseType::JobResult),
-            2 => Ok(Self::JobResultWithIdleTime),
+            2 => Ok(SEEJobResponseType::JobResultWithIdleTime),
             3 => Ok(SEEJobResponseType::PanicMessage),
             4 => Ok(SEEJobResponseType::MarshallingError),
             _ => Err(format!("Invalid SEEJobResponseType value of {b}")),
