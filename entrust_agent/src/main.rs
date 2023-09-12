@@ -407,7 +407,10 @@ impl TransportInner {
         // send a StartRequest Job to get HSMCore running.
         let start = StartRequest {
             tree_overlay_size: 511,
-            max_sessions: 511,
+            // This is large enough that a malicious client can't churn the
+            // entire cache faster than a different client can get their
+            // register/recover completed.
+            max_sessions: 8192,
             comm_private_key,
             comm_public_key,
             mac_key,
