@@ -166,10 +166,7 @@ async fn test_tenant() {
     let counts = data
         .count_realm_users(
             &REALM,
-            now.checked_sub_months(Months::new(3))
-                .unwrap()
-                .with_day(1)
-                .unwrap(),
+            now.checked_sub_months(Months::new(3)).unwrap(),
             now.checked_sub_months(Months::new(2))
                 .unwrap()
                 .with_day(1)
@@ -184,10 +181,7 @@ async fn test_tenant() {
     let counts = data
         .count_realm_users(
             &REALM,
-            now.checked_sub_months(Months::new(3))
-                .unwrap()
-                .with_day(1)
-                .unwrap(),
+            now.checked_sub_months(Months::new(3)).unwrap(),
             now.checked_add_months(Months::new(1))
                 .unwrap()
                 .with_day(1)
