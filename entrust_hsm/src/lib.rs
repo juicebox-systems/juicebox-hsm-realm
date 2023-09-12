@@ -1,5 +1,4 @@
 #![cfg_attr(target_os = "ncipherxc", no_std)]
-#![cfg_attr(target_os = "ncipherxc", allow(internal_features))]
 #![cfg_attr(target_os = "ncipherxc", feature(lang_items))]
 
 #[cfg(target_os = "ncipherxc")]
@@ -16,6 +15,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::min;
 use core::sync::atomic::{AtomicU32, Ordering};
+use marshalling::to_be4;
 use x25519_dalek as x25519;
 
 use entrust_api::{KeyRole, SEEJobResponseType, StartRequest, StartResponse, Ticket};
@@ -165,11 +165,26 @@ fn start_hsm(req: StartRequest) -> Result<Hsm<NCipher>, StartResponse> {
 fn process_hsm_jobs(mut hsm: Hsm<NCipher>, buf: &mut Vec<u8>) {
     //println!("entrust-hsm init complete, ready for jobs");
     loop {
+        let start = if cfg!(feature = "insecure") {
+            platform::now()
+        } else {
+            None
+        };
         let (tag, job_len) = await_job(buf);
+        let idle = start.and_then(platform::elapsed);
+
         let result = hsm.handle_request(&buf[..job_len]);
         match result {
-            Ok(data) => {
-                return_job(tag, data, SEEJobResponseType::JobResult);
+            Ok(mut data) => {
+                let t = match idle {
+                    None => SEEJobResponseType::JobResult,
+                    Some(nanos) => {
+                        let idle_bytes = to_be4(nanos.0);
+                        data.extend(idle_bytes);
+                        SEEJobResponseType::JobResultWithIdleTime
+                    }
+                };
+                return_job(tag, data, t);
             }
             Err(err) => {
                 return_job(

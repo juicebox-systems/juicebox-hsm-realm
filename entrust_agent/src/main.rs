@@ -464,6 +464,17 @@ impl TransportInner {
                 .expect("SEEJob responses should always include the type trailer byte"),
         ) {
             Ok(SEEJobResponseType::JobResult) => Ok(data),
+            Ok(SEEJobResponseType::JobResultWithIdleTime) => {
+                assert!(data.len() >= 4);
+                let idle_bytes = data.split_off(data.len() - 4);
+                let idle = u32::from_be_bytes(idle_bytes.try_into().unwrap());
+                self.metrics.timing(
+                    "entrust.idle_time",
+                    Duration::from_nanos(idle.into()),
+                    metrics::NO_TAGS,
+                );
+                Ok(data)
+            }
             Ok(SEEJobResponseType::PanicMessage) => {
                 panic!("HSM panicked: {}\n", String::from_utf8_lossy(&data));
             }

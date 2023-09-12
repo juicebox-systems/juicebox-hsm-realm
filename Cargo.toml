@@ -26,6 +26,7 @@ members = [
     "observability",
     "secret_manager",
     "service_core",
+    "service_checker",
     "software_agent",
     "store",
     "table",
@@ -52,6 +53,7 @@ default-members = [
     "observability",
     "secret_manager",
     "service_core",
+    "service_checker",
     "software_agent",
     "store",
     "table",
@@ -74,6 +76,7 @@ agent_core = { path = "agent_core" }
 anyhow = "1.0.74"
 async-trait = "0.1.73"
 bigtable = { path = "bigtable" }
+bindgen = "0.68.1"
 bitvec = { path = "bitvec" }
 blake2 = { version = "0.10.6", default-features = false }
 bytes = { version = "1.4.0", default-features = false }

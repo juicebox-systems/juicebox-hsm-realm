@@ -1,7 +1,6 @@
 use ::reqwest::Certificate;
 use anyhow::{anyhow, Context};
 use clap::{Parser, ValueEnum};
-use dogstatsd::{ServiceCheckOptions, ServiceStatus};
 use futures::StreamExt;
 use hdrhistogram::Histogram;
 use std::collections::HashMap;
@@ -21,8 +20,7 @@ use juicebox_sdk::{
     AuthToken, Configuration, Pin, PinHashingMode, Policy, RealmId, RecoverError, TokioSleeper,
     UserInfo, UserSecret, JUICEBOX_VERSION_HEADER, VERSION,
 };
-use observability::metrics_tag as tag;
-use observability::{logging, metrics};
+use observability::logging;
 use secret_manager::{
     new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
 };
@@ -100,10 +98,6 @@ struct Args {
     /// The numbers will go from `start` up to `start + count`.
     #[arg(long, value_name = "N", default_value_t = 0)]
     user_start: u64,
-
-    /// Emit a service check event to datadog on completion.
-    #[arg(long, default_value_t = false)]
-    service_check: bool,
 }
 
 #[tokio::main]
@@ -114,13 +108,7 @@ async fn main() -> ExitCode {
     });
 
     let args = Args::parse();
-    let service_check = args.service_check;
-
-    let res = run(args).await;
-    if service_check {
-        report_service_check(&res);
-    }
-    match res {
+    match run(args).await {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("error: {err:?}");
@@ -131,8 +119,8 @@ async fn main() -> ExitCode {
 
 // returns the number of benchmark operation errors encountered
 async fn run(args: Args) -> anyhow::Result<usize> {
-    let mut configuration: Configuration =
-        serde_json::from_str(&args.configuration).context("failed to parse configuration")?;
+    let mut configuration =
+        Configuration::from_json(&args.configuration).context("failed to parse configuration")?;
     if configuration.pin_hashing_mode != PinHashingMode::FastInsecure {
         warn!(
             was = ?configuration.pin_hashing_mode,
@@ -461,26 +449,4 @@ async fn get_auth_key(
         .next()
         .ok_or_else(|| anyhow!("could not find any secret versions for tenant"))?;
     Ok((secret.into(), version.into()))
-}
-
-fn report_service_check(r: &anyhow::Result<usize>) {
-    let c = metrics::Client::new("cluster_bench");
-    const STAT: &str = "healthcheck.register_recover";
-    match r {
-        Ok(0) => c.service_check(STAT, ServiceStatus::OK, metrics::NO_TAGS, None),
-        Ok(err_count) => c.service_check(STAT, ServiceStatus::Critical, [tag!(err_count)], None),
-        Err(err) => {
-            // this is dumb, thanks dogstatsd
-            let msg: &'static str = Box::leak(format!("{:?}", err).into_boxed_str());
-            c.service_check(
-                STAT,
-                ServiceStatus::Warning,
-                metrics::NO_TAGS,
-                Some(ServiceCheckOptions {
-                    message: Some(msg),
-                    ..ServiceCheckOptions::default()
-                }),
-            )
-        }
-    };
 }
