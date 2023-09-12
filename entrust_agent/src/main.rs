@@ -409,7 +409,9 @@ impl TransportInner {
             tree_overlay_size: 511,
             // This is large enough that a malicious client can't churn the
             // entire cache faster than a different client can get their
-            // register/recover completed.
+            // register/recover completed. It takes ~2ms for the HSM to complete
+            // a Noise handshake, no session can be evicted within 8192 * 2 /
+            // 1000 = 16.384 seconds of its creation.
             max_sessions: 8192,
             comm_private_key,
             comm_public_key,
