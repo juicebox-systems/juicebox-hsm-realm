@@ -8,3 +8,4 @@ pub mod new_group;
 pub mod new_realm;
 pub mod stepdown;
 pub mod transfer;
+pub mod users;

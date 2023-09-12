@@ -13,8 +13,11 @@ use tracing::{instrument, trace, warn, Span};
 
 use crate::base128;
 
-use super::{mutate_rows, read_rows, Instance, MutateRowsError, StoreClient};
+use super::StoreClient;
 use agent_api::merkle::{TreeStoreError, TreeStoreReader};
+use bigtable::mutate::{mutate_rows, MutateRowsError};
+use bigtable::read::read_rows;
+use bigtable::Instance;
 use bitvec::Bits;
 use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey};
 use hsm_api::{DataHash, GroupId, RecordId};

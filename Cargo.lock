@@ -276,6 +276,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
+name = "bigtable"
+version = "0.2.3"
+dependencies = [
+ "gcp_auth",
+ "google",
+ "observability",
+ "tokio",
+ "tonic",
+ "tracing",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.68.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -432,14 +444,14 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.26"
+version = "0.4.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec837a71355b28f6556dbd569b37b3f363091c0bd4b2e735674521b4c5fd9bc5"
+checksum = "defd4e7873dbddba6c7c91e199c7fcb946abc4a6a4ac3195400bcfb01b5de877"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
  "num-traits",
- "winapi",
+ "windows-targets",
 ]
 
 [[package]]
@@ -564,6 +576,7 @@ version = "0.2.3"
 dependencies = [
  "agent_api",
  "anyhow",
+ "chrono",
  "clap",
  "cluster_api",
  "cluster_core",
@@ -585,6 +598,7 @@ dependencies = [
  "table",
  "thiserror",
  "tokio",
+ "tonic",
  "tracing",
 ]
 
@@ -2734,10 +2748,11 @@ dependencies = [
  "agent_api",
  "agent_core",
  "async-trait",
+ "bigtable",
  "bitvec",
+ "chrono",
  "clap",
  "futures",
- "gcp_auth",
  "google",
  "hex",
  "hsm_api",
@@ -2748,9 +2763,11 @@ dependencies = [
  "juicebox_realm_api",
  "lru-cache",
  "observability",
+ "prost-types",
  "rand",
  "rand_core",
  "reqwest",
+ "thiserror",
  "tokio",
  "tonic",
  "tracing",
@@ -2839,7 +2856,9 @@ dependencies = [
  "agent_api",
  "agent_core",
  "anyhow",
+ "bigtable",
  "bitvec",
+ "chrono",
  "clap",
  "cluster_api",
  "cluster_core",
@@ -2871,6 +2890,7 @@ dependencies = [
  "sysinfo",
  "tokio",
  "tokio-rustls",
+ "tonic",
  "tracing",
  "url",
  "x25519-dalek",

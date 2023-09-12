@@ -3,6 +3,7 @@
 members = [
     "agent_api",
     "agent_core",
+    "bigtable",
     "bitvec",
     "cluster_api",
     "cluster_bench",
@@ -35,6 +36,7 @@ members = [
 default-members = [
     "agent_api",
     "agent_core",
+    "bigtable",
     "bitvec",
     "cluster_api",
     "cluster_bench",
@@ -73,6 +75,7 @@ agent_api = { path = "agent_api" }
 agent_core = { path = "agent_core" }
 anyhow = "1.0.74"
 async-trait = "0.1.73"
+bigtable = { path = "bigtable" }
 bindgen = "0.68.1"
 bitvec = { path = "bitvec" }
 blake2 = { version = "0.10.6", default-features = false }
@@ -81,6 +84,8 @@ cbor-diag = { version = "0.1.12" }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
     "alloc",
 ] }
+# Simon audited chrono 0.4.30 in Sept 2023. Didn't review anything behind a feature flag.
+chrono = { version = "=0.4.30", default-features = false }
 # ciborium and ciborium-io are pinned because we have a local fork.
 ciborium = { version = "=0.2.1", default-features = false }
 ciborium-io = { version = "=0.2.1", default-features = false }

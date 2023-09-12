@@ -84,7 +84,11 @@ fn run_service_checker(cluster: &ClusterResult) {
         .arg("--secrets-file")
         .arg("../secrets-demo.json")
         .arg("--tls-certificate")
-        .arg(cluster.certs.cert_file_der.clone());
+        .arg(cluster.certs.cert_file_der.clone())
+        .arg("--http-timeout")
+        .arg("20000")
+        .arg("--timeout")
+        .arg("60000");
 
     assert!(cb.status().unwrap().success());
 }

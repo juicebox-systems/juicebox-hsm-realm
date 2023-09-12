@@ -11,10 +11,9 @@ use std::time::{Duration, SystemTime};
 use tracing::{debug, warn};
 use url::Url;
 
-use super::{
-    mutate_rows, read_rows, to_micros, BigtableClient, BigtableTableAdminClient, Instance, RowKey,
-    ServiceKind,
-};
+use super::{to_micros, BigtableClient, BigtableTableAdminClient, Instance, RowKey, ServiceKind};
+use bigtable::mutate::mutate_rows;
+use bigtable::read::read_rows;
 use observability::logging::Spew;
 
 /// Agents should register themselves with service discovery this often.

@@ -13,20 +13,25 @@ use std::fmt;
 use std::fmt::Write;
 use std::ops::Deref;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tonic::transport::Endpoint;
 use tonic::Code;
 use tracing::{info, instrument, trace, warn, Span};
 use url::Url;
 
-use google::auth::AuthMiddleware;
+use bigtable::mutate::MutateRowsError;
+use bigtable::read::{read_rows, Cell, RowKey};
+use bigtable::{
+    new_admin_client, new_data_client, AuthManager, BigtableClient, BigtableTableAdminClient,
+    Instance,
+};
 use hsm_api::merkle::StoreDelta;
 use hsm_api::{DataHash, EntryMac, GroupId, LogEntry, LogIndex};
 use juicebox_marshalling as marshalling;
 use juicebox_realm_api::types::RealmId;
+use merkle::merkle_table_brief;
 use observability::metrics;
 use observability::metrics_tag as tag;
 
@@ -34,19 +39,7 @@ mod base128;
 pub mod discovery;
 mod lease;
 mod merkle;
-mod mutate;
-mod read;
-
-use merkle::merkle_table_brief;
-use mutate::{mutate_rows, MutateRowsError};
-use read::{read_rows, Cell, RowKey};
-
-type AuthManager = Option<Arc<gcp_auth::AuthenticationManager>>;
-type BigtableTableAdminClient =
-    google::bigtable::admin::v2::bigtable_table_admin_client::BigtableTableAdminClient<
-        AuthMiddleware,
-    >;
-type BigtableClient = google::bigtable::v2::bigtable_client::BigtableClient<AuthMiddleware>;
+pub mod tenants;
 
 #[derive(clap::Args, Clone, Debug)]
 #[group(id = "BigtableArgs")]
@@ -151,22 +144,6 @@ impl Args {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Instance {
-    pub project: String,
-    pub instance: String,
-}
-
-impl Instance {
-    fn path(&self) -> String {
-        format!(
-            "projects/{project}/instances/{instance}",
-            project = self.project,
-            instance = self.instance,
-        )
-    }
-}
-
 fn log_table(instance: &Instance, realm: &RealmId) -> String {
     let mut buf = String::new();
     write!(
@@ -211,7 +188,6 @@ fn log_key(group: &GroupId, index: LogIndex) -> Vec<u8> {
 
 #[derive(Clone)]
 pub struct StoreAdminClient {
-    // https://cloud.google.com/bigtable/docs/reference/admin/rpc/google.bigtable.admin.v2
     bigtable: BigtableTableAdminClient,
     instance: Instance,
 }
@@ -230,13 +206,7 @@ impl StoreAdminClient {
         instance: Instance,
         auth_manager: AuthManager,
     ) -> Result<Self, tonic::transport::Error> {
-        let channel = Endpoint::from(url).connect().await?;
-        let channel = AuthMiddleware::new(
-            channel,
-            auth_manager,
-            &["https://www.googleapis.com/auth/bigtable.admin.table"],
-        );
-        let bigtable = BigtableTableAdminClient::new(channel);
+        let bigtable = new_admin_client(url, auth_manager).await?;
         Ok(Self { bigtable, instance })
     }
 
@@ -251,8 +221,6 @@ impl StoreAdminClient {
 
     pub async fn initialize_realm(&self, realm: &RealmId) -> Result<(), tonic::Status> {
         let mut bigtable = self.bigtable.clone();
-
-        self.initialize_discovery().await?;
 
         // Create table for Merkle trees.
         bigtable
@@ -299,6 +267,8 @@ impl StoreAdminClient {
                 initial_splits: Vec::new(),
             })
             .await?;
+
+        tenants::initialize(bigtable, &self.instance, realm).await?;
 
         Ok(())
     }
@@ -382,20 +352,7 @@ impl StoreClient {
         auth_manager: AuthManager,
         options: Options,
     ) -> Result<Self, tonic::transport::Error> {
-        let channel = Endpoint::from(url).connect().await?;
-        let channel = AuthMiddleware::new(
-            channel,
-            auth_manager,
-            &["https://www.googleapis.com/auth/bigtable.data"],
-        );
-        let bigtable = BigtableClient::new(channel)
-            // These are based on the 1 << 28 = 256 MiB limits from
-            // <https://github.com/googleapis/google-cloud-go/blob/fbe78a2/bigtable/bigtable.go#L86>.
-            // They don't appear to set similar limits for the admin client,
-            // probably because those messages should fit within gRPC's default
-            // 4 MiB limit.
-            .max_decoding_message_size(256 * 1024 * 1024)
-            .max_encoding_message_size(256 * 1024 * 1024);
+        let bigtable = new_data_client(url, auth_manager).await?;
         Ok(Self {
             bigtable,
             instance,

@@ -51,9 +51,19 @@ impl<'a> fmt::Debug for Hex<'a> {
 
 static STREAM_SPEW: Spew = Spew::new();
 
+pub async fn read_rows(
+    bigtable: &mut BigtableClient,
+    request: ReadRowsRequest,
+) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
+    let mut rows = Vec::new();
+    read_rows_stream(bigtable, request, |key, cells| rows.push((key, cells)))
+        .await
+        .map(|_| rows)
+}
+
 #[instrument(
     level = "trace",
-    skip(bigtable, request),
+    skip(bigtable, request, row_fn),
     fields(
         num_request_items,
         num_response_chunks,
@@ -62,10 +72,14 @@ static STREAM_SPEW: Spew = Spew::new();
         retry_count,
     )
 )]
-pub async fn read_rows(
+pub async fn read_rows_stream<F>(
     bigtable: &mut BigtableClient,
     request: ReadRowsRequest,
-) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
+    mut row_fn: F,
+) -> Result<(), tonic::Status>
+where
+    F: FnMut(RowKey, Vec<Cell>),
+{
     Span::current().record(
         "num_request_items",
         match &request.rows {
@@ -77,8 +91,8 @@ pub async fn read_rows(
     let mut retry_count = 0;
     'outer: loop {
         let mut stream = bigtable.read_rows(request.clone()).await?.into_inner();
-        let mut rows = Vec::new();
         let mut active_row: Option<RowBuffer> = None;
+        let mut num_rows: usize = 0;
         let mut num_response_chunks: usize = 0;
         let mut num_response_messages: usize = 0;
         loop {
@@ -106,7 +120,8 @@ pub async fn read_rows(
                         let complete_row;
                         (active_row, complete_row) = process_read_chunk(chunk, active_row);
                         if let Some((key, row)) = complete_row {
-                            rows.push((key, row));
+                            num_rows += 1;
+                            row_fn(key, row);
                         }
                     }
                 }
@@ -118,9 +133,9 @@ pub async fn read_rows(
         );
         Span::current().record("num_response_chunks", num_response_chunks);
         Span::current().record("num_response_messages", num_response_messages);
-        Span::current().record("num_response_rows", rows.len());
+        Span::current().record("num_response_rows", num_rows);
         Span::current().record("retry_count", retry_count);
-        return Ok(rows);
+        return Ok(());
     }
 }
 
