@@ -186,31 +186,13 @@ async fn run_op(user_num: u64, client_builder: Arc<ClientBuilder>) -> Result<(),
 #[derive(Debug, Error)]
 enum OpError {
     #[error("register failed: {0:?}")]
-    Register(RegisterError),
+    Register(#[from] RegisterError),
     #[error("recover failed: {0:?}")]
-    Recover(RecoverError),
+    Recover(#[from] RecoverError),
     #[error("recover returned a different secret to the one registered")]
     RecoveredIncorrectSecret,
     #[error("delete failed: {0:?}")]
-    Delete(DeleteError),
-}
-
-impl From<RegisterError> for OpError {
-    fn from(value: RegisterError) -> Self {
-        OpError::Register(value)
-    }
-}
-
-impl From<RecoverError> for OpError {
-    fn from(value: RecoverError) -> Self {
-        OpError::Recover(value)
-    }
-}
-
-impl From<DeleteError> for OpError {
-    fn from(value: DeleteError) -> Self {
-        OpError::Delete(value)
-    }
+    Delete(#[from] DeleteError),
 }
 
 struct ClientBuilder {
