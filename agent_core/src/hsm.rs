@@ -81,7 +81,7 @@ impl<T: Transport> HsmClient<T> {
         if !response.metrics.is_empty() {
             for (k, dur) in response.metrics {
                 self.0.dd_metrics.timing(
-                    format!("hsm.{k})"),
+                    format!("hsm.{k}"),
                     Duration::from_nanos(dur.0.into()),
                     [tag!(?req_name)],
                 );
