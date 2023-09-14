@@ -287,7 +287,7 @@ fn is_valid_metic_name(n: &str) -> bool {
         Some(c) if !c.is_ascii_alphabetic() => return false,
         Some(_) => {}
     }
-    while let Some(c) = bytes.next() {
+    for c in bytes {
         if !matches!(c, b'a'..=b'z' | b'.' | b'_' | b'0'..=b'9' | b'A'..=b'Z') {
             return false;
         }
