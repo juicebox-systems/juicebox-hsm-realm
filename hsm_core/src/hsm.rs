@@ -1185,7 +1185,7 @@ impl<P: Platform> Hsm<P> {
             )
         })();
 
-        metrics.record(app_req_name.unwrap_or("App::unknown"), start);
+        metrics.record(app_req_name.unwrap_or("app.unknown"), start);
         response
     }
 
@@ -1314,12 +1314,12 @@ impl From<GroupLeaderError> for RecordLeaderError {
 
 fn secrets_req_name(r: &SecretsRequest) -> &'static str {
     match r {
-        SecretsRequest::Register1 => "App::Register1",
-        SecretsRequest::Register2(_) => "App::Register2",
-        SecretsRequest::Recover1 => "App::Recover1",
-        SecretsRequest::Recover2(_) => "App::Recover2",
-        SecretsRequest::Recover3(_) => "App::Recover3",
-        SecretsRequest::Delete => "App::Delete",
+        SecretsRequest::Register1 => "app.register1",
+        SecretsRequest::Register2(_) => "app.register2",
+        SecretsRequest::Recover1 => "app.recover1",
+        SecretsRequest::Recover2(_) => "app.recover2",
+        SecretsRequest::Recover3(_) => "app.recover3",
+        SecretsRequest::Delete => "app.delete",
     }
 }
 

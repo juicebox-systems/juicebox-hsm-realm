@@ -95,7 +95,7 @@ impl Client {
         T: AsRef<str>,
     {
         if let Some(client) = &self.inner {
-            client.incr(stat, tags).warn_err();
+            client.incr(metric_name(stat), tags).warn_err();
         }
     }
 
@@ -107,7 +107,7 @@ impl Client {
         T: AsRef<str>,
     {
         if let Some(client) = &self.inner {
-            client.decr(stat, tags).warn_err();
+            client.decr(metric_name(stat), tags).warn_err();
         }
     }
 
@@ -119,7 +119,7 @@ impl Client {
         T: AsRef<str>,
     {
         if let Some(client) = &self.inner {
-            client.count(stat, count, tags).warn_err();
+            client.count(metric_name(stat), count, tags).warn_err();
         }
     }
 
@@ -172,7 +172,7 @@ impl Client {
     {
         if self.inner.is_some() {
             self.histogram(
-                format!("{}.ns", stat.into()),
+                metric_name(format!("{}.ns", stat.into())),
                 duration.as_nanos().to_string(),
                 tags,
             );
@@ -188,7 +188,9 @@ impl Client {
         T: AsRef<str>,
     {
         if let Some(client) = &self.inner {
-            client.gauge(stat, val.into_cow(), tags).warn_err();
+            client
+                .gauge(metric_name(stat), val.into_cow(), tags)
+                .warn_err();
         }
     }
 
@@ -201,7 +203,9 @@ impl Client {
         T: AsRef<str>,
     {
         if let Some(client) = &self.inner {
-            client.histogram(stat, val.into_cow(), tags).warn_err();
+            client
+                .histogram(metric_name(stat), val.into_cow(), tags)
+                .warn_err();
         }
     }
 
@@ -214,7 +218,7 @@ impl Client {
         T: AsRef<str>,
     {
         if let Some(client) = &self.inner {
-            client.distribution(stat, val, tags).warn_err();
+            client.distribution(metric_name(stat), val, tags).warn_err();
         }
     }
 
@@ -227,7 +231,7 @@ impl Client {
         T: AsRef<str>,
     {
         if let Some(client) = &self.inner {
-            client.set(stat, val, tags).warn_err();
+            client.set(metric_name(stat), val, tags).warn_err();
         }
     }
 
@@ -244,7 +248,9 @@ impl Client {
         T: AsRef<str>,
     {
         if let Some(client) = &self.inner {
-            client.service_check(stat, val, tags, options).warn_err();
+            client
+                .service_check(metric_name(stat), val, tags, options)
+                .warn_err();
         }
     }
 
@@ -260,6 +266,33 @@ impl Client {
             client.event(title, text, tags).warn_err();
         }
     }
+}
+
+fn metric_name<'a>(name: impl Into<Cow<'a, str>>) -> Cow<'a, str> {
+    let n = name.into();
+    debug_assert!(is_valid_metic_name(&n), "metric name '{n}' is invalid");
+    n
+}
+
+// https://docs.datadoghq.com/developers/guide/what-best-practices-are-recommended-for-naming-metrics-and-tags/
+// Metric names must start with a letter.
+// Can only contain ASCII alphanumerics, underscores, and periods. Other characters are converted to underscores.
+// Should not exceed 200 characters (though less than 100 is generally preferred from a UI perspective)
+// Unicode is not supported.
+// It is recommended to avoid spaces.
+fn is_valid_metic_name(n: &str) -> bool {
+    let mut bytes = n.bytes();
+    match bytes.next() {
+        None => return false,
+        Some(c) if !c.is_ascii_alphabetic() => return false,
+        Some(_) => {}
+    }
+    for c in bytes {
+        if !matches!(c, b'a'..=b'z' | b'.' | b'_' | b'0'..=b'9' | b'A'..=b'Z') {
+            return false;
+        }
+    }
+    n.len() < 100
 }
 
 /// This trait allows numeric metric values to be recorded more ergonomically.
@@ -341,6 +374,7 @@ impl Warn for DogstatsdResult {
 
 #[cfg(test)]
 mod tests {
+    use crate::metrics::is_valid_metic_name;
     use crate::metrics_tag as tag;
 
     #[derive(Debug)]
@@ -361,5 +395,27 @@ mod tests {
         assert_eq!(tag!("format": "Literal").0, "format:Literal");
 
         assert_eq!(tag!("format": "For{}ted", "mat").0, "format:Formatted");
+    }
+
+    #[test]
+    fn test_valid_name() {
+        assert!(is_valid_metic_name("b"));
+        assert!(is_valid_metic_name("bob"));
+        assert!(is_valid_metic_name("BoB"));
+        assert!(is_valid_metic_name("B1"));
+        assert!(is_valid_metic_name("B.0"));
+        assert!(is_valid_metic_name("B_b"));
+        assert!(is_valid_metic_name("app.request_time.ns"));
+        assert!(is_valid_metic_name("bobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbob"));
+        assert!(!is_valid_metic_name(""));
+        assert!(!is_valid_metic_name("."));
+        assert!(!is_valid_metic_name("9"));
+        assert!(!is_valid_metic_name("99"));
+        assert!(!is_valid_metic_name("_hello"));
+        assert!(!is_valid_metic_name("::hello"));
+        assert!(!is_valid_metic_name("app::hello"));
+        assert!(!is_valid_metic_name("num bobs"));
+        assert!(!is_valid_metic_name("num.bobs.🦀"));
+        assert!(!is_valid_metic_name("bobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobA"));
     }
 }
