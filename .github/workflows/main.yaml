@@ -22,6 +22,7 @@ env:
   # private repos. See
   # <https://doc.rust-lang.org/cargo/appendix/git-authentication.html>.
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+  INSTALL_RUST_VERSION: "1.72"
 
 jobs:
   rust_ppc:
@@ -54,7 +55,7 @@ jobs:
         components: rust-src
         default: true
         profile: minimal
-        toolchain: 1.71
+        toolchain: ${{ env.INSTALL_RUST_VERSION }}
 
     - name: Install PowerPC cross-compile dependencies
       run: sudo apt update && sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
@@ -94,7 +95,7 @@ jobs:
       with:
         default: true
         profile: minimal
-        toolchain: 1.71
+        toolchain: ${{ env.INSTALL_RUST_VERSION }}
 
     - name: Use Go cache
       uses: actions/cache@v3
@@ -164,7 +165,7 @@ jobs:
       with:
         default: true
         profile: minimal
-        toolchain: 1.71
+        toolchain: ${{ env.INSTALL_RUST_VERSION }}
 
     - name: Use Go cache
       uses: actions/cache@v3
@@ -242,7 +243,7 @@ jobs:
         components: rustfmt, clippy
         default: true
         profile: minimal
-        toolchain: 1.71
+        toolchain: ${{ env.INSTALL_RUST_VERSION }}
 
     - name: Use Go cache
       uses: actions/cache@v3
@@ -356,7 +357,7 @@ jobs:
       with:
         default: true
         profile: minimal
-        toolchain: 1.71
+        toolchain: ${{ env.INSTALL_RUST_VERSION }}
 
     - name: Use Go cache
       uses: actions/cache@v3
