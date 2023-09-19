@@ -1,12 +1,11 @@
 use async_trait::async_trait;
-use clap::Parser;
+use clap::Args;
 use core::slice;
 use std::cmp::min;
 use std::ffi::CString;
 use std::fmt::Display;
 use std::fs;
 use std::iter::zip;
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::ptr::null_mut;
 use std::time::Duration;
@@ -14,8 +13,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use tracing::{debug, info, instrument, warn, Span};
 
-use agent_core::hsm::{HsmClient, Transport};
-use agent_core::Agent;
+use agent_core::hsm::Transport;
+use agent_core::service::{AgentArgs, HsmTransportConstructor};
 use entrust_api::{NvRamState, SEEJobResponseType, StartRequest, StartResponse, Ticket};
 use entrust_nfast::{
     find_key, lookup_name_no_default, Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
@@ -31,36 +30,12 @@ use entrust_nfast::{
     StatNodeTag_PerModule, Status_OK, Status_ObjectInUse, Status_SEEWorldFailed,
     TicketDestination_AnySEEWorld,
 };
-use google::auth;
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
-use observability::{logging, metrics, metrics_tag as tag};
-use service_core::clap_parsers::parse_listen;
-use service_core::panic;
-use service_core::term::install_termination_handler;
+use observability::{metrics, metrics_tag as tag};
 
 /// A host agent for use with an Entrust nCipherXC HSM.
-#[derive(Debug, Parser)]
-#[command(version)]
-struct Args {
-    #[command(flatten)]
-    bigtable: store::Args,
-
-    #[command(flatten)]
-    agent_bigtable: store::AgentArgs,
-
-    /// The IP/port to listen on.
-    #[arg(
-        short,
-        long,
-        default_value_t = SocketAddr::from(([127,0,0,1], 8082)),
-        value_parser=parse_listen,
-    )]
-    listen: SocketAddr,
-
-    /// Name of the agent in logging [default: agent{listen}].
-    #[arg(short, long)]
-    name: Option<String>,
-
+#[derive(Debug, Args)]
+struct EntrustArgs {
     /// The HSM module to work with. (The default of 1 is fine unless there are
     /// multiple HSMs in a host).
     #[arg(short, long, default_value_t = 1)]
@@ -92,69 +67,28 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("entrust-agent");
-    panic::set_abort_on_panic();
-    let mut shutdown_tasks = install_termination_handler(Duration::from_secs(10));
+    let handle = agent_core::service::main("entrust_agent", &mut EntrustConstructor).await;
+    handle.await.unwrap();
+}
 
-    let args = Args::parse();
-    info!(
-        ?args,
-        version = env!("CARGO_PKG_VERSION"),
-        "starting Entrust Agent"
-    );
+struct EntrustConstructor;
 
-    let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
-    let metrics = metrics::Client::new("entrust_agent");
-
-    let auth_manager = if args.bigtable.needs_auth() {
-        Some(
-            auth::from_adc()
-                .await
-                .expect("failed to initialize Google Cloud auth"),
+#[async_trait]
+impl HsmTransportConstructor<EntrustArgs, EntrustSeeTransport> for EntrustConstructor {
+    async fn construct(
+        &mut self,
+        args: &AgentArgs<EntrustArgs>,
+        metrics: &metrics::Client,
+    ) -> EntrustSeeTransport {
+        EntrustSeeTransport::new(
+            args.service.module,
+            args.service.trace,
+            args.service.image.clone(),
+            args.service.userdata.clone(),
+            args.service.reinitialize,
+            metrics.clone(),
         )
-    } else {
-        None
-    };
-    let store = args
-        .bigtable
-        .connect_data(
-            auth_manager.clone(),
-            store::Options {
-                metrics: metrics.clone(),
-                ..args.agent_bigtable.to_options()
-            },
-        )
-        .await
-        .expect("Unable to connect to Bigtable");
-
-    let store_admin = args
-        .bigtable
-        .connect_admin(auth_manager)
-        .await
-        .expect("Unable to connect to Bigtable admin");
-
-    let hsm_t = EntrustSeeTransport::new(
-        args.module,
-        args.trace,
-        args.image,
-        args.userdata,
-        args.reinitialize,
-        metrics.clone(),
-    );
-    let hsm = HsmClient::new(hsm_t, name.clone(), metrics.clone());
-
-    let agent = Agent::new(name, hsm, store, store_admin, metrics);
-    let agent_clone = agent.clone();
-    shutdown_tasks.add(Box::pin(async move {
-        agent_clone.shutdown().await;
-    }));
-
-    let (url, join_handle) = agent
-        .listen(args.listen)
-        .await
-        .expect("failed to listen for connections");
-    info!(url = %url, "Agent started");
-    join_handle.await.unwrap();
+    }
 }
 
 #[derive(Debug)]
@@ -771,13 +705,14 @@ enum KeyHalf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_core::service::AgentArgs;
     use clap::CommandFactory;
     use expect_test::expect_file;
 
     #[test]
     fn test_usage() {
         expect_file!["../usage.txt"].assert_eq(
-            &Args::command()
+            &AgentArgs::<EntrustArgs>::command()
                 .try_get_matches_from(["agent", "--help"])
                 .unwrap_err()
                 .to_string(),

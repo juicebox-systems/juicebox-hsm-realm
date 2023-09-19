@@ -24,7 +24,7 @@ use statuses::get_hsm_statuses;
 #[command(version)]
 struct Args {
     #[command(flatten)]
-    bigtable: store::Args,
+    bigtable: store::BigtableArgs,
 
     #[command(subcommand)]
     command: Command,

@@ -12,11 +12,8 @@ async-trait = { workspace = true }
 clap = { workspace = true }
 entrust_api = { workspace = true }
 entrust_nfast = { workspace = true }
-google = { workspace = true }
 juicebox_marshalling = { workspace = true }
 observability = { workspace = true }
-service_core = { workspace = true }
-store = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 

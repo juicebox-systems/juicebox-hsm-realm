@@ -60,7 +60,7 @@ impl HsmGenerator {
         mut count: usize,
         process_group: &mut ProcessGroup,
         path_to_target: PathBuf,
-        bigtable: &store::Args,
+        bigtable: &store::BigtableArgs,
         hsm_dir: Option<PathBuf>,
     ) -> (Vec<Url>, PublicKey) {
         let mode = if cfg!(debug_assertions) {

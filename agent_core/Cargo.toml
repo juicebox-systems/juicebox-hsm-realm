@@ -12,10 +12,12 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 bitvec = { workspace = true }
 bytes = { workspace = true }
+clap = { workspace = true }
 cluster_api = { workspace = true }
 cluster_core = { workspace = true }
 election = { workspace = true }
 futures = { workspace = true }
+google = { workspace = true }
 hsm_api = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }

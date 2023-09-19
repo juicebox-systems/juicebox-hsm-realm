@@ -26,7 +26,7 @@ use load_balancer::LoadBalancer;
 #[command(version, about = "An HTTP load balancer for one or more realms")]
 struct Args {
     #[command(flatten)]
-    bigtable: store::Args,
+    bigtable: store::BigtableArgs,
 
     /// The IP/port to listen on.
     #[arg(

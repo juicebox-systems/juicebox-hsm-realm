@@ -29,7 +29,10 @@ const GROUP_3: GroupId = GroupId([15; 16]);
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8222));
 
-async fn init_bt(pg: &mut ProcessGroup, args: store::Args) -> (StoreAdminClient, StoreClient) {
+async fn init_bt(
+    pg: &mut ProcessGroup,
+    args: store::BigtableArgs,
+) -> (StoreAdminClient, StoreClient) {
     BigtableRunner::run(pg, &args).await;
 
     let store_admin = args
