@@ -63,7 +63,7 @@ pub struct Cell {
     /// length.
     #[prost(bytes = "vec", tag = "2")]
     pub value: ::prost::alloc::vec::Vec<u8>,
-    /// Labels applied to the cell by a \[RowFilter][google.bigtable.v2.RowFilter\].
+    /// Labels applied to the cell by a [RowFilter][google.bigtable.v2.RowFilter].
     #[prost(string, repeated, tag = "3")]
     pub labels: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
@@ -401,7 +401,7 @@ pub mod row_filter {
         /// Despite being excluded by the qualifier filter, a copy of every cell
         /// that reaches the sink is present in the final result.
         ///
-        /// As with an \[Interleave][google.bigtable.v2.RowFilter.Interleave\],
+        /// As with an [Interleave][google.bigtable.v2.RowFilter.Interleave],
         /// duplicate cells are possible, and appear in an unspecified mutual order.
         /// In this case we have a duplicate with column "A:B" and timestamp 2,
         /// because one copy passed through the all filter while the other was
@@ -409,7 +409,7 @@ pub mod row_filter {
         /// while the other does not.
         ///
         /// Cannot be used within the `predicate_filter`, `true_filter`, or
-        /// `false_filter` of a \[Condition][google.bigtable.v2.RowFilter.Condition\].
+        /// `false_filter` of a [Condition][google.bigtable.v2.RowFilter.Condition].
         #[prost(bool, tag = "16")]
         Sink(bool),
         /// Matches all cells, regardless of input. Functionally equivalent to
@@ -868,12 +868,12 @@ pub struct ReadRowsResponse {
     ///          chunks and request_stats filled.
     ///
     /// Visually, response messages will stream as follows:
-    ///     ... -> {chunks: \[...\]} -> {chunks: [], request_stats: {...}}
+    ///     ... -> {chunks: \[...\]} -> {chunks: \[\], request_stats: {...}}
     ///    \______________________/  \________________________________/
     ///        Primary response         Trailer of RequestStats info
     ///
     /// Or if the read did not return any values:
-    ///    {chunks: [], request_stats: {...}}
+    ///    {chunks: \[\], request_stats: {...}}
     ///    \________________________________/
     ///       Trailer of RequestStats info
     #[prost(message, optional, tag = "3")]
@@ -918,7 +918,7 @@ pub mod read_rows_response {
         #[prost(int64, tag = "4")]
         pub timestamp_micros: i64,
         /// Labels applied to the cell by a
-        /// \[RowFilter][google.bigtable.v2.RowFilter\].  Labels are only set
+        /// [RowFilter][google.bigtable.v2.RowFilter].  Labels are only set
         /// on the first CellChunk per cell.
         #[prost(string, repeated, tag = "5")]
         pub labels: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,

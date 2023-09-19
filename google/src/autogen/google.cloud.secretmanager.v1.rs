@@ -1,32 +1,32 @@
-/// A \[Secret][google.cloud.secretmanager.v1.Secret\] is a logical secret whose
+/// A [Secret][google.cloud.secretmanager.v1.Secret] is a logical secret whose
 /// value and versions can be accessed.
 ///
-/// A \[Secret][google.cloud.secretmanager.v1.Secret\] is made up of zero or more
-/// \[SecretVersions][google.cloud.secretmanager.v1.SecretVersion\] that represent
+/// A [Secret][google.cloud.secretmanager.v1.Secret] is made up of zero or more
+/// [SecretVersions][google.cloud.secretmanager.v1.SecretVersion] that represent
 /// the secret data.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Secret {
     /// Output only. The resource name of the
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\] in the format
+    /// [Secret][google.cloud.secretmanager.v1.Secret] in the format
     /// `projects/*/secrets/*`.
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     /// Required. Immutable. The replication policy of the secret data attached to
-    /// the \[Secret][google.cloud.secretmanager.v1.Secret\].
+    /// the [Secret][google.cloud.secretmanager.v1.Secret].
     ///
     /// The replication policy cannot be changed after the Secret has been created.
     #[prost(message, optional, tag = "2")]
     pub replication: ::core::option::Option<Replication>,
     /// Output only. The time at which the
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\] was created.
+    /// [Secret][google.cloud.secretmanager.v1.Secret] was created.
     #[prost(message, optional, tag = "3")]
     pub create_time: ::core::option::Option<::prost_types::Timestamp>,
     /// The labels assigned to this Secret.
     ///
     /// Label keys must be between 1 and 63 characters long, have a UTF-8 encoding
     /// of maximum 128 bytes, and must conform to the following PCRE regular
-    /// expression: `\[\p{Ll}\p{Lo}][\p{Ll}\p{Lo}\p{N}_-\]{0,62}`
+    /// expression: `[\p{Ll}\p{Lo}][\p{Ll}\p{Lo}\p{N}_-]{0,62}`
     ///
     /// Label values must be between 0 and 63 characters long, have a UTF-8
     /// encoding of maximum 128 bytes, and must conform to the following PCRE
@@ -43,11 +43,11 @@ pub struct Secret {
     #[prost(message, repeated, tag = "5")]
     pub topics: ::prost::alloc::vec::Vec<Topic>,
     /// Optional. Etag of the currently stored
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\].
+    /// [Secret][google.cloud.secretmanager.v1.Secret].
     #[prost(string, tag = "8")]
     pub etag: ::prost::alloc::string::String,
     /// Optional. Rotation policy attached to the
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\]. May be excluded if there is
+    /// [Secret][google.cloud.secretmanager.v1.Secret]. May be excluded if there is
     /// no rotation policy.
     #[prost(message, optional, tag = "9")]
     pub rotation: ::core::option::Option<Rotation>,
@@ -85,9 +85,9 @@ pub struct Secret {
         ::prost::alloc::string::String,
     >,
     /// Expiration policy attached to the
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\]. If specified the
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\] and all
-    /// \[SecretVersions][google.cloud.secretmanager.v1.SecretVersion\] will be
+    /// [Secret][google.cloud.secretmanager.v1.Secret]. If specified the
+    /// [Secret][google.cloud.secretmanager.v1.Secret] and all
+    /// [SecretVersions][google.cloud.secretmanager.v1.SecretVersion] will be
     /// automatically deleted at expiration. Expired secrets are irreversibly
     /// deleted.
     ///
@@ -101,9 +101,9 @@ pub struct Secret {
 /// Nested message and enum types in `Secret`.
 pub mod secret {
     /// Expiration policy attached to the
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\]. If specified the
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\] and all
-    /// \[SecretVersions][google.cloud.secretmanager.v1.SecretVersion\] will be
+    /// [Secret][google.cloud.secretmanager.v1.Secret]. If specified the
+    /// [Secret][google.cloud.secretmanager.v1.Secret] and all
+    /// [SecretVersions][google.cloud.secretmanager.v1.SecretVersion] will be
     /// automatically deleted at expiration. Expired secrets are irreversibly
     /// deleted.
     ///
@@ -115,12 +115,12 @@ pub mod secret {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Expiration {
         /// Optional. Timestamp in UTC when the
-        /// \[Secret][google.cloud.secretmanager.v1.Secret\] is scheduled to expire.
+        /// [Secret][google.cloud.secretmanager.v1.Secret] is scheduled to expire.
         /// This is always provided on output, regardless of what was sent on input.
         #[prost(message, tag = "6")]
         ExpireTime(::prost_types::Timestamp),
         /// Input only. The TTL for the
-        /// \[Secret][google.cloud.secretmanager.v1.Secret\].
+        /// [Secret][google.cloud.secretmanager.v1.Secret].
         #[prost(message, tag = "7")]
         Ttl(::prost_types::Duration),
     }
@@ -130,50 +130,50 @@ pub mod secret {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SecretVersion {
     /// Output only. The resource name of the
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] in the format
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] in the format
     /// `projects/*/secrets/*/versions/*`.
     ///
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] IDs in a
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\] start at 1 and are
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] IDs in a
+    /// [Secret][google.cloud.secretmanager.v1.Secret] start at 1 and are
     /// incremented for each subsequent version of the secret.
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     /// Output only. The time at which the
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] was created.
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] was created.
     #[prost(message, optional, tag = "2")]
     pub create_time: ::core::option::Option<::prost_types::Timestamp>,
     /// Output only. The time this
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] was destroyed.
-    /// Only present if \[state][google.cloud.secretmanager.v1.SecretVersion.state\]
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] was destroyed.
+    /// Only present if [state][google.cloud.secretmanager.v1.SecretVersion.state]
     /// is
-    /// \[DESTROYED][google.cloud.secretmanager.v1.SecretVersion.State.DESTROYED\].
+    /// [DESTROYED][google.cloud.secretmanager.v1.SecretVersion.State.DESTROYED].
     #[prost(message, optional, tag = "3")]
     pub destroy_time: ::core::option::Option<::prost_types::Timestamp>,
     /// Output only. The current state of the
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
     #[prost(enumeration = "secret_version::State", tag = "4")]
     pub state: i32,
     /// The replication status of the
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
     #[prost(message, optional, tag = "5")]
     pub replication_status: ::core::option::Option<ReplicationStatus>,
     /// Output only. Etag of the currently stored
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
     #[prost(string, tag = "6")]
     pub etag: ::prost::alloc::string::String,
     /// Output only. True if payload checksum specified in
-    /// \[SecretPayload][google.cloud.secretmanager.v1.SecretPayload\] object has
+    /// [SecretPayload][google.cloud.secretmanager.v1.SecretPayload] object has
     /// been received by
-    /// \[SecretManagerService][google.cloud.secretmanager.v1.SecretManagerService\]
+    /// [SecretManagerService][google.cloud.secretmanager.v1.SecretManagerService]
     /// on
-    /// \[SecretManagerService.AddSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AddSecretVersion\].
+    /// [SecretManagerService.AddSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AddSecretVersion].
     #[prost(bool, tag = "7")]
     pub client_specified_payload_checksum: bool,
 }
 /// Nested message and enum types in `SecretVersion`.
 pub mod secret_version {
     /// The state of a
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\], indicating if
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion], indicating if
     /// it can be accessed.
     #[derive(
         Clone,
@@ -190,16 +190,16 @@ pub mod secret_version {
     pub enum State {
         /// Not specified. This value is unused and invalid.
         Unspecified = 0,
-        /// The \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] may be
+        /// The [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] may be
         /// accessed.
         Enabled = 1,
-        /// The \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] may not
+        /// The [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] may not
         /// be accessed, but the secret data is still available and can be placed
         /// back into the
-        /// \[ENABLED][google.cloud.secretmanager.v1.SecretVersion.State.ENABLED\]
+        /// [ENABLED][google.cloud.secretmanager.v1.SecretVersion.State.ENABLED]
         /// state.
         Disabled = 2,
-        /// The \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] is
+        /// The [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] is
         /// destroyed and the secret data is no longer stored. A version may not
         /// leave this state once entered.
         Destroyed = 3,
@@ -240,33 +240,33 @@ pub struct Replication {
 /// Nested message and enum types in `Replication`.
 pub mod replication {
     /// A replication policy that replicates the
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\] payload without any
+    /// [Secret][google.cloud.secretmanager.v1.Secret] payload without any
     /// restrictions.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Automatic {
         /// Optional. The customer-managed encryption configuration of the
-        /// \[Secret][google.cloud.secretmanager.v1.Secret\]. If no configuration is
+        /// [Secret][google.cloud.secretmanager.v1.Secret]. If no configuration is
         /// provided, Google-managed default encryption is used.
         ///
-        /// Updates to the \[Secret][google.cloud.secretmanager.v1.Secret\] encryption
+        /// Updates to the [Secret][google.cloud.secretmanager.v1.Secret] encryption
         /// configuration only apply to
-        /// \[SecretVersions][google.cloud.secretmanager.v1.SecretVersion\] added
+        /// [SecretVersions][google.cloud.secretmanager.v1.SecretVersion] added
         /// afterwards. They do not apply retroactively to existing
-        /// \[SecretVersions][google.cloud.secretmanager.v1.SecretVersion\].
+        /// [SecretVersions][google.cloud.secretmanager.v1.SecretVersion].
         #[prost(message, optional, tag = "1")]
         pub customer_managed_encryption: ::core::option::Option<
             super::CustomerManagedEncryption,
         >,
     }
     /// A replication policy that replicates the
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\] payload into the locations
-    /// specified in \[Secret.replication.user_managed.replicas][\]
+    /// [Secret][google.cloud.secretmanager.v1.Secret] payload into the locations
+    /// specified in [Secret.replication.user_managed.replicas][]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct UserManaged {
         /// Required. The list of Replicas for this
-        /// \[Secret][google.cloud.secretmanager.v1.Secret\].
+        /// [Secret][google.cloud.secretmanager.v1.Secret].
         ///
         /// Cannot be empty.
         #[prost(message, repeated, tag = "1")]
@@ -275,7 +275,7 @@ pub mod replication {
     /// Nested message and enum types in `UserManaged`.
     pub mod user_managed {
         /// Represents a Replica for this
-        /// \[Secret][google.cloud.secretmanager.v1.Secret\].
+        /// [Secret][google.cloud.secretmanager.v1.Secret].
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Replica {
@@ -284,14 +284,14 @@ pub mod replication {
             #[prost(string, tag = "1")]
             pub location: ::prost::alloc::string::String,
             /// Optional. The customer-managed encryption configuration of the
-            /// [User-Managed Replica]\[Replication.UserManaged.Replica\]. If no
+            /// [User-Managed Replica][Replication.UserManaged.Replica]. If no
             /// configuration is provided, Google-managed default encryption is used.
             ///
-            /// Updates to the \[Secret][google.cloud.secretmanager.v1.Secret\]
+            /// Updates to the [Secret][google.cloud.secretmanager.v1.Secret]
             /// encryption configuration only apply to
-            /// \[SecretVersions][google.cloud.secretmanager.v1.SecretVersion\] added
+            /// [SecretVersions][google.cloud.secretmanager.v1.SecretVersion] added
             /// afterwards. They do not apply retroactively to existing
-            /// \[SecretVersions][google.cloud.secretmanager.v1.SecretVersion\].
+            /// [SecretVersions][google.cloud.secretmanager.v1.SecretVersion].
             #[prost(message, optional, tag = "2")]
             pub customer_managed_encryption: ::core::option::Option<
                 super::super::CustomerManagedEncryption,
@@ -302,11 +302,11 @@ pub mod replication {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Replication {
-        /// The \[Secret][google.cloud.secretmanager.v1.Secret\] will automatically be
+        /// The [Secret][google.cloud.secretmanager.v1.Secret] will automatically be
         /// replicated without any restrictions.
         #[prost(message, tag = "1")]
         Automatic(Automatic),
-        /// The \[Secret][google.cloud.secretmanager.v1.Secret\] will only be
+        /// The [Secret][google.cloud.secretmanager.v1.Secret] will only be
         /// replicated into the locations specified.
         #[prost(message, tag = "2")]
         UserManaged(UserManaged),
@@ -321,12 +321,12 @@ pub struct CustomerManagedEncryption {
     /// secret payloads.
     ///
     /// For secrets using the
-    /// \[UserManaged][google.cloud.secretmanager.v1.Replication.UserManaged\]
+    /// [UserManaged][google.cloud.secretmanager.v1.Replication.UserManaged]
     /// replication policy type, Cloud KMS CryptoKeys must reside in the same
-    /// location as the [replica location]\[Secret.UserManaged.Replica.location\].
+    /// location as the [replica location][Secret.UserManaged.Replica.location].
     ///
     /// For secrets using the
-    /// \[Automatic][google.cloud.secretmanager.v1.Replication.Automatic\]
+    /// [Automatic][google.cloud.secretmanager.v1.Replication.Automatic]
     /// replication policy type, Cloud KMS CryptoKeys must reside in `global`.
     ///
     /// The expected format is `projects/*/locations/*/keyRings/*/cryptoKeys/*`.
@@ -334,12 +334,12 @@ pub struct CustomerManagedEncryption {
     pub kms_key_name: ::prost::alloc::string::String,
 }
 /// The replication status of a
-/// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+/// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReplicationStatus {
     /// The replication status of the
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
     #[prost(oneof = "replication_status::ReplicationStatus", tags = "1, 2")]
     pub replication_status: ::core::option::Option<
         replication_status::ReplicationStatus,
@@ -348,16 +348,16 @@ pub struct ReplicationStatus {
 /// Nested message and enum types in `ReplicationStatus`.
 pub mod replication_status {
     /// The replication status of a
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] using
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] using
     /// automatic replication.
     ///
-    /// Only populated if the parent \[Secret][google.cloud.secretmanager.v1.Secret\]
+    /// Only populated if the parent [Secret][google.cloud.secretmanager.v1.Secret]
     /// has an automatic replication policy.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct AutomaticStatus {
         /// Output only. The customer-managed encryption status of the
-        /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\]. Only
+        /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion]. Only
         /// populated if customer-managed encryption is used.
         #[prost(message, optional, tag = "1")]
         pub customer_managed_encryption: ::core::option::Option<
@@ -365,23 +365,23 @@ pub mod replication_status {
         >,
     }
     /// The replication status of a
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] using
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] using
     /// user-managed replication.
     ///
-    /// Only populated if the parent \[Secret][google.cloud.secretmanager.v1.Secret\]
+    /// Only populated if the parent [Secret][google.cloud.secretmanager.v1.Secret]
     /// has a user-managed replication policy.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct UserManagedStatus {
         /// Output only. The list of replica statuses for the
-        /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+        /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
         #[prost(message, repeated, tag = "1")]
         pub replicas: ::prost::alloc::vec::Vec<user_managed_status::ReplicaStatus>,
     }
     /// Nested message and enum types in `UserManagedStatus`.
     pub mod user_managed_status {
         /// Describes the status of a user-managed replica for the
-        /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+        /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct ReplicaStatus {
@@ -390,7 +390,7 @@ pub mod replication_status {
             #[prost(string, tag = "1")]
             pub location: ::prost::alloc::string::String,
             /// Output only. The customer-managed encryption status of the
-            /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\]. Only
+            /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion]. Only
             /// populated if customer-managed encryption is used.
             #[prost(message, optional, tag = "2")]
             pub customer_managed_encryption: ::core::option::Option<
@@ -399,25 +399,25 @@ pub mod replication_status {
         }
     }
     /// The replication status of the
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum ReplicationStatus {
         /// Describes the replication status of a
-        /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] with
+        /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] with
         /// automatic replication.
         ///
         /// Only populated if the parent
-        /// \[Secret][google.cloud.secretmanager.v1.Secret\] has an automatic
+        /// [Secret][google.cloud.secretmanager.v1.Secret] has an automatic
         /// replication policy.
         #[prost(message, tag = "1")]
         Automatic(AutomaticStatus),
         /// Describes the replication status of a
-        /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] with
+        /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] with
         /// user-managed replication.
         ///
         /// Only populated if the parent
-        /// \[Secret][google.cloud.secretmanager.v1.Secret\] has a user-managed
+        /// [Secret][google.cloud.secretmanager.v1.Secret] has a user-managed
         /// replication policy.
         #[prost(message, tag = "2")]
         UserManaged(UserManagedStatus),
@@ -446,21 +446,21 @@ pub struct Topic {
     pub name: ::prost::alloc::string::String,
 }
 /// The rotation time and period for a
-/// \[Secret][google.cloud.secretmanager.v1.Secret\]. At next_rotation_time, Secret
+/// [Secret][google.cloud.secretmanager.v1.Secret]. At next_rotation_time, Secret
 /// Manager will send a Pub/Sub notification to the topics configured on the
-/// Secret. \[Secret.topics][google.cloud.secretmanager.v1.Secret.topics\] must be
+/// Secret. [Secret.topics][google.cloud.secretmanager.v1.Secret.topics] must be
 /// set to configure rotation.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Rotation {
     /// Optional. Timestamp in UTC at which the
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\] is scheduled to rotate.
+    /// [Secret][google.cloud.secretmanager.v1.Secret] is scheduled to rotate.
     /// Cannot be set to less than 300s (5 min) in the future and at most
     /// 3153600000s (100 years).
     ///
-    /// \[next_rotation_time][google.cloud.secretmanager.v1.Rotation.next_rotation_time\]
+    /// [next_rotation_time][google.cloud.secretmanager.v1.Rotation.next_rotation_time]
     /// MUST  be set if
-    /// \[rotation_period][google.cloud.secretmanager.v1.Rotation.rotation_period\]
+    /// [rotation_period][google.cloud.secretmanager.v1.Rotation.rotation_period]
     /// is set.
     #[prost(message, optional, tag = "1")]
     pub next_rotation_time: ::core::option::Option<::prost_types::Timestamp>,
@@ -468,11 +468,11 @@ pub struct Rotation {
     /// and at least 3600s (1h) and at most 3153600000s (100 years).
     ///
     /// If
-    /// \[rotation_period][google.cloud.secretmanager.v1.Rotation.rotation_period\]
+    /// [rotation_period][google.cloud.secretmanager.v1.Rotation.rotation_period]
     /// is set,
-    /// \[next_rotation_time][google.cloud.secretmanager.v1.Rotation.next_rotation_time\]
+    /// [next_rotation_time][google.cloud.secretmanager.v1.Rotation.next_rotation_time]
     /// must be set.
-    /// \[next_rotation_time][google.cloud.secretmanager.v1.Rotation.next_rotation_time\]
+    /// [next_rotation_time][google.cloud.secretmanager.v1.Rotation.next_rotation_time]
     /// will be advanced by this period when the service automatically sends
     /// rotation notifications.
     #[prost(message, optional, tag = "2")]
@@ -480,7 +480,7 @@ pub struct Rotation {
 }
 /// A secret payload resource in the Secret Manager API. This contains the
 /// sensitive secret payload that is associated with a
-/// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+/// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SecretPayload {
@@ -488,16 +488,16 @@ pub struct SecretPayload {
     #[prost(bytes = "vec", tag = "1")]
     pub data: ::prost::alloc::vec::Vec<u8>,
     /// Optional. If specified,
-    /// \[SecretManagerService][google.cloud.secretmanager.v1.SecretManagerService\]
+    /// [SecretManagerService][google.cloud.secretmanager.v1.SecretManagerService]
     /// will verify the integrity of the received
-    /// \[data][google.cloud.secretmanager.v1.SecretPayload.data\] on
-    /// \[SecretManagerService.AddSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AddSecretVersion\]
+    /// [data][google.cloud.secretmanager.v1.SecretPayload.data] on
+    /// [SecretManagerService.AddSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AddSecretVersion]
     /// calls using the crc32c checksum and store it to include in future
-    /// \[SecretManagerService.AccessSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion\]
+    /// [SecretManagerService.AccessSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion]
     /// responses. If a checksum is not provided in the
-    /// \[SecretManagerService.AddSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AddSecretVersion\]
+    /// [SecretManagerService.AddSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AddSecretVersion]
     /// request, the
-    /// \[SecretManagerService][google.cloud.secretmanager.v1.SecretManagerService\]
+    /// [SecretManagerService][google.cloud.secretmanager.v1.SecretManagerService]
     /// will generate and store one for you.
     ///
     /// The CRC32C value is encoded as a Int64 for compatibility, and can be
@@ -506,12 +506,12 @@ pub struct SecretPayload {
     #[prost(int64, optional, tag = "2")]
     pub data_crc32c: ::core::option::Option<i64>,
 }
-/// Request message for \[SecretManagerService.ListSecrets][google.cloud.secretmanager.v1.SecretManagerService.ListSecrets\].
+/// Request message for [SecretManagerService.ListSecrets][google.cloud.secretmanager.v1.SecretManagerService.ListSecrets].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSecretsRequest {
     /// Required. The resource name of the project associated with the
-    /// \[Secrets][google.cloud.secretmanager.v1.Secret\], in the format `projects/*`.
+    /// [Secrets][google.cloud.secretmanager.v1.Secret], in the format `projects/*`.
     #[prost(string, tag = "1")]
     pub parent: ::prost::alloc::string::String,
     /// Optional. The maximum number of results to be returned in a single page. If
@@ -520,7 +520,7 @@ pub struct ListSecretsRequest {
     #[prost(int32, tag = "2")]
     pub page_size: i32,
     /// Optional. Pagination token, returned earlier via
-    /// \[ListSecretsResponse.next_page_token][google.cloud.secretmanager.v1.ListSecretsResponse.next_page_token\].
+    /// [ListSecretsResponse.next_page_token][google.cloud.secretmanager.v1.ListSecretsResponse.next_page_token].
     #[prost(string, tag = "3")]
     pub page_token: ::prost::alloc::string::String,
     /// Optional. Filter string, adhering to the rules in
@@ -531,28 +531,28 @@ pub struct ListSecretsRequest {
     #[prost(string, tag = "4")]
     pub filter: ::prost::alloc::string::String,
 }
-/// Response message for \[SecretManagerService.ListSecrets][google.cloud.secretmanager.v1.SecretManagerService.ListSecrets\].
+/// Response message for [SecretManagerService.ListSecrets][google.cloud.secretmanager.v1.SecretManagerService.ListSecrets].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSecretsResponse {
-    /// The list of \[Secrets][google.cloud.secretmanager.v1.Secret\] sorted in reverse by create_time (newest
+    /// The list of [Secrets][google.cloud.secretmanager.v1.Secret] sorted in reverse by create_time (newest
     /// first).
     #[prost(message, repeated, tag = "1")]
     pub secrets: ::prost::alloc::vec::Vec<Secret>,
     /// A token to retrieve the next page of results. Pass this value in
-    /// \[ListSecretsRequest.page_token][google.cloud.secretmanager.v1.ListSecretsRequest.page_token\] to retrieve the next page.
+    /// [ListSecretsRequest.page_token][google.cloud.secretmanager.v1.ListSecretsRequest.page_token] to retrieve the next page.
     #[prost(string, tag = "2")]
     pub next_page_token: ::prost::alloc::string::String,
-    /// The total number of \[Secrets][google.cloud.secretmanager.v1.Secret\].
+    /// The total number of [Secrets][google.cloud.secretmanager.v1.Secret].
     #[prost(int32, tag = "3")]
     pub total_size: i32,
 }
-/// Request message for \[SecretManagerService.CreateSecret][google.cloud.secretmanager.v1.SecretManagerService.CreateSecret\].
+/// Request message for [SecretManagerService.CreateSecret][google.cloud.secretmanager.v1.SecretManagerService.CreateSecret].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateSecretRequest {
     /// Required. The resource name of the project to associate with the
-    /// \[Secret][google.cloud.secretmanager.v1.Secret\], in the format `projects/*`.
+    /// [Secret][google.cloud.secretmanager.v1.Secret], in the format `projects/*`.
     #[prost(string, tag = "1")]
     pub parent: ::prost::alloc::string::String,
     /// Required. This must be unique within the project.
@@ -562,36 +562,36 @@ pub struct CreateSecretRequest {
     /// underscore (`_`) characters.
     #[prost(string, tag = "2")]
     pub secret_id: ::prost::alloc::string::String,
-    /// Required. A \[Secret][google.cloud.secretmanager.v1.Secret\] with initial field values.
+    /// Required. A [Secret][google.cloud.secretmanager.v1.Secret] with initial field values.
     #[prost(message, optional, tag = "3")]
     pub secret: ::core::option::Option<Secret>,
 }
-/// Request message for \[SecretManagerService.AddSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AddSecretVersion\].
+/// Request message for [SecretManagerService.AddSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AddSecretVersion].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AddSecretVersionRequest {
-    /// Required. The resource name of the \[Secret][google.cloud.secretmanager.v1.Secret\] to associate with the
-    /// \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] in the format `projects/*/secrets/*`.
+    /// Required. The resource name of the [Secret][google.cloud.secretmanager.v1.Secret] to associate with the
+    /// [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] in the format `projects/*/secrets/*`.
     #[prost(string, tag = "1")]
     pub parent: ::prost::alloc::string::String,
-    /// Required. The secret payload of the \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+    /// Required. The secret payload of the [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
     #[prost(message, optional, tag = "2")]
     pub payload: ::core::option::Option<SecretPayload>,
 }
-/// Request message for \[SecretManagerService.GetSecret][google.cloud.secretmanager.v1.SecretManagerService.GetSecret\].
+/// Request message for [SecretManagerService.GetSecret][google.cloud.secretmanager.v1.SecretManagerService.GetSecret].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetSecretRequest {
-    /// Required. The resource name of the \[Secret][google.cloud.secretmanager.v1.Secret\], in the format `projects/*/secrets/*`.
+    /// Required. The resource name of the [Secret][google.cloud.secretmanager.v1.Secret], in the format `projects/*/secrets/*`.
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
 }
-/// Request message for \[SecretManagerService.ListSecretVersions][google.cloud.secretmanager.v1.SecretManagerService.ListSecretVersions\].
+/// Request message for [SecretManagerService.ListSecretVersions][google.cloud.secretmanager.v1.SecretManagerService.ListSecretVersions].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSecretVersionsRequest {
-    /// Required. The resource name of the \[Secret][google.cloud.secretmanager.v1.Secret\] associated with the
-    /// \[SecretVersions][google.cloud.secretmanager.v1.SecretVersion\] to list, in the format
+    /// Required. The resource name of the [Secret][google.cloud.secretmanager.v1.Secret] associated with the
+    /// [SecretVersions][google.cloud.secretmanager.v1.SecretVersion] to list, in the format
     /// `projects/*/secrets/*`.
     #[prost(string, tag = "1")]
     pub parent: ::prost::alloc::string::String,
@@ -612,62 +612,62 @@ pub struct ListSecretVersionsRequest {
     #[prost(string, tag = "4")]
     pub filter: ::prost::alloc::string::String,
 }
-/// Response message for \[SecretManagerService.ListSecretVersions][google.cloud.secretmanager.v1.SecretManagerService.ListSecretVersions\].
+/// Response message for [SecretManagerService.ListSecretVersions][google.cloud.secretmanager.v1.SecretManagerService.ListSecretVersions].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListSecretVersionsResponse {
-    /// The list of \[SecretVersions][google.cloud.secretmanager.v1.SecretVersion\] sorted in reverse by
+    /// The list of [SecretVersions][google.cloud.secretmanager.v1.SecretVersion] sorted in reverse by
     /// create_time (newest first).
     #[prost(message, repeated, tag = "1")]
     pub versions: ::prost::alloc::vec::Vec<SecretVersion>,
     /// A token to retrieve the next page of results. Pass this value in
-    /// \[ListSecretVersionsRequest.page_token][google.cloud.secretmanager.v1.ListSecretVersionsRequest.page_token\] to retrieve the next page.
+    /// [ListSecretVersionsRequest.page_token][google.cloud.secretmanager.v1.ListSecretVersionsRequest.page_token] to retrieve the next page.
     #[prost(string, tag = "2")]
     pub next_page_token: ::prost::alloc::string::String,
-    /// The total number of \[SecretVersions][google.cloud.secretmanager.v1.SecretVersion\].
+    /// The total number of [SecretVersions][google.cloud.secretmanager.v1.SecretVersion].
     #[prost(int32, tag = "3")]
     pub total_size: i32,
 }
-/// Request message for \[SecretManagerService.GetSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.GetSecretVersion\].
+/// Request message for [SecretManagerService.GetSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.GetSecretVersion].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetSecretVersionRequest {
-    /// Required. The resource name of the \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] in the format
+    /// Required. The resource name of the [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] in the format
     /// `projects/*/secrets/*/versions/*`.
     ///
     /// `projects/*/secrets/*/versions/latest` is an alias to the most recently
-    /// created \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+    /// created [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
 }
-/// Request message for \[SecretManagerService.UpdateSecret][google.cloud.secretmanager.v1.SecretManagerService.UpdateSecret\].
+/// Request message for [SecretManagerService.UpdateSecret][google.cloud.secretmanager.v1.SecretManagerService.UpdateSecret].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UpdateSecretRequest {
-    /// Required. \[Secret][google.cloud.secretmanager.v1.Secret\] with updated field values.
+    /// Required. [Secret][google.cloud.secretmanager.v1.Secret] with updated field values.
     #[prost(message, optional, tag = "1")]
     pub secret: ::core::option::Option<Secret>,
     /// Required. Specifies the fields to be updated.
     #[prost(message, optional, tag = "2")]
     pub update_mask: ::core::option::Option<::prost_types::FieldMask>,
 }
-/// Request message for \[SecretManagerService.AccessSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion\].
+/// Request message for [SecretManagerService.AccessSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AccessSecretVersionRequest {
-    /// Required. The resource name of the \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] in the format
+    /// Required. The resource name of the [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] in the format
     /// `projects/*/secrets/*/versions/*`.
     ///
     /// `projects/*/secrets/*/versions/latest` is an alias to the most recently
-    /// created \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\].
+    /// created [SecretVersion][google.cloud.secretmanager.v1.SecretVersion].
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
 }
-/// Response message for \[SecretManagerService.AccessSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion\].
+/// Response message for [SecretManagerService.AccessSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AccessSecretVersionResponse {
-    /// The resource name of the \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] in the format
+    /// The resource name of the [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] in the format
     /// `projects/*/secrets/*/versions/*`.
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
@@ -675,57 +675,57 @@ pub struct AccessSecretVersionResponse {
     #[prost(message, optional, tag = "2")]
     pub payload: ::core::option::Option<SecretPayload>,
 }
-/// Request message for \[SecretManagerService.DeleteSecret][google.cloud.secretmanager.v1.SecretManagerService.DeleteSecret\].
+/// Request message for [SecretManagerService.DeleteSecret][google.cloud.secretmanager.v1.SecretManagerService.DeleteSecret].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeleteSecretRequest {
-    /// Required. The resource name of the \[Secret][google.cloud.secretmanager.v1.Secret\] to delete in the format
+    /// Required. The resource name of the [Secret][google.cloud.secretmanager.v1.Secret] to delete in the format
     /// `projects/*/secrets/*`.
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
-    /// Optional. Etag of the \[Secret][google.cloud.secretmanager.v1.Secret\]. The request succeeds if it matches
+    /// Optional. Etag of the [Secret][google.cloud.secretmanager.v1.Secret]. The request succeeds if it matches
     /// the etag of the currently stored secret object. If the etag is omitted,
     /// the request succeeds.
     #[prost(string, tag = "2")]
     pub etag: ::prost::alloc::string::String,
 }
-/// Request message for \[SecretManagerService.DisableSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.DisableSecretVersion\].
+/// Request message for [SecretManagerService.DisableSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.DisableSecretVersion].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DisableSecretVersionRequest {
-    /// Required. The resource name of the \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] to disable in the format
+    /// Required. The resource name of the [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] to disable in the format
     /// `projects/*/secrets/*/versions/*`.
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
-    /// Optional. Etag of the \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\]. The request succeeds if it matches
+    /// Optional. Etag of the [SecretVersion][google.cloud.secretmanager.v1.SecretVersion]. The request succeeds if it matches
     /// the etag of the currently stored secret version object. If the etag is
     /// omitted, the request succeeds.
     #[prost(string, tag = "2")]
     pub etag: ::prost::alloc::string::String,
 }
-/// Request message for \[SecretManagerService.EnableSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.EnableSecretVersion\].
+/// Request message for [SecretManagerService.EnableSecretVersion][google.cloud.secretmanager.v1.SecretManagerService.EnableSecretVersion].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EnableSecretVersionRequest {
-    /// Required. The resource name of the \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] to enable in the format
+    /// Required. The resource name of the [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] to enable in the format
     /// `projects/*/secrets/*/versions/*`.
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
-    /// Optional. Etag of the \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\]. The request succeeds if it matches
+    /// Optional. Etag of the [SecretVersion][google.cloud.secretmanager.v1.SecretVersion]. The request succeeds if it matches
     /// the etag of the currently stored secret version object. If the etag is
     /// omitted, the request succeeds.
     #[prost(string, tag = "2")]
     pub etag: ::prost::alloc::string::String,
 }
-/// Request message for \[SecretManagerService.DestroySecretVersion][google.cloud.secretmanager.v1.SecretManagerService.DestroySecretVersion\].
+/// Request message for [SecretManagerService.DestroySecretVersion][google.cloud.secretmanager.v1.SecretManagerService.DestroySecretVersion].
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DestroySecretVersionRequest {
-    /// Required. The resource name of the \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\] to destroy in the format
+    /// Required. The resource name of the [SecretVersion][google.cloud.secretmanager.v1.SecretVersion] to destroy in the format
     /// `projects/*/secrets/*/versions/*`.
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
-    /// Optional. Etag of the \[SecretVersion][google.cloud.secretmanager.v1.SecretVersion\]. The request succeeds if it matches
+    /// Optional. Etag of the [SecretVersion][google.cloud.secretmanager.v1.SecretVersion]. The request succeeds if it matches
     /// the etag of the currently stored secret version object. If the etag is
     /// omitted, the request succeeds.
     #[prost(string, tag = "2")]
