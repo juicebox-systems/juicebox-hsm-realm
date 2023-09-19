@@ -563,7 +563,6 @@ dependencies = [
  "observability",
  "reqwest",
  "secret_manager",
- "serde_json",
  "tokio",
  "tracing",
 ]
@@ -2606,7 +2605,6 @@ dependencies = [
  "observability",
  "reqwest",
  "secret_manager",
- "serde_json",
  "service_core",
  "thiserror",
  "tokio",
