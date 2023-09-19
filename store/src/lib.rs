@@ -42,8 +42,7 @@ mod merkle;
 pub mod tenants;
 
 #[derive(clap::Args, Clone, Debug)]
-#[group(id = "BigtableArgs")]
-pub struct Args {
+pub struct BigtableArgs {
     /// The name of the GCP project that contains the bigtable instance.
     #[arg(long = "bigtable-project", default_value = "prj")]
     pub project: String,
@@ -57,29 +56,7 @@ pub struct Args {
     pub url: Option<Uri>,
 }
 
-#[derive(clap::Args, Clone, Debug)]
-#[group(id = "BigtableAgentArgs")]
-pub struct AgentArgs {
-    /// The maximum size of the agent's LRU Merkle tree cache, in number of
-    /// nodes.
-    #[arg(
-        long = "merkle-cache-size",
-        value_name = "NODES",
-        default_value_t = 25_000
-    )]
-    pub merkle_cache_nodes_limit: usize,
-}
-
-impl AgentArgs {
-    pub fn to_options(&self) -> Options {
-        Options {
-            merkle_cache_nodes_limit: Some(self.merkle_cache_nodes_limit),
-            ..Options::default()
-        }
-    }
-}
-
-impl Args {
+impl BigtableArgs {
     pub fn needs_auth(&self) -> bool {
         match &self.url {
             Some(url) => {

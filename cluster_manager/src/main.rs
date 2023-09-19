@@ -15,7 +15,7 @@ mod manager;
 #[command(version, about = "Management controller for Juicebox Clusters")]
 struct Args {
     #[command(flatten)]
-    bigtable: store::Args,
+    bigtable: store::BigtableArgs,
 
     /// The IP/port to listen on.
     #[arg(

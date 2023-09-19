@@ -1,26 +1,21 @@
 use anyhow::anyhow;
+use async_trait::async_trait;
 use blake2::Blake2s256;
-use clap::Parser;
+use clap::Args;
 use futures::future;
 use hkdf::Hkdf;
 use hmac::SimpleHmac;
 use rand::{rngs::OsRng, RngCore};
 use std::fmt::Write;
 use std::fs;
-use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::time::Duration;
+use tokio::task::JoinHandle;
 use tracing::info;
 
-use agent_core::hsm::HsmClient;
-use agent_core::Agent;
-use google::auth;
+use agent_core::service::{AgentArgs, HsmTransportConstructor};
 use hsm_core::hsm::mac::MacKey;
 use hsm_core::hsm::{RealmKeys, RecordEncryptionKey};
-use observability::{logging, metrics};
-use service_core::clap_parsers::parse_listen;
-use service_core::panic;
-use service_core::term::install_termination_handler;
+use observability::metrics;
 
 mod http_hsm;
 
@@ -28,31 +23,11 @@ use http_hsm::client::HsmHttpClient;
 use http_hsm::host::HttpHsm;
 
 /// A host agent that embeds an insecure software HSM.
-#[derive(Debug, Parser)]
-#[command(version)]
-struct Args {
-    #[command(flatten)]
-    bigtable: store::Args,
-
-    #[command(flatten)]
-    agent_bigtable: store::AgentArgs,
-
+#[derive(Debug, Args)]
+struct SoftwareAgentArgs {
     /// Derive realm keys from this input (insecure).
     #[arg(short, long)]
     key: String,
-
-    /// The IP/port to listen on.
-    #[arg(
-        short,
-        long,
-        default_value_t = SocketAddr::from(([127,0,0,1], 8082)),
-        value_parser=parse_listen,
-    )]
-    listen: SocketAddr,
-
-    /// Name of the agent in logging [default: agent{listen}]
-    #[arg(short, long)]
-    name: Option<String>,
 
     /// Directory to store the persistent state file in [default: a random temp dir]
     #[arg(short, long)]
@@ -61,76 +36,42 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("juicebox-agent");
-    panic::set_abort_on_panic();
-    let mut shutdown_tasks = install_termination_handler(Duration::from_secs(10));
+    let mut tf = TransportConstructor { hsm_handle: None };
+    let h = agent_core::service::main("software-agent", &mut tf).await;
+    future::try_join(h, tf.hsm_handle.unwrap()).await.unwrap();
+}
 
-    let args = Args::parse();
-    info!(
-        ?args,
-        version = env!("CARGO_PKG_VERSION"),
-        "starting Software Agent"
-    );
+struct TransportConstructor {
+    hsm_handle: Option<JoinHandle<()>>,
+}
 
-    let name = args.name.unwrap_or_else(|| format!("agent{}", args.listen));
-    let metrics = metrics::Client::new("software_agent");
+#[async_trait]
+impl HsmTransportConstructor<SoftwareAgentArgs, HsmHttpClient> for TransportConstructor {
+    async fn construct(
+        &mut self,
+        args: &AgentArgs<SoftwareAgentArgs>,
+        _metrics: &metrics::Client,
+    ) -> HsmHttpClient {
+        let dir = match &args.service.state_dir {
+            None => random_tmp_dir(),
+            Some(path) => path.clone(),
+        };
+        if !dir.exists() {
+            fs::create_dir_all(&dir).unwrap_or_else(|e| {
+                panic!("failed to create directory {dir:?} for persistent state: {e:?}")
+            });
+        } else if dir.is_file() {
+            panic!("--state-dir should be a directory, but {dir:?} is a file");
+        }
 
-    let dir = args.state_dir.unwrap_or_else(random_tmp_dir);
-    if !dir.exists() {
-        fs::create_dir_all(&dir).unwrap_or_else(|e| {
-            panic!("failed to create directory {dir:?} for persistent state: {e:?}")
-        });
-    } else if dir.is_file() {
-        panic!("--state-dir should be a directory, but {dir:?} is a file");
+        let keys = insecure_derive_realm_keys(&args.service.key).unwrap();
+        let hsm = HttpHsm::new(dir.clone(), args.name(), keys)
+            .expect("HttpHsm failed to initialize from prior state");
+        let (hsm_url, hsm_handle) = hsm.listen("127.0.0.1:0".parse().unwrap()).await.unwrap();
+        info!(url = %hsm_url, dir=%dir.display(), "HSM started");
+        self.hsm_handle = Some(hsm_handle);
+        HsmHttpClient::new(hsm_url)
     }
-
-    let keys = insecure_derive_realm_keys(&args.key).unwrap();
-    let hsm = HttpHsm::new(dir.clone(), name.clone(), keys)
-        .expect("HttpHsm failed to initialize from prior state");
-    let (hsm_url, hsm_handle) = hsm.listen("127.0.0.1:0".parse().unwrap()).await.unwrap();
-    info!(url = %hsm_url, dir=%dir.display(), "HSM started");
-
-    let auth_manager = if args.bigtable.needs_auth() {
-        Some(
-            auth::from_adc()
-                .await
-                .expect("failed to initialize Google Cloud auth"),
-        )
-    } else {
-        None
-    };
-
-    let store = args
-        .bigtable
-        .connect_data(
-            auth_manager.clone(),
-            store::Options {
-                metrics: metrics.clone(),
-                ..args.agent_bigtable.to_options()
-            },
-        )
-        .await
-        .expect("Unable to connect to Bigtable");
-
-    let store_admin = args
-        .bigtable
-        .connect_admin(auth_manager)
-        .await
-        .expect("Unable to connect to Bigtable admin");
-
-    let hsm = HsmClient::new(HsmHttpClient::new(hsm_url), name.clone(), metrics.clone());
-    let agent = Agent::new(name, hsm, store, store_admin, metrics);
-    let agent_clone = agent.clone();
-    shutdown_tasks.add(Box::pin(async move { agent_clone.shutdown().await }));
-
-    let (url, agent_handle) = agent
-        .listen(args.listen)
-        .await
-        .expect("Failed to start web server");
-
-    info!(%url, "Agent started");
-
-    future::try_join(hsm_handle, agent_handle).await.unwrap();
 }
 
 fn insecure_derive_realm_keys(s: &str) -> anyhow::Result<RealmKeys> {
@@ -175,13 +116,14 @@ fn random_tmp_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_core::hsm::HsmClient;
     use clap::CommandFactory;
     use expect_test::expect_file;
 
     #[test]
     fn test_usage() {
         expect_file!["../usage.txt"].assert_eq(
-            &Args::command()
+            &AgentArgs::<SoftwareAgentArgs>::command()
                 .try_get_matches_from(["agent", "--help"])
                 .unwrap_err()
                 .to_string(),

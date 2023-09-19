@@ -36,7 +36,7 @@ pub struct ClusterConfig {
     pub load_balancers: u8,
     pub cluster_managers: u8,
     pub realms: Vec<RealmConfig>,
-    pub bigtable: store::Args,
+    pub bigtable: store::BigtableArgs,
     pub secrets_file: Option<PathBuf>,
     pub entrust: Entrust,
     // relative path from $PWD to the directory containing the target directory.
@@ -288,7 +288,7 @@ fn create_load_balancers(
 }
 
 fn start_cluster_manager(
-    args: &store::Args,
+    args: &store::BigtableArgs,
     path_to_target: PathBuf,
     process_group: &mut ProcessGroup,
     ports: &PortIssuer,
@@ -315,7 +315,7 @@ async fn create_realm(
     hsm_gen: &mut HsmGenerator,
     process_group: &mut ProcessGroup,
     r: &RealmConfig,
-    bigtable: &store::Args,
+    bigtable: &store::BigtableArgs,
     path_to_target: PathBuf,
     store: &StoreClient,
 ) -> RealmResult {

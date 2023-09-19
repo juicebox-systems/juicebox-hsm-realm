@@ -51,7 +51,7 @@ async fn main() {
     let mut process_group = ProcessGroup::new();
     install_termination_handler(Duration::from_secs(1));
 
-    let bt_args = store::Args {
+    let bt_args = store::BigtableArgs {
         instance: String::from("inst"),
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),

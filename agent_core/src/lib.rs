@@ -24,6 +24,7 @@ mod append;
 mod commit;
 pub mod hsm;
 pub mod merkle;
+pub mod service;
 mod tenants;
 
 use agent_api::merkle::TreeStoreError;

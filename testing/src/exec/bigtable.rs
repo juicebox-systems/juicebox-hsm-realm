@@ -4,12 +4,12 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::info;
 
-use store::{Args, Options};
+use store::{BigtableArgs, Options};
 
 pub struct BigtableRunner;
 
 impl BigtableRunner {
-    pub async fn run(pg: &mut ProcessGroup, args: &Args) {
+    pub async fn run(pg: &mut ProcessGroup, args: &BigtableArgs) {
         if let Some(emulator_url) = &args.url {
             info!(
                 port = %emulator_url.port().unwrap(),
@@ -33,9 +33,9 @@ impl BigtableRunner {
     }
 }
 
-pub fn emulator(port: u16) -> store::Args {
+pub fn emulator(port: u16) -> store::BigtableArgs {
     let u = format!("http://localhost:{port}").parse().unwrap();
-    store::Args {
+    store::BigtableArgs {
         project: String::from("prj"),
         instance: String::from("inst"),
         url: Some(u),

@@ -22,7 +22,7 @@ use testing::exec::hsm_gen::Entrust;
 #[derive(Debug, Parser)]
 struct Args {
     #[command(flatten)]
-    bigtable: store::Args,
+    bigtable: store::BigtableArgs,
 
     /// Number of secret registrations to do at a time.
     #[arg(long, value_name = "N", default_value_t = 3)]
