@@ -1,4 +1,4 @@
-FROM rust:1.71.1-bullseye
+FROM rust:1.72.0-bullseye
 
 RUN apt-get update && apt-get install --yes p7zip-full protobuf-compiler
 RUN rustup component add rust-src
