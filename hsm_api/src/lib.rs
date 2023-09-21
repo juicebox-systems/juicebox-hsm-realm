@@ -1165,7 +1165,7 @@ pub struct CommitState {
     ///
     /// These responses may now be returned to the respective clients whose
     /// requests caused the log entries to be created.
-    pub responses: Vec<(EntryMac, NoiseResponse)>,
+    pub responses: Vec<(EntryMac, NoiseResponse, Option<GuessEvent>)>,
     /// A set of responses that will never commit. If there are multiple
     /// leaders then it's possible for the persisted log to diverge from a
     /// leaders in memory log. In this event there are clients waiting for a
@@ -1179,6 +1179,12 @@ pub struct CommitState {
     /// responsibilities and return to the witness-only role (or it may
     /// have more to commit and remain in the stepping down role).
     pub role: GroupMemberRole,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum GuessEvent {
+    GuessUsed { remaining: u16 },
+    SecretRecovered,
 }
 
 /// Response type for the HSM Commit RPC (see [`CommitRequest`]).
@@ -1740,7 +1746,7 @@ pub enum AppResponse {
 }
 
 /// The different types of AppRequests that the client may make.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum AppRequestType {
     Register1,
     Register2,

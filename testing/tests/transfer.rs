@@ -33,6 +33,7 @@ async fn transfer() {
             state_dir: None,
         }],
         bigtable: bt_args,
+        local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
         path_to_target: PathBuf::from(".."),

@@ -247,6 +247,31 @@ You can create tables like this:
 lbt createtable tab families=fam
 ```
 
+## Local Pub/Sub emulator
+
+You'll need the Google pub/sub emulator to run offline. You can install this via
+the gcloud tool or run it via a Docker container.
+
+```sh
+gcloud components install pubsub-emulator
+```
+
+Once installed you run it with
+```sh
+gcloud beta emulators pubsub start --project=prj --host-port 0.0.0.0:9091
+```
+
+Or run it via the docker image.
+```sh
+docker run -i --init -p 9091:8085 gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators gcloud beta emulators pubsub start --host-port=0.0.0.0:8085
+```
+
+The tests run the pub/sub emulator via Docker, you should pull the image first.
+
+```sh
+docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+```
+
 ## OpenTelemetry traces
 
 The code sends OpenTelemetry traces over OTLP (GRPC) to `http://localhost:4317`.

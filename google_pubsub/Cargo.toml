@@ -1,0 +1,17 @@
+[package]
+name = "google_pubsub"
+edition = "2021"
+rust-version.workspace = true
+version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = { workspace = true }
+gcp_auth = { workspace = true }
+google = { workspace = true }
+juicebox_realm_api = { workspace = true }
+observability = { workspace = true }
+pubsub_api = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }

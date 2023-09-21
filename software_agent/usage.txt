@@ -3,13 +3,27 @@ A host agent that embeds an insecure software HSM
 Usage: agent [OPTIONS] --key <KEY>
 
 Options:
-      --bigtable-project <PROJECT>    The name of the GCP project that contains the bigtable instance [default: prj]
-      --bigtable-instance <INSTANCE>  The name of the bigtable instance to connect to [default: instance]
-      --bigtable-url <URL>            The url to the big table emulator [default uses GCP endpoints]
-      --merkle-cache-size <NODES>     The maximum size of the agent's LRU Merkle tree cache, in number of nodes [default: 25000]
-  -l, --listen <LISTEN>               The IP/port to listen on [default: 127.0.0.1:8082]
-  -n, --name <NAME>                   Name of the agent in logging [default: agent{listen}]
-  -k, --key <KEY>                     Derive realm keys from this input (insecure)
-  -s, --state-dir <STATE_DIR>         Directory to store the persistent state file in [default: a random temp dir]
-  -h, --help                          Print help
-  -V, --version                       Print version
+      --bigtable-project <PROJECT>
+          The name of the GCP project that contains the bigtable instance [default: prj]
+      --bigtable-instance <INSTANCE>
+          The name of the bigtable instance to connect to [default: instance]
+      --bigtable-url <URL>
+          The url to the big table emulator [default uses GCP endpoints]
+      --pubsub-project <PUBSUB_PROJECT>
+          The name of the GCP project to use for pub/sub. Defaults to the bigtable-project setting
+      --pubsub-url <PUBSUB_URL>
+          The url to the pubsub emulator [default uses GCP endpoints]
+      --merkle-cache-size <NODES>
+          The maximum size of the agent's LRU Merkle tree cache, in number of nodes [default: 25000]
+  -l, --listen <LISTEN>
+          The IP/port to listen on [default: 127.0.0.1:8082]
+  -n, --name <NAME>
+          Name of the agent in logging [default: agent{listen}]
+  -k, --key <KEY>
+          Derive realm keys from this input (insecure)
+  -s, --state-dir <STATE_DIR>
+          Directory to store the persistent state file in [default: a random temp dir]
+  -h, --help
+          Print help
+  -V, --version
+          Print version

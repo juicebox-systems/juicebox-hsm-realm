@@ -322,6 +322,17 @@ pub struct AppRequest {
     pub kind: ClientRequestKind,
     pub encrypted: NoiseRequest,
     pub tenant: String,
+    pub user: HashedUserId,
+}
+
+/// A hashed version of the user id that is used for the tenant recovery event log.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HashedUserId(pub String);
+
+impl From<&str> for HashedUserId {
+    fn from(value: &str) -> Self {
+        Self(value.to_owned())
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -330,6 +341,7 @@ pub enum AppResponse {
     Ok(NoiseResponse),
     NoHsm,
     NoStore,
+    NoPubSub,
     InvalidRealm,
     InvalidGroup,
     NotLeader,

@@ -84,9 +84,12 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
     };
     log.append(
         e2.clone(),
-        Some(NoiseResponse::Transport {
-            ciphertext: vec![43, 43, 43],
-        }),
+        Some((
+            NoiseResponse::Transport {
+                ciphertext: vec![43, 43, 43],
+            },
+            None,
+        )),
     );
     let e3 = LogEntry {
         index: LogIndex(44),
@@ -98,9 +101,12 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
     };
     log.append(
         e3.clone(),
-        Some(NoiseResponse::Transport {
-            ciphertext: vec![44, 44, 44],
-        }),
+        Some((
+            NoiseResponse::Transport {
+                ciphertext: vec![44, 44, 44],
+            },
+            Some(GuessEvent::GuessUsed { remaining: 4 }),
+        )),
     );
     (log, [e.entry_mac, e2.entry_mac, e3.entry_mac])
 }
@@ -192,9 +198,10 @@ fn leader_log_take_first() {
     assert_eq!(LogIndex(42), log.pop_first().entry.index);
 
     match log.take_first_response() {
-        Some((mac, NoiseResponse::Transport { ciphertext })) => {
+        Some((mac, NoiseResponse::Transport { ciphertext }, event)) => {
             assert_eq!(vec![43, 43, 43], ciphertext);
             assert_eq!(macs[1], mac);
+            assert!(event.is_none());
         }
         _ => panic!("should of taken a noise response"),
     }
@@ -202,9 +209,10 @@ fn leader_log_take_first() {
     assert!(log.pop_first().response.is_none());
 
     match log.take_first_response() {
-        Some((mac, NoiseResponse::Transport { ciphertext })) => {
+        Some((mac, NoiseResponse::Transport { ciphertext }, event)) => {
             assert_eq!(vec![44, 44, 44], ciphertext);
             assert_eq!(macs[2], mac);
+            assert_eq!(Some(GuessEvent::GuessUsed { remaining: 4 }), event);
         }
         _ => panic!("should of taken a noise response"),
     }

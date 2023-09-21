@@ -7,6 +7,7 @@ use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
+use serde_json::json;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -30,20 +31,20 @@ mod tenants;
 use agent_api::merkle::TreeStoreError;
 use agent_api::{
     AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
-    JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest,
-    NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse,
-    StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
-    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
-    TransferStatementResponse,
+    CompleteTransferRequest, CompleteTransferResponse, HashedUserId, JoinGroupRequest,
+    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
+    NewRealmRequest, NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest,
+    StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse,
+    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
+    TransferStatementRequest, TransferStatementResponse,
 };
 use append::{Append, AppendingState};
 use cluster_api::ClusterService;
 use hsm::{HsmClient, Transport};
 use hsm_api::merkle::{Dir, StoreDelta};
 use hsm_api::{
-    AppRequestType, CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId,
-    LogEntry, LogIndex, TransferInProofs,
+    AppRequestType, CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId,
+    GuessEvent, HsmId, LogEntry, LogIndex, TransferInProofs,
 };
 use juicebox_networking::reqwest::{self, Client, ClientOptions};
 use juicebox_networking::rpc::{self, Rpc};
@@ -52,6 +53,7 @@ use juicebox_realm_api::types::RealmId;
 use observability::logging::TracingSource;
 use observability::metrics::{self};
 use observability::metrics_tag as tag;
+use pubsub_api::{Message, Publisher};
 use service_core::rpc::{handle_rpc, HandlerError};
 use store::{self, discovery, LogEntriesIter, ServiceKind};
 use tenants::UserAccountingWriter;
@@ -70,6 +72,7 @@ struct AgentInner<T> {
     state: Mutex<State>,
     metrics: metrics::Client,
     accountant: UserAccountingWriter,
+    event_publisher: Box<dyn Publisher>,
 }
 
 #[derive(Debug)]
@@ -101,7 +104,8 @@ struct LeaderState {
 
     /// Used to route responses back to the right client after the HSM commits
     /// a batch of log entries and releases the responses.
-    response_channels: HashMap<HashableEntryMac, oneshot::Sender<NoiseResponse>>,
+    response_channels:
+        HashMap<HashableEntryMac, oneshot::Sender<(NoiseResponse, Option<GuessEvent>)>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -131,6 +135,7 @@ impl<T: Transport + 'static> Agent<T> {
         hsm: HsmClient<T>,
         store: store::StoreClient,
         store_admin: store::StoreAdminClient,
+        event_publisher: Box<dyn Publisher>,
         metrics: metrics::Client,
     ) -> Self {
         Self(Arc::new(AgentInner {
@@ -147,6 +152,7 @@ impl<T: Transport + 'static> Agent<T> {
             }),
             metrics: metrics.clone(),
             accountant: UserAccountingWriter::new(store, metrics),
+            event_publisher,
         }))
     }
 
@@ -1253,6 +1259,7 @@ impl<T: Transport + 'static> Agent<T> {
         let tags = [tag!(?realm), tag!(?group)];
         let tenant_tag = tag!(tenant: "{}",request.tenant);
         let tenant = request.tenant.clone();
+        let user = request.user.clone();
         let record_id = request.record_id.clone();
 
         let start_result = self
@@ -1271,7 +1278,7 @@ impl<T: Transport + 'static> Agent<T> {
                     .0
                     .metrics
                     .async_time("agent.commit.latency", &tags, || {
-                        self.finish_app_request(realm, group, append_request)
+                        self.finish_app_request(realm, group, &tenant, &user, append_request)
                     })
                     .await;
                 if res.is_ok() {
@@ -1315,16 +1322,18 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
-    #[instrument(level = "trace", skip(realm, group, append_request))]
+    #[instrument(level = "trace", skip(self, user, append_request))]
     async fn finish_app_request(
         &self,
         realm: RealmId,
         group: GroupId,
+        tenant: &str,
+        user: &HashedUserId,
         append_request: Append,
     ) -> Result<AppResponse, HandlerError> {
         type Response = AppResponse;
 
-        let (sender, receiver) = oneshot::channel::<NoiseResponse>();
+        let (sender, receiver) = oneshot::channel::<(NoiseResponse, Option<GuessEvent>)>();
 
         {
             let mut locked = self.0.state.lock().unwrap();
@@ -1344,13 +1353,26 @@ impl<T: Transport + 'static> Agent<T> {
         }
 
         self.append(realm, group, append_request);
-        match receiver.await {
-            Ok(response) => Ok(Response::Ok(response)),
-            Err(oneshot::Canceled) => Ok(Response::NotLeader),
+        let (response, event) = match receiver.await {
+            Ok(response) => response,
+            Err(oneshot::Canceled) => return Ok(Response::NotLeader),
+        };
+        if let Some(event) = event {
+            if let Err(err) = self
+                .0
+                .event_publisher
+                .publish(realm, tenant, TenantEventLogEntry { user, event }.into())
+                .await
+            {
+                warn!(?err, "error publishing event");
+                return Ok(AppResponse::NoPubSub);
+            }
         }
+
+        Ok(Response::Ok(response))
     }
 
-    #[instrument(level = "trace")]
+    #[instrument(level = "trace", skip(self))]
     async fn start_app_request(
         &self,
         request: AppRequest,
@@ -1484,5 +1506,58 @@ impl<T> AgentInner<T> {
         {
             info!(?realm, ?group, "HSM transitioned to Witness");
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct TenantEventLogEntry<'a> {
+    user: &'a HashedUserId,
+    event: GuessEvent,
+}
+
+impl<'a> From<TenantEventLogEntry<'a>> for Message {
+    fn from(value: TenantEventLogEntry) -> Message {
+        let j = match value.event {
+            GuessEvent::SecretRecovered => json!({
+                "user": value.user.0,
+                "event": "secret_recovered"
+            }),
+            GuessEvent::GuessUsed { remaining } => json!({
+                "user": value.user.0,
+                "event": "guess_used",
+                "remaining": remaining,
+            }),
+        };
+        Message(serde_json::to_string(&j).unwrap().into_bytes())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TenantEventLogEntry;
+    use agent_api::HashedUserId;
+    use pubsub_api::Message;
+
+    #[test]
+    fn tenant_log_format() {
+        let m: Message = TenantEventLogEntry {
+            user: &HashedUserId::from("121314"),
+            event: hsm_api::GuessEvent::SecretRecovered,
+        }
+        .into();
+        assert_eq!(
+            r#"{"event":"secret_recovered","user":"121314"}"#,
+            std::str::from_utf8(&m.0).unwrap()
+        );
+
+        let m: Message = TenantEventLogEntry {
+            user: &HashedUserId::from("121314"),
+            event: hsm_api::GuessEvent::GuessUsed { remaining: 4 },
+        }
+        .into();
+        assert_eq!(
+            r#"{"event":"guess_used","remaining":4,"user":"121314"}"#,
+            std::str::from_utf8(&m.0).unwrap()
+        );
     }
 }

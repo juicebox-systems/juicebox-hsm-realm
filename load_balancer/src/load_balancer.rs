@@ -10,6 +10,7 @@ use hyper::server::conn::{http1, http2};
 use hyper::service::Service;
 use hyper::StatusCode;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use juicebox_realm_auth::Claims;
 use opentelemetry_http::HeaderExtractor;
 use rustls::server::ResolvesServerCert;
 use semver::Version;
@@ -30,7 +31,9 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use super::server::{HealthCheckStatus, ManagerOptions, ServiceManager};
-use agent_api::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
+use agent_api::{
+    AgentService, AppRequest, AppResponse, HashedUserId, StatusRequest, StatusResponse,
+};
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use juicebox_marshalling as marshalling;
 use juicebox_networking::reqwest::{Client, ClientOptions};
@@ -522,6 +525,7 @@ async fn handle_client_request_inner(
                 kind: request.kind,
                 encrypted: request.encrypted.clone(),
                 tenant: claims.issuer.clone(),
+                user: hash_user_id(&claims),
             },
         )
         .await
@@ -542,6 +546,7 @@ async fn handle_client_request_inner(
                 | r @ AppResponse::InvalidGroup
                 | r @ AppResponse::NoHsm
                 | r @ AppResponse::NoStore
+                | r @ AppResponse::NoPubSub
                 | r @ AppResponse::NotLeader
                 | r @ AppResponse::InvalidProof,
             ) => {
@@ -563,6 +568,16 @@ async fn handle_client_request_inner(
     }
 
     Response::Unavailable
+}
+
+// Calculates the hash of the tenant & user Id. This is used in any tenant event
+// log entries. The tenant needs to be able to calculate the same hash to map
+// back to their users so this needs to be stable & published.
+fn hash_user_id(claims: &Claims) -> HashedUserId {
+    // tenant/issuer can't contain :
+    let to_hash = format!("{}:{}", claims.issuer, claims.subject).into_bytes();
+    let hashed = Blake2s256::new().chain_update(to_hash).finalize();
+    HashedUserId(hex::encode(hashed))
 }
 
 #[derive(Serialize)]

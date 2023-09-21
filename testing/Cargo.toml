@@ -8,10 +8,12 @@ rust-version = { workspace = true }
 
 [dependencies]
 agent_api = { workspace = true }
+blake2 = { workspace = true }
 clap = { workspace = true }
 cluster_core = { workspace = true }
 futures = { workspace = true }
 google = { workspace = true }
+google_pubsub = { workspace = true }
 hex = { workspace = true }
 hsm_api = { workspace = true }
 hsm_core = { workspace = true, features = ["dot"] }
@@ -24,6 +26,7 @@ juicebox_realm_api = { workspace = true }
 juicebox_realm_auth = { workspace = true }
 observability = { workspace = true }
 once_cell = { workspace = true }
+pubsub_api = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
 reqwest = { workspace = true }

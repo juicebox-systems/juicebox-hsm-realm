@@ -245,8 +245,7 @@ impl StoreAdminClient {
             })
             .await?;
 
-        tenants::initialize(bigtable, &self.instance, realm).await?;
-
+        tenants::initialize(bigtable.clone(), &self.instance, realm).await?;
         Ok(())
     }
 }
