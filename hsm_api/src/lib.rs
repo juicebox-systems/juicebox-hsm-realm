@@ -17,10 +17,8 @@ use subtle::{Choice, ConstantTimeEq};
 use bitvec::{BitVec, Bits};
 use juicebox_marshalling::bytes;
 use juicebox_noise::server as noise;
-use juicebox_realm_api::{
-    requests::{NoiseRequest, NoiseResponse},
-    types::{RealmId, SessionId},
-};
+use juicebox_realm_api::requests::{NoiseRequest, NoiseResponse};
+use juicebox_realm_api::types::{Policy, RealmId, SessionId};
 use merkle::{HashOutput, ReadProof, StoreDelta};
 
 /// A unique identifier for a replication group.
@@ -1181,9 +1179,9 @@ pub struct CommitState {
     pub role: GroupMemberRole,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum GuessEvent {
-    GuessUsed { remaining: u16 },
+    GuessUsed { policy: Policy, remaining: u16 },
     ShareRecovered,
 }
 

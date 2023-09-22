@@ -141,6 +141,7 @@ fn recover2(
                     guess_count: state.guess_count,
                 },
                 Some(GuessEvent::GuessUsed {
+                    policy: state.policy.clone(),
                     remaining: state
                         .policy
                         .num_guesses
@@ -480,7 +481,13 @@ mod tests {
             }
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
-        assert_eq!(event, Some(GuessEvent::GuessUsed { remaining: 1 }));
+        assert_eq!(
+            event,
+            Some(GuessEvent::GuessUsed {
+                policy: policy(),
+                remaining: 1
+            })
+        );
     }
 
     #[test]

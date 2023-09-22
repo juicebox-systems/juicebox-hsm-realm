@@ -9,7 +9,7 @@ use crate::merkle::testing::MemStore;
 use juicebox_marshalling as marshalling;
 use juicebox_noise::client::Handshake;
 use juicebox_realm_api::requests::DeleteResponse;
-use juicebox_realm_api::types::RealmId;
+use juicebox_realm_api::types::{Policy, RealmId};
 
 use super::super::hal::MAX_NVRAM_SIZE;
 use super::*;
@@ -105,7 +105,10 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
             NoiseResponse::Transport {
                 ciphertext: vec![44, 44, 44],
             },
-            Some(GuessEvent::GuessUsed { remaining: 4 }),
+            Some(GuessEvent::GuessUsed {
+                policy: Policy { num_guesses: 42 },
+                remaining: 4,
+            }),
         )),
     );
     (log, [e.entry_mac, e2.entry_mac, e3.entry_mac])
@@ -212,7 +215,13 @@ fn leader_log_take_first() {
         Some((mac, NoiseResponse::Transport { ciphertext }, event)) => {
             assert_eq!(vec![44, 44, 44], ciphertext);
             assert_eq!(macs[2], mac);
-            assert_eq!(Some(GuessEvent::GuessUsed { remaining: 4 }), event);
+            assert_eq!(
+                Some(GuessEvent::GuessUsed {
+                    policy: Policy { num_guesses: 42 },
+                    remaining: 4
+                }),
+                event
+            );
         }
         _ => panic!("should of taken a noise response"),
     }

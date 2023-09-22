@@ -1522,7 +1522,10 @@ impl<'a> From<TenantEventLogEntry<'a>> for Message {
                 "user": value.user.to_string(),
                 "event": "share_recovered"
             }),
-            GuessEvent::GuessUsed { remaining } => json!({
+            GuessEvent::GuessUsed {
+                policy: _,
+                remaining,
+            } => json!({
                 "user": value.user.to_string(),
                 "event": "guess_used",
                 "remaining": remaining,
@@ -1536,6 +1539,7 @@ impl<'a> From<TenantEventLogEntry<'a>> for Message {
 mod tests {
     use super::TenantEventLogEntry;
     use agent_api::HashedUserId;
+    use juicebox_realm_api::types::Policy;
     use pubsub_api::Message;
 
     #[test]
@@ -1552,7 +1556,10 @@ mod tests {
 
         let m: Message = TenantEventLogEntry {
             user: &HashedUserId::new("test", "121314"),
-            event: hsm_api::GuessEvent::GuessUsed { remaining: 4 },
+            event: hsm_api::GuessEvent::GuessUsed {
+                policy: Policy { num_guesses: 42 },
+                remaining: 4,
+            },
         }
         .into();
         assert_eq!(
