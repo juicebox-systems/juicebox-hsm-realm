@@ -64,7 +64,7 @@ impl pubsub_api::Publisher for Publisher {
         let pub_req = PublishRequest {
             topic: topic_name(&self.project, realm, tenant),
             messages: vec![PubsubMessage {
-                data: m.0,
+                data: m.0.to_string().into_bytes(),
                 attributes: HashMap::new(),
                 message_id: String::from(""),
                 publish_time: None,

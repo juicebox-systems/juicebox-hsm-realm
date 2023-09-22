@@ -1531,7 +1531,7 @@ impl<'a> From<TenantEventLogEntry<'a>> for Message {
                 "remaining": remaining,
             }),
         };
-        Message(serde_json::to_string(&j).unwrap().into_bytes())
+        Message(j)
     }
 }
 
@@ -1551,7 +1551,7 @@ mod tests {
         .into();
         assert_eq!(
             r#"{"event":"share_recovered","user":"447ddec5f08c757d40e7acb9f1bc10ed44a960683bb991f5e4ed17498f786ff8"}"#,
-            std::str::from_utf8(&m.0).unwrap()
+            &m.0.to_string()
         );
 
         let m: Message = TenantEventLogEntry {
@@ -1564,7 +1564,7 @@ mod tests {
         .into();
         assert_eq!(
             r#"{"event":"guess_used","remaining":4,"user":"447ddec5f08c757d40e7acb9f1bc10ed44a960683bb991f5e4ed17498f786ff8"}"#,
-            std::str::from_utf8(&m.0).unwrap()
+            &m.0.to_string()
         );
     }
 }

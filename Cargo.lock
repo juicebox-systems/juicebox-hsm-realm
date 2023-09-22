@@ -2276,6 +2276,7 @@ version = "0.2.3"
 dependencies = [
  "async-trait",
  "juicebox_realm_api",
+ "serde_json",
 ]
 
 [[package]]

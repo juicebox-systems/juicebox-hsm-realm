@@ -9,3 +9,4 @@ version.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 juicebox_realm_api = { workspace = true }
+serde_json = { workspace = true }

@@ -1,10 +1,11 @@
 use async_trait::async_trait;
+use serde_json::Value;
 use std::error::Error;
 use std::fmt::Debug;
 
 use juicebox_realm_api::types::RealmId;
 
-pub struct Message(pub Vec<u8>);
+pub struct Message(pub Value);
 
 #[async_trait]
 pub trait Publisher: Send + Sync + Debug {

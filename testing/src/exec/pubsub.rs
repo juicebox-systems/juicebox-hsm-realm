@@ -1,5 +1,6 @@
 use http::Uri;
 use juicebox_sdk::RealmId;
+use serde_json::json;
 use std::env;
 use std::path::Path;
 use std::process::Command;
@@ -35,7 +36,7 @@ pub async fn run(pg: &mut ProcessGroup, port: u16, project: String) -> Uri {
         )
         .await
         {
-            Ok(p) => match p.publish(RealmId([0; 16]), "bob", Message(vec![42])).await {
+            Ok(p) => match p.publish(RealmId([0; 16]), "bob", Message(json!(42))).await {
                 Ok(_) => return uri,
                 Err(_) => {
                     sleep(Duration::from_millis(20)).await;
