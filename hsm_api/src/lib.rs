@@ -1184,7 +1184,7 @@ pub struct CommitState {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum GuessEvent {
     GuessUsed { remaining: u16 },
-    SecretRecovered,
+    ShareRecovered,
 }
 
 /// Response type for the HSM Commit RPC (see [`CommitRequest`]).

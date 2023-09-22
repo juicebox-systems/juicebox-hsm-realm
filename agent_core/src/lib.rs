@@ -1518,9 +1518,9 @@ pub struct TenantEventLogEntry<'a> {
 impl<'a> From<TenantEventLogEntry<'a>> for Message {
     fn from(value: TenantEventLogEntry) -> Message {
         let j = match value.event {
-            GuessEvent::SecretRecovered => json!({
+            GuessEvent::ShareRecovered => json!({
                 "user": value.user.to_string(),
-                "event": "secret_recovered"
+                "event": "share_recovered"
             }),
             GuessEvent::GuessUsed { remaining } => json!({
                 "user": value.user.to_string(),
@@ -1542,11 +1542,11 @@ mod tests {
     fn tenant_log_format() {
         let m: Message = TenantEventLogEntry {
             user: &HashedUserId::new("test", "121314"),
-            event: hsm_api::GuessEvent::SecretRecovered,
+            event: hsm_api::GuessEvent::ShareRecovered,
         }
         .into();
         assert_eq!(
-            r#"{"event":"secret_recovered","user":"447ddec5f08c757d40e7acb9f1bc10ed44a960683bb991f5e4ed17498f786ff8"}"#,
+            r#"{"event":"share_recovered","user":"447ddec5f08c757d40e7acb9f1bc10ed44a960683bb991f5e4ed17498f786ff8"}"#,
             std::str::from_utf8(&m.0).unwrap()
         );
 

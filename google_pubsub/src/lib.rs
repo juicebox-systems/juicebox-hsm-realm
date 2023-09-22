@@ -26,7 +26,7 @@ impl std::fmt::Debug for Publisher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Publisher")
             .field("project", &self.project)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

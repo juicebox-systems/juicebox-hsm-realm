@@ -186,7 +186,7 @@ fn recover3(
                         .clone(),
                     encrypted_secret_commitment: state.encrypted_user_secret_commitment.clone(),
                 },
-                Some(GuessEvent::SecretRecovered),
+                Some(GuessEvent::ShareRecovered),
                 Some(user_record),
             )
         }
@@ -546,7 +546,7 @@ mod tests {
             }
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
-        assert_eq!(Some(GuessEvent::SecretRecovered), event);
+        assert_eq!(Some(GuessEvent::ShareRecovered), event);
     }
 
     #[test]
