@@ -9,14 +9,14 @@ use crate::merkle::testing::MemStore;
 use juicebox_marshalling as marshalling;
 use juicebox_noise::client::Handshake;
 use juicebox_realm_api::requests::DeleteResponse;
-use juicebox_realm_api::types::{Policy, RealmId};
+use juicebox_realm_api::types::RealmId;
 
 use super::super::hal::MAX_NVRAM_SIZE;
 use super::*;
 use hsm_api::{
     CaptureNextRequest, CaptureNextResponse, CommitRequest, CommitResponse, CommitState,
-    CompleteTransferRequest, CompleteTransferResponse, EntryMac, GroupId, HsmId, LogIndex,
-    TransferInRequest, TransferInResponse, TransferNonceRequest, TransferNonceResponse,
+    CompleteTransferRequest, CompleteTransferResponse, EntryMac, GroupId, GuessState, HsmId,
+    LogIndex, TransferInRequest, TransferInResponse, TransferNonceRequest, TransferNonceResponse,
     TransferOutRequest, TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
     CONFIGURATION_LIMIT,
 };
@@ -88,7 +88,7 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
             NoiseResponse::Transport {
                 ciphertext: vec![43, 43, 43],
             },
-            None,
+            AppResultType::Recover1,
         )),
     );
     let e3 = LogEntry {
@@ -105,10 +105,10 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
             NoiseResponse::Transport {
                 ciphertext: vec![44, 44, 44],
             },
-            Some(GuessEvent::GuessUsed {
-                policy: Policy { num_guesses: 42 },
-                remaining: 4,
-            }),
+            AppResultType::Recover2(Some(GuessState {
+                num_guesses: 42,
+                guess_count: 4,
+            })),
         )),
     );
     (log, [e.entry_mac, e2.entry_mac, e3.entry_mac])
@@ -204,7 +204,7 @@ fn leader_log_take_first() {
         Some((mac, NoiseResponse::Transport { ciphertext }, event)) => {
             assert_eq!(vec![43, 43, 43], ciphertext);
             assert_eq!(macs[1], mac);
-            assert!(event.is_none());
+            assert_eq!(AppResultType::Recover1, event)
         }
         _ => panic!("should of taken a noise response"),
     }
@@ -216,10 +216,10 @@ fn leader_log_take_first() {
             assert_eq!(vec![44, 44, 44], ciphertext);
             assert_eq!(macs[2], mac);
             assert_eq!(
-                Some(GuessEvent::GuessUsed {
-                    policy: Policy { num_guesses: 42 },
-                    remaining: 4
-                }),
+                AppResultType::Recover2(Some(GuessState {
+                    num_guesses: 42,
+                    guess_count: 4,
+                })),
                 event
             );
         }
@@ -929,12 +929,7 @@ fn capture_next_spots_diverged_log_while_stepping_down() {
 }
 
 fn unpack_app_response(r: &AppResponse) -> (LogEntry, StoreDelta<DataHash>) {
-    if let AppResponse::Ok {
-        entry,
-        delta,
-        request_type: _,
-    } = r
-    {
+    if let AppResponse::Ok { entry, delta } = r {
         (entry.clone(), delta.clone())
     } else {
         panic!("app_request failed {r:?}")
@@ -1182,12 +1177,7 @@ impl<'a> TestCluster<'a> {
     }
 
     fn append(&mut self, group: GroupId, r: &AppResponse) {
-        if let AppResponse::Ok {
-            entry,
-            delta,
-            request_type: _,
-        } = r
-        {
+        if let AppResponse::Ok { entry, delta } = r {
             self.store.append(group, entry.clone(), delta.clone());
         } else {
             panic!("app_request failed {r:?}");

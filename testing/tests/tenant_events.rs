@@ -2,6 +2,7 @@ use digest::Digest;
 use google::pubsub::v1::subscriber_client::SubscriberClient;
 use google::pubsub::v1::{AcknowledgeRequest, PullRequest};
 use google_pubsub::subscription_name;
+use hsm_api::GuessState;
 use once_cell::sync::Lazy;
 use serde_json::json;
 use sha2::Sha256;
@@ -20,7 +21,7 @@ use testing::exec::PortIssuer;
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8666));
 
 #[tokio::test]
-async fn recovery_events() {
+async fn events() {
     let bt_args = emulator(PORT.next());
     let mut processes = ProcessGroup::new();
 
@@ -67,6 +68,7 @@ async fn recovery_events() {
         )
         .await
         .unwrap();
+    sub.assert_has_event("bob", "registered", None).await;
 
     let recover_error = client
         .recover(&Pin::from(vec![42, 43, 44, 45]), &info)
@@ -78,11 +80,30 @@ async fn recovery_events() {
         },
         recover_error
     );
-    sub.assert_has_event("bob", "guess_used", Some(41)).await;
+    sub.assert_has_event(
+        "bob",
+        "guess_used",
+        Some(GuessState {
+            num_guesses: 42,
+            guess_count: 1,
+        }),
+    )
+    .await;
 
     client.recover(&pin, &info).await.unwrap();
-    sub.assert_has_event("bob", "guess_used", Some(40)).await;
+    sub.assert_has_event(
+        "bob",
+        "guess_used",
+        Some(GuessState {
+            num_guesses: 42,
+            guess_count: 2,
+        }),
+    )
+    .await;
     sub.assert_has_event("bob", "share_recovered", None).await;
+
+    client.delete().await.unwrap();
+    sub.assert_has_event("bob", "deleted", None).await;
 }
 
 struct Subscriber {
@@ -93,7 +114,7 @@ struct Subscriber {
 }
 
 impl Subscriber {
-    async fn assert_has_event(&mut self, user: &str, event: &str, remaining: Option<u16>) {
+    async fn assert_has_event(&mut self, user: &str, event: &str, guess: Option<GuessState>) {
         let sub = subscription_name(&self.project, self.realm, &self.tenant);
         let pulled = self
             .client
@@ -137,8 +158,9 @@ impl Subscriber {
             (String::from("event"), json!(event)),
             (String::from("user"), json!(hashed_id)),
         ]);
-        if let Some(r) = remaining {
-            exp.insert(String::from("remaining"), json!(r));
+        if let Some(g) = guess {
+            exp.insert(String::from("num_guesses"), json!(g.num_guesses));
+            exp.insert(String::from("guess_count"), json!(g.guess_count));
         }
         assert_eq!(exp, parsed);
     }

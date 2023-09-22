@@ -3,7 +3,7 @@ extern crate alloc;
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::vec::Vec;
-use hsm_api::GuessEvent;
+use hsm_api::{AppResultType, GuessState};
 use marshalling::{DeserializationError, SerializationError};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -114,7 +114,7 @@ fn recover2(
     request: Recover2Request,
     mut user_record: UserRecord,
     rng: &mut impl CryptoRng,
-) -> (Recover2Response, Option<GuessEvent>, Option<UserRecord>) {
+) -> (Recover2Response, Option<GuessState>, Option<UserRecord>) {
     match &mut user_record.registration_state {
         RegistrationState::Registered(state) if state.version != request.version => {
             (Recover2Response::VersionMismatch, None, Some(user_record))
@@ -140,13 +140,9 @@ fn recover2(
                     num_guesses: state.policy.num_guesses,
                     guess_count: state.guess_count,
                 },
-                Some(GuessEvent::GuessUsed {
-                    policy: state.policy.clone(),
-                    remaining: state
-                        .policy
-                        .num_guesses
-                        .checked_sub(state.guess_count)
-                        .unwrap_or_default(),
+                Some(GuessState {
+                    num_guesses: state.policy.num_guesses,
+                    guess_count: state.guess_count,
                 }),
                 Some(user_record),
             )
@@ -159,10 +155,10 @@ fn recover2(
 fn recover3(
     request: Recover3Request,
     mut user_record: UserRecord,
-) -> (Recover3Response, Option<GuessEvent>, Option<UserRecord>) {
+) -> (Recover3Response, bool, Option<UserRecord>) {
     match &mut user_record.registration_state {
         RegistrationState::Registered(state) if state.version != request.version => {
-            (Recover3Response::VersionMismatch, None, Some(user_record))
+            (Recover3Response::VersionMismatch, false, Some(user_record))
         }
         RegistrationState::Registered(state)
             if !bool::from(request.unlock_key_tag.ct_eq(&state.unlock_key_tag)) =>
@@ -173,7 +169,7 @@ fn recover3(
             }
             (
                 Recover3Response::BadUnlockKeyTag { guesses_remaining },
-                None,
+                false,
                 Some(user_record),
             )
         }
@@ -187,12 +183,12 @@ fn recover3(
                         .clone(),
                     encrypted_secret_commitment: state.encrypted_user_secret_commitment.clone(),
                 },
-                Some(GuessEvent::ShareRecovered),
+                true,
                 Some(user_record),
             )
         }
-        RegistrationState::NoGuesses => (Recover3Response::NoGuesses, None, Some(user_record)),
-        RegistrationState::NotRegistered => (Recover3Response::NotRegistered, None, None),
+        RegistrationState::NoGuesses => (Recover3Response::NoGuesses, false, Some(user_record)),
+        RegistrationState::NotRegistered => (Recover3Response::NotRegistered, false, None),
     }
 }
 
@@ -214,7 +210,7 @@ pub fn process(
     request: SecretsRequest,
     record_val: Option<&[u8]>,
     rng: &mut impl CryptoRng,
-) -> (SecretsResponse, Option<GuessEvent>, Option<RecordChange>) {
+) -> (SecretsResponse, AppResultType, Option<RecordChange>) {
     let user_record_in = match record_val {
         None => UserRecord::new(),
         Some(data) => unmarshal_user_record(data).expect("TODO"),
@@ -222,27 +218,47 @@ pub fn process(
     let (result, event, user_record_out) = match request {
         SecretsRequest::Register1 => {
             let res = register1();
-            (SecretsResponse::Register1(res), None, None)
+            (
+                SecretsResponse::Register1(res),
+                AppResultType::Register1,
+                None,
+            )
         }
         SecretsRequest::Register2(req) => {
             let res = register2(*req, user_record_in);
-            (SecretsResponse::Register2(res.0), None, res.1)
+            (
+                SecretsResponse::Register2(res.0),
+                AppResultType::Register2,
+                res.1,
+            )
         }
         SecretsRequest::Recover1 => {
             let res = recover1(user_record_in);
-            (SecretsResponse::Recover1(res.0), None, res.1)
+            (
+                SecretsResponse::Recover1(res.0),
+                AppResultType::Recover1,
+                res.1,
+            )
         }
         SecretsRequest::Recover2(req) => {
             let res = recover2(req, user_record_in, rng);
-            (SecretsResponse::Recover2(res.0), res.1, res.2)
+            (
+                SecretsResponse::Recover2(res.0),
+                AppResultType::Recover2(res.1),
+                res.2,
+            )
         }
         SecretsRequest::Recover3(req) => {
             let res = recover3(req, user_record_in);
-            (SecretsResponse::Recover3(res.0), res.1, res.2)
+            (
+                SecretsResponse::Recover3(res.0),
+                AppResultType::Recover3 { recovered: res.1 },
+                res.2,
+            )
         }
         SecretsRequest::Delete => {
             let res = delete(user_record_in);
-            (SecretsResponse::Delete(res.0), None, res.1)
+            (SecretsResponse::Delete(res.0), AppResultType::Delete, res.1)
         }
     };
     let rc = user_record_out.map(|u| RecordChange::Update(marshal_user_record(&u).expect("TODO")));
@@ -305,7 +321,7 @@ fn unmarshal_user_record(padded: &[u8]) -> Result<UserRecord, DeserializationErr
 
 #[cfg(test)]
 mod tests {
-    use hsm_api::GuessEvent;
+    use hsm_api::GuessState;
     use juicebox_marshalling::to_be4;
     use juicebox_realm_api::{
         requests::{
@@ -449,7 +465,7 @@ mod tests {
         };
         let user_record_in = registered_record(0);
         let expected_user_record_out = registered_record(1);
-        let (response, event, user_record_out) = recover2(request, user_record_in, &mut OsRng);
+        let (response, guesses, user_record_out) = recover2(request, user_record_in, &mut OsRng);
 
         let checked_oprf_proof = if let Recover2Response::Ok {
             oprf_blinded_result,
@@ -482,10 +498,10 @@ mod tests {
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
         assert_eq!(
-            event,
-            Some(GuessEvent::GuessUsed {
-                policy: policy(),
-                remaining: 1
+            guesses,
+            Some(GuessState {
+                num_guesses: policy().num_guesses,
+                guess_count: 1,
             })
         );
     }
@@ -497,11 +513,11 @@ mod tests {
             oprf_blinded_input: oprf_blinded_input(),
         };
         let user_record_in = registered_record(0);
-        let (response, event, user_record_out) =
+        let (response, guesses, user_record_out) =
             recover2(request, user_record_in.clone(), &mut OsRng);
         assert_eq!(response, Recover2Response::VersionMismatch);
         assert_eq!(Some(user_record_in), user_record_out);
-        assert!(event.is_none());
+        assert!(guesses.is_none());
     }
 
     #[test]
@@ -513,11 +529,11 @@ mod tests {
         let user_record_in = UserRecord {
             registration_state: RegistrationState::NoGuesses,
         };
-        let (response, event, user_record_out) =
+        let (response, guesses, user_record_out) =
             recover2(request, user_record_in.clone(), &mut OsRng);
         assert_eq!(response, Recover2Response::NoGuesses);
         assert_eq!(Some(user_record_in), user_record_out);
-        assert!(event.is_none());
+        assert!(guesses.is_none());
     }
 
     #[test]
@@ -529,10 +545,10 @@ mod tests {
         let user_record_in = UserRecord {
             registration_state: RegistrationState::NotRegistered,
         };
-        let (response, event, user_record_out) = recover2(request, user_record_in, &mut OsRng);
+        let (response, guesses, user_record_out) = recover2(request, user_record_in, &mut OsRng);
         assert_eq!(response, Recover2Response::NotRegistered);
         assert!(user_record_out.is_none());
-        assert!(event.is_none());
+        assert!(guesses.is_none());
     }
 
     #[test]
@@ -543,7 +559,7 @@ mod tests {
         };
         let user_record_in = registered_record(1);
         let expected_user_record_out = registered_record(0);
-        let (response, event, user_record_out) = recover3(request, user_record_in);
+        let (response, recovered, user_record_out) = recover3(request, user_record_in);
         assert_eq!(
             response,
             Recover3Response::Ok {
@@ -553,7 +569,7 @@ mod tests {
             }
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
-        assert_eq!(Some(GuessEvent::ShareRecovered), event);
+        assert!(recovered);
     }
 
     #[test]
@@ -563,10 +579,10 @@ mod tests {
             unlock_key_tag: unlock_key_tag(),
         };
         let user_record_in = registered_record(0);
-        let (response, event, user_record_out) = recover3(request, user_record_in.clone());
+        let (response, recovered, user_record_out) = recover3(request, user_record_in.clone());
         assert_eq!(response, Recover3Response::VersionMismatch,);
         assert_eq!(Some(user_record_in), user_record_out);
-        assert!(event.is_none());
+        assert!(!recovered);
     }
 
     #[test]
@@ -576,7 +592,7 @@ mod tests {
             unlock_key_tag: UnlockKeyTag::from([5; 16]),
         };
         let user_record_in = registered_record(1);
-        let (response, event, user_record_out) = recover3(request, user_record_in.clone());
+        let (response, recovered, user_record_out) = recover3(request, user_record_in.clone());
         assert_eq!(
             response,
             Recover3Response::BadUnlockKeyTag {
@@ -584,7 +600,7 @@ mod tests {
             }
         );
         assert_eq!(Some(user_record_in), user_record_out);
-        assert!(event.is_none());
+        assert!(!recovered);
     }
 
     #[test]
@@ -597,7 +613,7 @@ mod tests {
         let expected_user_record_out = UserRecord {
             registration_state: RegistrationState::NoGuesses,
         };
-        let (response, event, user_record_out) = recover3(request, user_record_in);
+        let (response, recovered, user_record_out) = recover3(request, user_record_in);
         assert_eq!(
             response,
             Recover3Response::BadUnlockKeyTag {
@@ -605,7 +621,7 @@ mod tests {
             }
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
-        assert!(event.is_none());
+        assert!(!recovered)
     }
 
     #[test]
@@ -617,10 +633,10 @@ mod tests {
         let user_record_in = UserRecord {
             registration_state: RegistrationState::NoGuesses,
         };
-        let (response, event, user_record_out) = recover3(request, user_record_in.clone());
+        let (response, recovered, user_record_out) = recover3(request, user_record_in.clone());
         assert_eq!(response, Recover3Response::NoGuesses);
         assert_eq!(Some(user_record_in), user_record_out);
-        assert!(event.is_none());
+        assert!(!recovered);
     }
 
     #[test]
@@ -632,10 +648,10 @@ mod tests {
         let user_record_in = UserRecord {
             registration_state: RegistrationState::NotRegistered,
         };
-        let (response, event, user_record_out) = recover3(request, user_record_in);
+        let (response, recovered, user_record_out) = recover3(request, user_record_in);
         assert_eq!(response, Recover3Response::NotRegistered);
         assert!(user_record_out.is_none());
-        assert!(event.is_none());
+        assert!(!recovered)
     }
 
     #[test]

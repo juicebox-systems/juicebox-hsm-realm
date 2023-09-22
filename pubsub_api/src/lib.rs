@@ -5,6 +5,7 @@ use std::fmt::Debug;
 
 use juicebox_realm_api::types::RealmId;
 
+#[derive(Debug, Eq, PartialEq)]
 pub struct Message(pub Value);
 
 #[async_trait]
