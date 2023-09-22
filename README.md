@@ -249,27 +249,36 @@ lbt createtable tab families=fam
 
 ## Local Pub/Sub emulator
 
-You'll need the Google pub/sub emulator to run offline. You can install this via
-the gcloud tool or run it via a Docker container.
+You'll need the Google pub/sub emulator to run offline. By default the tests run
+this in a docker container. You can optionally install the google cloud SDK and
+emulator and run it directly instead.
+
+For docker, pull the image first, then run tests as normal.
+
+```sh
+docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+```
+
+To use the SDK directly, install the pubsub-emulator component.
 
 ```sh
 gcloud components install pubsub-emulator
 ```
 
-Once installed you run it with
-```sh
-gcloud beta emulators pubsub start --project=prj --host-port 0.0.0.0:9091
-```
+Then set the `PUBSUB_JAR` environment variable to the path containing the emulator jar.
+This is typically `~/google-cloud-sdk/platform/pubsub-emulator/lib/cloud-pubsub-emulator-0.8.6.jar`
+but can vary based on how the cloud SDK was originally installed.
 
-Or run it via the docker image.
+If you need to run the emulator manually, you can do
+
 ```sh
 docker run -i --init -p 9091:8085 gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators gcloud beta emulators pubsub start --host-port=0.0.0.0:8085
 ```
 
-The tests run the pub/sub emulator via Docker, you should pull the image first.
+or
 
 ```sh
-docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+gcloud beta emulators pubsub start --project=prj --host-port 0.0.0.0:9091
 ```
 
 ## OpenTelemetry traces
