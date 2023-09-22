@@ -1,10 +1,10 @@
-use blake2::Blake2s256;
 use digest::Digest;
 use google::pubsub::v1::subscriber_client::SubscriberClient;
 use google::pubsub::v1::{AcknowledgeRequest, PullRequest};
 use google_pubsub::subscription_name;
 use once_cell::sync::Lazy;
 use serde_json::json;
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tonic::transport::{Channel, Endpoint};
@@ -82,7 +82,7 @@ async fn recovery_events() {
 
     client.recover(&pin, &info).await.unwrap();
     sub.assert_has_event("bob", "guess_used", Some(40)).await;
-    sub.assert_has_event("bob", "secret_recovered", None).await;
+    sub.assert_has_event("bob", "share_recovered", None).await;
 }
 
 struct Subscriber {
@@ -128,7 +128,7 @@ impl Subscriber {
         .unwrap();
 
         let hashed_id = hex::encode(
-            Blake2s256::new()
+            Sha256::new()
                 .chain_update(format!("{}:{}", self.tenant, user))
                 .finalize(),
         );

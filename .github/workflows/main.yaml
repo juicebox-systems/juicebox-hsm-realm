@@ -164,6 +164,7 @@ jobs:
       shell: bash
 
     - name: Pull GCP tools docker image
+      # colima is a container runtime. It's part of the base MacOS github runner image.
       run: |
         brew install docker
         colima start

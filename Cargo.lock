@@ -32,11 +32,13 @@ name = "agent_api"
 version = "0.2.3"
 dependencies = [
  "async-trait",
+ "hex",
  "hsm_api",
  "juicebox_networking",
  "juicebox_realm_api",
  "observability",
  "serde",
+ "sha2",
 ]
 
 [[package]]
@@ -2891,7 +2893,6 @@ dependencies = [
  "anyhow",
  "bigtable",
  "bitvec",
- "blake2",
  "chrono",
  "clap",
  "cluster_api",
@@ -2922,6 +2923,7 @@ dependencies = [
  "secret_manager",
  "serde_json",
  "service_core",
+ "sha2",
  "store",
  "sysinfo",
  "tokio",

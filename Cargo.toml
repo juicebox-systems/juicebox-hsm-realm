@@ -165,6 +165,7 @@ serde = { version = "1.0.188", default-features = false, features = [
 ] }
 serde_json = "1.0.107"
 service_core = { path = "service_core" }
+sha2 = "0.10.7"
 # Diego audited only the spin mutex in spin 0.9.8 (502c9dc) in Aug 2023.
 spin = { version = "=0.9.8", default-features = false, features = [
     "mutex",
