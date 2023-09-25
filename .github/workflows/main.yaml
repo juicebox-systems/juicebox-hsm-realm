@@ -110,6 +110,9 @@ jobs:
       # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
       run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
+    - name: Pull GCP tools docker image
+      run: docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+
     - name: Install Bigtable tools
       run: |
         command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
@@ -159,6 +162,13 @@ jobs:
       run: |
         sudo rm -rf /usr/share/dotnet
       shell: bash
+
+    - name: Pull GCP tools docker image
+      # colima is a container runtime. It's part of the base MacOS github runner image.
+      run: |
+        brew install docker
+        colima start
+        docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
 
     - name: Install Rust
       uses: actions-rs/toolchain@v1
@@ -257,6 +267,9 @@ jobs:
     - name: Use Go path
       # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
       run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+    - name: Pull GCP tools docker image
+      run: docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
 
     - name: Install Bigtable tools
       run: |
@@ -371,6 +384,9 @@ jobs:
     - name: Use Go path
       # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
       run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+    - name: Pull GCP tools docker image
+      run: docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
 
     - name: Install Bigtable tools
       run: |

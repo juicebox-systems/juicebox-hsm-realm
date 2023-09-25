@@ -18,12 +18,14 @@ members = [
     "entrust_init",
     "entrust_nfast",
     "google",
+    "google_pubsub",
     "hsm_api",
     "hsm_core",
     "load_balancer",
     "lru-cache",
     "merkle_tree_docgen",
     "observability",
+    "pubsub_api",
     "secret_manager",
     "service_core",
     "service_checker",
@@ -46,11 +48,13 @@ default-members = [
     "codegen",
     "election",
     "google",
+    "google_pubsub",
     "hsm_api",
     "hsm_core",
     "load_balancer",
     "lru-cache",
     "observability",
+    "pubsub_api",
     "secret_manager",
     "service_core",
     "service_checker",
@@ -105,6 +109,7 @@ gcp_auth = { version = "=0.9.0", default-features = false, features = [
     "webpki-roots",
 ] }
 google = { path = "google" }
+google_pubsub = { path = "google_pubsub" }
 hashbrown = { version = "0.14.0", default-features = false, features = [
     "inline-more",
     "serde",
@@ -144,6 +149,7 @@ opentelemetry-otlp = "0.13.0"
 pin-project-lite = { version = "0.2.13" }
 prost = "0.12.1"
 prost-types = "0.12.1"
+pubsub_api = { path = "pubsub_api" }
 rand = { version = "0.8.5", default-features = false, features = ["alloc"] }
 rand_core = "0.6.4"
 reqwest = { version = "0.11.20", default-features = false, features = [
@@ -159,6 +165,7 @@ serde = { version = "1.0.188", default-features = false, features = [
 ] }
 serde_json = "1.0.107"
 service_core = { path = "service_core" }
+sha2 = "0.10.7"
 # Diego audited only the spin mutex in spin 0.9.8 (502c9dc) in Aug 2023.
 spin = { version = "=0.9.8", default-features = false, features = [
     "mutex",

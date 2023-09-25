@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 use std::thread::sleep;
 use std::time::Duration;
+use testing::exec::pubsub;
 use tracing::{info, warn};
 
 use hsm_api::{OwnedRange, RecordId};
@@ -66,6 +67,8 @@ async fn main() {
     );
 
     BigtableRunner::run(&mut process_group, &bt_args).await;
+    let pubsub_url = pubsub::run(&mut process_group, 9091, bt_args.project.clone()).await;
+
     let store_admin = bt_args
         .connect_admin(None)
         .await
@@ -120,7 +123,14 @@ async fn main() {
 
     info!("creating initial HSM and agents");
     let (group1, realm1_public_key) = hsm_generator
-        .create_hsms(1, &mut process_group, PathBuf::new(), &bt_args, None)
+        .create_hsms(
+            1,
+            &mut process_group,
+            PathBuf::new(),
+            &bt_args,
+            &Some(pubsub_url.clone()),
+            None,
+        )
         .await;
     let (realm_id, group_id1) = cluster_core::new_realm(&agents_client, &group1[0])
         .await
@@ -129,10 +139,24 @@ async fn main() {
 
     info!("creating additional groups");
     let (group2, _) = hsm_generator
-        .create_hsms(5, &mut process_group, PathBuf::new(), &bt_args, None)
+        .create_hsms(
+            5,
+            &mut process_group,
+            PathBuf::new(),
+            &bt_args,
+            &Some(pubsub_url.clone()),
+            None,
+        )
         .await;
     let (group3, _) = hsm_generator
-        .create_hsms(4, &mut process_group, PathBuf::new(), &bt_args, None)
+        .create_hsms(
+            4,
+            &mut process_group,
+            PathBuf::new(),
+            &bt_args,
+            &Some(pubsub_url.clone()),
+            None,
+        )
         .await;
 
     cluster_core::join_realm(
@@ -230,9 +254,17 @@ async fn main() {
         let mut process_group = process_group.clone();
         let agents_client = agents_client.clone();
         let bigtable = bt_args.clone();
+        let pubsub_url = pubsub_url.clone();
         async move {
             let (agents, public_key) = hsm_generator
-                .create_hsms(1, &mut process_group, PathBuf::new(), &bigtable, None)
+                .create_hsms(
+                    1,
+                    &mut process_group,
+                    PathBuf::new(),
+                    &bigtable,
+                    &Some(pubsub_url),
+                    None,
+                )
                 .await;
             let realm_id = cluster_core::new_realm(&agents_client, &agents[0])
                 .await

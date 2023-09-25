@@ -26,7 +26,7 @@ use juicebox_realm_api::types::RealmId;
 const FAMILY: &str = "f";
 const EVENT_COL: &[u8] = b"e";
 
-const MAX_ACCOUNTING_EVENT_AGE_DAYS: u32 = 100;
+const MAX_ACCOUNTING_EVENT_AGE_DAYS: u32 = 116;
 const MAX_ACCOUNTING_EVENT_AGE_SECONDS: u32 = MAX_ACCOUNTING_EVENT_AGE_DAYS * 60 * 60 * 24;
 
 pub fn tenant_user_table(instance: &Instance, realm: &RealmId) -> String {

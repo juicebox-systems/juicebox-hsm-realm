@@ -32,11 +32,13 @@ name = "agent_api"
 version = "0.2.3"
 dependencies = [
  "async-trait",
+ "hex",
  "hsm_api",
  "juicebox_networking",
  "juicebox_realm_api",
  "observability",
  "serde",
+ "sha2",
 ]
 
 [[package]]
@@ -55,6 +57,7 @@ dependencies = [
  "expect-test",
  "futures",
  "google",
+ "google_pubsub",
  "hsm_api",
  "http",
  "http-body-util",
@@ -65,7 +68,10 @@ dependencies = [
  "observability",
  "opentelemetry",
  "opentelemetry-http",
+ "pubsub_api",
  "reqwest",
+ "serde",
+ "serde_json",
  "service_core",
  "store",
  "tokio",
@@ -1134,6 +1140,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "google_pubsub"
+version = "0.2.3"
+dependencies = [
+ "async-trait",
+ "gcp_auth",
+ "google",
+ "juicebox_realm_api",
+ "observability",
+ "pubsub_api",
+ "tonic 0.10.0",
+ "tracing",
+]
+
+[[package]]
 name = "h2"
 version = "0.3.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1712,6 +1732,7 @@ dependencies = [
  "expect-test",
  "futures",
  "google",
+ "hex",
  "hsm_api",
  "http",
  "http-body-util",
@@ -2250,6 +2271,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pubsub_api"
+version = "0.2.3"
+dependencies = [
+ "async-trait",
+ "juicebox_realm_api",
+ "serde_json",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2714,6 +2744,8 @@ dependencies = [
  "clap",
  "expect-test",
  "futures",
+ "google",
+ "google_pubsub",
  "hex",
  "hkdf",
  "hmac",
@@ -2724,6 +2756,7 @@ dependencies = [
  "hyper 1.0.0-rc.3",
  "juicebox_marshalling",
  "observability",
+ "pubsub_api",
  "rand",
  "reqwest",
  "tokio",
@@ -2868,6 +2901,7 @@ dependencies = [
  "digest",
  "futures",
  "google",
+ "google_pubsub",
  "hex",
  "hsm_api",
  "hsm_core",
@@ -2883,12 +2917,14 @@ dependencies = [
  "nix",
  "observability",
  "once_cell",
+ "pubsub_api",
  "rand",
  "rand_core",
  "reqwest",
  "secret_manager",
  "serde_json",
  "service_core",
+ "sha2",
  "store",
  "sysinfo",
  "tokio",

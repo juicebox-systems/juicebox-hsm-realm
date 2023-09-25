@@ -32,6 +32,11 @@ struct Args {
     #[arg(long, value_name = "N", default_value_t = 100)]
     count: usize,
 
+    /// Use a local pub/sub emulator. If not set will use pub/sub from the same
+    /// project as the bigtable-project argument.
+    #[arg(long, default_value_t = false)]
+    pubsub_emulator: bool,
+
     /// Use an entrust HSM/Agent as the only HSM.
     ///
     /// You must provide signed machine and userdata files at
@@ -82,6 +87,7 @@ async fn main() {
             state_dir: args.state.clone(),
         }],
         bigtable: args.bigtable,
+        local_pubsub: args.pubsub_emulator,
         secrets_file: args.secrets_file,
         entrust: Entrust(args.entrust),
         path_to_target: PathBuf::new(),
@@ -160,6 +166,7 @@ async fn main() {
     if errors > 0 {
         warn!(errors, "There were errors reported by the client");
     }
+
     if args.keep_alive {
         let path = "target/configuration.json";
         fs::write(

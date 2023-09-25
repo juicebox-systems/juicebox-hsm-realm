@@ -246,7 +246,6 @@ impl StoreAdminClient {
             .await?;
 
         tenants::initialize(bigtable, &self.instance, realm).await?;
-
         Ok(())
     }
 }

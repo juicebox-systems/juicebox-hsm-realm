@@ -1,7 +1,8 @@
 pub mod merkle;
 
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use sha2::{Digest, Sha256};
+use std::{fmt::Display, time::Duration};
 
 use hsm_api::{
     GroupConfigurationStatement, GroupId, HsmId, HsmRealmStatement, LogIndex, OwnedRange,
@@ -322,6 +323,31 @@ pub struct AppRequest {
     pub kind: ClientRequestKind,
     pub encrypted: NoiseRequest,
     pub tenant: String,
+    pub user: HashedUserId,
+}
+
+/// A hashed version of the user id that is used for the tenant recovery event
+/// log. The tenant needs to be able to calculate the same hash to map back to
+/// their users so this needs to be stable & published.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct HashedUserId(String);
+
+impl HashedUserId {
+    pub fn new(tenant: &str, user: &str) -> Self {
+        assert!(!tenant.contains(':'));
+        let h = Sha256::new()
+            .chain_update(tenant.as_bytes())
+            .chain_update([b':'])
+            .chain_update(user.as_bytes())
+            .finalize();
+        HashedUserId(hex::encode(h))
+    }
+}
+
+impl Display for HashedUserId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -330,6 +356,7 @@ pub enum AppResponse {
     Ok(NoiseResponse),
     NoHsm,
     NoStore,
+    NoPubSub,
     InvalidRealm,
     InvalidGroup,
     NotLeader,

@@ -233,14 +233,14 @@ impl<P: Platform> Hsm<P> {
         let mut responses = Vec::new();
         while log.first_index() < commit_index {
             let e = log.pop_first();
-            if let Some(r) = e.response {
-                responses.push((e.entry.entry_mac, r));
+            if let Some((r, g)) = e.response {
+                responses.push((e.entry.entry_mac, r, g));
             }
         }
         assert_eq!(commit_index, log.first_index());
         // This ensures we don't try to empty the log entirely.
-        if let Some((mac, res)) = log.take_first_response() {
-            responses.push((mac, res));
+        if let Some(res) = log.take_first_response() {
+            responses.push(res);
         }
         *committed = Some(commit_index);
 

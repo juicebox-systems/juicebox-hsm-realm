@@ -41,7 +41,7 @@ use hsm_api::rpc::{
     HsmRequest, HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction, Nanos,
 };
 use hsm_api::{
-    AppRequest, AppRequestType, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, Captured,
+    AppRequest, AppResponse, AppResultType, BecomeLeaderRequest, BecomeLeaderResponse, Captured,
     DataHash, EntryMac, GroupId, GroupMemberRole, GroupStatus, HandshakeRequest, HandshakeResponse,
     HsmId, HsmRealmStatement, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
     JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupRequest, NewGroupResponse,
@@ -268,7 +268,7 @@ struct LeaderLogEntry {
     entry: LogEntry,
     /// A possible response to the client. This must not be externalized until
     /// after the entry has been committed.
-    response: Option<NoiseResponse>,
+    response: Option<(NoiseResponse, AppResultType)>,
 }
 
 // A contiguous series of Log entries.
@@ -320,7 +320,7 @@ impl LeaderLog {
     // Adds a new entry to the end of the log. Will panic if the LogIndex of the
     // new entry is not the next in the sequence. Will panic if the prev_mac of
     // the new entry does not match the entry_mac of the last entry.
-    fn append(&mut self, entry: LogEntry, response: Option<NoiseResponse>) {
+    fn append(&mut self, entry: LogEntry, response: Option<(NoiseResponse, AppResultType)>) {
         let last = self.last();
         assert_eq!(
             entry.index,
@@ -352,9 +352,12 @@ impl LeaderLog {
 
     // Takes the response from the first entry in the log replacing it with None.
     // Returns the response and its related EntryMac if there was one, None otherwise.
-    fn take_first_response(&mut self) -> Option<(EntryMac, NoiseResponse)> {
-        let e = self.0.front_mut().unwrap();
-        e.response.take().map(|r| (e.entry.entry_mac.clone(), r))
+    fn take_first_response(&mut self) -> Option<(EntryMac, NoiseResponse, AppResultType)> {
+        let entry = self.0.front_mut().unwrap();
+        entry
+            .response
+            .take()
+            .map(|(response, guess_event)| (entry.entry.entry_mac.clone(), response, guess_event))
     }
 }
 
@@ -1323,17 +1326,6 @@ fn secrets_req_name(r: &SecretsRequest) -> &'static str {
     }
 }
 
-fn secrets_request_type(r: &SecretsRequest) -> AppRequestType {
-    match r {
-        SecretsRequest::Register1 => AppRequestType::Register1,
-        SecretsRequest::Register2(_) => AppRequestType::Register2,
-        SecretsRequest::Recover1 => AppRequestType::Recover1,
-        SecretsRequest::Recover2(_) => AppRequestType::Recover2,
-        SecretsRequest::Recover3(_) => AppRequestType::Recover3,
-        SecretsRequest::Delete => AppRequestType::Delete,
-    }
-}
-
 fn handle_app_request(
     request: AppRequest,
     hsm: HsmId,
@@ -1376,10 +1368,9 @@ fn handle_app_request(
         Err(response) => return response.into(),
     };
 
-    let secrets_request_type = secrets_request_type(&secrets_request);
     req_name_out.replace(secrets_req_name(&secrets_request));
 
-    let (secrets_response, change) = app::process(secrets_request, record.as_deref(), rng);
+    let (secrets_response, event, change) = app::process(secrets_request, record.as_deref(), rng);
 
     let secrets_response = noise.encode(secrets_response, &mut leader.sessions);
 
@@ -1400,12 +1391,13 @@ fn handle_app_request(
     }
     .build(&keys.mac);
 
-    leader.log.append(new_entry.clone(), Some(secrets_response));
+    leader
+        .log
+        .append(new_entry.clone(), Some((secrets_response, event)));
 
     AppResponse::Ok {
         entry: new_entry,
         delta: store_delta,
-        request_type: secrets_request_type,
     }
 }
 

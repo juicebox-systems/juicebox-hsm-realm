@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
-use agent_api::{AgentService, AppResponse, BecomeLeaderResponse};
+use agent_api::{AgentService, AppResponse, BecomeLeaderResponse, HashedUserId};
 use hsm_api::RecordId;
 use juicebox_marshalling as marshalling;
 use juicebox_networking::reqwest::{self, Client, ClientOptions};
@@ -43,6 +43,7 @@ async fn leader_battle() {
             state_dir: None,
         }],
         bigtable: bt_args,
+        local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
         path_to_target: PathBuf::from(".."),
@@ -173,6 +174,7 @@ async fn make_app_request_to_agents(
             kind: ClientRequestKind::SecretsRequest,
             encrypted: NoiseRequest::Handshake { handshake: req },
             tenant: "Bob".into(),
+            user: HashedUserId::new("Bob", "Eve"),
         };
         match rpc::send(agent_client, agent, r).await {
             Ok(AppResponse::Ok(NoiseResponse::Handshake {

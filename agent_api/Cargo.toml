@@ -8,8 +8,10 @@ rust-version = { workspace = true }
 
 [dependencies]
 async-trait = { workspace = true }
+hex = { workspace = true }
 hsm_api = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_realm_api = { workspace = true }
 serde = { workspace = true }
+sha2 = { workspace = true }
 observability = { path = "../observability" }

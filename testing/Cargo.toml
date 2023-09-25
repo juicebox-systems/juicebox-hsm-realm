@@ -12,6 +12,7 @@ clap = { workspace = true }
 cluster_core = { workspace = true }
 futures = { workspace = true }
 google = { workspace = true }
+google_pubsub = { workspace = true }
 hex = { workspace = true }
 hsm_api = { workspace = true }
 hsm_core = { workspace = true, features = ["dot"] }
@@ -24,6 +25,7 @@ juicebox_realm_api = { workspace = true }
 juicebox_realm_auth = { workspace = true }
 observability = { workspace = true }
 once_cell = { workspace = true }
+pubsub_api = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
 reqwest = { workspace = true }
@@ -48,6 +50,7 @@ juicebox_marshalling = { workspace = true }
 juicebox_noise = { workspace = true }
 nix = { workspace = true }
 rand = { workspace = true }
+sha2 = { workspace = true }
 sysinfo = { workspace = true }
 tokio-rustls = { workspace = true }
 tonic = { workspace = true }

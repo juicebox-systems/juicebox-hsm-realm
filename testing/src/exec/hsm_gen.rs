@@ -3,6 +3,7 @@
 //! This module exists in part to encapsulate the secret shared between the HSMs.
 
 use futures::future::join_all;
+use http::Uri;
 use juicebox_networking::{
     reqwest::{self, ClientOptions},
     rpc,
@@ -61,6 +62,7 @@ impl HsmGenerator {
         process_group: &mut ProcessGroup,
         path_to_target: PathBuf,
         bigtable: &store::BigtableArgs,
+        pubsub_url: &Option<Uri>,
         hsm_dir: Option<PathBuf>,
     ) -> (Vec<Url>, PublicKey) {
         let mode = if cfg!(debug_assertions) {
@@ -102,6 +104,9 @@ impl HsmGenerator {
                     .join("userdata.sar"),
             );
             bigtable.add_to_cmd(&mut cmd);
+            if let Some(url) = pubsub_url {
+                cmd.arg("--pubsub-url").arg(url.to_string());
+            }
             process_group.spawn(&mut cmd);
             agent_urls.push(agent_url);
             count -= 1;
@@ -126,6 +131,9 @@ impl HsmGenerator {
             }
             next_is_leader = false;
             bigtable.add_to_cmd(&mut cmd);
+            if let Some(url) = &pubsub_url {
+                cmd.arg("--pubsub-url").arg(url.to_string());
+            }
             process_group.spawn(&mut cmd);
             agent_url
         })

@@ -15,8 +15,8 @@ use super::super::hal::MAX_NVRAM_SIZE;
 use super::*;
 use hsm_api::{
     CaptureNextRequest, CaptureNextResponse, CommitRequest, CommitResponse, CommitState,
-    CompleteTransferRequest, CompleteTransferResponse, EntryMac, GroupId, HsmId, LogIndex,
-    TransferInRequest, TransferInResponse, TransferNonceRequest, TransferNonceResponse,
+    CompleteTransferRequest, CompleteTransferResponse, EntryMac, GroupId, GuessState, HsmId,
+    LogIndex, TransferInRequest, TransferInResponse, TransferNonceRequest, TransferNonceResponse,
     TransferOutRequest, TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
     CONFIGURATION_LIMIT,
 };
@@ -84,9 +84,12 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
     };
     log.append(
         e2.clone(),
-        Some(NoiseResponse::Transport {
-            ciphertext: vec![43, 43, 43],
-        }),
+        Some((
+            NoiseResponse::Transport {
+                ciphertext: vec![43, 43, 43],
+            },
+            AppResultType::Recover1,
+        )),
     );
     let e3 = LogEntry {
         index: LogIndex(44),
@@ -98,9 +101,17 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
     };
     log.append(
         e3.clone(),
-        Some(NoiseResponse::Transport {
-            ciphertext: vec![44, 44, 44],
-        }),
+        Some((
+            NoiseResponse::Transport {
+                ciphertext: vec![44, 44, 44],
+            },
+            AppResultType::Recover2 {
+                updated: Some(GuessState {
+                    num_guesses: 42,
+                    guess_count: 4,
+                }),
+            },
+        )),
     );
     (log, [e.entry_mac, e2.entry_mac, e3.entry_mac])
 }
@@ -192,9 +203,10 @@ fn leader_log_take_first() {
     assert_eq!(LogIndex(42), log.pop_first().entry.index);
 
     match log.take_first_response() {
-        Some((mac, NoiseResponse::Transport { ciphertext })) => {
+        Some((mac, NoiseResponse::Transport { ciphertext }, event)) => {
             assert_eq!(vec![43, 43, 43], ciphertext);
             assert_eq!(macs[1], mac);
+            assert_eq!(AppResultType::Recover1, event)
         }
         _ => panic!("should of taken a noise response"),
     }
@@ -202,9 +214,18 @@ fn leader_log_take_first() {
     assert!(log.pop_first().response.is_none());
 
     match log.take_first_response() {
-        Some((mac, NoiseResponse::Transport { ciphertext })) => {
+        Some((mac, NoiseResponse::Transport { ciphertext }, event)) => {
             assert_eq!(vec![44, 44, 44], ciphertext);
             assert_eq!(macs[2], mac);
+            assert_eq!(
+                AppResultType::Recover2 {
+                    updated: Some(GuessState {
+                        num_guesses: 42,
+                        guess_count: 4,
+                    })
+                },
+                event
+            );
         }
         _ => panic!("should of taken a noise response"),
     }
@@ -912,12 +933,7 @@ fn capture_next_spots_diverged_log_while_stepping_down() {
 }
 
 fn unpack_app_response(r: &AppResponse) -> (LogEntry, StoreDelta<DataHash>) {
-    if let AppResponse::Ok {
-        entry,
-        delta,
-        request_type: _,
-    } = r
-    {
+    if let AppResponse::Ok { entry, delta } = r {
         (entry.clone(), delta.clone())
     } else {
         panic!("app_request failed {r:?}")
@@ -1165,12 +1181,7 @@ impl<'a> TestCluster<'a> {
     }
 
     fn append(&mut self, group: GroupId, r: &AppResponse) {
-        if let AppResponse::Ok {
-            entry,
-            delta,
-            request_type: _,
-        } = r
-        {
+        if let AppResponse::Ok { entry, delta } = r {
             self.store.append(group, entry.clone(), delta.clone());
         } else {
             panic!("app_request failed {r:?}");

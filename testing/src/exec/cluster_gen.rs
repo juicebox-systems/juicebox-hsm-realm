@@ -1,5 +1,6 @@
 use ::reqwest::{Certificate, Url};
 use futures::future::join_all;
+use http::Uri;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -9,6 +10,13 @@ use std::{env, fs, iter};
 use tokio::time::sleep;
 use tracing::{debug, info};
 
+use super::bigtable::BigtableRunner;
+use super::certs::{create_localhost_key_and_cert, Certificates};
+use super::hsm_gen::{Entrust, HsmGenerator};
+use super::{pubsub, PortIssuer};
+use agent_api::{AgentService, StatusRequest};
+use cluster_core::{self, NewRealmError};
+use google::auth;
 use hsm_api::{GroupId, OwnedRange, PublicKey};
 use juicebox_networking::reqwest;
 use juicebox_networking::rpc::{self, LoadBalancerService};
@@ -18,14 +26,6 @@ use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims};
 use juicebox_sdk::{
     AuthToken, Client, ClientBuilder, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper,
 };
-
-use super::bigtable::BigtableRunner;
-use super::certs::{create_localhost_key_and_cert, Certificates};
-use super::hsm_gen::{Entrust, HsmGenerator};
-use super::PortIssuer;
-use agent_api::{AgentService, StatusRequest};
-use cluster_core::{self, NewRealmError};
-use google::auth;
 use secret_manager::{
     new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
 };
@@ -37,6 +37,7 @@ pub struct ClusterConfig {
     pub cluster_managers: u8,
     pub realms: Vec<RealmConfig>,
     pub bigtable: store::BigtableArgs,
+    pub local_pubsub: bool,
     pub secrets_file: Option<PathBuf>,
     pub entrust: Entrust,
     // relative path from $PWD to the directory containing the target directory.
@@ -61,6 +62,7 @@ pub struct ClusterResult {
 
     pub store: StoreClient,
     pub cluster_managers: Vec<Url>,
+    pub pubsub: Option<Uri>,
 }
 
 impl ClusterResult {
@@ -138,12 +140,19 @@ pub async fn create_cluster(
 ) -> Result<ClusterResult, String> {
     debug!(config=?args, "creating cluster");
     let ports = ports.into();
-    let auth_manager = if args.bigtable.needs_auth() || args.secrets_file.is_none() {
-        Some(
-            auth::from_adc()
-                .await
-                .expect("failed to initialize Google Cloud auth"),
-        )
+    let auth_manager =
+        if args.bigtable.needs_auth() || args.secrets_file.is_none() || !args.local_pubsub {
+            Some(
+                auth::from_adc()
+                    .await
+                    .expect("failed to initialize Google Cloud auth"),
+            )
+        } else {
+            None
+        };
+
+    let pubsub_url = if args.local_pubsub {
+        Some(pubsub::run(process_group, ports.next(), args.bigtable.project.clone()).await)
     } else {
         None
     };
@@ -224,6 +233,7 @@ pub async fn create_cluster(
             process_group,
             realm,
             &args.bigtable,
+            pubsub_url.clone(),
             args.path_to_target.clone(),
             &store,
         )
@@ -240,6 +250,7 @@ pub async fn create_cluster(
         auth_key,
         store,
         cluster_managers,
+        pubsub: pubsub_url,
     })
 }
 
@@ -316,6 +327,7 @@ async fn create_realm(
     process_group: &mut ProcessGroup,
     r: &RealmConfig,
     bigtable: &store::BigtableArgs,
+    pubsub_url: Option<Uri>,
     path_to_target: PathBuf,
     store: &StoreClient,
 ) -> RealmResult {
@@ -327,6 +339,7 @@ async fn create_realm(
             process_group,
             path_to_target,
             bigtable,
+            &pubsub_url,
             r.state_dir.clone(),
         )
         .await;

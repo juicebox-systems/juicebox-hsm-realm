@@ -27,6 +27,11 @@ pub mod google {
     pub mod longrunning {
         include!("google.longrunning.rs");
     }
+    pub mod pubsub {
+        pub mod v1 {
+            include!("google.pubsub.v1.rs");
+        }
+    }
     pub mod r#type {
         include!("google.r#type.rs");
     }

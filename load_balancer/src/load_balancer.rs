@@ -30,7 +30,9 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use super::server::{HealthCheckStatus, ManagerOptions, ServiceManager};
-use agent_api::{AgentService, AppRequest, AppResponse, StatusRequest, StatusResponse};
+use agent_api::{
+    AgentService, AppRequest, AppResponse, HashedUserId, StatusRequest, StatusResponse,
+};
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use juicebox_marshalling as marshalling;
 use juicebox_networking::reqwest::{Client, ClientOptions};
@@ -522,6 +524,7 @@ async fn handle_client_request_inner(
                 kind: request.kind,
                 encrypted: request.encrypted.clone(),
                 tenant: claims.issuer.clone(),
+                user: HashedUserId::new(&claims.issuer, &claims.subject),
             },
         )
         .await
@@ -542,6 +545,7 @@ async fn handle_client_request_inner(
                 | r @ AppResponse::InvalidGroup
                 | r @ AppResponse::NoHsm
                 | r @ AppResponse::NoStore
+                | r @ AppResponse::NoPubSub
                 | r @ AppResponse::NotLeader
                 | r @ AppResponse::InvalidProof,
             ) => {

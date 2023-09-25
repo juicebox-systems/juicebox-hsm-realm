@@ -7,6 +7,7 @@ use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use opentelemetry_http::HeaderExtractor;
+use serde_json::json;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -30,19 +31,19 @@ mod tenants;
 use agent_api::merkle::TreeStoreError;
 use agent_api::{
     AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CompleteTransferRequest, CompleteTransferResponse, JoinGroupRequest, JoinGroupResponse,
-    JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest,
-    NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse,
-    StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
-    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
-    TransferStatementResponse,
+    CompleteTransferRequest, CompleteTransferResponse, HashedUserId, JoinGroupRequest,
+    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
+    NewRealmRequest, NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest,
+    StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse,
+    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
+    TransferStatementRequest, TransferStatementResponse,
 };
 use append::{Append, AppendingState};
 use cluster_api::ClusterService;
 use hsm::{HsmClient, Transport};
 use hsm_api::merkle::{Dir, StoreDelta};
 use hsm_api::{
-    AppRequestType, CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId,
+    AppResultType, CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId,
     LogEntry, LogIndex, TransferInProofs,
 };
 use juicebox_networking::reqwest::{self, Client, ClientOptions};
@@ -52,6 +53,7 @@ use juicebox_realm_api::types::RealmId;
 use observability::logging::TracingSource;
 use observability::metrics::{self};
 use observability::metrics_tag as tag;
+use pubsub_api::{Message, Publisher};
 use service_core::rpc::{handle_rpc, HandlerError};
 use store::{self, discovery, LogEntriesIter, ServiceKind};
 use tenants::UserAccountingWriter;
@@ -70,6 +72,7 @@ struct AgentInner<T> {
     state: Mutex<State>,
     metrics: metrics::Client,
     accountant: UserAccountingWriter,
+    event_publisher: Box<dyn Publisher>,
 }
 
 #[derive(Debug)]
@@ -101,7 +104,7 @@ struct LeaderState {
 
     /// Used to route responses back to the right client after the HSM commits
     /// a batch of log entries and releases the responses.
-    response_channels: HashMap<HashableEntryMac, oneshot::Sender<NoiseResponse>>,
+    response_channels: HashMap<HashableEntryMac, oneshot::Sender<(NoiseResponse, AppResultType)>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -131,6 +134,7 @@ impl<T: Transport + 'static> Agent<T> {
         hsm: HsmClient<T>,
         store: store::StoreClient,
         store_admin: store::StoreAdminClient,
+        event_publisher: Box<dyn Publisher>,
         metrics: metrics::Client,
     ) -> Self {
         Self(Arc::new(AgentInner {
@@ -147,6 +151,7 @@ impl<T: Transport + 'static> Agent<T> {
             }),
             metrics: metrics.clone(),
             accountant: UserAccountingWriter::new(store, metrics),
+            event_publisher,
         }))
     }
 
@@ -1253,6 +1258,7 @@ impl<T: Transport + 'static> Agent<T> {
         let tags = [tag!(?realm), tag!(?group)];
         let tenant_tag = tag!(tenant: "{}",request.tenant);
         let tenant = request.tenant.clone();
+        let user = request.user.clone();
         let record_id = request.record_id.clone();
 
         let start_result = self
@@ -1265,28 +1271,37 @@ impl<T: Transport + 'static> Agent<T> {
 
         match start_result {
             Err(response) => Ok(response),
-            Ok((append_request, request_type)) => {
+            Ok(append_request) => {
                 let has_delta = !append_request.delta.is_empty();
-                let res = self
+                let (app_response, request_type) = self
                     .0
                     .metrics
                     .async_time("agent.commit.latency", &tags, || {
                         self.finish_app_request(realm, group, append_request)
                     })
-                    .await;
-                if res.is_ok() {
+                    .await?;
+
+                if let Some(request_type) = &request_type {
+                    if let Some(msg) = create_tenant_event_msg(request_type, &user) {
+                        if let Err(err) = self.0.event_publisher.publish(realm, &tenant, msg).await
+                        {
+                            warn!(?err, "error publishing event");
+                            return Ok(AppResponse::NoPubSub);
+                        }
+                    }
+
                     // This metric is used for tenant accounting. The metric
                     // name, tag names & values are aligned with what the
                     // software realm generates for accounting. Future tools
                     // that export this data from Datadog will be dependant on
                     // these being stable.
                     let req_type_name = match request_type {
-                        AppRequestType::Register1 => "register1",
-                        AppRequestType::Register2 => "register2",
-                        AppRequestType::Recover1 => "recover1",
-                        AppRequestType::Recover2 => "recover2",
-                        AppRequestType::Recover3 => "recover3",
-                        AppRequestType::Delete => "delete",
+                        AppResultType::Register1 => "register1",
+                        AppResultType::Register2 => "register2",
+                        AppResultType::Recover1 => "recover1",
+                        AppResultType::Recover2 { .. } => "recover2",
+                        AppResultType::Recover3 { .. } => "recover3",
+                        AppResultType::Delete => "delete",
                     };
                     self.0.metrics.incr(
                         "realm.request.count",
@@ -1294,13 +1309,13 @@ impl<T: Transport + 'static> Agent<T> {
                     );
                     if has_delta {
                         match request_type {
-                            AppRequestType::Register2 => {
+                            AppResultType::Register2 => {
                                 self.0
                                     .accountant
                                     .secret_registered(realm, tenant, record_id)
                                     .await
                             }
-                            AppRequestType::Delete => {
+                            AppResultType::Delete => {
                                 self.0
                                     .accountant
                                     .secret_deleted(realm, tenant, record_id)
@@ -1310,21 +1325,21 @@ impl<T: Transport + 'static> Agent<T> {
                         }
                     }
                 }
-                res
+                Ok(app_response)
             }
         }
     }
 
-    #[instrument(level = "trace", skip(realm, group, append_request))]
+    #[instrument(level = "trace", skip(self, append_request))]
     async fn finish_app_request(
         &self,
         realm: RealmId,
         group: GroupId,
         append_request: Append,
-    ) -> Result<AppResponse, HandlerError> {
+    ) -> Result<(AppResponse, Option<AppResultType>), HandlerError> {
         type Response = AppResponse;
 
-        let (sender, receiver) = oneshot::channel::<NoiseResponse>();
+        let (sender, receiver) = oneshot::channel::<(NoiseResponse, AppResultType)>();
 
         {
             let mut locked = self.0.state.lock().unwrap();
@@ -1333,7 +1348,7 @@ impl<T: Transport + 'static> Agent<T> {
                     // Its possible for start_app_request to succeed, but to
                     // have subsequently lost leadership due to a background
                     // capture_next or commit operation.
-                    return Ok(Response::NotLeader);
+                    return Ok((Response::NotLeader, None));
                 }
                 Some(leader) => {
                     leader
@@ -1345,17 +1360,17 @@ impl<T: Transport + 'static> Agent<T> {
 
         self.append(realm, group, append_request);
         match receiver.await {
-            Ok(response) => Ok(Response::Ok(response)),
-            Err(oneshot::Canceled) => Ok(Response::NotLeader),
+            Ok((response, res_type)) => Ok((Response::Ok(response), Some(res_type))),
+            Err(oneshot::Canceled) => Ok((Response::NotLeader, None)),
         }
     }
 
-    #[instrument(level = "trace")]
+    #[instrument(level = "trace", skip(self))]
     async fn start_app_request(
         &self,
         request: AppRequest,
         tags: &[metrics::Tag],
-    ) -> Result<(Append, AppRequestType), AppResponse> {
+    ) -> Result<Append, AppResponse> {
         type HsmResponse = hsm_api::AppResponse;
         type Response = AppResponse;
 
@@ -1451,18 +1466,14 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(HsmResponse::SessionError) => return Err(Response::SessionError),
                 Ok(HsmResponse::DecodingError) => return Err(Response::DecodingError),
 
-                Ok(HsmResponse::Ok {
-                    entry,
-                    delta,
-                    request_type,
-                }) => {
+                Ok(HsmResponse::Ok { entry, delta }) => {
                     trace!(
                         agent = self.0.name,
                         ?entry,
                         ?delta,
                         "got new log entry and data updates from HSM"
                     );
-                    return Ok((Append { entry, delta }, request_type));
+                    return Ok(Append { entry, delta });
                 }
             };
         }
@@ -1484,5 +1495,96 @@ impl<T> AgentInner<T> {
         {
             info!(?realm, ?group, "HSM transitioned to Witness");
         }
+    }
+}
+
+fn create_tenant_event_msg(r: &AppResultType, u: &HashedUserId) -> Option<Message> {
+    match r {
+        AppResultType::Register1 => None,
+        AppResultType::Register2 => Some(json!({
+            "user":u.to_string(),
+            "event":"registered"
+        })),
+        AppResultType::Recover1 => None,
+        AppResultType::Recover2 { updated: None } => None,
+        AppResultType::Recover2 { updated: Some(g) } => Some(json!({
+            "user":u.to_string(),
+            "event":"guess_used",
+            "num_guesses":g.num_guesses,
+            "guess_count":g.guess_count
+        })),
+        AppResultType::Recover3 { recovered: true } => Some(json!({
+            "user":u.to_string(),
+            "event":"share_recovered"
+        })),
+        AppResultType::Recover3 { recovered: false } => None,
+        AppResultType::Delete => Some(json!({
+            "user":u.to_string(),
+            "event":"deleted"
+        })),
+    }
+    .map(Message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::create_tenant_event_msg;
+    use agent_api::HashedUserId;
+    use hsm_api::{AppResultType, GuessState};
+    use pubsub_api::Message;
+    use serde_json::json;
+
+    #[test]
+    fn create_tenant_event_messages() {
+        let user = HashedUserId::new("test", "121314");
+
+        assert!(create_tenant_event_msg(&AppResultType::Register1, &user).is_none());
+        assert!(create_tenant_event_msg(&AppResultType::Recover1, &user).is_none());
+        assert!(
+            create_tenant_event_msg(&AppResultType::Recover2 { updated: None }, &user).is_none()
+        );
+        assert!(
+            create_tenant_event_msg(&AppResultType::Recover3 { recovered: false }, &user).is_none()
+        );
+
+        let m = create_tenant_event_msg(&AppResultType::Register2, &user);
+        assert_eq!(
+            Some(Message(
+                json!({"event":"registered","user":"447ddec5f08c757d40e7acb9f1bc10ed44a960683bb991f5e4ed17498f786ff8"})
+            )),
+            m
+        );
+
+        let m = create_tenant_event_msg(
+            &AppResultType::Recover2 {
+                updated: Some(GuessState {
+                    num_guesses: 42,
+                    guess_count: 4,
+                }),
+            },
+            &user,
+        );
+        assert_eq!(
+            Some(Message(
+                json!({"event":"guess_used","num_guesses":42,"guess_count":4,"user":"447ddec5f08c757d40e7acb9f1bc10ed44a960683bb991f5e4ed17498f786ff8"})
+            )),
+            m
+        );
+
+        let m = create_tenant_event_msg(&AppResultType::Recover3 { recovered: true }, &user);
+        assert_eq!(
+            Some(Message(
+                json!({"event":"share_recovered","user":"447ddec5f08c757d40e7acb9f1bc10ed44a960683bb991f5e4ed17498f786ff8"})
+            )),
+            m
+        );
+
+        let m = create_tenant_event_msg(&AppResultType::Delete, &user);
+        assert_eq!(
+            Some(Message(
+                json!({"event":"deleted","user":"447ddec5f08c757d40e7acb9f1bc10ed44a960683bb991f5e4ed17498f786ff8"})
+            )),
+            m
+        );
     }
 }

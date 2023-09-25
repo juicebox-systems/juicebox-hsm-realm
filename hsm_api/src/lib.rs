@@ -17,10 +17,8 @@ use subtle::{Choice, ConstantTimeEq};
 use bitvec::{BitVec, Bits};
 use juicebox_marshalling::bytes;
 use juicebox_noise::server as noise;
-use juicebox_realm_api::{
-    requests::{NoiseRequest, NoiseResponse},
-    types::{RealmId, SessionId},
-};
+use juicebox_realm_api::requests::{NoiseRequest, NoiseResponse};
+use juicebox_realm_api::types::{RealmId, SessionId};
 use merkle::{HashOutput, ReadProof, StoreDelta};
 
 /// A unique identifier for a replication group.
@@ -1165,7 +1163,7 @@ pub struct CommitState {
     ///
     /// These responses may now be returned to the respective clients whose
     /// requests caused the log entries to be created.
-    pub responses: Vec<(EntryMac, NoiseResponse)>,
+    pub responses: Vec<(EntryMac, NoiseResponse, AppResultType)>,
     /// A set of responses that will never commit. If there are multiple
     /// leaders then it's possible for the persisted log to diverge from a
     /// leaders in memory log. In this event there are clients waiting for a
@@ -1695,9 +1693,6 @@ pub enum AppResponse {
         /// Zero or more changes to the Merkle tree as a result of this
         /// request, including the encrypted user record.
         delta: StoreDelta<DataHash>,
-        /// The type of [`AppRequest`] that was processed. This is exposed
-        /// to the Agent for accounting purposes.
-        request_type: AppRequestType,
     },
     /// This HSM is not a member of this realm.
     InvalidRealm,
@@ -1739,15 +1734,22 @@ pub enum AppResponse {
     DecodingError,
 }
 
-/// The different types of AppRequests that the client may make.
-#[derive(Debug, Deserialize, Serialize)]
-pub enum AppRequestType {
+/// The different types of results of AppRequests that the client may make.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum AppResultType {
     Register1,
     Register2,
     Recover1,
-    Recover2,
-    Recover3,
+    // updated is set if the GuessCount changed.
+    Recover2 { updated: Option<GuessState> },
+    Recover3 { recovered: bool },
     Delete,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct GuessState {
+    pub num_guesses: u16,
+    pub guess_count: u16,
 }
 
 #[cfg(test)]

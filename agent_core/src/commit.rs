@@ -14,8 +14,8 @@ use agent_api::{AgentService, ReadCapturedRequest, ReadCapturedResponse};
 use cluster_core::discover_hsm_ids;
 use election::HsmElection;
 use hsm_api::{
-    Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole, HsmId, LogIndex,
-    PersistStateRequest, PersistStateResponse,
+    AppResultType, Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole,
+    HsmId, LogIndex, PersistStateRequest, PersistStateResponse,
 };
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
@@ -251,15 +251,15 @@ impl<T: Transport + 'static> Agent<T> {
         &self,
         realm: RealmId,
         group: GroupId,
-        responses: Vec<(EntryMac, NoiseResponse)>,
+        responses: Vec<(EntryMac, NoiseResponse, AppResultType)>,
         abandoned: Vec<EntryMac>,
     ) -> usize {
         let mut released_count = 0;
         let mut locked = self.0.state.lock().unwrap();
         if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
-            for (mac, client_response) in responses {
+            for (mac, client_response, event) in responses {
                 if let Some(sender) = leader.response_channels.remove(&mac.into()) {
-                    if sender.send(client_response).is_err() {
+                    if sender.send((client_response, event)).is_err() {
                         warn!("dropping response on the floor: client no longer waiting");
                     }
                     released_count += 1;
