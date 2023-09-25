@@ -80,6 +80,7 @@ fn run_from_jar(pg: &mut ProcessGroup, port: u16, jar: String) {
         Command::new("java")
             .arg("-jar")
             .arg(jar)
+            .arg("--host=localhost")
             .arg(format!("--port={port}")),
     )
 }
