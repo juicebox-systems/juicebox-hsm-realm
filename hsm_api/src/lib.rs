@@ -1740,7 +1740,8 @@ pub enum AppResultType {
     Register1,
     Register2,
     Recover1,
-    Recover2(Option<GuessState>),
+    // updated is set if the GuessCount changed.
+    Recover2 { updated: Option<GuessState> },
     Recover3 { recovered: bool },
     Delete,
 }

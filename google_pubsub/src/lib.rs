@@ -159,6 +159,8 @@ impl Publisher {
                 retry_policy: None,
                 detached: false,
                 enable_exactly_once_delivery: true,
+                // These 2 fields are output only, it doesn't matter what
+                // they're set to here.
                 topic_message_retention_duration: None,
                 state: 0,
             })

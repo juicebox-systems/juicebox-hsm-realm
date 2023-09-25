@@ -105,10 +105,12 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
             NoiseResponse::Transport {
                 ciphertext: vec![44, 44, 44],
             },
-            AppResultType::Recover2(Some(GuessState {
-                num_guesses: 42,
-                guess_count: 4,
-            })),
+            AppResultType::Recover2 {
+                updated: Some(GuessState {
+                    num_guesses: 42,
+                    guess_count: 4,
+                }),
+            },
         )),
     );
     (log, [e.entry_mac, e2.entry_mac, e3.entry_mac])
@@ -216,10 +218,12 @@ fn leader_log_take_first() {
             assert_eq!(vec![44, 44, 44], ciphertext);
             assert_eq!(macs[2], mac);
             assert_eq!(
-                AppResultType::Recover2(Some(GuessState {
-                    num_guesses: 42,
-                    guess_count: 4,
-                })),
+                AppResultType::Recover2 {
+                    updated: Some(GuessState {
+                        num_guesses: 42,
+                        guess_count: 4,
+                    })
+                },
                 event
             );
         }

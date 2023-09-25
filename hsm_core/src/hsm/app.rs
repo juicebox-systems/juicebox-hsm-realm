@@ -244,7 +244,7 @@ pub fn process(
             let res = recover2(req, user_record_in, rng);
             (
                 SecretsResponse::Recover2(res.0),
-                AppResultType::Recover2(res.1),
+                AppResultType::Recover2 { updated: res.1 },
                 res.2,
             )
         }

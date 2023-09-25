@@ -1273,15 +1273,15 @@ impl<T: Transport + 'static> Agent<T> {
             Err(response) => Ok(response),
             Ok(append_request) => {
                 let has_delta = !append_request.delta.is_empty();
-                let res = self
+                let (app_response, request_type) = self
                     .0
                     .metrics
                     .async_time("agent.commit.latency", &tags, || {
                         self.finish_app_request(realm, group, append_request)
                     })
-                    .await;
+                    .await?;
 
-                if let Ok((_, Some(request_type))) = &res {
+                if let Some(request_type) = &request_type {
                     if let Some(msg) = create_tenant_event_msg(request_type, &user) {
                         if let Err(err) = self.0.event_publisher.publish(realm, &tenant, msg).await
                         {
@@ -1299,7 +1299,7 @@ impl<T: Transport + 'static> Agent<T> {
                         AppResultType::Register1 => "register1",
                         AppResultType::Register2 => "register2",
                         AppResultType::Recover1 => "recover1",
-                        AppResultType::Recover2(_) => "recover2",
+                        AppResultType::Recover2 { .. } => "recover2",
                         AppResultType::Recover3 { .. } => "recover3",
                         AppResultType::Delete => "delete",
                     };
@@ -1325,7 +1325,7 @@ impl<T: Transport + 'static> Agent<T> {
                         }
                     }
                 }
-                res.map(|(resp, _req_type)| resp)
+                Ok(app_response)
             }
         }
     }
@@ -1501,14 +1501,29 @@ impl<T> AgentInner<T> {
 fn create_tenant_event_msg(r: &AppResultType, u: &HashedUserId) -> Option<Message> {
     match r {
         AppResultType::Register1 => None,
-        AppResultType::Register2 => Some(json!({"user":u.to_string(),"event":"registered"})),
+        AppResultType::Register2 => Some(json!({
+            "user":u.to_string(),
+            "event":"registered"
+        })),
         AppResultType::Recover1 => None,
-        AppResultType::Recover2(None) => None,
-        AppResultType::Recover2(Some(g)) => Some(json!({"user":u.to_string(),"event":"guess_used", "num_guesses":g.num_guesses,"guess_count":g.guess_count})),
-        AppResultType::Recover3 { recovered:true } => Some(json!({"user":u.to_string(),"event":"share_recovered"})),
-        AppResultType::Recover3 { recovered:false} => None,
-        AppResultType::Delete => Some(json!({"user":u.to_string(), "event":"deleted"})),
-    }.map(Message)
+        AppResultType::Recover2 { updated: None } => None,
+        AppResultType::Recover2 { updated: Some(g) } => Some(json!({
+            "user":u.to_string(),
+            "event":"guess_used",
+            "num_guesses":g.num_guesses,
+            "guess_count":g.guess_count
+        })),
+        AppResultType::Recover3 { recovered: true } => Some(json!({
+            "user":u.to_string(),
+            "event":"share_recovered"
+        })),
+        AppResultType::Recover3 { recovered: false } => None,
+        AppResultType::Delete => Some(json!({
+            "user":u.to_string(),
+            "event":"deleted"
+        })),
+    }
+    .map(Message)
 }
 
 #[cfg(test)]
@@ -1525,7 +1540,9 @@ mod tests {
 
         assert!(create_tenant_event_msg(&AppResultType::Register1, &user).is_none());
         assert!(create_tenant_event_msg(&AppResultType::Recover1, &user).is_none());
-        assert!(create_tenant_event_msg(&AppResultType::Recover2(None), &user).is_none());
+        assert!(
+            create_tenant_event_msg(&AppResultType::Recover2 { updated: None }, &user).is_none()
+        );
         assert!(
             create_tenant_event_msg(&AppResultType::Recover3 { recovered: false }, &user).is_none()
         );
@@ -1539,10 +1556,12 @@ mod tests {
         );
 
         let m = create_tenant_event_msg(
-            &AppResultType::Recover2(Some(GuessState {
-                num_guesses: 42,
-                guess_count: 4,
-            })),
+            &AppResultType::Recover2 {
+                updated: Some(GuessState {
+                    num_guesses: 42,
+                    guess_count: 4,
+                }),
+            },
             &user,
         );
         assert_eq!(
