@@ -155,11 +155,13 @@ fn recover2(
 fn recover3(
     request: Recover3Request,
     mut user_record: UserRecord,
-) -> (Recover3Response, bool, Option<UserRecord>) {
+) -> (Recover3Response, ShareRecovered, Option<UserRecord>) {
     match &mut user_record.registration_state {
-        RegistrationState::Registered(state) if state.version != request.version => {
-            (Recover3Response::VersionMismatch, false, Some(user_record))
-        }
+        RegistrationState::Registered(state) if state.version != request.version => (
+            Recover3Response::VersionMismatch,
+            ShareRecovered(false),
+            Some(user_record),
+        ),
         RegistrationState::Registered(state)
             if !bool::from(request.unlock_key_tag.ct_eq(&state.unlock_key_tag)) =>
         {
@@ -169,7 +171,7 @@ fn recover3(
             }
             (
                 Recover3Response::BadUnlockKeyTag { guesses_remaining },
-                false,
+                ShareRecovered(false),
                 Some(user_record),
             )
         }
@@ -183,12 +185,18 @@ fn recover3(
                         .clone(),
                     encrypted_secret_commitment: state.encrypted_user_secret_commitment.clone(),
                 },
-                true,
+                ShareRecovered(true),
                 Some(user_record),
             )
         }
-        RegistrationState::NoGuesses => (Recover3Response::NoGuesses, false, Some(user_record)),
-        RegistrationState::NotRegistered => (Recover3Response::NotRegistered, false, None),
+        RegistrationState::NoGuesses => (
+            Recover3Response::NoGuesses,
+            ShareRecovered(false),
+            Some(user_record),
+        ),
+        RegistrationState::NotRegistered => {
+            (Recover3Response::NotRegistered, ShareRecovered(false), None)
+        }
     }
 }
 
@@ -201,6 +209,8 @@ fn delete(mut user_record: UserRecord) -> (DeleteResponse, Option<UserRecord>) {
         }
     }
 }
+
+struct ShareRecovered(bool);
 
 pub enum RecordChange {
     Update(Vec<u8>),
@@ -225,40 +235,48 @@ pub fn process(
             )
         }
         SecretsRequest::Register2(req) => {
-            let res = register2(*req, user_record_in);
+            let (res, user_record) = register2(*req, user_record_in);
             (
-                SecretsResponse::Register2(res.0),
+                SecretsResponse::Register2(res),
                 AppResultType::Register2,
-                res.1,
+                user_record,
             )
         }
         SecretsRequest::Recover1 => {
-            let res = recover1(user_record_in);
+            let (res, user_record) = recover1(user_record_in);
             (
-                SecretsResponse::Recover1(res.0),
+                SecretsResponse::Recover1(res),
                 AppResultType::Recover1,
-                res.1,
+                user_record,
             )
         }
         SecretsRequest::Recover2(req) => {
-            let res = recover2(req, user_record_in, rng);
+            let (res, updated_guess_state, user_record) = recover2(req, user_record_in, rng);
             (
-                SecretsResponse::Recover2(res.0),
-                AppResultType::Recover2 { updated: res.1 },
-                res.2,
+                SecretsResponse::Recover2(res),
+                AppResultType::Recover2 {
+                    updated: updated_guess_state,
+                },
+                user_record,
             )
         }
         SecretsRequest::Recover3(req) => {
-            let res = recover3(req, user_record_in);
+            let (res, recovered, user_record) = recover3(req, user_record_in);
             (
-                SecretsResponse::Recover3(res.0),
-                AppResultType::Recover3 { recovered: res.1 },
-                res.2,
+                SecretsResponse::Recover3(res),
+                AppResultType::Recover3 {
+                    recovered: recovered.0,
+                },
+                user_record,
             )
         }
         SecretsRequest::Delete => {
-            let res = delete(user_record_in);
-            (SecretsResponse::Delete(res.0), AppResultType::Delete, res.1)
+            let (res, user_record) = delete(user_record_in);
+            (
+                SecretsResponse::Delete(res),
+                AppResultType::Delete,
+                user_record,
+            )
         }
     };
     let rc = user_record_out.map(|u| RecordChange::Update(marshal_user_record(&u).expect("TODO")));
@@ -569,7 +587,7 @@ mod tests {
             }
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
-        assert!(recovered);
+        assert!(recovered.0);
     }
 
     #[test]
@@ -582,7 +600,7 @@ mod tests {
         let (response, recovered, user_record_out) = recover3(request, user_record_in.clone());
         assert_eq!(response, Recover3Response::VersionMismatch,);
         assert_eq!(Some(user_record_in), user_record_out);
-        assert!(!recovered);
+        assert!(!recovered.0);
     }
 
     #[test]
@@ -600,7 +618,7 @@ mod tests {
             }
         );
         assert_eq!(Some(user_record_in), user_record_out);
-        assert!(!recovered);
+        assert!(!recovered.0);
     }
 
     #[test]
@@ -621,7 +639,7 @@ mod tests {
             }
         );
         assert_eq!(user_record_out, Some(expected_user_record_out));
-        assert!(!recovered)
+        assert!(!recovered.0)
     }
 
     #[test]
@@ -636,7 +654,7 @@ mod tests {
         let (response, recovered, user_record_out) = recover3(request, user_record_in.clone());
         assert_eq!(response, Recover3Response::NoGuesses);
         assert_eq!(Some(user_record_in), user_record_out);
-        assert!(!recovered);
+        assert!(!recovered.0);
     }
 
     #[test]
@@ -651,7 +669,7 @@ mod tests {
         let (response, recovered, user_record_out) = recover3(request, user_record_in);
         assert_eq!(response, Recover3Response::NotRegistered);
         assert!(user_record_out.is_none());
-        assert!(!recovered)
+        assert!(!recovered.0)
     }
 
     #[test]
