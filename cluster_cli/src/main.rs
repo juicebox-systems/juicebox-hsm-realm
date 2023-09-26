@@ -52,6 +52,9 @@ enum Command {
         /// The ID of the realm that the token should be valid for.
         #[arg(value_parser = parse_realm_id)]
         realm: RealmId,
+        /// The scope(s) to include in the token.
+        #[arg(default_value = "")]
+        scope: String,
     },
 
     /// Print a configuration that uses the discoverable realm(s).
@@ -309,9 +312,16 @@ async fn run(args: Args) -> anyhow::Result<()> {
             tenant,
             user,
             realm,
+            scope,
         } => {
-            commands::auth_token::mint_auth_token(&secret_manager.unwrap(), tenant, user, realm)
-                .await
+            commands::auth_token::mint_auth_token(
+                &secret_manager.unwrap(),
+                tenant,
+                user,
+                realm,
+                scope,
+            )
+            .await
         }
 
         Command::Configuration { load_balancer } => {

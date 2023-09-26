@@ -227,6 +227,7 @@ impl ClientBuilder {
                             issuer: self.tenant.clone(),
                             subject: format!("{}{}", self.user_prefix, user_num),
                             audience: realm.id,
+                            scope: String::from(""),
                         },
                         auth_key,
                         auth_key_version,

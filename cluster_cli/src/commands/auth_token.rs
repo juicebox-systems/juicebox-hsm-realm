@@ -9,6 +9,7 @@ pub async fn mint_auth_token(
     tenant: String,
     user: String,
     realm: RealmId,
+    scope: String,
 ) -> anyhow::Result<()> {
     if !tenant.starts_with("test-") {
         return Err(anyhow!("tenant must start with 'test-'"));
@@ -28,6 +29,7 @@ pub async fn mint_auth_token(
             issuer: tenant,
             subject: user,
             audience: realm,
+            scope,
         },
         &auth_key,
         auth_key_version,

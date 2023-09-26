@@ -312,6 +312,7 @@ async fn main() {
                         issuer: tenant.to_owned(),
                         subject: String::from("mario"),
                         audience: realm.id,
+                        scope: String::from(""),
                     },
                     &auth_key,
                     auth_key_version,

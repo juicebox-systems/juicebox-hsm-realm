@@ -106,6 +106,7 @@ impl ClusterResult {
                             issuer: self.tenant.clone(),
                             subject: user_id.clone(),
                             audience: realm.realm,
+                            scope: String::from(""),
                         },
                         &self.auth_key,
                         self.auth_key_version,

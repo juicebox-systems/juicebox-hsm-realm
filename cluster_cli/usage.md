@@ -50,7 +50,7 @@ Create an auth token for a test tenant.
 
 The token is printed to stdout.
 
-Usage: cluster auth-token <TENANT> <USER> <REALM>
+Usage: cluster auth-token <TENANT> <USER> <REALM> [SCOPE]
 
 Arguments:
   <TENANT>
@@ -63,6 +63,11 @@ Arguments:
 
   <REALM>
           The ID of the realm that the token should be valid for
+
+  [SCOPE]
+          The scope(s) to include in the token
+          
+          [default: ]
 
 Options:
   -h, --help
