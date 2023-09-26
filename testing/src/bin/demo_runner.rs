@@ -56,6 +56,9 @@ async fn main() {
         instance: String::from("inst"),
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),
+        timeout: Duration::from_secs(20),
+        connect_timeout: Duration::from_secs(20),
+        tcp_keepalive: Some(Duration::from_secs(5)),
     };
 
     info!(path = ?args.secrets_file, "loading secrets from JSON file");

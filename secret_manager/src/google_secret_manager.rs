@@ -1,4 +1,5 @@
 use google::cloud::secretmanager::v1 as secretmanager;
+use google::GrpcConnectionOptions;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
@@ -76,8 +77,12 @@ impl Client {
         project: &str,
         auth_manager: Arc<AuthenticationManager>,
         list_secrets_filter: Option<String>,
+        options: GrpcConnectionOptions,
     ) -> Result<Self, Error> {
-        let channel = Endpoint::from(Uri::from_static("https://secretmanager.googleapis.com"))
+        let channel = options
+            .apply(Endpoint::from(Uri::from_static(
+                "https://secretmanager.googleapis.com",
+            )))
             .connect()
             .await?;
         let channel = AuthMiddleware::new(

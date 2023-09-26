@@ -1,3 +1,4 @@
+use google::GrpcConnectionOptions;
 use std::sync::Arc;
 use tonic::transport::{Endpoint, Uri};
 
@@ -17,8 +18,9 @@ pub type BigtableClient = BtClient<AuthMiddleware>;
 pub async fn new_admin_client(
     url: Uri,
     auth_manager: AuthManager,
+    options: GrpcConnectionOptions,
 ) -> Result<BigtableTableAdminClient, tonic::transport::Error> {
-    let channel = Endpoint::from(url).connect().await?;
+    let channel = options.apply(Endpoint::from(url)).connect().await?;
     let channel = AuthMiddleware::new(
         channel,
         auth_manager,
@@ -30,8 +32,9 @@ pub async fn new_admin_client(
 pub async fn new_data_client(
     url: Uri,
     auth_manager: AuthManager,
+    options: GrpcConnectionOptions,
 ) -> Result<BigtableClient, tonic::transport::Error> {
-    let channel = Endpoint::from(url).connect().await?;
+    let channel = options.apply(Endpoint::from(url)).connect().await?;
     let channel = AuthMiddleware::new(
         channel,
         auth_manager,

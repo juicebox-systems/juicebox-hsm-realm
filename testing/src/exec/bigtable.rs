@@ -39,5 +39,8 @@ pub fn emulator(port: u16) -> store::BigtableArgs {
         project: String::from("prj"),
         instance: String::from("inst"),
         url: Some(u),
+        timeout: Duration::from_secs(20),
+        connect_timeout: Duration::from_secs(20),
+        tcp_keepalive: Some(Duration::from_secs(5)),
     }
 }

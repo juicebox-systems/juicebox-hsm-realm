@@ -20,11 +20,22 @@ Commands:
   help           Print this message or the help of the given subcommand(s)
 
 Options:
-      --bigtable-project <PROJECT>    The name of the GCP project that contains the bigtable instance [default: prj]
-      --bigtable-instance <INSTANCE>  The name of the bigtable instance to connect to [default: instance]
-      --bigtable-url <URL>            The url to the big table emulator [default uses GCP endpoints]
-  -h, --help                          Print help
-  -V, --version                       Print version
+      --bigtable-project <PROJECT>
+          The name of the GCP project that contains the bigtable instance [default: prj]
+      --bigtable-instance <INSTANCE>
+          The name of the bigtable instance to connect to [default: instance]
+      --bigtable-url <URL>
+          The url to the bigtable emulator [default uses GCP endpoints]
+      --bigtable-timeout <TIMEOUT>
+          The bigtable gRPC request timeout setting, in ms [default: 20000]
+      --bigtable-connect-timeout <CONNECT_TIMEOUT>
+          The bigtable gRPC connection timeout setting, in ms [default: 20000]
+      --bigtable-tcp-keepalive <TCP_KEEPALIVE>
+          The bigtable gRPC TCP Keep-alive setting, in ms [default: 5000]
+  -h, --help
+          Print help
+  -V, --version
+          Print version
 
 ```
 
