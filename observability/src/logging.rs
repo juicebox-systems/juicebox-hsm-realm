@@ -3,14 +3,17 @@ use opentelemetry::sdk::trace::{Sampler, ShouldSample};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tracing::{info, warn, Level};
+use tracing::{info, warn, Level, Metadata, Subscriber};
+use tracing_core::callsite;
 use tracing_subscriber::filter::{FilterFn, LevelFilter};
 use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::layer::{Layer, SubscriberExt};
+use tracing_subscriber::layer::{Context, Filter, Layer, SubscriberExt};
 
 pub struct Spew(Mutex<SpewInner>);
 
@@ -50,6 +53,56 @@ impl Spew {
 }
 
 static EXPORT_SPEW: Spew = Spew::new();
+
+struct SpewFilter {
+    spewers: Mutex<HashMap<callsite::Identifier, (usize, Instant)>>,
+    interval: Duration,
+}
+
+impl SpewFilter {
+    fn new(reporting_interval: Duration) -> Self {
+        SpewFilter {
+            spewers: Mutex::new(HashMap::new()),
+            interval: reporting_interval,
+        }
+    }
+}
+
+impl<S: Subscriber> Filter<S> for SpewFilter {
+    fn enabled(&self, meta: &Metadata<'_>, _cx: &Context<'_, S>) -> bool {
+        if *meta.level() != Level::WARN || meta.fields().field("suppressed").is_some() {
+            return true;
+        }
+        let k = meta.callsite();
+        let now = Instant::now();
+        let mut spewers = self.spewers.lock().unwrap();
+        match spewers.entry(k) {
+            Entry::Occupied(mut e) => {
+                let v = e.get_mut();
+                if now - v.1 < self.interval {
+                    v.0 += 1;
+                    false
+                } else {
+                    let suppressed = v.0;
+                    *v = (0, now);
+                    drop(spewers);
+                    if suppressed > 0 {
+                        warn!(
+                            ?suppressed,
+                            "suppressed duplicate log entries from {}",
+                            meta.name()
+                        );
+                    }
+                    true
+                }
+            }
+            Entry::Vacant(v) => {
+                v.insert((0, now));
+                true
+            }
+        }
+    }
+}
 
 // Quiet down some libs.
 fn should_log(module_path: Option<&str>) -> bool {
@@ -142,36 +195,30 @@ pub fn configure_with_options(options: Options) {
 
     opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
 
-    if std::io::stdout().is_terminal() {
-        let text_terminal = tracing_subscriber::fmt::layer()
-            .with_file(true)
-            .with_line_number(true)
-            .with_span_events(FmtSpan::ACTIVE)
-            .with_target(false);
+    let terminal = tracing_subscriber::fmt::layer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_span_events(FmtSpan::ACTIVE)
+        .with_target(false);
 
-        let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
-
-        let subscriber = tracing_subscriber::registry()
-            .with(FilterFn::new(|metadata| should_log(metadata.module_path())))
-            .with(text_terminal.with_filter(LevelFilter::from_level(log_level)))
-            .with(telemetry);
-        tracing::subscriber::set_global_default(subscriber).unwrap();
+    let terminal = if std::io::stdout().is_terminal() {
+        terminal.boxed()
     } else {
-        let json_terminal = tracing_subscriber::fmt::layer()
-            .json()
-            .with_file(true)
-            .with_line_number(true)
-            .with_span_events(FmtSpan::ACTIVE)
-            .with_target(false);
+        terminal.json().boxed()
+    };
 
-        let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-        let subscriber = tracing_subscriber::registry()
-            .with(FilterFn::new(|metadata| should_log(metadata.module_path())))
-            .with(json_terminal.with_filter(LevelFilter::from_level(log_level)))
-            .with(telemetry);
-        tracing::subscriber::set_global_default(subscriber).unwrap();
-    }
+    let subscriber = tracing_subscriber::registry()
+        .with(
+            terminal
+                .with_filter(SpewFilter::new(Duration::from_millis(1000)))
+                .with_filter(LevelFilter::from_level(log_level)),
+        )
+        .with(telemetry)
+        .with(FilterFn::new(|metadata| should_log(metadata.module_path())));
+
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 
     info!(
         max_level = %log_level,

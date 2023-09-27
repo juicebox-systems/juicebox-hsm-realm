@@ -1954,6 +1954,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "tracing",
+ "tracing-core",
  "tracing-opentelemetry",
  "tracing-subscriber",
 ]
