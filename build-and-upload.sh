@@ -23,8 +23,8 @@ do
   esac
 done
 
-PROJECT='loam-dev-env'
-BUCKET='a6cca386fe978990258c511c46fa8123a5f2e3b2' # sha1("daily-builds\n")
+PROJECT='juicebox-infra'
+BUCKET='9c39e3ca5fca69f058b9e673aef193b10d9e8c48' # sha1("ci-builds\n")
 
 GIT="git-$(git describe --always --dirty)"
 TIMESTAMP="$(date -u '+%Y%m%d%H%M%SZ')"
