@@ -16,7 +16,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::{Context, Filter, Layer, SubscriberExt};
 
 struct SpewFilter {
-    spewers: Mutex<HashMap<callsite::Identifier, (usize, Instant)>>,
+    spewers: Mutex<HashMap<callsite::Identifier, Spew>>,
     interval: Duration,
 }
 
@@ -26,6 +26,17 @@ impl SpewFilter {
             spewers: Mutex::new(HashMap::new()),
             interval: reporting_interval,
         }
+    }
+}
+
+struct Spew {
+    count: usize,
+    started: Instant,
+}
+
+impl Spew {
+    fn new(started: Instant) -> Spew {
+        Spew { count: 0, started }
     }
 }
 
@@ -40,13 +51,13 @@ impl<S: Subscriber> Filter<S> for SpewFilter {
         let mut spewers = self.spewers.lock().unwrap();
         match spewers.entry(k) {
             Entry::Occupied(mut e) => {
-                let v = e.get_mut();
-                if now - v.1 < self.interval {
-                    v.0 += 1;
+                let spew = e.get_mut();
+                if now - spew.started < self.interval {
+                    spew.count += 1;
                     false
                 } else {
-                    let suppressed = v.0;
-                    *v = (0, now);
+                    let suppressed = spew.count;
+                    *spew = Spew::new(now);
                     drop(spewers);
                     if suppressed > 0 {
                         warn!(
@@ -59,7 +70,7 @@ impl<S: Subscriber> Filter<S> for SpewFilter {
                 }
             }
             Entry::Vacant(v) => {
-                v.insert((0, now));
+                v.insert(Spew::new(now));
                 true
             }
         }
