@@ -31,15 +31,21 @@ pub struct AgentArgs<SA: Args + Debug> {
     pub pubsub_url: Option<Uri>,
 
     /// The pub-sub gRPC request timeout setting, in ms.
-    #[arg(long="pubsub-timeout", value_parser=parse_duration, default_value="20000")]
+    #[arg(long="pubsub-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().timeout.as_millis().to_string())]
     pubsub_timeout: Duration,
 
     /// The pub-sub gRPC connection timeout setting, in ms.
-    #[arg(long="pubsub-connect-timeout", value_parser=parse_duration, default_value="20000")]
+    #[arg(long="pubsub-connect-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
     pubsub_connect_timeout: Duration,
 
     /// The pub-sub gRPC tcp keep-alive setting, in ms.
-    #[arg(long="pubsub-tcp-keepalive", value_parser=parse_duration, default_value="5000")]
+    #[arg(long="pubsub-tcp-keepalive",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().tcp_keepalive.unwrap().as_millis().to_string())]
     pubsub_tcp_keepalive: Option<Duration>,
 
     /// The maximum size of the agent's LRU Merkle tree cache, in number of

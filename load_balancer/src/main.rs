@@ -67,13 +67,19 @@ struct Args {
     #[arg(long)]
     tls_cert: PathBuf,
 
-    #[arg(long="secrets-manager-timeout", value_parser=parse_duration, default_value="20000")]
+    #[arg(long="secrets-manager-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().timeout.as_millis().to_string())]
     secrets_manager_timeout: Duration,
 
-    #[arg(long="secrets-manager-connect-timeout", value_parser=parse_duration, default_value="20000")]
+    #[arg(long="secrets-manager-connect-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
     secrets_manager_connect_timeout: Duration,
 
-    #[arg(long="secrets-manager-tcp-keepalive", value_parser=parse_duration, default_value="5000")]
+    #[arg(long="secrets-manager-tcp-keepalive",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().tcp_keepalive.unwrap().as_millis().to_string())]
     secrets_manager_tcp_keepalive: Option<Duration>,
 }
 

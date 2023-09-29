@@ -58,15 +58,21 @@ pub struct BigtableArgs {
     pub url: Option<Uri>,
 
     /// The bigtable gRPC request timeout setting, in ms.
-    #[arg(long = "bigtable-timeout", value_parser=parse_duration, default_value="20000")]
+    #[arg(long = "bigtable-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().timeout.as_millis().to_string())]
     pub timeout: Duration,
 
     /// The bigtable gRPC connection timeout setting, in ms.
-    #[arg(long ="bigtable-connect-timeout", value_parser=parse_duration, default_value="20000")]
+    #[arg(long ="bigtable-connect-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
     pub connect_timeout: Duration,
 
     /// The bigtable gRPC TCP Keep-alive setting, in ms.
-    #[arg(long = "bigtable-tcp-keepalive", value_parser=parse_duration, default_value="5000")]
+    #[arg(long = "bigtable-tcp-keepalive",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().tcp_keepalive.unwrap().as_millis().to_string())]
     pub tcp_keepalive: Option<Duration>,
 }
 
