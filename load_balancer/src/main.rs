@@ -73,7 +73,7 @@ struct Args {
     #[arg(long="secrets-manager-connect-timeout", value_parser=parse_duration, default_value="20000")]
     secrets_manager_connect_timeout: Duration,
 
-    #[arg(long="secrets-manager-tcp-keepalice", value_parser=parse_duration, default_value="5000")]
+    #[arg(long="secrets-manager-tcp-keepalive", value_parser=parse_duration, default_value="5000")]
     secrets_manager_tcp_keepalive: Option<Duration>,
 }
 

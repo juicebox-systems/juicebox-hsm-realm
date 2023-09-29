@@ -35,7 +35,7 @@ Options:
           [default: 20000]
       --secrets-manager-connect-timeout <SECRETS_MANAGER_CONNECT_TIMEOUT>
           [default: 20000]
-      --secrets-manager-tcp-keepalice <SECRETS_MANAGER_TCP_KEEPALIVE>
+      --secrets-manager-tcp-keepalive <SECRETS_MANAGER_TCP_KEEPALIVE>
           [default: 5000]
   -h, --help
           Print help
