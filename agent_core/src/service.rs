@@ -9,9 +9,9 @@ use tracing::info;
 
 use crate::hsm::{HsmClient, Transport};
 use crate::Agent;
-use google::auth;
+use google::{auth, GrpcConnectionOptions};
 use observability::{logging, metrics};
-use service_core::clap_parsers::parse_listen;
+use service_core::clap_parsers::{parse_duration, parse_listen};
 use service_core::panic;
 use service_core::term::install_termination_handler;
 
@@ -29,6 +29,24 @@ pub struct AgentArgs<SA: Args + Debug> {
     /// The url to the pubsub emulator [default uses GCP endpoints].
     #[arg(long = "pubsub-url")]
     pub pubsub_url: Option<Uri>,
+
+    /// The pub-sub gRPC request timeout setting, in ms.
+    #[arg(long="pubsub-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().timeout.as_millis().to_string())]
+    pubsub_timeout: Duration,
+
+    /// The pub-sub gRPC connection timeout setting, in ms.
+    #[arg(long="pubsub-connect-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
+    pubsub_connect_timeout: Duration,
+
+    /// The pub-sub gRPC tcp keep-alive setting, in ms.
+    #[arg(long="pubsub-tcp-keepalive",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().tcp_keepalive.unwrap().as_millis().to_string())]
+    pubsub_tcp_keepalive: Option<Duration>,
 
     /// The maximum size of the agent's LRU Merkle tree cache, in number of
     /// nodes.
@@ -123,12 +141,18 @@ where
     let hsm_client = HsmClient::new(transport, name.clone(), metrics.clone());
 
     let pubsub_project = args.pubsub_project.unwrap_or(args.bigtable.project);
+    let pubsub_options = GrpcConnectionOptions {
+        timeout: args.pubsub_timeout,
+        connect_timeout: args.pubsub_connect_timeout,
+        tcp_keepalive: args.pubsub_tcp_keepalive,
+    };
     let pubsub = Box::new(
         google_pubsub::Publisher::new(
             args.pubsub_url,
             pubsub_project,
             auth_manager,
             metrics.clone(),
+            pubsub_options,
         )
         .await
         .unwrap(),

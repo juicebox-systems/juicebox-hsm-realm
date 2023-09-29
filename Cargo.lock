@@ -2804,6 +2804,7 @@ dependencies = [
  "rand",
  "rand_core",
  "reqwest",
+ "service_core",
  "thiserror",
  "tokio",
  "tonic 0.10.0",

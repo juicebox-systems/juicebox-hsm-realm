@@ -4,6 +4,7 @@ use google::auth::AuthMiddleware;
 use google::pubsub::v1::publisher_client::PublisherClient;
 use google::pubsub::v1::subscriber_client::SubscriberClient;
 use google::pubsub::v1::{ExpirationPolicy, PublishRequest, PubsubMessage, Subscription, Topic};
+use google::GrpcConnectionOptions;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
@@ -36,9 +37,10 @@ impl Publisher {
         project: String,
         auth: Option<Arc<AuthenticationManager>>,
         metrics: metrics::Client,
+        options: GrpcConnectionOptions,
     ) -> Result<Self, tonic::transport::Error> {
         let url = service_url.unwrap_or(Uri::from_static("https://pubsub.googleapis.com"));
-        let endpoint = Endpoint::from(url.clone()).connect().await?;
+        let endpoint = options.apply(Endpoint::from(url.clone())).connect().await?;
         let channel =
             AuthMiddleware::new(endpoint, auth, &["https://www.googleapis.com/auth/pubsub"]);
 

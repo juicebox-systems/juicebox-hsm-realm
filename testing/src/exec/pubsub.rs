@@ -1,3 +1,4 @@
+use google::GrpcConnectionOptions;
 use http::Uri;
 use juicebox_sdk::RealmId;
 use serde_json::json;
@@ -33,6 +34,7 @@ pub async fn run(pg: &mut ProcessGroup, port: u16, project: String) -> Uri {
             project.clone(),
             None,
             metrics::Client::NONE,
+            GrpcConnectionOptions::default(),
         )
         .await
         {

@@ -1,5 +1,6 @@
 //! General-purpose mechanisms to access databases of secrets at runtime.
 use async_trait::async_trait;
+use google::GrpcConnectionOptions;
 use juicebox_realm_api::types::SecretBytesVec;
 use juicebox_realm_auth::{AuthKey, AuthKeyVersion};
 use serde::Deserialize;
@@ -100,11 +101,16 @@ pub async fn new_google_secret_manager(
     project: &str,
     auth_manager: Arc<gcp_auth::AuthenticationManager>,
     refresh_interval: Duration,
+    options: GrpcConnectionOptions,
 ) -> Result<impl SecretManager, Error> {
     const TENANT_KEY_FILTER: &str = "name:tenant- AND labels.kind=tenant_auth_key";
-    let client =
-        GoogleSecretManagerClient::new(project, auth_manager, Some(TENANT_KEY_FILTER.to_owned()))
-            .await?;
+    let client = GoogleSecretManagerClient::new(
+        project,
+        auth_manager,
+        Some(TENANT_KEY_FILTER.to_owned()),
+        options,
+    )
+    .await?;
     let manager = Periodic::new(client, refresh_interval).await?;
     Ok(manager)
 }

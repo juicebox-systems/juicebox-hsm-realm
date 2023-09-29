@@ -8,11 +8,23 @@ Options:
       --bigtable-instance <INSTANCE>
           The name of the bigtable instance to connect to [default: instance]
       --bigtable-url <URL>
-          The url to the big table emulator [default uses GCP endpoints]
+          The url to the bigtable emulator [default uses GCP endpoints]
+      --bigtable-timeout <TIMEOUT>
+          The bigtable gRPC request timeout setting, in ms [default: 20000]
+      --bigtable-connect-timeout <CONNECT_TIMEOUT>
+          The bigtable gRPC connection timeout setting, in ms [default: 20000]
+      --bigtable-tcp-keepalive <TCP_KEEPALIVE>
+          The bigtable gRPC TCP Keep-alive setting, in ms [default: 5000]
       --pubsub-project <PUBSUB_PROJECT>
           The name of the GCP project to use for pub/sub. Defaults to the bigtable-project setting
       --pubsub-url <PUBSUB_URL>
           The url to the pubsub emulator [default uses GCP endpoints]
+      --pubsub-timeout <PUBSUB_TIMEOUT>
+          The pub-sub gRPC request timeout setting, in ms [default: 20000]
+      --pubsub-connect-timeout <PUBSUB_CONNECT_TIMEOUT>
+          The pub-sub gRPC connection timeout setting, in ms [default: 20000]
+      --pubsub-tcp-keepalive <PUBSUB_TCP_KEEPALIVE>
+          The pub-sub gRPC tcp keep-alive setting, in ms [default: 5000]
       --merkle-cache-size <NODES>
           The maximum size of the agent's LRU Merkle tree cache, in number of nodes [default: 25000]
   -l, --listen <LISTEN>

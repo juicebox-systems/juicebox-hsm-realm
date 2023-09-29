@@ -8,7 +8,13 @@ Options:
       --bigtable-instance <INSTANCE>
           The name of the bigtable instance to connect to [default: instance]
       --bigtable-url <URL>
-          The url to the big table emulator [default uses GCP endpoints]
+          The url to the bigtable emulator [default uses GCP endpoints]
+      --bigtable-timeout <TIMEOUT>
+          The bigtable gRPC request timeout setting, in ms [default: 20000]
+      --bigtable-connect-timeout <CONNECT_TIMEOUT>
+          The bigtable gRPC connection timeout setting, in ms [default: 20000]
+      --bigtable-tcp-keepalive <TCP_KEEPALIVE>
+          The bigtable gRPC TCP Keep-alive setting, in ms [default: 5000]
   -l, --listen <LISTEN>
           The IP/port to listen on [default: 127.0.0.1:8081]
   -n, --name <NAME>
@@ -25,6 +31,12 @@ Options:
           Name of the file containing the private key for terminating TLS
       --tls-cert <TLS_CERT>
           Name of the PEM file containing the certificate(s) for terminating TLS
+      --secrets-manager-timeout <SECRETS_MANAGER_TIMEOUT>
+          [default: 20000]
+      --secrets-manager-connect-timeout <SECRETS_MANAGER_CONNECT_TIMEOUT>
+          [default: 20000]
+      --secrets-manager-tcp-keepalive <SECRETS_MANAGER_TCP_KEEPALIVE>
+          [default: 5000]
   -h, --help
           Print help
   -V, --version

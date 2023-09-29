@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::signal::unix::{signal, SignalKind};
 use tracing::{info, warn};
 
-use google::auth;
+use google::{auth, GrpcConnectionOptions};
 use observability::{logging, metrics};
 use secret_manager::{new_google_secret_manager, Periodic, SecretManager, SecretsFile};
 use server::ManagerOptions;
@@ -66,6 +66,21 @@ struct Args {
     /// Name of the PEM file containing the certificate(s) for terminating TLS.
     #[arg(long)]
     tls_cert: PathBuf,
+
+    #[arg(long="secrets-manager-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().timeout.as_millis().to_string())]
+    secrets_manager_timeout: Duration,
+
+    #[arg(long="secrets-manager-connect-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
+    secrets_manager_connect_timeout: Duration,
+
+    #[arg(long="secrets-manager-tcp-keepalive",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().tcp_keepalive.unwrap().as_millis().to_string())]
+    secrets_manager_tcp_keepalive: Option<Duration>,
 }
 
 #[tokio::main]
@@ -134,11 +149,17 @@ async fn main() {
 
         None => {
             info!("connecting to Google Cloud Secret Manager");
+            let options = GrpcConnectionOptions {
+                timeout: args.secrets_manager_timeout,
+                connect_timeout: args.secrets_manager_connect_timeout,
+                tcp_keepalive: args.secrets_manager_tcp_keepalive,
+            };
             Box::new(
                 new_google_secret_manager(
                     &args.bigtable.project,
                     auth_manager.unwrap(),
                     Duration::from_secs(5),
+                    options,
                 )
                 .await
                 .expect("failed to load Google SecretManager secrets"),

@@ -7,6 +7,7 @@ use google::bigtable::v2::{
     mutation, read_rows_request, row_filter::Filter, CheckAndMutateRowRequest, ColumnRange,
     Mutation, ReadRowsRequest, RowFilter, RowRange, RowSet,
 };
+use google::GrpcConnectionOptions;
 use http::Uri;
 use std::collections::HashMap;
 use std::fmt;
@@ -34,6 +35,7 @@ use juicebox_realm_api::types::RealmId;
 use merkle::merkle_table_brief;
 use observability::metrics;
 use observability::metrics_tag as tag;
+use service_core::clap_parsers::parse_duration;
 
 mod base128;
 pub mod discovery;
@@ -51,9 +53,27 @@ pub struct BigtableArgs {
     #[arg(long = "bigtable-instance", default_value = "instance")]
     pub instance: String,
 
-    /// The url to the big table emulator [default uses GCP endpoints].
+    /// The url to the bigtable emulator [default uses GCP endpoints].
     #[arg(long = "bigtable-url")]
     pub url: Option<Uri>,
+
+    /// The bigtable gRPC request timeout setting, in ms.
+    #[arg(long = "bigtable-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().timeout.as_millis().to_string())]
+    pub timeout: Duration,
+
+    /// The bigtable gRPC connection timeout setting, in ms.
+    #[arg(long ="bigtable-connect-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
+    pub connect_timeout: Duration,
+
+    /// The bigtable gRPC TCP Keep-alive setting, in ms.
+    #[arg(long = "bigtable-tcp-keepalive",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().tcp_keepalive.unwrap().as_millis().to_string())]
+    pub tcp_keepalive: Option<Duration>,
 }
 
 impl BigtableArgs {
@@ -86,7 +106,19 @@ impl BigtableArgs {
             project: self.project.clone(),
             instance: self.instance.clone(),
         };
-        StoreClient::new(data_url.clone(), instance, auth_manager, options).await
+        let conn_options = GrpcConnectionOptions {
+            timeout: self.timeout,
+            connect_timeout: self.connect_timeout,
+            tcp_keepalive: self.tcp_keepalive,
+        };
+        StoreClient::new(
+            data_url.clone(),
+            instance,
+            auth_manager,
+            options,
+            conn_options,
+        )
+        .await
     }
 
     pub async fn connect_admin(
@@ -107,7 +139,12 @@ impl BigtableArgs {
             project: self.project.clone(),
             instance: self.instance.clone(),
         };
-        StoreAdminClient::new(admin_url.clone(), instance, auth_manager).await
+        let options = GrpcConnectionOptions {
+            timeout: self.timeout,
+            connect_timeout: self.connect_timeout,
+            tcp_keepalive: self.tcp_keepalive,
+        };
+        StoreAdminClient::new(admin_url.clone(), instance, auth_manager, options).await
     }
 
     pub fn add_to_cmd(&self, cmd: &mut Command) {
@@ -182,8 +219,9 @@ impl StoreAdminClient {
         url: Uri,
         instance: Instance,
         auth_manager: AuthManager,
+        options: GrpcConnectionOptions,
     ) -> Result<Self, tonic::transport::Error> {
-        let bigtable = new_admin_client(url, auth_manager).await?;
+        let bigtable = new_admin_client(url, auth_manager, options).await?;
         Ok(Self { bigtable, instance })
     }
 
@@ -327,8 +365,9 @@ impl StoreClient {
         instance: Instance,
         auth_manager: AuthManager,
         options: Options,
+        conn_options: GrpcConnectionOptions,
     ) -> Result<Self, tonic::transport::Error> {
-        let bigtable = new_data_client(url, auth_manager).await?;
+        let bigtable = new_data_client(url, auth_manager, conn_options).await?;
         Ok(Self {
             bigtable,
             instance,
