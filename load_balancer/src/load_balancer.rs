@@ -40,7 +40,7 @@ use juicebox_networking::rpc;
 use juicebox_realm_api::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use juicebox_realm_api::types::{RealmId, JUICEBOX_VERSION_HEADER};
 use juicebox_realm_auth::validation::Validator as AuthTokenValidator;
-use observability::logging::{Spew, TracingSource};
+use observability::logging::TracingSource;
 use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
 use secret_manager::{tenant_secret_name, SecretManager};
@@ -59,10 +59,6 @@ struct State {
     semver: Version,
     svc_mgr: ServiceManager,
 }
-
-static TCP_ACCEPT_SPEW: Spew = Spew::new();
-static TLS_ACCEPT_SPEW: Spew = Spew::new();
-static SERVING_CONNECTION_SPEW: Spew = Spew::new();
 
 impl LoadBalancer {
     pub fn new(
@@ -119,9 +115,7 @@ impl LoadBalancer {
                     };
                     match accept_result {
                         Err(error) => {
-                            if let Some(suppressed) = TCP_ACCEPT_SPEW.ok() {
-                                warn!(%error, suppressed, "error accepting connection")
-                            }
+                            warn!(%error, "error accepting connection")
                         }
                         Ok((stream, _)) => {
                             let acceptor = acceptor.clone();
@@ -131,12 +125,7 @@ impl LoadBalancer {
                             tokio::spawn(async move {
                                 match acceptor.accept(stream).await {
                                     Err(error) => {
-                                        if let Some(suppressed) = TLS_ACCEPT_SPEW.ok() {
-                                            warn!(
-                                                %error,
-                                                suppressed, "error terminating TLS connection"
-                                            );
-                                        }
+                                        warn!(%error, "error terminating TLS connection");
                                     }
                                     Ok(stream) => {
                                         let (_, connection) = stream.get_ref();
@@ -168,9 +157,7 @@ impl LoadBalancer {
                                                 "load_balancer.connections.errors",
                                                 [tag!(protocol)],
                                             );
-                                            if let Some(suppressed) = SERVING_CONNECTION_SPEW.ok() {
-                                                warn!(%error, protocol, suppressed, "error serving connection");
-                                            }
+                                            warn!(%error, protocol, "error serving connection");
                                         }
                                     }
                                 }
@@ -211,8 +198,6 @@ struct Partition {
     owned_range: OwnedRange,
     leader: Url,
 }
-
-static REFRESH_SPEW: Spew = Spew::new();
 
 #[tracing::instrument(level = "trace", skip(store, agent_client))]
 async fn refresh(
@@ -258,9 +243,7 @@ async fn refresh(
                     Ok(_) => {}
 
                     Err(err) => {
-                        if let Some(suppressed) = REFRESH_SPEW.ok() {
-                            warn!(load_balancer = name, %agent, %err, suppressed, "could not get status");
-                        }
+                        warn!(load_balancer = name, %agent, %err, "could not get status");
                     }
                 }
             }

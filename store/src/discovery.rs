@@ -14,7 +14,6 @@ use url::Url;
 use super::{to_micros, BigtableClient, BigtableTableAdminClient, Instance, RowKey, ServiceKind};
 use bigtable::mutate::mutate_rows;
 use bigtable::read::read_rows;
-use observability::logging::Spew;
 
 /// Agents should register themselves with service discovery this often.
 pub const REGISTER_INTERVAL: Duration = Duration::from_secs(60 * 10);
@@ -25,8 +24,6 @@ pub const REGISTER_FAILURE_DELAY: Duration = Duration::from_secs(10);
 
 /// Discovery records that haven't been updated in at least this log will be expired and deleted.
 pub const EXPIRY_AGE: Duration = Duration::from_secs(60 * 21);
-
-static DISCOVERY_TABLE_SPEW: Spew = Spew::new();
 
 fn discovery_table(instance: &Instance) -> String {
     format!(
@@ -105,14 +102,11 @@ pub(super) async fn get_addresses(
     {
         Ok(rows) => rows,
         Err(e) if e.code() == tonic::Code::NotFound => {
-            if let Some(suppressed) = DISCOVERY_TABLE_SPEW.ok() {
-                warn!(
-                    error = e.message(),
-                    suppressed,
-                    "couldn't read from Bigtable service discovery table \
+            warn!(
+                error = e.message(),
+                "couldn't read from Bigtable service discovery table \
                     (the cluster manager should create it)"
-                );
-            }
+            );
             return Ok(Vec::new());
         }
         Err(e) => return Err(e),
