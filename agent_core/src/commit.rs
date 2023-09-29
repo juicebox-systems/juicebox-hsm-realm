@@ -21,7 +21,7 @@ use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
 use juicebox_realm_api::requests::NoiseResponse;
 use juicebox_realm_api::types::RealmId;
-use observability::logging::{Spew, TracingSource};
+use observability::logging::TracingSource;
 use observability::metrics_tag as tag;
 use store::StoreClient;
 
@@ -30,8 +30,6 @@ enum CommitterStatus {
     Committing { committed: Option<LogIndex> },
     NoLongerLeader,
 }
-
-static NVRAM_WRITER_SPEW: Spew = Spew::new();
 
 impl<T: Transport + 'static> Agent<T> {
     pub(super) fn start_nvram_writer(&self) {
@@ -55,9 +53,7 @@ impl<T: Transport + 'static> Agent<T> {
                     .await
                 {
                     Err(err) => {
-                        if let Some(suppressed) = NVRAM_WRITER_SPEW.ok() {
-                            warn!(?err, suppressed, "failed to request HSM to write to NVRAM");
-                        }
+                        warn!(?err, "failed to request HSM to write to NVRAM");
                     }
                     Ok(PersistStateResponse::Ok { captured, .. }) => {
                         agent.0.state.lock().unwrap().captures = captured

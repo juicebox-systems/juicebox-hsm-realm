@@ -7,7 +7,6 @@ use tonic::Code;
 use tracing::{instrument, trace, warn, Span};
 
 use super::BigtableClient;
-use observability::logging::Spew;
 
 #[derive(Clone, Hash, Eq, PartialEq)]
 pub struct RowKey(pub Vec<u8>);
@@ -48,8 +47,6 @@ impl<'a> fmt::Debug for Hex<'a> {
         Ok(())
     }
 }
-
-static STREAM_SPEW: Spew = Spew::new();
 
 pub async fn read_rows(
     bigtable: &mut BigtableClient,
@@ -100,9 +97,7 @@ where
                 Err(e) => {
                     // TODO, this seems to be a bug in hyper, in that it doesn't handle RST properly
                     // https://github.com/hyperium/hyper/issues/2872
-                    if let Some(suppressed) = STREAM_SPEW.ok() {
-                        warn!(?e, code=?e.code(), suppressed, "stream.message error during read_rows");
-                    }
+                    warn!(?e, code=?e.code(), "stream.message error during read_rows");
                     if e.code() == Code::Internal {
                         tokio::time::sleep(Duration::from_millis(1)).await;
                         trace!("retrying read_rows");
