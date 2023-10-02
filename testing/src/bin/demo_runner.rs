@@ -1,5 +1,6 @@
 use clap::Parser;
 use futures::future::{join_all, try_join_all};
+use google::GrpcConnectionOptions;
 use http::Uri;
 use reqwest::Url;
 use std::collections::HashMap;
@@ -52,13 +53,16 @@ async fn main() {
     let mut process_group = ProcessGroup::new();
     install_termination_handler(Duration::from_secs(1));
 
+    let d = GrpcConnectionOptions::default();
     let bt_args = store::BigtableArgs {
         instance: String::from("inst"),
         project: String::from("prj"),
         url: Some(Uri::from_static("http://localhost:9000")),
-        timeout: Duration::from_secs(20),
-        connect_timeout: Duration::from_secs(20),
-        tcp_keepalive: Some(Duration::from_secs(5)),
+        timeout: d.timeout,
+        connect_timeout: d.connect_timeout,
+        http2_keepalive_interval: d.http2_keepalive_interval,
+        http2_keepalive_timeout: d.http2_keepalive_timeout,
+        http2_keepalive_while_idle: d.http2_keepalive_while_idle,
     };
 
     info!(path = ?args.secrets_file, "loading secrets from JSON file");

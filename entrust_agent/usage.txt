@@ -4,44 +4,114 @@ Usage: agent [OPTIONS] --image <IMAGE> --userdata <USERDATA>
 
 Options:
       --bigtable-project <PROJECT>
-          The name of the GCP project that contains the bigtable instance [default: prj]
+          The name of the GCP project that contains the bigtable instance
+          
+          [default: prj]
+
       --bigtable-instance <INSTANCE>
-          The name of the bigtable instance to connect to [default: instance]
+          The name of the bigtable instance to connect to
+          
+          [default: instance]
+
       --bigtable-url <URL>
           The url to the bigtable emulator [default uses GCP endpoints]
+
       --bigtable-timeout <TIMEOUT>
-          The bigtable gRPC request timeout setting, in ms [default: 20000]
+          The bigtable gRPC request timeout setting, in ms
+          
+          [default: 20000]
+
       --bigtable-connect-timeout <CONNECT_TIMEOUT>
-          The bigtable gRPC connection timeout setting, in ms [default: 20000]
-      --bigtable-tcp-keepalive <TCP_KEEPALIVE>
-          The bigtable gRPC TCP Keep-alive setting, in ms [default: 5000]
+          The bigtable gRPC connection timeout setting, in ms
+          
+          [default: 20000]
+
+      --bigtable-http-keepalive-interval <HTTP2_KEEPALIVE_INTERVAL>
+          The bigtable gRPC http2 Keep-alive interval setting, in ms.
+          
+          Interval between sending http2 keep-alive ping messages.
+          
+          [default: 4000]
+
+      --bigtable-http-keepalive-timeout <HTTP2_KEEPALIVE_TIMEOUT>
+          The bigtable gRPC http2 Keep-alive timeout setting, in ms.
+          
+          The timeout duration waiting for a http2 keep-alive ping response.
+          
+          [default: 3000]
+
+      --bigtable-http-keepalive-while-idle
+          The bigtable gRPC http2 Keep-alive while idle setting.
+          
+          If true http2 keep alive messages will continue to be sent when the connection would otherwise be idle
+
       --pubsub-project <PUBSUB_PROJECT>
           The name of the GCP project to use for pub/sub. Defaults to the bigtable-project setting
+
       --pubsub-url <PUBSUB_URL>
           The url to the pubsub emulator [default uses GCP endpoints]
+
       --pubsub-timeout <PUBSUB_TIMEOUT>
-          The pub-sub gRPC request timeout setting, in ms [default: 20000]
+          The pub-sub gRPC request timeout setting, in ms
+          
+          [default: 20000]
+
       --pubsub-connect-timeout <PUBSUB_CONNECT_TIMEOUT>
-          The pub-sub gRPC connection timeout setting, in ms [default: 20000]
-      --pubsub-tcp-keepalive <PUBSUB_TCP_KEEPALIVE>
-          The pub-sub gRPC tcp keep-alive setting, in ms [default: 5000]
+          The pub-sub gRPC connection timeout setting, in ms
+          
+          [default: 20000]
+
+      --pubsub-http-keepalive-interval <PUBSUB_HTTP2_KEEPALIVE_INTERVAL>
+          The pub-sub gRPC http keep-alive interval setting, in ms.
+          
+          Interval between sending http2 keep-alive ping messages.
+          
+          [default: 4000]
+
+      --pubsub-http-keepalive-timeout <PUBSUB_HTTP2_KEEPALIVE_TIMEOUT>
+          The pub-sub gRPC http2 Keep-alive timeout setting, in ms.
+          
+          The timeout duration waiting for a http2 keep-alive ping response.
+          
+          [default: 3000]
+
+      --pubsub-http-keepalive-while-idle
+          The pub-sub gRPC http2 Keep-alive while idle setting.
+          
+          If true http2 keep alive messages will continue to be sent when the connection would otherwise be idle
+
       --merkle-cache-size <NODES>
-          The maximum size of the agent's LRU Merkle tree cache, in number of nodes [default: 25000]
+          The maximum size of the agent's LRU Merkle tree cache, in number of nodes
+          
+          [default: 25000]
+
   -l, --listen <LISTEN>
-          The IP/port to listen on [default: 127.0.0.1:8082]
+          The IP/port to listen on
+          
+          [default: 127.0.0.1:8082]
+
   -n, --name <NAME>
           Name of the agent in logging [default: agent{listen}]
+
   -m, --module <MODULE>
-          The HSM module to work with. (The default of 1 is fine unless there are multiple HSMs in a host) [default: 1]
+          The HSM module to work with. (The default of 1 is fine unless there are multiple HSMs in a host)
+          
+          [default: 1]
+
   -t, --trace
           Enable collection of the debugging output from the HSM trace buffer. This requires the Security World to have been created with the `dseeall` feature enabled
+
   -i, --image <IMAGE>
           The name of the file containing the signed SEEMachine image (in SAR format). Is used to set the SEEMachine image in order to start or restart the SEE World
+
   -u, --userdata <USERDATA>
           The name of the file containing the signed userdata file. Should be signed with the same 'seeinteg' key that the see machine image was signed with. The data in this file isn't used, but the signed file is needed for the ACLs that restrict access to a SEEMachine to work
+
       --reinitialize
           Reinitialize the NVRAM state back to blank, effectively making a new HSM
+
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
+
   -V, --version
           Print version

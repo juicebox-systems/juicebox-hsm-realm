@@ -10,7 +10,9 @@ pub use autogen::google::*;
 pub struct GrpcConnectionOptions {
     pub timeout: Duration,
     pub connect_timeout: Duration,
-    pub tcp_keepalive: Option<Duration>,
+    pub http2_keepalive_interval: Duration,
+    pub http2_keepalive_timeout: Duration,
+    pub http2_keepalive_while_idle: bool,
 }
 
 impl Default for GrpcConnectionOptions {
@@ -18,7 +20,9 @@ impl Default for GrpcConnectionOptions {
         Self {
             timeout: Duration::from_secs(20),
             connect_timeout: Duration::from_secs(20),
-            tcp_keepalive: Some(Duration::from_secs(5)),
+            http2_keepalive_interval: Duration::from_secs(4),
+            http2_keepalive_timeout: Duration::from_secs(3),
+            http2_keepalive_while_idle: true,
         }
     }
 }
@@ -27,6 +31,8 @@ impl GrpcConnectionOptions {
     pub fn apply(&self, e: Endpoint) -> Endpoint {
         e.timeout(self.timeout)
             .connect_timeout(self.connect_timeout)
-            .tcp_keepalive(self.tcp_keepalive)
+            .keep_alive_timeout(self.http2_keepalive_timeout)
+            .http2_keep_alive_interval(self.http2_keepalive_interval)
+            .keep_alive_while_idle(self.http2_keepalive_while_idle)
     }
 }

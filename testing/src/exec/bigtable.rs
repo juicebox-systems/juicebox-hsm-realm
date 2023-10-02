@@ -1,3 +1,4 @@
+use google::GrpcConnectionOptions;
 use juicebox_process_group::ProcessGroup;
 use std::process::Command;
 use std::time::Duration;
@@ -35,12 +36,15 @@ impl BigtableRunner {
 
 pub fn emulator(port: u16) -> store::BigtableArgs {
     let u = format!("http://localhost:{port}").parse().unwrap();
+    let d = GrpcConnectionOptions::default();
     store::BigtableArgs {
         project: String::from("prj"),
         instance: String::from("inst"),
         url: Some(u),
-        timeout: Duration::from_secs(20),
-        connect_timeout: Duration::from_secs(20),
-        tcp_keepalive: Some(Duration::from_secs(5)),
+        timeout: d.timeout,
+        connect_timeout: d.connect_timeout,
+        http2_keepalive_interval: d.http2_keepalive_interval,
+        http2_keepalive_timeout: d.http2_keepalive_timeout,
+        http2_keepalive_while_idle: d.http2_keepalive_while_idle,
     }
 }
