@@ -69,11 +69,28 @@ pub struct BigtableArgs {
             default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
     pub connect_timeout: Duration,
 
-    /// The bigtable gRPC TCP Keep-alive setting, in ms.
-    #[arg(long = "bigtable-tcp-keepalive",
+    /// The bigtable gRPC http2 Keep-alive interval setting, in ms.
+    ///
+    /// Interval between sending http2 keep-alive ping messages.
+    #[arg(long = "bigtable-http-keepalive-interval",
             value_parser=parse_duration,
-            default_value=GrpcConnectionOptions::default().tcp_keepalive.unwrap().as_millis().to_string())]
-    pub tcp_keepalive: Option<Duration>,
+            default_value=GrpcConnectionOptions::default().http2_keepalive_interval.as_millis().to_string())]
+    pub http2_keepalive_interval: Duration,
+
+    /// The bigtable gRPC http2 Keep-alive timeout setting, in ms.
+    ///
+    /// The timeout duration waiting for a http2 keep-alive ping response.
+    #[arg(long = "bigtable-http-keepalive-timeout",
+        value_parser=parse_duration,
+        default_value=GrpcConnectionOptions::default().http2_keepalive_timeout.as_millis().to_string())]
+    pub http2_keepalive_timeout: Duration,
+
+    /// The bigtable gRPC http2 Keep-alive while idle setting.
+    ///
+    /// If true http2 keep alive messages will continue to be sent when the connection would otherwise be idle
+    #[arg(long = "bigtable-http-keepalive-while-idle",
+        default_value_t=GrpcConnectionOptions::default().http2_keepalive_while_idle)]
+    pub http2_keepalive_while_idle: bool,
 }
 
 impl BigtableArgs {
@@ -109,7 +126,9 @@ impl BigtableArgs {
         let conn_options = GrpcConnectionOptions {
             timeout: self.timeout,
             connect_timeout: self.connect_timeout,
-            tcp_keepalive: self.tcp_keepalive,
+            http2_keepalive_interval: self.http2_keepalive_interval,
+            http2_keepalive_timeout: self.http2_keepalive_timeout,
+            http2_keepalive_while_idle: self.http2_keepalive_while_idle,
         };
         StoreClient::new(
             data_url.clone(),
@@ -142,7 +161,9 @@ impl BigtableArgs {
         let options = GrpcConnectionOptions {
             timeout: self.timeout,
             connect_timeout: self.connect_timeout,
-            tcp_keepalive: self.tcp_keepalive,
+            http2_keepalive_interval: self.http2_keepalive_interval,
+            http2_keepalive_timeout: self.http2_keepalive_timeout,
+            http2_keepalive_while_idle: self.http2_keepalive_while_idle,
         };
         StoreAdminClient::new(admin_url.clone(), instance, auth_manager, options).await
     }

@@ -42,11 +42,28 @@ pub struct AgentArgs<SA: Args + Debug> {
             default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
     pubsub_connect_timeout: Duration,
 
-    /// The pub-sub gRPC tcp keep-alive setting, in ms.
-    #[arg(long="pubsub-tcp-keepalive",
+    /// The pub-sub gRPC http keep-alive interval setting, in ms.
+    ///
+    /// Interval between sending http2 keep-alive ping messages.
+    #[arg(long="pubsub-http-keepalive-interval",
             value_parser=parse_duration,
-            default_value=GrpcConnectionOptions::default().tcp_keepalive.unwrap().as_millis().to_string())]
-    pubsub_tcp_keepalive: Option<Duration>,
+            default_value=GrpcConnectionOptions::default().http2_keepalive_interval.as_millis().to_string())]
+    pubsub_http2_keepalive_interval: Duration,
+
+    /// The pub-sub gRPC http2 Keep-alive timeout setting, in ms.
+    ///
+    /// The timeout duration waiting for a http2 keep-alive ping response.
+    #[arg(long = "pubsub-http-keepalive-timeout",
+        value_parser=parse_duration,
+        default_value=GrpcConnectionOptions::default().http2_keepalive_timeout.as_millis().to_string())]
+    pub pubsub_http2_keepalive_timeout: Duration,
+
+    /// The pub-sub gRPC http2 Keep-alive while idle setting.
+    ///
+    /// If true http2 keep alive messages will continue to be sent when the connection would otherwise be idle
+    #[arg(long = "pubsub-http-keepalive-while-idle",
+        default_value_t=GrpcConnectionOptions::default().http2_keepalive_while_idle)]
+    pub pubsub_http2_keepalive_while_idle: bool,
 
     /// The maximum size of the agent's LRU Merkle tree cache, in number of
     /// nodes.
@@ -144,7 +161,9 @@ where
     let pubsub_options = GrpcConnectionOptions {
         timeout: args.pubsub_timeout,
         connect_timeout: args.pubsub_connect_timeout,
-        tcp_keepalive: args.pubsub_tcp_keepalive,
+        http2_keepalive_interval: args.pubsub_http2_keepalive_interval,
+        http2_keepalive_timeout: args.pubsub_http2_keepalive_timeout,
+        http2_keepalive_while_idle: args.pubsub_http2_keepalive_while_idle,
     };
     let pubsub = Box::new(
         google_pubsub::Publisher::new(
