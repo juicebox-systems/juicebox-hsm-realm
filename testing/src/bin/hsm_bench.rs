@@ -179,7 +179,7 @@ async fn main() {
         sleep(Duration::MAX).await;
     }
     info!("main: done");
-    if args.state.is_some() {
+    if args.state.is_some() || args.entrust {
         info!("letting agents drain their delete queue");
         sleep(Duration::from_secs(6)).await;
     }

@@ -879,13 +879,13 @@ name = "entrust_hsm"
 version = "0.2.3"
 dependencies = [
  "bindgen",
- "blake2",
  "entrust_api",
  "hex",
  "hsm_api",
  "hsm_core",
  "juicebox_marshalling",
  "rand_core",
+ "sha2",
  "x25519-dalek",
 ]
 
@@ -905,8 +905,8 @@ name = "entrust_nfast"
 version = "0.2.3"
 dependencies = [
  "bindgen",
- "blake2",
  "hex",
+ "sha2",
  "thiserror",
  "tracing",
 ]

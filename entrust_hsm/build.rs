@@ -1,4 +1,4 @@
-use blake2::{Blake2s256, Digest};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fs::File;
 use std::io::{copy, Write};
@@ -21,6 +21,7 @@ fn main() {
         .allowlist_var("SEELIB_JOB_REQUEUE")
         .allowlist_var("Command_flags_.*")
         .clang_arg("--target=powerpc-unknown-linux-gnu")
+        .clang_arg("-I/opt/nfast/c/csd/include-see/cutils")
         .clang_arg("-I/opt/nfast/c/csd/include-see/module/")
         .clang_arg("-I/opt/nfast/c/csd/include-see/module/rtlib")
         .clang_arg("-I/opt/nfast/gcc/powerpc-codesafe-linux-gnu/include/")
@@ -42,17 +43,18 @@ fn main() {
         .write_to_file(&out_file)
         .expect("Couldn't write bindings!");
 
-    let mut hasher = WritableHash(Blake2s256::new());
-    let mut file = File::open(out_file).expect("Failed to open file {out_file}");
+    let mut hasher = WritableHash(Sha256::new());
+    let mut file = File::open(&out_file).expect("Failed to open file {out_file}");
     copy(&mut file, &mut hasher).expect("Couldn't hash bindings!");
     let hash = hasher.0.finalize();
     assert_eq!(
-        "4a59421bccc2d5e7929febc46418f7cde6192fa9018a4bde2a24f81ccae8453b",
-        hex::encode(hash)
+        hex::encode(hash),
+        "a4b819198dcc272e2cd309e68650274652e7e7f805682cb9a25adb5618409c65",
+        "SHA-256 of {out_file:?} (left) doesn't match expected (right)"
     );
 }
 
-struct WritableHash(Blake2s256);
+struct WritableHash(Sha256);
 
 impl Write for WritableHash {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {

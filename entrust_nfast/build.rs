@@ -1,4 +1,4 @@
-use blake2::{Blake2s256, Digest};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::fs::File;
 use std::io::{copy, Write};
@@ -63,17 +63,18 @@ fn main() {
         .write_to_file(&out_file)
         .expect("Couldn't write bindings!");
 
-    let mut hasher = WritableHash(Blake2s256::new());
-    let mut file = File::open(out_file).expect("Failed to open file {out_file}");
+    let mut hasher = WritableHash(Sha256::new());
+    let mut file = File::open(&out_file).expect("Failed to open file {out_file}");
     copy(&mut file, &mut hasher).expect("Couldn't hash bindings!");
     let hash = hasher.0.finalize();
     assert_eq!(
-        "b79f11e9827d399f22e530e31f1527c857e003be1376b33fa14b9e87096f183d",
-        hex::encode(hash)
+        hex::encode(hash),
+        "22b74bca1dc3ca43660ec3144f4e8c75bd026c415a87f1e1c7cfe3073eadbd0c",
+        "SHA-256 of {out_file:?} (left) doesn't match expected (right)"
     );
 }
 
-struct WritableHash(Blake2s256);
+struct WritableHash(Sha256);
 
 impl Write for WritableHash {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
