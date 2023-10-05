@@ -123,6 +123,8 @@ where
     let mut shutdown_tasks = install_termination_handler(Duration::from_secs(10));
 
     let args = AgentArgs::<SA>::parse();
+    info!(?args, "Parsed command-line args");
+
     let metrics = metrics::Client::new(service_name);
 
     let auth_manager = if args.bigtable.needs_auth() || args.pubsub_url.is_none() {
