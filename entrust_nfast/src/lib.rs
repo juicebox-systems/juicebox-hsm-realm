@@ -209,11 +209,11 @@ impl Deref for SecurityWorldKey {
     }
 }
 
-pub fn lookup_name(val: u32, table: &[M_ValInfo]) -> Cow<'_, str> {
+pub fn lookup_name(val: u32, table: &[NF_ValInfo]) -> Cow<'_, str> {
     lookup_name_no_default(val, table).unwrap_or_else(|| Cow::Owned(format!("[Unknown:{}]", val)))
 }
 
-pub fn lookup_name_no_default(val: u32, table: &[M_ValInfo]) -> Option<Cow<'_, str>> {
+pub fn lookup_name_no_default(val: u32, table: &[NF_ValInfo]) -> Option<Cow<'_, str>> {
     let cstr = unsafe { NF_Lookup(val, table.as_ptr()) };
     if cstr.is_null() {
         None
@@ -223,7 +223,7 @@ pub fn lookup_name_no_default(val: u32, table: &[M_ValInfo]) -> Option<Cow<'_, s
     }
 }
 
-pub fn flag_names(val: u32, max: u32, table: &[M_ValInfo]) -> Vec<Cow<'_, str>> {
+pub fn flag_names(val: u32, max: u32, table: &[NF_ValInfo]) -> Vec<Cow<'_, str>> {
     let mut m: u32 = 1;
     let mut res = Vec::new();
     while m <= max {
