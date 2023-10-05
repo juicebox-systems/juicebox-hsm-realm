@@ -53,6 +53,28 @@ pub async fn run(pg: &mut ProcessGroup, port: u16, project: String) -> Uri {
 }
 
 fn run_in_docker(pg: &mut ProcessGroup, port: u16) {
+    let image = "gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators";
+
+    // Downloading and extracting the image can take longer than the timeout
+    // for connecting to the emulator, so pull the image now and wait if
+    // needed.
+    if Command::new("docker")
+        .arg("images")
+        .arg("--quiet")
+        .arg(image)
+        .output()
+        .is_ok_and(|output| output.stdout.is_empty())
+    {
+        let status = Command::new("docker")
+            .arg("pull")
+            .arg(image)
+            .status()
+            .expect("docker pull failed");
+        if !status.success() {
+            panic!("docker pull failed: {status}");
+        }
+    }
+
     pg.spawn(
         Command::new("docker")
             .arg("run")
@@ -60,7 +82,8 @@ fn run_in_docker(pg: &mut ProcessGroup, port: u16) {
             .arg(format!("{port}:8085"))
             .arg("-i")
             .arg("--init")
-            .arg("gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators")
+            .arg("--rm")
+            .arg(image)
             .arg("gcloud")
             .arg("beta")
             .arg("emulators")
