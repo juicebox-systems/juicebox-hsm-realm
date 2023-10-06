@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context};
 
-use juicebox_realm_auth::{creation::create_token, Claims};
+use juicebox_realm_auth::creation::create_token;
+use juicebox_realm_auth::{Claims, Scope};
 use juicebox_sdk::RealmId;
 use secret_manager::{tenant_secret_name, SecretManager};
 
@@ -9,7 +10,7 @@ pub async fn mint_auth_token(
     tenant: String,
     user: String,
     realm: RealmId,
-    scope: String,
+    scope: Scope,
 ) -> anyhow::Result<()> {
     if !tenant.starts_with("test-") {
         return Err(anyhow!("tenant must start with 'test-'"));
@@ -29,7 +30,7 @@ pub async fn mint_auth_token(
             issuer: tenant,
             subject: user,
             audience: realm,
-            scope,
+            scope: Some(scope),
         },
         &auth_key,
         auth_key_version,

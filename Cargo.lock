@@ -1642,6 +1642,7 @@ dependencies = [
  "juicebox_realm_api",
  "regex",
  "serde",
+ "thiserror",
 ]
 
 [[package]]

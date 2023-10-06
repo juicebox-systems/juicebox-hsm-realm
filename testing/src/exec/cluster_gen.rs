@@ -22,7 +22,7 @@ use juicebox_networking::reqwest;
 use juicebox_networking::rpc::{self, LoadBalancerService};
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_auth::creation::create_token;
-use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims};
+use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
 use juicebox_sdk::{
     AuthToken, Client, ClientBuilder, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper,
 };
@@ -106,7 +106,7 @@ impl ClusterResult {
                             issuer: self.tenant.clone(),
                             subject: user_id.clone(),
                             audience: realm.realm,
-                            scope: String::from(""),
+                            scope: Some(Scope::User),
                         },
                         &self.auth_key,
                         self.auth_key_version,
