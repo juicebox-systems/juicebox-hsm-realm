@@ -4,28 +4,110 @@ Usage: load_balancer [OPTIONS] --tls-key <TLS_KEY> --tls-cert <TLS_CERT>
 
 Options:
       --bigtable-project <PROJECT>
-          The name of the GCP project that contains the bigtable instance [default: prj]
+          The name of the GCP project that contains the bigtable instance
+          
+          [default: prj]
+
       --bigtable-instance <INSTANCE>
-          The name of the bigtable instance to connect to [default: instance]
+          The name of the bigtable instance to connect to
+          
+          [default: instance]
+
       --bigtable-url <URL>
-          The url to the big table emulator [default uses GCP endpoints]
+          The url to the bigtable emulator [default uses GCP endpoints]
+
+      --bigtable-timeout <TIMEOUT>
+          The bigtable gRPC request timeout setting, in ms
+          
+          [default: 20000]
+
+      --bigtable-connect-timeout <CONNECT_TIMEOUT>
+          The bigtable gRPC connection timeout setting, in ms
+          
+          [default: 20000]
+
+      --bigtable-http-keepalive-interval <HTTP2_KEEPALIVE_INTERVAL>
+          The bigtable gRPC http2 Keep-alive interval setting, in ms.
+          
+          Interval between sending http2 keep-alive ping messages.
+          
+          [default: 4000]
+
+      --bigtable-http-keepalive-timeout <HTTP2_KEEPALIVE_TIMEOUT>
+          The bigtable gRPC http2 Keep-alive timeout setting, in ms.
+          
+          The timeout duration waiting for a http2 keep-alive ping response.
+          
+          [default: 3000]
+
+      --bigtable-http-keepalive-while-idle
+          The bigtable gRPC http2 Keep-alive while idle setting.
+          
+          If true http2 keep alive messages will continue to be sent when the connection would otherwise be idle
+
   -l, --listen <LISTEN>
-          The IP/port to listen on [default: 127.0.0.1:8081]
+          The IP/port to listen on
+          
+          [default: 127.0.0.1:8081]
+
   -n, --name <NAME>
           Name of the load balancer in logging [default: lb{listen}]
+
       --secrets-file <SECRETS_FILE>
           Name of JSON file containing per-tenant keys for authentication. The default is to fetch these from Google Secret Manager
+
       --shutdown-timeout <SHUTDOWN_TIMEOUT>
-          Max length of time to wait for a graceful shutdown to complete. (milliseconds) [default: 60000]
+          Max length of time to wait for a graceful shutdown to complete. (milliseconds)
+          
+          [default: 60000]
+
       --shutdown-notice-period <TIME>
-          Length of time to signal that we're going to be shutting down before starting the shutdown. (milliseconds) [default: 30000]
+          Length of time to signal that we're going to be shutting down before starting the shutdown. (milliseconds)
+          
+          [default: 30000]
+
       --idle-timeout <TIMEOUT>
-          Connections that have been idle longer than this timeout will be closed. (milliseconds) [default: 60000]
+          Connections that have been idle longer than this timeout will be closed. (milliseconds)
+          
+          [default: 60000]
+
       --tls-key <TLS_KEY>
           Name of the file containing the private key for terminating TLS
+
       --tls-cert <TLS_CERT>
           Name of the PEM file containing the certificate(s) for terminating TLS
+
+      --secrets-manager-timeout <SECRETS_MANAGER_TIMEOUT>
+          The secrets manager gRPC request timeout setting, in ms
+          
+          [default: 20000]
+
+      --secrets-manager-connect-timeout <SECRETS_MANAGER_CONNECT_TIMEOUT>
+          The secrets manager gRPC connection timeout setting, in ms
+          
+          [default: 20000]
+
+      --secrets-manager-http-keepalive-interval <SECRETS_MANAGER_HTTP2_KEEPALIVE_INTERVAL>
+          The secrets manager gRPC http2 Keep-alive interval setting, in ms.
+          
+          Interval between sending http2 keep-alive ping messages.
+          
+          [default: 4000]
+
+      --secrets-manager-http-keepalive-timeout <SECRETS_MANAGER_HTTP2_KEEPALIVE_TIMEOUT>
+          The secrets manager gRPC http2 Keep-alive timeout setting, in ms.
+          
+          The timeout duration waiting for a http2 keep-alive ping response.
+          
+          [default: 3000]
+
+      --secrets-manager-http-keepalive-while-idle
+          The secrets manager gRPC http2 Keep-alive while idle setting.
+          
+          If true http2 keep alive messages will continue to be sent when the connection would otherwise be idle
+
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
+
   -V, --version
           Print version

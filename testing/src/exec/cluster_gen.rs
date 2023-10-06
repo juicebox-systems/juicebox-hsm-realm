@@ -16,7 +16,7 @@ use super::hsm_gen::{Entrust, HsmGenerator};
 use super::{pubsub, PortIssuer};
 use agent_api::{AgentService, StatusRequest};
 use cluster_core::{self, NewRealmError};
-use google::auth;
+use google::{auth, GrpcConnectionOptions};
 use hsm_api::{GroupId, OwnedRange, PublicKey};
 use juicebox_networking::reqwest;
 use juicebox_networking::rpc::{self, LoadBalancerService};
@@ -197,6 +197,7 @@ pub async fn create_cluster(
                     &args.bigtable.project,
                     auth_manager.unwrap(),
                     Duration::MAX,
+                    GrpcConnectionOptions::default(),
                 )
                 .await
                 .expect("failed to load secrets from Google Secret Manager"),

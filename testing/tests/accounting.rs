@@ -1,5 +1,6 @@
 use google::bigtable::v2::read_rows_request::RequestStatsView;
 use google::bigtable::v2::ReadRowsRequest;
+use google::GrpcConnectionOptions;
 use once_cell::sync::Lazy;
 use std::panic;
 use std::path::PathBuf;
@@ -60,7 +61,9 @@ async fn user_accounting() {
         project: bt_args.project,
         instance: bt_args.instance,
     };
-    let bt_client = new_data_client(bt_args.url.unwrap(), None).await.unwrap();
+    let bt_client = new_data_client(bt_args.url.unwrap(), None, GrpcConnectionOptions::default())
+        .await
+        .unwrap();
 
     // The writing to the users table is done by a background task, so we might get to trying to read it before its been written.
     let mut users = Vec::new();

@@ -879,13 +879,13 @@ name = "entrust_hsm"
 version = "0.2.3"
 dependencies = [
  "bindgen",
- "blake2",
  "entrust_api",
  "hex",
  "hsm_api",
  "hsm_core",
  "juicebox_marshalling",
  "rand_core",
+ "sha2",
  "x25519-dalek",
 ]
 
@@ -905,8 +905,8 @@ name = "entrust_nfast"
 version = "0.2.3"
 dependencies = [
  "bindgen",
- "blake2",
  "hex",
+ "sha2",
  "thiserror",
  "tracing",
 ]
@@ -1955,6 +1955,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "tracing",
+ "tracing-core",
  "tracing-opentelemetry",
  "tracing-subscriber",
 ]
@@ -2804,6 +2805,7 @@ dependencies = [
  "rand",
  "rand_core",
  "reqwest",
+ "service_core",
  "thiserror",
  "tokio",
  "tonic 0.10.0",

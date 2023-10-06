@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use tracing::{info, Level};
 
 use agent_api::AgentService;
-use google::auth;
+use google::{auth, GrpcConnectionOptions};
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_realm_api::types::RealmId;
@@ -286,6 +286,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
                 &args.bigtable.project,
                 auth_manager.clone().unwrap(),
                 Duration::MAX,
+                GrpcConnectionOptions::default(),
             )
             .await
             .context("failed to load Google SecretManager secrets")?,

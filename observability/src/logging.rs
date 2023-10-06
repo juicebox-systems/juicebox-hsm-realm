@@ -3,53 +3,79 @@ use opentelemetry::sdk::trace::{Sampler, ShouldSample};
 use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tracing::{info, warn, Level};
+use tracing::{info, warn, Level, Metadata, Subscriber};
+use tracing_core::callsite;
 use tracing_subscriber::filter::{FilterFn, LevelFilter};
 use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::layer::{Layer, SubscriberExt};
+use tracing_subscriber::layer::{Context, Filter, Layer, SubscriberExt};
 
-pub struct Spew(Mutex<SpewInner>);
-
-struct SpewInner {
-    // The number of messages suppressed since the last log.
-    suppressed: usize,
-    last_logged: Option<Instant>,
+struct SpewFilter {
+    spewers: Mutex<HashMap<callsite::Identifier, Spew>>,
+    interval: Duration,
 }
 
-impl Spew {
-    pub const fn new() -> Self {
-        Self(Mutex::new(SpewInner {
-            suppressed: 0,
-            last_logged: None,
-        }))
-    }
-
-    /// If it's time to log again, returns Some with the number of suppressed
-    /// messages. Otherwise, returns None.
-    pub fn ok(&self) -> Option<usize> {
-        let now = Instant::now();
-        let mut locked = self.0.lock().unwrap();
-        let elapsed = locked
-            .last_logged
-            .map(|last_logged| now.saturating_duration_since(last_logged))
-            .unwrap_or(Duration::MAX);
-        if elapsed >= Duration::from_secs(30) {
-            let were_suppressed = locked.suppressed;
-            locked.suppressed = 0;
-            locked.last_logged = Some(now);
-            Some(were_suppressed)
-        } else {
-            locked.suppressed += 1;
-            None
+impl SpewFilter {
+    fn new(reporting_interval: Duration) -> Self {
+        SpewFilter {
+            spewers: Mutex::new(HashMap::new()),
+            interval: reporting_interval,
         }
     }
 }
 
-static EXPORT_SPEW: Spew = Spew::new();
+struct Spew {
+    count: usize,
+    started: Instant,
+}
+
+impl Spew {
+    fn new(started: Instant) -> Spew {
+        Spew { count: 0, started }
+    }
+}
+
+impl<S: Subscriber> Filter<S> for SpewFilter {
+    fn enabled(&self, meta: &Metadata<'_>, _cx: &Context<'_, S>) -> bool {
+        // Higher levels are more verbose, leave DEBUG & TRACE logging alone.
+        if *meta.level() > Level::INFO || meta.fields().field("suppressed").is_some() {
+            return true;
+        }
+        let k = meta.callsite();
+        let now = Instant::now();
+        let mut spewers = self.spewers.lock().unwrap();
+        match spewers.entry(k) {
+            Entry::Occupied(mut e) => {
+                let spew = e.get_mut();
+                if now - spew.started < self.interval {
+                    spew.count += 1;
+                    false
+                } else {
+                    let suppressed = spew.count;
+                    *spew = Spew::new(now);
+                    drop(spewers);
+                    if suppressed > 0 {
+                        warn!(
+                            ?suppressed,
+                            "suppressed duplicate log entries from {}",
+                            meta.name()
+                        );
+                    }
+                    true
+                }
+            }
+            Entry::Vacant(v) => {
+                v.insert(Spew::new(now));
+                true
+            }
+        }
+    }
+}
 
 // Quiet down some libs.
 fn should_log(module_path: Option<&str>) -> bool {
@@ -102,13 +128,10 @@ pub fn configure_with_options(options: Options) {
             Error::Trace(TraceError::ExportFailed(_))
             | Error::Trace(TraceError::ExportTimedOut(_)) => {
                 // These errors are unlikely to cause infinite cycles with logging.
-                if let Some(suppressed) = EXPORT_SPEW.ok() {
-                    warn!(
-                        error = %e,
-                        suppressed,
-                        "opentelemetry error",
-                    );
-                }
+                warn!(
+                    error = %e,
+                    "opentelemetry error",
+                );
             }
 
             _ => {
@@ -142,36 +165,30 @@ pub fn configure_with_options(options: Options) {
 
     opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
 
-    if std::io::stdout().is_terminal() {
-        let text_terminal = tracing_subscriber::fmt::layer()
-            .with_file(true)
-            .with_line_number(true)
-            .with_span_events(FmtSpan::ACTIVE)
-            .with_target(false);
+    let terminal = tracing_subscriber::fmt::layer()
+        .with_file(true)
+        .with_line_number(true)
+        .with_span_events(FmtSpan::ACTIVE)
+        .with_target(false);
 
-        let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
-
-        let subscriber = tracing_subscriber::registry()
-            .with(FilterFn::new(|metadata| should_log(metadata.module_path())))
-            .with(text_terminal.with_filter(LevelFilter::from_level(log_level)))
-            .with(telemetry);
-        tracing::subscriber::set_global_default(subscriber).unwrap();
+    let terminal = if std::io::stdout().is_terminal() {
+        terminal.boxed()
     } else {
-        let json_terminal = tracing_subscriber::fmt::layer()
-            .json()
-            .with_file(true)
-            .with_line_number(true)
-            .with_span_events(FmtSpan::ACTIVE)
-            .with_target(false);
+        terminal.json().boxed()
+    };
 
-        let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-        let subscriber = tracing_subscriber::registry()
-            .with(FilterFn::new(|metadata| should_log(metadata.module_path())))
-            .with(json_terminal.with_filter(LevelFilter::from_level(log_level)))
-            .with(telemetry);
-        tracing::subscriber::set_global_default(subscriber).unwrap();
-    }
+    let subscriber = tracing_subscriber::registry()
+        .with(
+            terminal
+                .with_filter(SpewFilter::new(Duration::from_millis(1000)))
+                .with_filter(LevelFilter::from_level(log_level)),
+        )
+        .with(telemetry)
+        .with(FilterFn::new(|metadata| should_log(metadata.module_path())));
+
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 
     info!(
         max_level = %log_level,

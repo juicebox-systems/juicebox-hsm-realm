@@ -35,6 +35,7 @@ cd entrust_hsm
     -mno-multiple -mno-string -meabi \
     -mprototype -mstrict-align -memb \
     -fno-builtin -Werror -DNF_CROSSCC_PPC_GCC=1 \
+    -I /opt/nfast/c/csd/include-see/cutils/ \
     -I /opt/nfast/c/csd/include-see/module/ \
     -I /opt/nfast/c/csd/include-see/module/glibsee \
     -pthread -c src/main.c \

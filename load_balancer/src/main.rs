@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::signal::unix::{signal, SignalKind};
 use tracing::{info, warn};
 
-use google::auth;
+use google::{auth, GrpcConnectionOptions};
 use observability::{logging, metrics};
 use secret_manager::{new_google_secret_manager, Periodic, SecretManager, SecretsFile};
 use server::ManagerOptions;
@@ -66,6 +66,41 @@ struct Args {
     /// Name of the PEM file containing the certificate(s) for terminating TLS.
     #[arg(long)]
     tls_cert: PathBuf,
+
+    /// The secrets manager gRPC request timeout setting, in ms.
+    #[arg(long="secrets-manager-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().timeout.as_millis().to_string())]
+    secrets_manager_timeout: Duration,
+
+    /// The secrets manager gRPC connection timeout setting, in ms.
+    #[arg(long="secrets-manager-connect-timeout",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
+    secrets_manager_connect_timeout: Duration,
+
+    /// The secrets manager gRPC http2 Keep-alive interval setting, in ms.
+    ///
+    /// Interval between sending http2 keep-alive ping messages.
+    #[arg(long = "secrets-manager-http-keepalive-interval",
+            value_parser=parse_duration,
+            default_value=GrpcConnectionOptions::default().http2_keepalive_interval.as_millis().to_string())]
+    pub secrets_manager_http2_keepalive_interval: Duration,
+
+    /// The secrets manager gRPC http2 Keep-alive timeout setting, in ms.
+    ///
+    /// The timeout duration waiting for a http2 keep-alive ping response.
+    #[arg(long = "secrets-manager-http-keepalive-timeout",
+        value_parser=parse_duration,
+        default_value=GrpcConnectionOptions::default().http2_keepalive_timeout.as_millis().to_string())]
+    pub secrets_manager_http2_keepalive_timeout: Duration,
+
+    /// The secrets manager gRPC http2 Keep-alive while idle setting.
+    ///
+    /// If true http2 keep alive messages will continue to be sent when the connection would otherwise be idle
+    #[arg(long = "secrets-manager-http-keepalive-while-idle",
+        default_value_t=GrpcConnectionOptions::default().http2_keepalive_while_idle)]
+    pub secrets_manager_http2_keepalive_while_idle: bool,
 }
 
 #[tokio::main]
@@ -134,11 +169,19 @@ async fn main() {
 
         None => {
             info!("connecting to Google Cloud Secret Manager");
+            let options = GrpcConnectionOptions {
+                timeout: args.secrets_manager_timeout,
+                connect_timeout: args.secrets_manager_connect_timeout,
+                http2_keepalive_interval: args.secrets_manager_http2_keepalive_interval,
+                http2_keepalive_timeout: args.secrets_manager_http2_keepalive_timeout,
+                http2_keepalive_while_idle: args.secrets_manager_http2_keepalive_while_idle,
+            };
             Box::new(
                 new_google_secret_manager(
                     &args.bigtable.project,
                     auth_manager.unwrap(),
                     Duration::from_secs(5),
+                    options,
                 )
                 .await
                 .expect("failed to load Google SecretManager secrets"),

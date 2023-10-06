@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn, Level};
 
-use google::auth;
+use google::{auth, GrpcConnectionOptions};
 use juicebox_networking::reqwest;
 use juicebox_networking::rpc::LoadBalancerService;
 use juicebox_realm_auth::creation::create_token;
@@ -436,6 +436,7 @@ async fn get_auth_key(
                     gcp_project.as_ref().expect("need --gcp-project"),
                     auth_manager,
                     Duration::MAX,
+                    GrpcConnectionOptions::default(),
                 )
                 .await
                 .context("failed to load secrets from Google Secret Manager")?,
