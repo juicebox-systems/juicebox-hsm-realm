@@ -464,7 +464,6 @@ dependencies = [
 [[package]]
 name = "ciborium"
 version = "0.2.1"
-source = "git+ssh://git@github.com/juicebox-systems/ciborium.git?rev=f0126e50a31d917e8ad0ff5bca78c0e80504eb46#f0126e50a31d917e8ad0ff5bca78c0e80504eb46"
 dependencies = [
  "ciborium-io",
  "ciborium-ll",
@@ -474,12 +473,10 @@ dependencies = [
 [[package]]
 name = "ciborium-io"
 version = "0.2.1"
-source = "git+ssh://git@github.com/juicebox-systems/ciborium.git?rev=f0126e50a31d917e8ad0ff5bca78c0e80504eb46#f0126e50a31d917e8ad0ff5bca78c0e80504eb46"
 
 [[package]]
 name = "ciborium-ll"
 version = "0.2.1"
-source = "git+ssh://git@github.com/juicebox-systems/ciborium.git?rev=f0126e50a31d917e8ad0ff5bca78c0e80504eb46#f0126e50a31d917e8ad0ff5bca78c0e80504eb46"
 dependencies = [
  "ciborium-io",
 ]
@@ -1073,7 +1070,6 @@ dependencies = [
 [[package]]
 name = "gcp_auth"
 version = "0.9.0"
-source = "git+ssh://git@github.com/juicebox-systems/gcp_auth.git?rev=edaccf4e99b7cdcec7646d67c4783e5fa2f46929#edaccf4e99b7cdcec7646d67c4783e5fa2f46929"
 dependencies = [
  "async-trait",
  "base64",

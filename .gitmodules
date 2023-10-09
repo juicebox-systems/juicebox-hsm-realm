@@ -1,3 +1,9 @@
+[submodule "ciborium"]
+	path = ciborium
+	url = git@github.com:juicebox-systems/ciborium
+[submodule "gcp_auth"]
+	path = gcp_auth
+	url = git@github.com:juicebox-systems/gcp_auth
 [submodule "googleapis"]
 	path = googleapis
 	url = https://github.com/googleapis/googleapis
