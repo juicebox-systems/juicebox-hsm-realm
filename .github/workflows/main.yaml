@@ -18,10 +18,6 @@ on:
   workflow_dispatch: {}
 
 env:
-  # Configures Cargo to use the CLI `git`, which is configured to access
-  # private repos. See
-  # <https://doc.rust-lang.org/cargo/appendix/git-authentication.html>.
-  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
   INSTALL_RUST_VERSION: "1.72"
 
 jobs:
@@ -34,14 +30,6 @@ jobs:
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
-
-    - name: Set up Git
-      run: |
-        # Configures the global `git` CLI to be able to access private repos.
-        # `cargo` will make use of this.
-        git config --global url.'https://github.com/'.insteadOf 'ssh://git@github.com/'
-        # Copy the encoded auth token from local config that actions/checkout configured.
-        git config --global http.'https://github.com/'.extraHeader "$(git config --local http.'https://github.com/'.extraHeader)"
 
     - name: Free up some space on image
       # see https://github.com/actions/runner-images/issues/2840
@@ -75,14 +63,6 @@ jobs:
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
-
-    - name: Set up Git
-      run: |
-        # Configures the global `git` CLI to be able to access private repos.
-        # `cargo` will make use of this.
-        git config --global url.'https://github.com/'.insteadOf 'ssh://git@github.com/'
-        # Copy the encoded auth token from local config that actions/checkout configured.
-        git config --global http.'https://github.com/'.extraHeader "$(git config --local http.'https://github.com/'.extraHeader)"
 
     - name: Free up some space on image
       # see https://github.com/actions/runner-images/issues/2840
@@ -148,14 +128,6 @@ jobs:
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
-
-    - name: Set up Git
-      run: |
-        # Configures the global `git` CLI to be able to access private repos.
-        # `cargo` will make use of this.
-        git config --global url.'https://github.com/'.insteadOf 'ssh://git@github.com/'
-        # Copy the encoded auth token from local config that actions/checkout configured.
-        git config --global http.'https://github.com/'.extraHeader "$(git config --local http.'https://github.com/'.extraHeader)"
 
     - name: Free up some space on image
       # see https://github.com/actions/runner-images/issues/2840
@@ -238,14 +210,6 @@ jobs:
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
-
-    - name: Set up Git
-      run: |
-        # Configures the global `git` CLI to be able to access private repos.
-        # `cargo` will make use of this.
-        git config --global url.'https://github.com/'.insteadOf 'ssh://git@github.com/'
-        # Copy the encoded auth token from local config that actions/checkout configured.
-        git config --global http.'https://github.com/'.extraHeader "$(git config --local http.'https://github.com/'.extraHeader)"
 
     - name: Install Rust
       uses: actions-rs/toolchain@v1
@@ -356,14 +320,6 @@ jobs:
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
-
-    - name: Set up Git
-      run: |
-        # Configures the global `git` CLI to be able to access private repos.
-        # `cargo` will make use of this.
-        git config --global url.'https://github.com/'.insteadOf 'ssh://git@github.com/'
-        # Copy the encoded auth token from local config that actions/checkout configured.
-        git config --global http.'https://github.com/'.extraHeader "$(git config --local http.'https://github.com/'.extraHeader)"
 
     - name: Install Rust
       uses: actions-rs/toolchain@v1
