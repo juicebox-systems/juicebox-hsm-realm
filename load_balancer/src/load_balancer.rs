@@ -39,7 +39,8 @@ use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_networking::rpc;
 use juicebox_realm_api::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use juicebox_realm_api::types::{RealmId, JUICEBOX_VERSION_HEADER};
-use juicebox_realm_auth::validation::Validator as AuthTokenValidator;
+use juicebox_realm_auth::validation::{Require, Validator as AuthTokenValidator};
+use juicebox_realm_auth::Scope;
 use observability::logging::TracingSource;
 use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
@@ -465,7 +466,7 @@ async fn handle_client_request_inner(
         return Response::Unavailable;
     };
 
-    let validator = AuthTokenValidator::new(request.realm);
+    let validator = AuthTokenValidator::new(request.realm, Require::ScopeOrMissing(Scope::User));
     let Ok((tenant, version)) = validator.parse_key_id(&request.auth_token) else {
         return Response::InvalidAuth;
     };
@@ -488,6 +489,7 @@ async fn handle_client_request_inner(
         user: &claims.subject,
     }
     .build();
+    request_tags.push(tag!(missing_scope: "{}", claims.scope.is_none()));
     request_tags.push(tag!(tenant: "{}", claims.issuer));
 
     for partition in partitions {

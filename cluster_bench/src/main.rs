@@ -15,7 +15,8 @@ use tracing::{debug, error, info, warn, Level};
 use google::{auth, GrpcConnectionOptions};
 use juicebox_networking::reqwest;
 use juicebox_networking::rpc::LoadBalancerService;
-use juicebox_realm_auth::{creation::create_token, AuthKey, AuthKeyVersion, Claims};
+use juicebox_realm_auth::creation::create_token;
+use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
 use juicebox_sdk::{
     AuthToken, Configuration, Pin, PinHashingMode, Policy, RealmId, RecoverError, TokioSleeper,
     UserInfo, UserSecret, JUICEBOX_VERSION_HEADER, VERSION,
@@ -380,6 +381,7 @@ impl ClientBuilder {
                             issuer: self.tenant.clone(),
                             subject: format!("{}{}", self.user_prefix, user_num),
                             audience: realm.id,
+                            scope: Some(Scope::User),
                         },
                         auth_key,
                         auth_key_version,

@@ -11,6 +11,7 @@ use google::{auth, GrpcConnectionOptions};
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_realm_api::types::RealmId;
+use juicebox_realm_auth::Scope;
 use observability::{logging, metrics};
 use secret_manager::new_google_secret_manager;
 
@@ -46,12 +47,17 @@ enum Command {
         ///
         /// The tenant's secret auth key must already exist in GCP Secret
         /// Manager.
+        #[arg(short = 't', long)]
         tenant: String,
         /// Any user ID.
+        #[arg(short = 'u', long)]
         user: String,
         /// The ID of the realm that the token should be valid for.
-        #[arg(value_parser = parse_realm_id)]
+        #[arg(short='r', long, value_parser = parse_realm_id)]
         realm: RealmId,
+        /// The scope to include in the token.
+        #[arg(short = 's', long, default_value_t)]
+        scope: Scope,
     },
 
     /// Print a configuration that uses the discoverable realm(s).
@@ -310,9 +316,16 @@ async fn run(args: Args) -> anyhow::Result<()> {
             tenant,
             user,
             realm,
+            scope,
         } => {
-            commands::auth_token::mint_auth_token(&secret_manager.unwrap(), tenant, user, realm)
-                .await
+            commands::auth_token::mint_auth_token(
+                &secret_manager.unwrap(),
+                tenant,
+                user,
+                realm,
+                scope,
+            )
+            .await
         }
 
         Command::Configuration { load_balancer } => {

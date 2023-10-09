@@ -15,7 +15,8 @@ use tracing::{debug, error, info, trace, warn, Level};
 
 use juicebox_networking::reqwest;
 use juicebox_networking::rpc::LoadBalancerService;
-use juicebox_realm_auth::{creation::create_token, AuthKey, AuthKeyVersion, Claims};
+use juicebox_realm_auth::creation::create_token;
+use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
 use juicebox_sdk::{
     AuthToken, Configuration, DeleteError, Pin, PinHashingMode, Policy, RealmId, RecoverError,
     RegisterError, TokioSleeper, UserInfo, UserSecret, JUICEBOX_VERSION_HEADER, VERSION,
@@ -227,6 +228,7 @@ impl ClientBuilder {
                             issuer: self.tenant.clone(),
                             subject: format!("{}{}", self.user_prefix, user_num),
                             audience: realm.id,
+                            scope: Some(Scope::User),
                         },
                         auth_key,
                         auth_key_version,

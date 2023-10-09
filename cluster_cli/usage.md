@@ -92,21 +92,25 @@ Create an auth token for a test tenant.
 
 The token is printed to stdout.
 
-Usage: cluster auth-token <TENANT> <USER> <REALM>
+Usage: cluster auth-token [OPTIONS] --tenant <TENANT> --user <USER> --realm <REALM>
 
-Arguments:
-  <TENANT>
+Options:
+  -t, --tenant <TENANT>
           A tenant ID that must begin with "test-".
           
           The tenant's secret auth key must already exist in GCP Secret Manager.
 
-  <USER>
+  -u, --user <USER>
           Any user ID
 
-  <REALM>
+  -r, --realm <REALM>
           The ID of the realm that the token should be valid for
 
-Options:
+  -s, --scope <SCOPE>
+          The scope to include in the token
+          
+          [default: user]
+
   -h, --help
           Print help (see a summary with '-h')
 

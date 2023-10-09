@@ -16,7 +16,8 @@ use tracing::{info, warn};
 use hsm_api::{OwnedRange, RecordId};
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_process_group::ProcessGroup;
-use juicebox_realm_auth::{creation::create_token, Claims};
+use juicebox_realm_auth::creation::create_token;
+use juicebox_realm_auth::{Claims, Scope};
 use juicebox_sdk::{AuthToken, Configuration, PinHashingMode, Realm, RealmId};
 use observability::{logging, metrics};
 use secret_manager::{tenant_secret_name, BulkLoad, SecretManager, SecretsFile};
@@ -319,6 +320,7 @@ async fn main() {
                         issuer: tenant.to_owned(),
                         subject: String::from("mario"),
                         audience: realm.id,
+                        scope: Some(Scope::User),
                     },
                     &auth_key,
                     auth_key_version,
