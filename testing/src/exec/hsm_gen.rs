@@ -72,7 +72,6 @@ impl HsmGenerator {
         };
 
         let mut agent_urls = Vec::with_capacity(count);
-        let mut next_is_leader = true;
 
         if self.entrust.0 {
             let agent_port = self.port.next();
@@ -84,7 +83,6 @@ impl HsmGenerator {
                     .join(mode)
                     .join("entrust_agent"),
             );
-            next_is_leader = false;
             cmd.arg("--listen").arg(agent_address);
             cmd.arg("--image").arg(
                 path_to_target
@@ -129,7 +127,6 @@ impl HsmGenerator {
             if let Some(d) = &hsm_dir {
                 cmd.arg("--state-dir").arg(d.as_os_str());
             }
-            next_is_leader = false;
             bigtable.add_to_cmd(&mut cmd);
             if let Some(url) = &pubsub_url {
                 cmd.arg("--pubsub-url").arg(url.to_string());
