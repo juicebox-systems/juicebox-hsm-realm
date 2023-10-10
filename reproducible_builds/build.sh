@@ -5,7 +5,7 @@ set -eux
 # cd to repo root directory
 cd -P -- "$(dirname -- "$0")/.."
 
-git submodule update --init -- sdk
+git submodule update --init -- ciborium gcp_auth sdk
 mkdir -p target/reproducible
 
 if [ "$(uname -s)" = Darwin ]; then

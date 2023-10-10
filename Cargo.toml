@@ -64,9 +64,9 @@ default-members = [
     "testing",
 ]
 
-# This allows the sdk packages to reference their workspace (for dependencies
+# This allows the submodules to reference their workspaces (for dependencies
 # and such), rather than this one.
-exclude = ["sdk"]
+exclude = ["ciborium", "gcp_auth", "sdk"]
 resolver = "2"
 
 [workspace.package]
@@ -184,7 +184,11 @@ tokio = { version = "1.32.0", features = [
     "signal",
 ] }
 tokio-rustls = "0.24.1"
-tonic = { version = "0.10.0", features = ["channel", "tls", "tls-webpki-roots"] }
+tonic = { version = "0.10.0", features = [
+    "channel",
+    "tls",
+    "tls-webpki-roots",
+] }
 tonic-build = "0.10.0"
 tower-service = "0.3.2"
 tracing = { version = "0.1.37", default-features = false, features = [
@@ -200,7 +204,19 @@ x25519-dalek = { version = "2.0", features = [
     "static_secrets",
 ] }
 
+# These local forks are checked out as Git submodules.
+#
+# Defining the patch section here instead of the paths above allows tooling
+# like cargo-upgrade (from the cargo-edit project) to report when the forked
+# versions fall behind the crates.io versions.
+#
+# Using Git submodules instead of poining Cargo to the Git repositories works
+# better for offline reproducible builds (for key ceremonies). If we tell Cargo
+# about the Git repos, the Git information ends up in Cargo.lock, and we don't
+# want to need the full Git repo for offline builds. This also simplifies the
+# GitHub Actions workflows, which can easily check out submodules but require
+# more configuration to set up Cargo to access private repos.
 [patch.crates-io]
-gcp_auth = { git = "ssh://git@github.com/juicebox-systems/gcp_auth.git", rev = "edaccf4e99b7cdcec7646d67c4783e5fa2f46929" }
-ciborium = { git = "ssh://git@github.com/juicebox-systems/ciborium.git", rev = "f0126e50a31d917e8ad0ff5bca78c0e80504eb46" }
-ciborium-io = { git = "ssh://git@github.com/juicebox-systems/ciborium.git", rev = "f0126e50a31d917e8ad0ff5bca78c0e80504eb46" }
+gcp_auth = { path = "gcp_auth" }
+ciborium = { path = "ciborium/ciborium" }
+ciborium-io = { path = "ciborium/ciborium-io" }
