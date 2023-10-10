@@ -157,15 +157,23 @@ impl<T: Transport + 'static> Agent<T> {
 
     /// Called at service startup, start watching for any groups that the HSM is already a member of.
     async fn restart_watching(&self) {
-        let status = self.0.hsm.send(hsm_api::StatusRequest {}).await;
-        if let Ok(sr) = status {
-            if let Some(realm) = sr.realm {
-                for g in &realm.groups {
-                    let idx = match g.captured {
-                        Some((index, _)) => index.next(),
-                        None => LogIndex::FIRST,
-                    };
-                    self.start_watching(realm.id, g.id, idx);
+        loop {
+            match self.0.hsm.send(hsm_api::StatusRequest {}).await {
+                Err(err) => {
+                    warn!(?err, "failed to get HSM status, log watching delayed");
+                    sleep(Duration::from_secs(1)).await
+                }
+                Ok(sr) => {
+                    if let Some(realm) = sr.realm {
+                        for g in &realm.groups {
+                            let idx = match g.captured {
+                                Some((index, _)) => index.next(),
+                                None => LogIndex::FIRST,
+                            };
+                            self.start_watching(realm.id, g.id, idx);
+                        }
+                    }
+                    return;
                 }
             }
         }
