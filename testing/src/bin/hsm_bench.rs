@@ -40,7 +40,7 @@ struct Args {
     /// Use an entrust HSM/Agent as the only HSM.
     ///
     /// You must provide signed machine and userdata files at
-    /// "target/powerpc-unknown-linux-gnu/{mode}/entrust-hsm.sar" and
+    /// "target/powerpc-unknown-linux-gnu/{mode}/entrust_hsm.sar" and
     /// "target/powerpc-unknown-linux-gnu/{mode}/userdata.sar".
     #[arg(long, default_value_t = false)]
     entrust: bool,

@@ -89,7 +89,7 @@ impl HsmGenerator {
                     .join("target")
                     .join("powerpc-unknown-linux-gnu")
                     .join(mode)
-                    .join("entrust-hsm.sar"),
+                    .join("entrust_hsm.sar"),
             );
             if hsm_dir.is_none() {
                 cmd.arg("--reinitialize");

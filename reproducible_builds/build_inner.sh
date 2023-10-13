@@ -27,7 +27,7 @@ cargo build --release \
     -p load_balancer
 
 outputs='
-    powerpc-unknown-linux-gnu/release/entrust-hsm.elf
+    powerpc-unknown-linux-gnu/release/entrust_hsm.elf
     release/cluster
     release/cluster_manager
     release/entrust_agent
