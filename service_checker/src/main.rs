@@ -1,5 +1,6 @@
 use ::reqwest::Certificate;
 use anyhow::{anyhow, Context};
+use async_trait::async_trait;
 use clap::Parser;
 use dogstatsd::{ServiceCheckOptions, ServiceStatus};
 use futures::StreamExt;
@@ -7,14 +8,15 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::time::timeout;
 use tracing::{debug, error, info, trace, warn, Level};
 
-use juicebox_networking::reqwest;
 use juicebox_networking::rpc::LoadBalancerService;
+use juicebox_networking::{http, reqwest};
 use juicebox_realm_auth::creation::create_token;
 use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
 use juicebox_sdk::{
@@ -26,11 +28,7 @@ use observability::{logging, metrics};
 use secret_manager::{tenant_secret_name, BulkLoad, SecretManager, SecretsFile};
 use service_core::clap_parsers::parse_duration;
 
-type Client = juicebox_sdk::Client<
-    TokioSleeper,
-    reqwest::Client<LoadBalancerService>,
-    HashMap<RealmId, AuthToken>,
->;
+type Client = juicebox_sdk::Client<TokioSleeper, HttpReporter, HashMap<RealmId, AuthToken>>;
 
 /// Runs a number of register/recover/delete requests and reports
 /// success/failure via a Datadog health check.
@@ -129,11 +127,13 @@ async fn run(args: &Args) -> anyhow::Result<()> {
         })
         .collect::<anyhow::Result<_>>()?;
 
-    let http_client = reqwest::Client::new(reqwest::ClientOptions {
-        additional_root_certs: certs.clone(),
-        timeout: args.http_timeout,
-        default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
-    });
+    let http_client = HttpReporter::new(reqwest::Client::<LoadBalancerService>::new(
+        reqwest::ClientOptions {
+            additional_root_certs: certs.clone(),
+            timeout: args.http_timeout,
+            default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
+        },
+    ));
 
     let client_builder = Arc::new(ClientBuilder {
         shared_http_client: http_client,
@@ -166,6 +166,7 @@ async fn run(args: &Args) -> anyhow::Result<()> {
 
 async fn run_op(user_num: u64, client_builder: Arc<ClientBuilder>) -> Result<(), OpError> {
     trace!(?user_num, "starting register/recover");
+    let start = Instant::now();
     let client = client_builder.build(user_num);
     let pin = Pin::from(format!("thepin{user_num}").into_bytes());
     let info = UserInfo::from(format!("user_info{user_num}").into_bytes());
@@ -180,7 +181,12 @@ async fn run_op(user_num: u64, client_builder: Arc<ClientBuilder>) -> Result<(),
         return Err(OpError::RecoveredIncorrectSecret);
     }
     client.delete().await?;
-    debug!(?user_num, "completed register/recover/delete for user");
+    debug!(
+        pid = std::process::id(),
+        ?user_num,
+        elapsed = ?start.elapsed(),
+        "completed register/recover/delete for user"
+    );
     Ok(())
 }
 
@@ -197,7 +203,7 @@ enum OpError {
 }
 
 struct ClientBuilder {
-    shared_http_client: reqwest::Client<LoadBalancerService>,
+    shared_http_client: HttpReporter,
     configuration: Configuration,
     tenant: String,
     auth_key_version: AuthKeyVersion,
@@ -289,6 +295,53 @@ fn report_service_check(r: &anyhow::Result<()>, env: &str) {
                 }),
             )
         }
+    }
+}
+
+struct HttpReporter {
+    client: reqwest::Client<LoadBalancerService>,
+    // count of requests made by this specific instance
+    count: AtomicUsize,
+}
+
+impl HttpReporter {
+    fn new(client: reqwest::Client<LoadBalancerService>) -> Self {
+        Self {
+            client,
+            count: AtomicUsize::new(0),
+        }
+    }
+}
+impl Clone for HttpReporter {
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            count: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl http::Client for HttpReporter {
+    async fn send(&self, request: http::Request) -> Option<http::Response> {
+        let start = Instant::now();
+        let count = self.count.fetch_add(1, Ordering::Relaxed);
+        let result = self.client.send(request).await;
+        let elapsed = start.elapsed();
+        if let Some(r) = &result {
+            if r.status_code != 200 {
+                warn!(
+                    prev_request_count=%count,
+                    status_code = %r.status_code,
+                    body = std::str::from_utf8(&r.body).unwrap_or("response body not UTF8"),
+                    "http request returned unexpected status code"
+                )
+            }
+        }
+        if elapsed > Duration::from_secs(1) {
+            warn!(?elapsed, prev_request_count=%count, "slow http request")
+        }
+        result
     }
 }
 

@@ -2622,6 +2622,7 @@ name = "service_checker"
 version = "0.2.3"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
  "dogstatsd",
  "expect-test",
