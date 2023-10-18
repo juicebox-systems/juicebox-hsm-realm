@@ -10,7 +10,7 @@ use std::error::Error;
 use std::sync::Arc;
 use tonic::transport::{Endpoint, Uri};
 use tonic::Code;
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 use juicebox_realm_api::types::RealmId;
 use observability::{metrics, metrics_tag as tag};
@@ -57,6 +57,7 @@ impl Publisher {
 
 #[async_trait]
 impl pubsub_api::Publisher for Publisher {
+    #[instrument(level = "trace", skip(self, m))]
     async fn publish(
         &self,
         realm: RealmId,
@@ -107,6 +108,7 @@ pub fn subscription_name(project: &str, realm: RealmId, tenant: &str) -> String 
 }
 
 impl Publisher {
+    #[instrument(level = "trace", skip(self))]
     async fn create_topic_and_sub(
         &self,
         realm: RealmId,
