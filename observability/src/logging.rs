@@ -101,13 +101,28 @@ fn should_log(module_path: Option<&str>) -> bool {
 pub fn configure(service_name: &str) {
     configure_with_options(Options {
         process_name: service_name.to_owned(),
-        default_log_level: Level::INFO,
+        ..Options::default()
     })
 }
 
 pub struct Options {
     pub process_name: String,
     pub default_log_level: Level,
+    pub additional_tags: HashMap<String, String>,
+    pub trace_sampler: Sampler,
+    pub background_trace_sampler: Sampler,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            process_name: String::new(),
+            default_log_level: Level::INFO,
+            additional_tags: HashMap::new(),
+            trace_sampler: Sampler::TraceIdRatioBased(0.1),
+            background_trace_sampler: Sampler::TraceIdRatioBased(0.005),
+        }
+    }
 }
 
 pub fn configure_with_options(options: Options) {
@@ -141,6 +156,10 @@ pub fn configure_with_options(options: Options) {
         }
     })
     .unwrap();
+    let mut resource_properties = vec![KeyValue::new("service.name", options.process_name)];
+    for (k, v) in options.additional_tags {
+        resource_properties.push(KeyValue::new(k, v));
+    }
 
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
@@ -155,10 +174,7 @@ pub fn configure_with_options(options: Options) {
                     default: Sampler::TraceIdRatioBased(0.1),
                     background: Sampler::TraceIdRatioBased(0.005),
                 })
-                .with_resource(Resource::new(vec![KeyValue::new(
-                    "service.name",
-                    options.process_name,
-                )])),
+                .with_resource(Resource::new(resource_properties)),
         )
         .install_batch(opentelemetry::runtime::Tokio)
         .expect("TODO");

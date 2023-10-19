@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use clap::Parser;
 use dogstatsd::{ServiceCheckOptions, ServiceStatus};
 use futures::StreamExt;
+use opentelemetry::sdk::trace::Sampler;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::time::timeout;
-use tracing::{debug, error, info, trace, warn, Level};
+use tracing::{debug, error, info, trace, warn};
 
 use juicebox_networking::rpc::LoadBalancerService;
 use juicebox_networking::{http, reqwest};
@@ -55,6 +56,10 @@ struct Args {
     #[arg(long, value_name = "NAME", default_value = "test-juiceboxmonitor")]
     tenant: String,
 
+    /// Prefix of the user name to generate auth tokens for.
+    #[arg(long, default_value = "Mario")]
+    user: String,
+
     /// DER file containing self-signed certificate for connecting to the load
     /// balancers over TLS. May be given more than once.
     #[arg(long = "tls-certificate", value_name = "PATH")]
@@ -71,23 +76,44 @@ struct Args {
     /// Timeout setting for http requests. in milliseconds
     #[arg(long, default_value="5000", value_parser=parse_duration)]
     http_timeout: Duration,
+
+    /// Continuously run the service check in a loop
+    #[arg(long, default_value_t = false)]
+    forever: bool,
 }
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    let args = Args::parse();
     logging::configure_with_options(logging::Options {
         process_name: String::from("service_checker"),
-        default_log_level: Level::INFO,
+        additional_tags: HashMap::from([(String::from("env"), args.env.clone())]),
+        trace_sampler: Sampler::AlwaysOn,
+        ..logging::Options::default()
     });
 
-    let args = Args::parse();
-    let res = match timeout(args.timeout, run(&args)).await {
-        Ok(res) => res,
-        Err(_) => Err(anyhow!(
-            "timed out waiting for register/recover to complete"
-        )),
+    info!(?args.tenant, ?args.user, "Starting service checker");
+    let checker = match Checker::new(&args).await {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("error: {err}");
+            return ExitCode::FAILURE;
+        }
     };
-    report_service_check(&res, &args.env);
+
+    let mut res;
+    loop {
+        res = match timeout(args.timeout, checker.run(&args)).await {
+            Ok(res) => res,
+            Err(_) => Err(anyhow!(
+                "timed out waiting for register/recover to complete"
+            )),
+        };
+        report_service_check(&res, &args.env);
+        if !args.forever {
+            break;
+        }
+    }
 
     info!(pid = std::process::id(), "exiting");
     logging::flush();
@@ -101,66 +127,84 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(args: &Args) -> anyhow::Result<()> {
-    let mut configuration =
-        Configuration::from_json(&args.configuration).context("failed to parse configuration")?;
-    if configuration.pin_hashing_mode != PinHashingMode::FastInsecure {
-        warn!(
-            was = ?configuration.pin_hashing_mode,
-            "overriding configuration's pin hashing mode to FastInsecure"
-        );
-        configuration.pin_hashing_mode = PinHashingMode::FastInsecure;
+struct Checker {
+    configuration: Configuration,
+    auth_key: AuthKey,
+    auth_key_version: AuthKeyVersion,
+    certs: Vec<Certificate>,
+}
+
+impl Checker {
+    async fn new(args: &Args) -> anyhow::Result<Self> {
+        let mut configuration = Configuration::from_json(&args.configuration)
+            .context("failed to parse configuration")?;
+        if configuration.pin_hashing_mode != PinHashingMode::FastInsecure {
+            warn!(
+                was = ?configuration.pin_hashing_mode,
+                "overriding configuration's pin hashing mode to FastInsecure"
+            );
+            configuration.pin_hashing_mode = PinHashingMode::FastInsecure;
+        }
+
+        let (auth_key, auth_key_version) = get_auth_key(&args.tenant, &args.secrets_file)
+            .await
+            .with_context(|| format!("failed to get auth key for tenant {:?}", args.tenant))?;
+
+        let certs: Vec<Certificate> = args
+            .tls_certificates
+            .iter()
+            .map(|path| {
+                let file = fs::read(path)
+                    .with_context(|| format!("failed to read TLS certificate at {path:?}"))?;
+                Certificate::from_der(&file)
+                    .with_context(|| format!("failed to decode TLS certificate at {path:?}"))
+            })
+            .collect::<anyhow::Result<_>>()?;
+
+        Ok(Checker {
+            configuration,
+            auth_key,
+            auth_key_version,
+            certs,
+        })
     }
 
-    let (auth_key, auth_key_version) = get_auth_key(&args.tenant, &args.secrets_file)
-        .await
-        .with_context(|| format!("failed to get auth key for tenant {:?}", args.tenant))?;
+    async fn run(&self, args: &Args) -> anyhow::Result<()> {
+        let http_client = HttpReporter::new(reqwest::Client::<LoadBalancerService>::new(
+            reqwest::ClientOptions {
+                additional_root_certs: self.certs.clone(),
+                timeout: args.http_timeout,
+                default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
+            },
+        ));
 
-    let certs: Vec<Certificate> = args
-        .tls_certificates
-        .iter()
-        .map(|path| {
-            let file = fs::read(path)
-                .with_context(|| format!("failed to read TLS certificate at {path:?}"))?;
-            Certificate::from_der(&file)
-                .with_context(|| format!("failed to decode TLS certificate at {path:?}"))
-        })
-        .collect::<anyhow::Result<_>>()?;
+        let client_builder = Arc::new(ClientBuilder {
+            shared_http_client: http_client,
+            configuration: self.configuration.clone(),
+            tenant: args.tenant.clone(),
+            auth_key: self.auth_key.clone(),
+            auth_key_version: self.auth_key_version,
+            user_prefix: args.user.clone(),
+        });
 
-    let http_client = HttpReporter::new(reqwest::Client::<LoadBalancerService>::new(
-        reqwest::ClientOptions {
-            additional_root_certs: certs.clone(),
-            timeout: args.http_timeout,
-            default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
-        },
-    ));
+        let mut stream =
+            futures::stream::iter((1..=args.count).map(|i| run_op(i, client_builder.clone())))
+                .buffer_unordered(args.concurrency);
 
-    let client_builder = Arc::new(ClientBuilder {
-        shared_http_client: http_client,
-        configuration,
-        tenant: args.tenant.clone(),
-        auth_key,
-        auth_key_version,
-        user_prefix: String::from("Mario"),
-    });
-
-    let mut stream =
-        futures::stream::iter((1..=args.count).map(|i| run_op(i, client_builder.clone())))
-            .buffer_unordered(args.concurrency);
-
-    let mut last_error: Option<OpError> = None;
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(_) => {}
-            Err(err) => {
-                warn!(%err, "error during register/recover operation");
-                last_error = Some(err);
+        let mut last_error: Option<OpError> = None;
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(_) => {}
+                Err(err) => {
+                    warn!(%err, "error during register/recover operation");
+                    last_error = Some(err);
+                }
             }
         }
-    }
-    match last_error {
-        Some(err) => Err(err.into()),
-        None => Ok(()),
+        match last_error {
+            Some(err) => Err(err.into()),
+            None => Ok(()),
+        }
     }
 }
 

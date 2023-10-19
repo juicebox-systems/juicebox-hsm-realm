@@ -2631,6 +2631,7 @@ dependencies = [
  "juicebox_realm_auth",
  "juicebox_sdk",
  "observability",
+ "opentelemetry",
  "reqwest",
  "secret_manager",
  "service_core",
