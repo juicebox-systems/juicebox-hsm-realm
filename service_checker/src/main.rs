@@ -87,7 +87,7 @@ async fn main() -> ExitCode {
     let args = Args::parse();
     logging::configure_with_options(logging::Options {
         process_name: String::from("service_checker"),
-        additional_tags: HashMap::from_iter([(String::from("env"), args.env.clone())]),
+        additional_tags: HashMap::from([(String::from("env"), args.env.clone())]),
         trace_sampler: Sampler::AlwaysOn,
         ..logging::Options::default()
     });

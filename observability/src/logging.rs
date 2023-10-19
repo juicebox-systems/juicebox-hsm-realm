@@ -116,9 +116,9 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            process_name: Default::default(),
+            process_name: String::new(),
             default_log_level: Level::INFO,
-            additional_tags: Default::default(),
+            additional_tags: HashMap::new(),
             trace_sampler: Sampler::TraceIdRatioBased(0.1),
             background_trace_sampler: Sampler::TraceIdRatioBased(0.005),
         }
