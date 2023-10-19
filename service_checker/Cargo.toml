@@ -16,6 +16,7 @@ juicebox_sdk = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_realm_auth = { workspace = true }
 observability = { workspace = true }
+opentelemetry = { workspace = true }
 reqwest = { workspace = true }
 secret_manager = { workspace = true }
 service_core = { workspace = true }

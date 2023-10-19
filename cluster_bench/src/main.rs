@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::{debug, error, info, warn, Level};
+use tracing::{debug, error, info, warn};
 
 use google::{auth, GrpcConnectionOptions};
 use juicebox_networking::reqwest;
@@ -105,7 +105,7 @@ struct Args {
 async fn main() -> ExitCode {
     logging::configure_with_options(logging::Options {
         process_name: String::from("cluster_bench"),
-        default_log_level: Level::INFO,
+        ..logging::Options::default()
     });
 
     let args = Args::parse();
