@@ -171,8 +171,8 @@ pub fn configure_with_options(options: Options) {
         .with_trace_config(
             opentelemetry::sdk::trace::config()
                 .with_sampler(TracingSourceSampler {
-                    default: Sampler::TraceIdRatioBased(0.1),
-                    background: Sampler::TraceIdRatioBased(0.005),
+                    default: options.trace_sampler,
+                    background: options.background_trace_sampler,
                 })
                 .with_resource(Resource::new(resource_properties)),
         )
