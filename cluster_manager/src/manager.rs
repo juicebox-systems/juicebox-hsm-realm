@@ -6,7 +6,7 @@ use hyper::http;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use opentelemetry_http::HeaderExtractor;
+use observability::tracing::TracingMiddleware;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,7 +16,6 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{info, instrument, warn, Instrument, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use agent_api::AgentService;
@@ -175,7 +174,7 @@ impl Manager {
                     match listener.accept().await {
                         Err(e) => warn!("error accepting connection: {e:?}"),
                         Ok((stream, _)) => {
-                            let manager = self.clone();
+                            let manager = TracingMiddleware::new(self.clone());
                             tokio::spawn(async move {
                                 if let Err(e) = http1::Builder::new()
                                     .serve_connection(stream, manager)
@@ -197,13 +196,7 @@ impl Service<Request<IncomingBody>> for Manager {
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    #[instrument(level = "trace", skip(self, request))]
     fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
-        let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
-            propagator.extract(&HeaderExtractor(request.headers()))
-        });
-        Span::current().set_parent(parent_context);
-
         let manager = self.clone();
         Box::pin(
             async move {
@@ -233,6 +226,7 @@ impl Service<Request<IncomingBody>> for Manager {
 
 impl Manager {
     /// Perform one pass of the management tasks.
+    #[instrument(level = "trace", skip(self))]
     async fn run(&self) {
         if let Err(err) = self.ensure_groups_have_leader().await {
             warn!(?err, "Error while checking/updating cluster state")

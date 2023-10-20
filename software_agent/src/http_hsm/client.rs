@@ -1,6 +1,11 @@
 use async_trait::async_trait;
+use http::{HeaderMap, HeaderName, HeaderValue};
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
+use opentelemetry::propagation::Injector;
 use std::fmt::Debug;
+use std::str::FromStr;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use agent_core::hsm::Transport;
@@ -35,7 +40,22 @@ impl Transport for HsmHttpClient {
         _msg_name: &'static str,
         msg: Vec<u8>,
     ) -> Result<Vec<u8>, Self::Error> {
-        match self.http.post(self.hsm.clone()).body(msg).send().await {
+        let mut headers = HeaderMap::new();
+        opentelemetry::global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(
+                &Span::current().context(),
+                &mut HeaderInjector::new(&mut headers),
+            )
+        });
+
+        match self
+            .http
+            .post(self.hsm.clone())
+            .body(msg)
+            .headers(headers)
+            .send()
+            .await
+        {
             Err(err) => Err(HsmHttpTransportError::Network(err)),
             Ok(response) if response.status().is_success() => {
                 let resp_body = response
@@ -46,6 +66,25 @@ impl Transport for HsmHttpClient {
             }
             Ok(response) => Err(HsmHttpTransportError::HttpStatus(response.status())),
         }
+    }
+}
+
+struct HeaderInjector<'a> {
+    headers: &'a mut HeaderMap,
+}
+
+impl<'a> HeaderInjector<'a> {
+    fn new(headers: &'a mut HeaderMap) -> Self {
+        HeaderInjector { headers }
+    }
+}
+
+impl<'a> Injector for HeaderInjector<'a> {
+    fn set(&mut self, key: &str, value: String) {
+        self.headers.insert(
+            HeaderName::from_str(key).expect("header name not to be bogus"),
+            HeaderValue::from_str(&value).expect("header value to not be bogus"),
+        );
     }
 }
 

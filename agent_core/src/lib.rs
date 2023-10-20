@@ -6,7 +6,7 @@ use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use opentelemetry_http::HeaderExtractor;
+use observability::tracing::TracingMiddleware;
 use serde_json::json;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -276,7 +276,7 @@ impl<T: Transport + 'static> Agent<T> {
                             let agent = self.clone();
                             tokio::spawn(async move {
                                 if let Err(e) = http1::Builder::new()
-                                    .serve_connection(stream, agent.clone())
+                                    .serve_connection(stream, TracingMiddleware::new(agent.clone()))
                                     .await
                                 {
                                     warn!("error serving connection: {e:?}");
@@ -421,13 +421,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    #[instrument(level = "trace", skip(self, request))]
     fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
-        let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
-            propagator.extract(&HeaderExtractor(request.headers()))
-        });
-        Span::current().set_parent(parent_context);
-
         // If the client disconnects while the request processing is still in
         // flight the future we return from this function gets dropped and it
         // won't progress any further than its next .await point. This is
@@ -899,6 +893,7 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
+    #[instrument(level = "trace")]
     async fn handle_read_captured(
         &self,
         request: ReadCapturedRequest,

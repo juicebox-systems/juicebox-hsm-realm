@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::time::timeout;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use juicebox_networking::rpc::LoadBalancerService;
 use juicebox_networking::{http, reqwest};
@@ -169,6 +169,7 @@ impl Checker {
         })
     }
 
+    #[instrument(level = "trace", skip(self))]
     async fn run(&self, args: &Args) -> anyhow::Result<()> {
         let http_client = HttpReporter::new(reqwest::Client::<LoadBalancerService>::new(
             reqwest::ClientOptions {
@@ -208,8 +209,8 @@ impl Checker {
     }
 }
 
+#[instrument(level = "trace", skip(client_builder))]
 async fn run_op(user_num: u64, client_builder: Arc<ClientBuilder>) -> Result<(), OpError> {
-    trace!(?user_num, "starting register/recover");
     let start = Instant::now();
     let client = client_builder.build(user_num);
     let pin = Pin::from(format!("thepin{user_num}").into_bytes());

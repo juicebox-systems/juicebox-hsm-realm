@@ -1,5 +1,6 @@
 use clap::Parser;
 use futures::future;
+use opentelemetry::sdk::trace::Sampler;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -105,7 +106,12 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("juicebox-load-balancer");
+    logging::configure_with_options(logging::Options {
+        process_name: String::from("juicebox-load-balancer"),
+        // We intentionally don't want to trace everything any client asks for.
+        trace_sampler: Sampler::TraceIdRatioBased(0.1),
+        ..logging::Options::default()
+    });
     panic::set_abort_on_panic();
 
     let args = Args::parse();

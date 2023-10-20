@@ -10,7 +10,7 @@ use hyper::server::conn::{http1, http2};
 use hyper::service::Service;
 use hyper::StatusCode;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use opentelemetry_http::HeaderExtractor;
+use observability::tracing::TracingMiddleware;
 use rustls::server::ResolvesServerCert;
 use semver::Version;
 use serde::Serialize;
@@ -25,7 +25,7 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time;
 use tokio_rustls::{rustls, TlsAcceptor};
-use tracing::{instrument, span, trace, warn, Instrument, Level, Span};
+use tracing::{span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
@@ -120,7 +120,7 @@ impl LoadBalancer {
                         }
                         Ok((stream, _)) => {
                             let acceptor = acceptor.clone();
-                            let lb = self.clone();
+                            let lb = TracingMiddleware::new(self.clone());
                             let metrics = self.0.metrics.clone();
                             let mgr = mgr.clone();
                             tokio::spawn(async move {
@@ -258,15 +258,8 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
     type Error = Box<dyn Error + Send + Sync>;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    #[instrument(level = "trace", name = "Service::call", skip(self, request))]
     fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
-        trace!(load_balancer = self.0.name, ?request);
         let state = self.clone();
-
-        let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
-            propagator.extract(&HeaderExtractor(request.headers()))
-        });
-        Span::current().set_parent(parent_context);
 
         Box::pin(
             async move {

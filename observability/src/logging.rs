@@ -119,7 +119,7 @@ impl Default for Options {
             process_name: String::new(),
             default_log_level: Level::INFO,
             additional_tags: HashMap::new(),
-            trace_sampler: Sampler::TraceIdRatioBased(0.1),
+            trace_sampler: Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(0.1))),
             background_trace_sampler: Sampler::TraceIdRatioBased(0.005),
         }
     }

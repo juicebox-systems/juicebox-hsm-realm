@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use tracing::{info, trace, warn};
+use tracing::{info, instrument, trace, warn};
 use url::Url;
 
 use super::{ManagementGrant, Manager};
@@ -13,6 +13,7 @@ use juicebox_realm_api::types::RealmId;
 use store::ServiceKind;
 
 impl Manager {
+    #[instrument(level = "trace", skip(self))]
     pub(super) async fn ensure_groups_have_leader(&self) -> Result<(), Error> {
         trace!("checking that all groups have a leader");
         let addresses = self.0.store.get_addresses(Some(ServiceKind::Agent)).await?;
@@ -64,6 +65,7 @@ impl Manager {
 
 /// Assigns a new leader for the group, using our workload scoring. The caller
 /// is responsible for deciding that the group needs a leader.
+#[instrument(level="trace" skip_all)]
 pub(super) async fn assign_group_a_leader(
     agent_client: &Client<AgentService>,
     grant: &ManagementGrant,

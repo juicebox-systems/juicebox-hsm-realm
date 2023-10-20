@@ -1948,7 +1948,9 @@ name = "observability"
 version = "0.2.3"
 dependencies = [
  "dogstatsd",
+ "hyper 1.0.0-rc.3",
  "opentelemetry",
+ "opentelemetry-http",
  "opentelemetry-otlp",
  "tracing",
  "tracing-core",
@@ -2756,11 +2758,13 @@ dependencies = [
  "hyper 1.0.0-rc.3",
  "juicebox_marshalling",
  "observability",
+ "opentelemetry",
  "pubsub_api",
  "rand",
  "reqwest",
  "tokio",
  "tracing",
+ "tracing-opentelemetry",
  "url",
  "x25519-dalek",
 ]
