@@ -78,7 +78,7 @@ version = "0.2.3"
 agent_api = { path = "agent_api" }
 agent_core = { path = "agent_core" }
 anyhow = "1.0.75"
-async-trait = "0.1.73"
+async-trait = "0.1.74"
 bigtable = { path = "bigtable" }
 bindgen = "0.68.1"
 bitvec = { path = "bitvec" }
@@ -93,7 +93,7 @@ chrono = { version = "=0.4.30", default-features = false }
 # ciborium and ciborium-io are pinned because we have a local fork.
 ciborium = { version = "=0.2.1", default-features = false }
 ciborium-io = { version = "=0.2.1", default-features = false }
-clap = { version = "4.4.4", features = ["derive", "string"] }
+clap = { version = "4.4.6", features = ["derive", "string"] }
 cluster_api = { path = "cluster_api" }
 cluster_core = { path = "cluster_core" }
 digest = "0.10.7"
@@ -110,7 +110,7 @@ gcp_auth = { version = "=0.9.0", default-features = false, features = [
 ] }
 google = { path = "google" }
 google_pubsub = { path = "google_pubsub" }
-hashbrown = { version = "0.14.0", default-features = false, features = [
+hashbrown = { version = "0.14.2", default-features = false, features = [
     "inline-more",
     "serde",
 ] }
@@ -152,20 +152,20 @@ prost-types = "0.12.1"
 pubsub_api = { path = "pubsub_api" }
 rand = { version = "0.8.5", default-features = false, features = ["alloc"] }
 rand_core = "0.6.4"
-reqwest = { version = "0.11.20", default-features = false, features = [
+reqwest = { version = "0.11.22", default-features = false, features = [
     "rustls-tls",
 ] }
 rustls = "0.21.7"
 rustls-pemfile = "1.0"
 secret_manager = { path = "secret_manager" }
-semver = "1.0.18"
-serde = { version = "1.0.188", default-features = false, features = [
+semver = "1.0.20"
+serde = { version = "1.0.189", default-features = false, features = [
     "alloc",
     "derive",
 ] }
 serde_json = "1.0.107"
 service_core = { path = "service_core" }
-sha2 = "0.10.7"
+sha2 = "0.10.8"
 # Diego audited only the spin mutex in spin 0.9.8 (502c9dc) in Aug 2023.
 spin = { version = "=0.9.8", default-features = false, features = [
     "mutex",
@@ -177,24 +177,24 @@ sysinfo = { version = "0.29" }
 table = { path = "table" }
 tempfile = "3.8.0"
 testing = { path = "testing" }
-thiserror = "1.0.48"
-tokio = { version = "1.32.0", features = [
+thiserror = "1.0.50"
+tokio = { version = "1.33.0", features = [
     "rt-multi-thread",
     "macros",
     "signal",
 ] }
 tokio-rustls = "0.24.1"
-tonic = { version = "0.10.0", features = [
+tonic = { version = "0.10.2", features = [
     "channel",
     "tls",
     "tls-webpki-roots",
 ] }
-tonic-build = "0.10.0"
+tonic-build = "0.10.2"
 tower-service = "0.3.2"
-tracing = { version = "0.1.37", default-features = false, features = [
+tracing = { version = "0.1.40", default-features = false, features = [
     "attributes",
 ] }
-tracing-core = { version = "0.1.31" }
+tracing-core = { version = "0.1.32" }
 tracing-opentelemetry = "0.21.0"
 tracing-subscriber = { version = "0.3.17", features = ["json"] }
 url = { version = "2.4.1", features = ["serde"] }
