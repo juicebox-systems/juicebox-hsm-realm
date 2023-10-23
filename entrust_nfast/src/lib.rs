@@ -477,7 +477,7 @@ pub fn m_mech_name(m: M_Mech) -> Cow<'static, str> {
 
 impl Display for M_Hash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let enc = hex::encode(unsafe { &self.bytes });
+        let enc = hex::encode(unsafe { self.bytes });
         f.write_str(&enc)
     }
 }

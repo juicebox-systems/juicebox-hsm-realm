@@ -304,13 +304,13 @@ impl<'a> Ord for BitSlice<'a> {
 
 impl PartialOrd for BitVec {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(cmp_impl(self.iter(), other.iter()))
+        Some(self.cmp(other))
     }
 }
 
 impl<'a> PartialOrd for BitSlice<'a> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(cmp_impl(self.iter(), other.iter()))
+        Some(self.cmp(other))
     }
 }
 
