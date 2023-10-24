@@ -8,6 +8,7 @@ rust-version = { workspace = true }
 
 [dependencies]
 dogstatsd = { workspace = true }
+hyper = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
 opentelemetry-otlp = { workspace = true }
@@ -15,4 +16,3 @@ tracing = { workspace = true }
 tracing-core = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
-hyper = { workspace = true }
