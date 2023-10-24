@@ -65,7 +65,7 @@ impl Manager {
 
 /// Assigns a new leader for the group, using our workload scoring. The caller
 /// is responsible for deciding that the group needs a leader.
-#[instrument(level="trace" skip_all)]
+#[instrument(level = "trace", skip_all)]
 pub(super) async fn assign_group_a_leader(
     agent_client: &Client<AgentService>,
     grant: &ManagementGrant,
