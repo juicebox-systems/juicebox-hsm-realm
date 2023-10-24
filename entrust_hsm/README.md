@@ -8,7 +8,7 @@ You'll need the Entrust/nCipher SDK to be installed (On linux)
 
 `./compile_ncipherxc.sh` will compile using our custom powerpc / ncipher target.
 
-This generates an `entrust-hsm.elf` file in the relevant `target/$TARGET/release`
+This generates an `entrust_hsm.elf` file in the relevant `target/$TARGET/release`
 directory. Once correctly code signed (see below) the entrust_agent host process
 can be run. This will use the APIs to have the HSM load and start the SEEMachine
 world, and then start handling requests.
@@ -71,7 +71,7 @@ Key successfully generated.
 
 Sign the SEEMachine software.
 ```sh
-/opt/nfast/bin/tct2 --sign-and-pack --infile entrust-hsm.elf --outfile=hsm.sar  -k jbox-signer --is-machine --machine-type powerPCELF
+/opt/nfast/bin/tct2 --sign-and-pack --infile entrust_hsm.elf --outfile=entrust_hsm.sar  -k jbox-signer --is-machine --machine-type powerPCELF
 ```
 
 Create and sign a dummy userdata file (the exact contents of this file don't matter).
@@ -93,7 +93,7 @@ they generate.
 
 You should now be able to run the agent manually and see the seeworld & hsm startup.
 ```sh
-LOGLEVEL=debug ./entrust_agent --bigtable-project crucial-limiter-377716 --bigtable-instance simon-ssd -i hsm.sar -u userdata.sar -t
+LOGLEVEL=debug ./entrust_agent --bigtable-project crucial-limiter-377716 --bigtable-instance simon-ssd -i entrust_hsm.sar -u userdata.sar -t
 
  INFO src/logging.rs:144: initialized logging to terminal and telemetry to OTLP/Jaeger. you can set verbosity with env var LOGLEVEL. max_level=DEBUG
  INFO src/google_auth.rs:22: initializing Google Cloud authentication with Application Default Credentials

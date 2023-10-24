@@ -163,7 +163,7 @@ fn start_hsm(req: StartRequest) -> Result<Hsm<NCipher>, StartResponse> {
 }
 
 fn process_hsm_jobs(mut hsm: Hsm<NCipher>, buf: &mut Vec<u8>) {
-    //println!("entrust-hsm init complete, ready for jobs");
+    //println!("entrust_hsm init complete, ready for jobs");
     loop {
         let start = if cfg!(feature = "insecure") {
             platform::now()

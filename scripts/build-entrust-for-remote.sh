@@ -22,7 +22,7 @@ cargo build --release \
 rsync --archive --compress --mkpath --progress --relative \
     secrets-demo.json \
     scripts/ \
-    target/powerpc-unknown-linux-gnu/release/entrust-hsm.elf \
+    target/powerpc-unknown-linux-gnu/release/entrust_hsm.elf \
     target/release/cluster \
     target/release/cluster_bench \
     target/release/cluster_manager \

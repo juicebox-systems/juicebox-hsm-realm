@@ -13,8 +13,8 @@ DIR=target/powerpc-unknown-linux-gnu/release
 KEY=jbox-signer
 
 /opt/nfast/bin/tct2 --sign-and-pack \
-    --infile $DIR/entrust-hsm.elf \
-    --outfile $DIR/entrust-hsm.sar \
+    --infile $DIR/entrust_hsm.elf \
+    --outfile $DIR/entrust_hsm.sar \
     --key $KEY \
     --is-machine \
     --machine-type PowerPCELF

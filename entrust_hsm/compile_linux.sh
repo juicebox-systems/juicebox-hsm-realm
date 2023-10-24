@@ -53,7 +53,7 @@ NFAST_DIR=/opt/nfast/c/csd/lib-ppc-linux-gcc
     -mprototype -mstrict-align -memb \
     -fno-builtin -Werror -DNF_CROSSCC_PPC_GCC=1 \
     -pthread \
-    -o $TARGET_DIR/$TARGET/release/entrust-hsm.elf \
+    -o $TARGET_DIR/$TARGET/release/entrust_hsm.elf \
     $TARGET_DIR/$TARGET/release/hsm_main.o \
     $TARGET_DIR/$TARGET/release/libentrust_hsm.a \
     $NFAST_DIR/seelib.a \

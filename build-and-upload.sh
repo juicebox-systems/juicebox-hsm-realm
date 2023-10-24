@@ -55,7 +55,7 @@ if [ "$ENTRUST" -eq "1" ]; then
  gcloud storage cp \
    "target/$MODE/entrust_agent" \
    "target/$MODE/entrust_init" \
-   "target/powerpc-unknown-linux-gnu/$MODE/entrust-hsm.sar" \
+   "target/powerpc-unknown-linux-gnu/$MODE/entrust_hsm.sar" \
    "target/powerpc-unknown-linux-gnu/$MODE/userdata.sar" \
    "gs://$GSPATH/"
 fi
