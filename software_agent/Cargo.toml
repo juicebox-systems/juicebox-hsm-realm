@@ -14,8 +14,6 @@ blake2 = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
-google = { workspace = true }
-google_pubsub = { workspace = true }
 hex = { workspace = true }
 hkdf = { workspace = true }
 hmac = { workspace = true }
@@ -26,7 +24,6 @@ http-body-util = { workspace = true }
 hyper = { workspace = true }
 juicebox_marshalling = { workspace = true }
 observability = { workspace = true }
-pubsub_api = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
