@@ -24,10 +24,12 @@ http-body-util = { workspace = true }
 hyper = { workspace = true }
 juicebox_marshalling = { workspace = true }
 observability = { workspace = true }
+opentelemetry = { workspace = true }
 rand = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 url = { workspace = true }
 x25519-dalek = { workspace = true }
 

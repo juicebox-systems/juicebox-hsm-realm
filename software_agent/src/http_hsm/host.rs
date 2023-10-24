@@ -5,6 +5,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use observability::tracing::TracingMiddleware;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::fs;
@@ -146,11 +147,10 @@ impl HttpHsm {
                     match listener.accept().await {
                         Err(e) => warn!("error accepting connection: {e:?}"),
                         Ok((stream, _)) => {
-                            let hsm = self.clone();
+                            let hsm = TracingMiddleware::new(self.clone());
                             tokio::spawn(async move {
-                                if let Err(e) = http1::Builder::new()
-                                    .serve_connection(stream, hsm.clone())
-                                    .await
+                                if let Err(e) =
+                                    http1::Builder::new().serve_connection(stream, hsm).await
                                 {
                                     warn!("error serving connection: {e:?}");
                                 }
