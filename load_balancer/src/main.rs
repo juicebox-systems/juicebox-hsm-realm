@@ -102,19 +102,24 @@ struct Args {
     #[arg(long = "secrets-manager-http-keepalive-while-idle",
         default_value_t=GrpcConnectionOptions::default().http2_keepalive_while_idle)]
     pub secrets_manager_http2_keepalive_while_idle: bool,
+
+    /// Sampling rate for tracing, 0.0 - 1.0
+    #[arg(long = "trace-rate", default_value_t = 0.1)]
+    pub trace_sampling_rate: f64,
 }
 
 #[tokio::main]
 async fn main() {
+    panic::set_abort_on_panic();
+    let args = Args::parse();
+
     logging::configure_with_options(logging::Options {
         process_name: String::from("juicebox-load-balancer"),
         // We intentionally don't want to trace everything any client asks for.
-        trace_sampler: Sampler::TraceIdRatioBased(0.1),
+        trace_sampler: Sampler::TraceIdRatioBased(args.trace_sampling_rate),
         ..logging::Options::default()
     });
-    panic::set_abort_on_panic();
 
-    let args = Args::parse();
     info!(
         ?args,
         version = env!("CARGO_PKG_VERSION"),
