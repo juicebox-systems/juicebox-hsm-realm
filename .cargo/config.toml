@@ -1,6 +1,6 @@
 [target.powerpc-unknown-linux-gnu]
 rustflags=["-Ctarget-cpu=e5500"]
-linker = "powerpc-linux-gnu-gcc-9"
+linker = "powerpc-linux-gnu-gcc-12"
 
 [net]
 git-fetch-with-cli = true   # use the `git` executable for git operations
