@@ -9,7 +9,11 @@
   body,
 ) = {
   // Set the document's basic properties.
-  set document(author: authors.map(a => a.name), title: title)
+  set document(
+    author: authors.map(a => a.name),
+    date: none, // for a reproducible build
+    title: title,
+  )
   set page(paper: "us-letter", numbering: "1", number-align: center)
   set text(font: "Linux Libertine", lang: "en")
   set heading(numbering: "1.1")
