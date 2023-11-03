@@ -266,6 +266,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                 match (request.uri().path(), request.method()) {
                     ("/req", &Method::POST) => state.handle_req(request).await,
                     ("/livez", &Method::GET) => state.handle_livez(request).await,
+                    ("/rttest", &Method::POST) => state.handle_rttest(request).await,
 
                     ("/req", &Method::OPTIONS) => Ok(Response::builder()
                         .header("Access-Control-Allow-Origin", "*")
@@ -292,6 +293,26 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
 }
 
 impl LoadBalancer {
+    // This is a test endpoint with a fixed response. It expects a POST request
+    // and returns a 167 byte response after 100ms. This roughly approximates
+    // the request shape/timing that the /req endpoint exposes.
+    async fn handle_rttest(
+        &self,
+        request: Request<IncomingBody>,
+    ) -> Result<Response<Full<Bytes>>, Box<dyn Error + Send + Sync>> {
+        let _b = Limited::new(request, BODY_SIZE_LIMIT)
+            .collect()
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let body = vec![65u8; 167];
+        Ok(Response::builder()
+            .status(200)
+            .body(Full::from(body))
+            .unwrap())
+    }
+
     async fn handle_livez(
         &self,
         _request: Request<IncomingBody>,
