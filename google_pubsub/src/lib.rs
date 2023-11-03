@@ -3,13 +3,18 @@ use gcp_auth::AuthenticationManager;
 use google::auth::AuthMiddleware;
 use google::pubsub::v1::publisher_client::PublisherClient;
 use google::pubsub::v1::subscriber_client::SubscriberClient;
-use google::pubsub::v1::{ExpirationPolicy, PublishRequest, PubsubMessage, Subscription, Topic};
+use google::pubsub::v1::{
+    ExpirationPolicy, PublishRequest, PublishResponse, PubsubMessage, Subscription, Topic,
+};
 use google::GrpcConnectionOptions;
 use std::collections::HashMap;
 use std::error::Error;
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::sleep;
 use tonic::transport::{Endpoint, Uri};
-use tonic::Code;
+use tonic::{Code, Status};
 use tracing::{info, instrument, warn};
 
 use juicebox_realm_api::types::RealmId;
@@ -74,10 +79,9 @@ impl pubsub_api::Publisher for Publisher {
                 ordering_key: String::from(""),
             }],
         };
-        let mut pc = self.pub_client.clone();
         self.metrics
             .async_time("pubsub.publish.time", [tag!(?realm)], || async {
-                match pc.publish(pub_req.clone()).await {
+                match self.publish_msg(pub_req.clone()).await {
                     Err(err) if err.code() == Code::NotFound => {
                         warn!(
                             ?realm,
@@ -85,7 +89,7 @@ impl pubsub_api::Publisher for Publisher {
                             "tenant topic not found, attempting to create it"
                         );
                         self.create_topic_and_sub(realm, tenant).await?;
-                        pc.publish(pub_req).await
+                        self.publish_msg(pub_req).await
                     }
                     Err(err) => Err(err),
                     Ok(res) => Ok(res),
@@ -108,18 +112,59 @@ pub fn subscription_name(project: &str, realm: RealmId, tenant: &str) -> String 
 }
 
 impl Publisher {
+    async fn publish_msg(
+        &self,
+        req: PublishRequest,
+    ) -> Result<tonic::Response<PublishResponse>, Status> {
+        retry_op(
+            || async {
+                let mut pc = self.pub_client.clone();
+                pc.publish(req.clone()).await
+            },
+            retry_bad_gateway,
+            3,
+        )
+        .await
+    }
+
+    async fn create_topic(&self, topic: Topic) -> Result<tonic::Response<Topic>, Status> {
+        retry_op(
+            || async {
+                let mut pc = self.pub_client.clone();
+                pc.create_topic(topic.clone()).await
+            },
+            retry_bad_gateway,
+            3,
+        )
+        .await
+    }
+
+    async fn create_subscription(
+        &self,
+        sub: Subscription,
+    ) -> Result<tonic::Response<Subscription>, Status> {
+        retry_op(
+            || async {
+                let mut sc = self.sub_client.clone();
+                sc.create_subscription(sub.clone()).await
+            },
+            retry_bad_gateway,
+            3,
+        )
+        .await
+    }
+
     #[instrument(level = "trace", skip(self))]
     async fn create_topic_and_sub(
         &self,
         realm: RealmId,
         tenant: &str,
     ) -> Result<(), tonic::Status> {
-        let mut pc = self.pub_client.clone();
         let labels = HashMap::from([
             (String::from("realm"), format!("{realm:?}")),
             (String::from("tenant"), tenant.to_owned()),
         ]);
-        match pc
+        match self
             .create_topic(Topic {
                 name: topic_name(&self.project, realm, tenant),
                 labels: labels.clone(),
@@ -144,8 +189,7 @@ impl Publisher {
             }
         }
 
-        let mut sc = self.sub_client.clone();
-        match sc
+        match self
             .create_subscription(Subscription {
                 name: subscription_name(&self.project, realm, tenant),
                 topic: topic_name(&self.project, realm, tenant),
@@ -184,6 +228,36 @@ impl Publisher {
                 info!(?realm, ?tenant, "created subscription for tenant");
                 Ok(())
             }
+        }
+    }
+}
+
+// Bad Gateway is reported as
+//"err":"Status { code: Unavailable, message: \"502:Bad Gateway\" // bunch of useless stuff }
+fn retry_bad_gateway(s: &Status) -> bool {
+    // the Pub/Sub docs explictly say to retry 502 errors.
+    s.code() == Code::Unavailable && s.message().starts_with("502:")
+}
+
+async fn retry_op<F, Fut, R, T>(
+    mut op: F,
+    should_retry: R,
+    mut attempts_left: isize,
+) -> Result<T, Status>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, Status>>,
+    R: Fn(&Status) -> bool,
+{
+    loop {
+        match op().await {
+            Ok(r) => return Ok(r),
+            Err(err) if should_retry(&err) && attempts_left > 0 => {
+                sleep(Duration::from_secs(1)).await;
+                attempts_left -= 1;
+                continue;
+            }
+            Err(err) => return Err(err),
         }
     }
 }

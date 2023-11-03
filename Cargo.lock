@@ -1269,6 +1269,7 @@ dependencies = [
  "juicebox_realm_api",
  "observability",
  "pubsub_api",
+ "tokio",
  "tonic 0.10.2",
  "tracing",
 ]
