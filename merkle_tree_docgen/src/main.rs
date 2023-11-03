@@ -237,12 +237,16 @@ fn set_up_graphviz(installation: Installation) {
                 stdin
                     .write_all(
                         "
-                    FROM debian:bookworm
-                    RUN apt-get update && apt-get install --yes graphviz
-                    "
+                        FROM debian:bookworm
+                        RUN apt-get update && apt-get install --yes graphviz
+                        "
                         .as_bytes(),
                     )
                     .expect("failed to write to stdin");
+            }
+
+            if !child.wait().is_ok_and(|status| status.success()) {
+                panic!("failed to build graphviz Docker image");
             }
         }
 
