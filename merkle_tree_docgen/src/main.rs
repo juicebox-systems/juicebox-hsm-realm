@@ -307,7 +307,12 @@ fn run_typst(installation: Installation) {
                 current_dir().unwrap().join("docs").to_str().unwrap(),
             ));
             c.arg("--workdir").arg("/root");
-            c.arg("ghcr.io/typst/typst:v0.9.0");
+            // The 0.9.0 release of typst produces PDF files with different
+            // "instance ID" metadata when given the same inputs. That issue
+            // was promptly reported and fixed in
+            // <https://github.com/typst/typst/issues/2536>, but the fix hasn't
+            // been released yet.
+            c.arg("ghcr.io/typst/typst:v0.8.0");
             c.arg("typst");
             c
         }

@@ -11,7 +11,9 @@
   // Set the document's basic properties.
   set document(
     author: authors.map(a => a.name),
-    date: none, // for a reproducible build
+    // Use `date: none` for a reproducible build in versions strictly greater
+    // than 0.9.0. Unfortunately, version 0.9.0 itself cannot do reproducible
+    // builds due to <https://github.com/typst/typst/issues/2536>.
     title: title,
   )
   set page(paper: "us-letter", numbering: "1", number-align: center)
