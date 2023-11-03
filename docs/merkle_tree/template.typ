@@ -15,7 +15,6 @@
   set heading(numbering: "1.1")
 
   // Configure citation and bibliography styles.
-  set cite(style: "numerical", brackets: true)
   set bibliography(style: "ieee", title: none)
 
   // Configure equations
@@ -36,7 +35,7 @@
           #it.supplement
           #it.counter.display(it.numbering):
         ]
-        #it.caption
+        #it.caption.body
       ])
     ])
     #v(20pt, weak: true)
