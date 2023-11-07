@@ -434,13 +434,7 @@ fn parse_cloudfront_server_timings(v: &str) -> Option<CdnInfo> {
             }
         }
     }
-    if r.pop.is_some()
-        || r.rid.is_some()
-        || r.upstream_dns.is_some()
-        || r.upstream_connect.is_some()
-        || r.upstream_first_byte.is_some()
-        || r.downstream_first_byte.is_some()
-    {
+    if r != CloudFrontServerTimings::default() {
         Some(CdnInfo::CloudFront(r))
     } else {
         None
