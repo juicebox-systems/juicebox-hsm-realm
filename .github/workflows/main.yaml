@@ -384,3 +384,64 @@ jobs:
       run: |
         RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/javascript/demo/demo.ts
       shell: bash
+
+  entrust:
+    name: Build Entrust
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Check out sources
+      uses: actions/checkout@v2
+      with:
+        submodules: recursive
+        token: ${{ secrets.ACCESS_TOKEN }}
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        components: clippy, rustfmt, rust-src
+        default: true
+        profile: minimal
+        toolchain: ${{ env.INSTALL_RUST_VERSION }}
+
+    - name: Use Rust Cache
+      uses: Swatinem/rust-cache@v2
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v1
+      with:
+        credentials_json: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
+
+    - name: Download Codesafe from Google Cloud Storage
+      run: |
+        gcloud storage cp 'gs://ncipher-nshield-firmware/2023-08 v13.4 codesafe firmware secworld/Codesafe_Lin64-13.4.3.iso.zip' .
+        echo '7d6eaff0548d90143d35834f1ea1cf092321e9003e10e14895a01a6f412adadb  Codesafe_Lin64-13.4.3.iso.zip' | sha256sum -c -
+
+    - name: Install Codesafe
+      run: |
+        unzip Codesafe_Lin64-13.4.3.iso.zip
+        7z e Codesafe_Lin64-13.4.3.iso linux/amd64/csd.tar.gz
+        sudo tar -C / -xf csd.tar.gz
+        rm Codesafe_Lin64-13.4.3.iso.zip Codesafe_Lin64-13.4.3.iso csd.tar.gz
+
+    - name: Run clippy (entrust* crates)
+      uses: actions-rs/cargo@v1
+      with:
+        args: --tests --package 'entrust*' -- -D warnings
+        command: clippy
+
+    - name: Run cargo build (entrust* crates)
+      uses: actions-rs/cargo@v1
+      with:
+        args: --package 'entrust*'
+        command: build
+
+    - name: Run cargo test (entrust* crates)
+      uses: actions-rs/cargo@v1
+      with:
+        args: --package 'entrust*'
+        command: test
+      env:
+        RUST_BACKTRACE: '1'
+
+    - name: Run cargo build (PPC entrust_hsm.elf)
+      run: ./entrust_hsm/compile_linux.sh
