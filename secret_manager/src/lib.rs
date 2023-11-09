@@ -64,6 +64,18 @@ pub trait SecretManager: Debug + Send + Sync {
         version: SecretVersion,
     ) -> Result<Option<Secret>, Error>;
 
+    /// Returns the newest version of a secret.
+    async fn get_latest_secret_version(
+        &self,
+        name: &SecretName,
+    ) -> Result<Option<(SecretVersion, Secret)>, Error> {
+        Ok(self
+            .get_secrets(name)
+            .await?
+            .into_iter()
+            .max_by(|(a_version, _), (b_version, _)| a_version.cmp(b_version)))
+    }
+
     /// Returns the secret versions for this named secret, or an empty map if
     /// there are none.
     ///
@@ -103,16 +115,32 @@ pub async fn new_google_secret_manager(
     refresh_interval: Duration,
     options: GrpcConnectionOptions,
 ) -> Result<impl SecretManager, Error> {
-    const TENANT_KEY_FILTER: &str = "name:tenant- AND labels.kind=tenant_auth_key";
     let client = GoogleSecretManagerClient::new(
         project,
         auth_manager,
-        Some(TENANT_KEY_FILTER.to_owned()),
+        Some(format!(
+            "({}) OR ({})",
+            format_args!(
+                "name:{} AND labels.kind=record_id_randomization_key",
+                record_id_randomization_key_name().0
+            ),
+            "name:tenant- AND labels.kind=tenant_auth_key",
+        )),
         options,
     )
     .await?;
     let manager = Periodic::new(client, refresh_interval).await?;
     Ok(manager)
+}
+
+/// The name of a per-realm secret Blake2sMac256 key. The key must be exactly
+/// 32 bytes long.
+///
+/// The key is used to pseudo-randomly distribute record IDs (even with
+/// adversarially-generated user IDs), so that the Merkle trees stay balanced.
+/// This is similar to how hash tables are randomized.
+pub fn record_id_randomization_key_name() -> SecretName {
+    SecretName(String::from("record-id-randomization"))
 }
 
 pub fn tenant_secret_name(tenant: &str) -> SecretName {

@@ -17,12 +17,10 @@ pub async fn mint_auth_token(
     }
 
     let (auth_key_version, auth_key) = secret_manager
-        .get_secrets(&tenant_secret_name(&tenant))
+        .get_latest_secret_version(&tenant_secret_name(&tenant))
         .await
         .context("failed to get test tenant auth key")?
-        .into_iter()
         .map(|(version, secret)| (version.into(), secret.into()))
-        .next()
         .ok_or_else(|| anyhow!("tenant has no secrets"))?;
 
     let auth_token = create_token(
