@@ -74,14 +74,13 @@ impl LoadBalancer {
             .get_latest_secret_version(&record_id_randomization_key_name())
             .await?
             .ok_or_else(|| anyhow!("missing secret: {}", record_id_randomization_key_name().0))?;
-        let record_id_randomization_key = SecretBytesArray::from(
-            <[u8; 32]>::try_from(record_id_randomization_key.0.expose_secret()).map_err(|_| {
+        let record_id_randomization_key = SecretBytesArray::try_from(record_id_randomization_key.0)
+            .map_err(|_| {
                 anyhow!(
                     "secret {:?} has invalid length: need 32 bytes",
                     record_id_randomization_key_name().0
                 )
-            })?,
-        );
+            })?;
 
         Ok(Self(Arc::new(State {
             name,
