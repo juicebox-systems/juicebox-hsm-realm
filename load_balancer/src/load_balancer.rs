@@ -442,7 +442,14 @@ impl LoadBalancer {
 
 #[tracing::instrument(
     level = "trace",
-    skip(request, realms, record_id_randomization_key, agent_client)
+    skip(
+        request,
+        realms,
+        secret_manager,
+        record_id_randomization_key,
+        agent_client,
+        metrics
+    )
 )]
 async fn handle_client_request(
     request: &ClientRequest,
