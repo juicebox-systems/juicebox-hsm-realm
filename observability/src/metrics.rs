@@ -58,7 +58,7 @@ pub const NO_TAGS: &[Tag] = &[];
 /// - It warns on errors instead of returning them to the caller.
 /// - It uses some more specific and convenient parameter types.
 /// - It sends durations with nanosecond rather than millisecond precision.
-///   (They are sent through the `statsd` protocol as histograms.)
+///   (They are sent through the `statsd` protocol as distribution.)
 #[derive(Clone, Debug)]
 pub struct Client {
     inner: Option<Arc<dogstatsd::Client>>,
@@ -124,7 +124,7 @@ impl Client {
     }
 
     /// See [`dogstatsd::Client::time`]. This version sends the elapsed
-    /// time as a histogram with nanosecond precision.
+    /// time as a distribution with nanosecond precision.
     pub fn time<'a, F, O, I, S, T>(&self, stat: S, tags: I, block: F) -> O
     where
         F: FnOnce() -> O,
@@ -143,7 +143,7 @@ impl Client {
     }
 
     /// See [`dogstatsd::Client::async_time`]. This version sends the elapsed
-    /// time as a histogram with nanosecond precision.
+    /// time as a distribution with nanosecond precision.
     pub async fn async_time<'a, Fn, Fut, O, I, S, T>(&self, stat: S, tags: I, block: Fn) -> O
     where
         Fn: FnOnce() -> Fut,
@@ -163,7 +163,7 @@ impl Client {
     }
 
     /// See [`dogstatsd::Client::timing`]. This version sends the duration as a
-    /// histogram with nanosecond precision.
+    /// distribution with nanosecond precision.
     pub fn timing<'a, I, S, T>(&self, stat: S, duration: Duration, tags: I)
     where
         I: IntoIterator<Item = T>,
@@ -171,7 +171,7 @@ impl Client {
         T: AsRef<str>,
     {
         if self.inner.is_some() {
-            self.histogram(
+            self.distribution(
                 metric_name(format!("{}.ns", stat.into())),
                 duration.as_nanos().to_string(),
                 tags,
@@ -194,8 +194,10 @@ impl Client {
         }
     }
 
-    /// See [`dogstatsd::Client::histogram`].
-    pub fn histogram<'a, I, S, SS, T>(&self, stat: S, val: SS, tags: I)
+    /// See [`dogstatsd::Client::distribution`].
+    ///
+    /// Note that histogram is explicitly not exposed as distribution is more useful.
+    pub fn distribution<'a, I, S, SS, T>(&self, stat: S, val: SS, tags: I)
     where
         I: IntoIterator<Item = T>,
         S: Into<Cow<'a, str>>,
@@ -204,21 +206,8 @@ impl Client {
     {
         if let Some(client) = &self.inner {
             client
-                .histogram(metric_name(stat), val.into_cow(), tags)
+                .distribution(metric_name(stat), val.into_cow(), tags)
                 .warn_err();
-        }
-    }
-
-    /// See [`dogstatsd::Client::distribution`].
-    pub fn distribution<'a, I, S, SS, T>(&self, stat: S, val: SS, tags: I)
-    where
-        I: IntoIterator<Item = T>,
-        S: Into<Cow<'a, str>>,
-        SS: Into<Cow<'a, str>>,
-        T: AsRef<str>,
-    {
-        if let Some(client) = &self.inner {
-            client.distribution(metric_name(stat), val, tags).warn_err();
         }
     }
 
