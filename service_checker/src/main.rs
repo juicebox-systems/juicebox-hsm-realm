@@ -100,16 +100,17 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let mc = metrics::Client::new_with_tags("service_checker", [tag!("env":"{}",args.env)]);
 
     let mut res;
     loop {
-        res = match timeout(args.timeout, checker.run(&args)).await {
+        res = match timeout(args.timeout, checker.run(mc.clone(), &args)).await {
             Ok(res) => res,
             Err(_) => Err(anyhow!(
                 "timed out waiting for register/recover to complete"
             )),
         };
-        report_service_check(&res, &args.env);
+        report_service_check(&mc, &res);
         if !args.forever {
             break;
         }
@@ -169,15 +170,16 @@ impl Checker {
         })
     }
 
-    #[instrument(level = "trace", skip(self))]
-    async fn run(&self, args: &Args) -> anyhow::Result<()> {
-        let http_client = HttpReporter::new(reqwest::Client::<LoadBalancerService>::new(
-            reqwest::ClientOptions {
+    #[instrument(level = "trace", skip(self, mc))]
+    async fn run(&self, mc: metrics::Client, args: &Args) -> anyhow::Result<()> {
+        let http_client = HttpReporter::new(
+            reqwest::Client::<LoadBalancerService>::new(reqwest::ClientOptions {
                 additional_root_certs: self.certs.clone(),
                 timeout: args.http_timeout,
                 default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
-            },
-        ));
+            }),
+            mc,
+        );
 
         let client_builder = Arc::new(ClientBuilder {
             shared_http_client: http_client,
@@ -321,19 +323,18 @@ async fn get_auth_key(
     Ok((secret.into(), version.into()))
 }
 
-fn report_service_check(r: &anyhow::Result<()>, env: &str) {
-    let c = metrics::Client::new("service_checker");
+fn report_service_check(mc: &metrics::Client, r: &anyhow::Result<()>) {
     const STAT: &str = "healthcheck.register_recover";
 
     match r {
-        Ok(()) => c.service_check(STAT, ServiceStatus::OK, [tag!(env)], None),
+        Ok(()) => mc.service_check(STAT, ServiceStatus::OK, metrics::NO_TAGS, None),
         Err(err) => {
             // this is dumb, thanks dogstatsd
             let msg: &'static str = Box::leak(format!("{:?}", err).into_boxed_str());
-            c.service_check(
+            mc.service_check(
                 STAT,
                 ServiceStatus::Critical,
-                [tag!(env)],
+                metrics::NO_TAGS,
                 Some(ServiceCheckOptions {
                     message: Some(msg),
                     ..ServiceCheckOptions::default()
@@ -347,21 +348,25 @@ struct HttpReporter {
     client: reqwest::Client<LoadBalancerService>,
     // count of requests made by this specific instance
     count: AtomicUsize,
+    metrics: metrics::Client,
 }
 
 impl HttpReporter {
-    fn new(client: reqwest::Client<LoadBalancerService>) -> Self {
+    fn new(client: reqwest::Client<LoadBalancerService>, mc: metrics::Client) -> Self {
         Self {
             client,
             count: AtomicUsize::new(0),
+            metrics: mc,
         }
     }
 }
+
 impl Clone for HttpReporter {
     fn clone(&self) -> Self {
         Self {
             client: self.client.clone(),
             count: AtomicUsize::new(0),
+            metrics: self.metrics.clone(),
         }
     }
 }
@@ -377,6 +382,7 @@ impl http::Client for HttpReporter {
         request
             .headers
             .insert(String::from("pragma"), String::from("server-timing"));
+        let tag_url = tag!("url":"{}",request.url);
         let result = self.client.send(request).await;
         let elapsed = start.elapsed();
         let mut cdn: Option<CdnInfo> = None;
@@ -394,6 +400,24 @@ impl http::Client for HttpReporter {
             } else if let Some(ray) = r.headers.get("cf-ray") {
                 cdn = Some(CdnInfo::CloudFlare { ray: ray.clone() })
             }
+            let tag_status = tag!("status_code":"{}",r.status_code);
+            if let Some(exec) = r.headers.get("x-exec-time") {
+                if let Ok(nanos) = exec.parse() {
+                    let nanos = Duration::from_nanos(nanos);
+                    self.metrics.timing(
+                        "service_checker.http_send.network_latency",
+                        elapsed - nanos,
+                        [&tag_url, &tag_status],
+                    );
+                    self.metrics.timing(
+                        "service_checker.http_send.server_exec_time",
+                        nanos,
+                        [&tag_url, &tag_status],
+                    );
+                }
+            }
+            self.metrics
+                .timing("service_checker.http_send", elapsed, [tag_url, tag_status]);
         }
         if elapsed > Duration::from_secs(1) {
             warn!(?elapsed, prev_request_count=%count, ?cdn, "slow http request")
