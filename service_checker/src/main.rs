@@ -403,9 +403,15 @@ impl http::Client for HttpReporter {
             let tag_status = tag!("status_code":"{}",r.status_code);
             if let Some(exec) = r.headers.get("x-exec-time") {
                 if let Ok(nanos) = exec.parse() {
+                    let nanos = Duration::from_nanos(nanos);
                     self.metrics.timing(
                         "service_checker.http_send.network_latency",
-                        elapsed - Duration::from_nanos(nanos),
+                        elapsed - nanos,
+                        [&tag_url, &tag_status],
+                    );
+                    self.metrics.timing(
+                        "service_checker.http_send.server_exec_time",
+                        nanos,
                         [&tag_url, &tag_status],
                     );
                 }
