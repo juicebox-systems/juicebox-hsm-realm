@@ -304,12 +304,12 @@ impl TreeStoreReader<DataHash> for StoreClient {
                 let mut locked_cache = self.merkle_cache.0.lock().unwrap();
                 cached_path_lookup(record_id, root_hash, &mut locked_cache)
             };
-            self.metrics.histogram(
+            self.metrics.distribution(
                 "store_client.path_lookup.cached_nodes_read",
                 result.nodes.len() as i64,
                 tags,
             );
-            self.metrics.histogram(
+            self.metrics.distribution(
                 "store_client.path_lookup.full_path_cache_hits",
                 result.next.is_none() as i64,
                 tags,
@@ -320,8 +320,11 @@ impl TreeStoreReader<DataHash> for StoreClient {
                     // This was a full path cache hit. For `bigtable_nodes_read`
                     // to be comparable with `cached_nodes_read`, it seems more
                     // fair to record a zero value here.
-                    self.metrics
-                        .histogram("store_client.path_lookup.bigtable_nodes_read", 0, tags);
+                    self.metrics.distribution(
+                        "store_client.path_lookup.bigtable_nodes_read",
+                        0,
+                        tags,
+                    );
                     return Ok(cached_nodes.collect());
                 }
                 Some(next) => (cached_nodes, next),
@@ -374,16 +377,16 @@ impl TreeStoreReader<DataHash> for StoreClient {
             })
             .collect();
 
-        self.metrics.histogram(
+        self.metrics.distribution(
             "store_client.path_lookup.bigtable_nodes_read",
-            read_values.len() as i64,
+            read_values.len(),
             tags,
         );
 
         // This is heavy-weight but useful for understanding how deep into the
         // tree extraneous reads are occurring.
         for (key, _) in &read_values {
-            self.metrics.histogram(
+            self.metrics.distribution(
                 "store_client.path_lookup.bigtable_node.key_len",
                 key.as_slice().len(),
                 tags,

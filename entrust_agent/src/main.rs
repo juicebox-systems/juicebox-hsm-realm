@@ -311,9 +311,9 @@ impl TransportInner {
         let tag = tag!(?msg_name);
         self.metrics.timing("entrust.seejob.time", elapsed, [&tag]);
         self.metrics
-            .histogram("entrust.seejob.request.bytes", req_len, [&tag]);
+            .distribution("entrust.seejob.request.bytes", req_len, [&tag]);
         self.metrics
-            .histogram("entrust.seejob.response.bytes", resp_vec.len(), [&tag]);
+            .distribution("entrust.seejob.response.bytes", resp_vec.len(), [&tag]);
 
         Span::current().record("resp_msg_len", resp_vec.len());
         Ok(resp_vec)
