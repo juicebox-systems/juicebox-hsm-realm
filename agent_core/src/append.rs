@@ -140,10 +140,10 @@ impl<T: Transport + 'static> Agent<T> {
 
         self.0
             .metrics
-            .histogram("bigtable.append.batch.size", batch_size, tags);
+            .distribution("bigtable.append.batch.size", batch_size, tags);
 
         self.0
             .metrics
-            .histogram("bigtable.append.queue.size", queue_depth, tags);
+            .distribution("bigtable.append.queue.size", queue_depth, tags);
     }
 }

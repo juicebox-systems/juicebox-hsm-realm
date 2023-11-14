@@ -4,7 +4,7 @@ use bytes::Bytes;
 use digest::Digest;
 use futures::future::join_all;
 use futures::{select_biased, Future, FutureExt};
-use http::Method;
+use http::{HeaderValue, Method};
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
 use hyper::server::conn::{http1, http2};
 use hyper::service::Service;
@@ -263,9 +263,11 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
 
         Box::pin(
             async move {
-                match (request.uri().path(), request.method()) {
+                let start = Instant::now();
+                let mut result = match (request.uri().path(), request.method()) {
                     ("/req", &Method::POST) => state.handle_req(request).await,
                     ("/livez", &Method::GET) => state.handle_livez(request).await,
+                    ("/rttest", &Method::POST) => state.handle_rttest(request).await,
 
                     ("/req", &Method::OPTIONS) => Ok(Response::builder()
                         .header("Access-Control-Allow-Origin", "*")
@@ -282,7 +284,15 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                         .status(StatusCode::NOT_FOUND)
                         .body(Full::from(Bytes::from("Not Found")))
                         .unwrap()),
+                };
+                let e = start.elapsed();
+                if let Ok(ref mut r) = result {
+                    r.headers_mut().insert(
+                        "x-exec-time",
+                        HeaderValue::from_str(&e.as_nanos().to_string()).unwrap(),
+                    );
                 }
+                result
             }
             // This doesn't look like it should do anything, but it seems to be
             // critical to connecting these spans to the parent.
@@ -292,6 +302,26 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
 }
 
 impl LoadBalancer {
+    // This is a test endpoint with a fixed response. It expects a POST request
+    // and returns a 167 byte response after 100ms. This roughly approximates
+    // the request shape/timing that the /req endpoint exposes.
+    async fn handle_rttest(
+        &self,
+        request: Request<IncomingBody>,
+    ) -> Result<Response<Full<Bytes>>, Box<dyn Error + Send + Sync>> {
+        let _b = Limited::new(request, BODY_SIZE_LIMIT)
+            .collect()
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let body = vec![65u8; 167];
+        Ok(Response::builder()
+            .status(200)
+            .body(Full::from(body))
+            .unwrap())
+    }
+
     async fn handle_livez(
         &self,
         _request: Request<IncomingBody>,

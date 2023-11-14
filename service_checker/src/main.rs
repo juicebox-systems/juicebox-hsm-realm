@@ -100,16 +100,17 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let mc = metrics::Client::new_with_tags("service_checker", [tag!("env":"{}",args.env)]);
 
     let mut res;
     loop {
-        res = match timeout(args.timeout, checker.run(&args)).await {
+        res = match timeout(args.timeout, checker.run(mc.clone(), &args)).await {
             Ok(res) => res,
             Err(_) => Err(anyhow!(
                 "timed out waiting for register/recover to complete"
             )),
         };
-        report_service_check(&res, &args.env);
+        report_service_check(&mc, &res);
         if !args.forever {
             break;
         }
@@ -169,15 +170,16 @@ impl Checker {
         })
     }
 
-    #[instrument(level = "trace", skip(self))]
-    async fn run(&self, args: &Args) -> anyhow::Result<()> {
-        let http_client = HttpReporter::new(reqwest::Client::<LoadBalancerService>::new(
-            reqwest::ClientOptions {
+    #[instrument(level = "trace", skip(self, mc))]
+    async fn run(&self, mc: metrics::Client, args: &Args) -> anyhow::Result<()> {
+        let http_client = HttpReporter::new(
+            reqwest::Client::<LoadBalancerService>::new(reqwest::ClientOptions {
                 additional_root_certs: self.certs.clone(),
                 timeout: args.http_timeout,
                 default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
-            },
-        ));
+            }),
+            mc,
+        );
 
         let client_builder = Arc::new(ClientBuilder {
             shared_http_client: http_client,
@@ -321,19 +323,18 @@ async fn get_auth_key(
     Ok((secret.into(), version.into()))
 }
 
-fn report_service_check(r: &anyhow::Result<()>, env: &str) {
-    let c = metrics::Client::new("service_checker");
+fn report_service_check(mc: &metrics::Client, r: &anyhow::Result<()>) {
     const STAT: &str = "healthcheck.register_recover";
 
     match r {
-        Ok(()) => c.service_check(STAT, ServiceStatus::OK, [tag!(env)], None),
+        Ok(()) => mc.service_check(STAT, ServiceStatus::OK, metrics::NO_TAGS, None),
         Err(err) => {
             // this is dumb, thanks dogstatsd
             let msg: &'static str = Box::leak(format!("{:?}", err).into_boxed_str());
-            c.service_check(
+            mc.service_check(
                 STAT,
                 ServiceStatus::Critical,
-                [tag!(env)],
+                metrics::NO_TAGS,
                 Some(ServiceCheckOptions {
                     message: Some(msg),
                     ..ServiceCheckOptions::default()
@@ -347,32 +348,44 @@ struct HttpReporter {
     client: reqwest::Client<LoadBalancerService>,
     // count of requests made by this specific instance
     count: AtomicUsize,
+    metrics: metrics::Client,
 }
 
 impl HttpReporter {
-    fn new(client: reqwest::Client<LoadBalancerService>) -> Self {
+    fn new(client: reqwest::Client<LoadBalancerService>, mc: metrics::Client) -> Self {
         Self {
             client,
             count: AtomicUsize::new(0),
+            metrics: mc,
         }
     }
 }
+
 impl Clone for HttpReporter {
     fn clone(&self) -> Self {
         Self {
             client: self.client.clone(),
             count: AtomicUsize::new(0),
+            metrics: self.metrics.clone(),
         }
     }
 }
 
 #[async_trait]
 impl http::Client for HttpReporter {
-    async fn send(&self, request: http::Request) -> Option<http::Response> {
+    async fn send(&self, mut request: http::Request) -> Option<http::Response> {
         let start = Instant::now();
         let count = self.count.fetch_add(1, Ordering::Relaxed);
+        // Ask Cloudfront to return a server-timing response header with details
+        // about this request.
+        // see https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/understanding-response-headers-policies.html#server-timing-header
+        request
+            .headers
+            .insert(String::from("pragma"), String::from("server-timing"));
+        let tag_url = tag!("url":"{}",request.url);
         let result = self.client.send(request).await;
         let elapsed = start.elapsed();
+        let mut cdn: Option<CdnInfo> = None;
         if let Some(r) = &result {
             if r.status_code != 200 {
                 warn!(
@@ -382,12 +395,105 @@ impl http::Client for HttpReporter {
                     "http request returned unexpected status code"
                 )
             }
+            if let Some(timings) = r.headers.get("server-timing") {
+                cdn = parse_cloudfront_server_timings(timings);
+            } else if let Some(ray) = r.headers.get("cf-ray") {
+                cdn = Some(CdnInfo::CloudFlare { ray: ray.clone() })
+            }
+            let tag_status = tag!("status_code":"{}",r.status_code);
+            if let Some(exec) = r.headers.get("x-exec-time") {
+                if let Ok(nanos) = exec.parse() {
+                    let nanos = Duration::from_nanos(nanos);
+                    self.metrics.timing(
+                        "service_checker.http_send.network_latency",
+                        elapsed - nanos,
+                        [&tag_url, &tag_status],
+                    );
+                    self.metrics.timing(
+                        "service_checker.http_send.server_exec_time",
+                        nanos,
+                        [&tag_url, &tag_status],
+                    );
+                }
+            }
+            self.metrics
+                .timing("service_checker.http_send", elapsed, [tag_url, tag_status]);
         }
         if elapsed > Duration::from_secs(1) {
-            warn!(?elapsed, prev_request_count=%count, "slow http request")
+            warn!(?elapsed, prev_request_count=%count, ?cdn, "slow http request")
         }
         result
     }
+}
+
+fn parse_cloudfront_server_timings(v: &str) -> Option<CdnInfo> {
+    // e.g. cdn-upstream-layer;desc="EDGE",cdn-upstream-dns;dur=0,cdn-upstream-connect;dur=60,cdn-upstream-fbl;dur=120,
+    // cdn-cache-miss,cdn-pop;desc="SFO53-P5",cdn-rid;desc="s9h8qRzwLylq5TYQCeWUjop5TMZUXb3UDezTW-nPb0DCFv5nWb9enQ==",
+    // cdn-downstream-fbl;dur=120
+    fn value_of<'a>(v: &'a str, field: &str) -> Option<&'a str> {
+        if let Some((fname, fval)) = v.split_once('=') {
+            if fname == field {
+                return Some(fval.trim_matches('"'));
+            }
+        }
+        None
+    }
+    fn duration_of(v: &str) -> Option<Duration> {
+        match value_of(v, "dur") {
+            None => None,
+            Some(d) => d.parse().ok().map(Duration::from_millis),
+        }
+    }
+    let mut r = CloudFrontServerTimings::default();
+    for item in v.split(',') {
+        if let Some((key, value)) = item.split_once(';') {
+            match key {
+                "cdn-pop" => r.pop = value_of(value, "desc").map(str::to_string),
+                "cdn-rid" => r.rid = value_of(value, "desc").map(str::to_string),
+                "cdn-upstream-dns" => r.upstream_dns = duration_of(value),
+                "cdn-upstream-connect" => r.upstream_connect = duration_of(value),
+                "cdn-upstream-fbl" => r.upstream_first_byte = duration_of(value),
+                "cdn-downstream-fbl" => r.downstream_first_byte = duration_of(value),
+                _ => {}
+            }
+        }
+    }
+    if r != CloudFrontServerTimings::default() {
+        Some(CdnInfo::CloudFront(r))
+    } else {
+        None
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+// dead_code analysis ignores the Default impl, which is how the ray field gets used.
+#[allow(dead_code)]
+enum CdnInfo {
+    CloudFlare { ray: String },
+    CloudFront(CloudFrontServerTimings),
+}
+
+#[derive(Default, Debug, Eq, PartialEq)]
+struct CloudFrontServerTimings {
+    // The name of the CloudFront point of presence that handled the request.
+    pop: Option<String>,
+    // The CloudFront unique identifier for the request. You can use this
+    // request identifier (RID) when troubleshooting issues with AWS Support
+    rid: Option<String>,
+    // The time that was spent retrieving the DNS record for the origin. May be
+    // 0 if cached.
+    upstream_dns: Option<Duration>,
+    // The time between when the origin DNS request completed and a TCP (and
+    // TLS, if applicable) connection to the origin completed. May be 0 if
+    // reusing an existing connection.
+    upstream_connect: Option<Duration>,
+    // The time between when the origin HTTP request is completed and when the
+    // first byte is received in the response from the origin (first byte
+    // latency).
+    upstream_first_byte: Option<Duration>,
+    // The time between when the edge location finished receiving the request
+    // and when it sent the first byte of the response to the viewer.
+    downstream_first_byte: Option<Duration>,
 }
 
 #[cfg(test)]
@@ -403,6 +509,26 @@ mod tests {
                 .try_get_matches_from(["service_checker", "--help"])
                 .unwrap_err()
                 .to_string(),
+        );
+    }
+
+    #[test]
+    fn test_cloudfront_parser() {
+        let res = parse_cloudfront_server_timings("cdn-upstream-layer;desc=\"EDGE\",cdn-upstream-dns;dur=0,cdn-upstream-connect;dur=60,cdn-upstream-fbl;dur=120,\
+        cdn-cache-miss,cdn-pop;desc=\"SFO53-P5\",cdn-rid;desc=\"s9h8qRzwLylq5TYQCeWUjop5TMZUXb3UDezTW-nPb0DCFv5nWb9enQ==\",\
+        cdn-downstream-fbl;dur=125");
+        assert_eq!(
+            Some(CdnInfo::CloudFront(CloudFrontServerTimings {
+                pop: Some(String::from("SFO53-P5")),
+                rid: Some(String::from(
+                    "s9h8qRzwLylq5TYQCeWUjop5TMZUXb3UDezTW-nPb0DCFv5nWb9enQ=="
+                )),
+                upstream_dns: Some(Duration::from_millis(0)),
+                upstream_connect: Some(Duration::from_millis(60)),
+                upstream_first_byte: Some(Duration::from_millis(120)),
+                downstream_first_byte: Some(Duration::from_millis(125)),
+            })),
+            res
         );
     }
 }
