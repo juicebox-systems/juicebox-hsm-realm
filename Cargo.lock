@@ -1033,6 +1033,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "entrust_ops"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hex",
+ "sha2",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

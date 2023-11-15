@@ -75,7 +75,7 @@ const TEST_CASES: &[TestCase] = &[
 const LANG: &str = "perl";
 
 fn dry_run() -> String {
-    let bin = env!("CARGO_BIN_EXE_ceremony");
+    let bin = env!("CARGO_BIN_EXE_entrust_ops");
     let mut buf = String::new();
 
     let that = "This";

@@ -3,7 +3,7 @@
 use clap::Parser;
 use std::process::ExitCode;
 
-use ceremony::{commands, Args, Context, Paths};
+use entrust_ops::{commands, Args, Context, Paths};
 
 /// Runs the program.
 fn main() -> ExitCode {

@@ -4,10 +4,10 @@ use std::fs;
 use std::io;
 use std::process;
 
-use ceremony::Args;
+use entrust_ops::Args;
 
 fn get_usage(args: &[&str]) -> String {
-    let bin = env!("CARGO_BIN_EXE_ceremony");
+    let bin = env!("CARGO_BIN_EXE_entrust_ops");
 
     let output = process::Command::new(bin)
         .args(args)
