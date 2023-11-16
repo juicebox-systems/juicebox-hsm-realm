@@ -1,12 +1,12 @@
 use once_cell::sync::Lazy;
-use std::{path::PathBuf, sync::mpsc::channel};
-use tokio::task::JoinSet;
+use std::path::PathBuf;
+use std::time::Duration;
+use testing::background::{BackgroundClientRequests, WorkerReq};
 
 use cluster_api::StepDownRequest;
 use juicebox_networking::reqwest::{self, ClientOptions};
 use juicebox_networking::rpc;
 use juicebox_process_group::ProcessGroup;
-use juicebox_sdk::Policy;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use testing::exec::hsm_gen::Entrust;
@@ -14,11 +14,6 @@ use testing::exec::PortIssuer;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8333));
-
-enum WorkerReq {
-    Report,
-    Shutdown,
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn leader_handover() {
@@ -45,67 +40,12 @@ async fn leader_handover() {
         .unwrap();
 
     let client = cluster.client_for_user(String::from("presso"));
-
-    let (tx, rx) = channel();
-    let (res_tx, res_rx) = channel();
-    let mut tasks = JoinSet::new();
-
-    tasks.spawn(async move {
-        let mut success_count = 0;
-        let mut failures = Vec::new();
-        loop {
-            match client
-                .register(
-                    &vec![1, 2, 3, 4].into(),
-                    &b"bob".to_vec().into(),
-                    &b"info".to_vec().into(),
-                    Policy { num_guesses: 3 },
-                )
-                .await
-            {
-                Ok(_) => success_count += 1,
-                Err(e) => failures.push(format!("{e:?}")),
-            }
-
-            match client
-                .recover(&vec![1, 2, 3, 4].into(), &b"info".to_vec().into())
-                .await
-            {
-                Ok(secret) if secret.expose_secret() == b"bob".to_vec() => success_count += 1,
-                Ok(secret) => failures.push(format!(
-                    "expected {:?} got {:?}",
-                    b"bob".to_vec(),
-                    secret.expose_secret()
-                )),
-                Err(e) => failures.push(format!("{e:?}")),
-            }
-
-            match rx.try_recv() {
-                Ok(WorkerReq::Report) => {
-                    res_tx.send((success_count, failures.split_off(0))).unwrap();
-                }
-                Ok(WorkerReq::Shutdown) => {
-                    res_tx.send((success_count, failures.split_off(0))).unwrap();
-                    return;
-                }
-                Err(_) => {
-                    // Nothing to read from rx. Keep making more requests.
-                }
-            }
-        }
-    });
+    let mut background_work = BackgroundClientRequests::spawn(client).await;
 
     // Wait til our background register/recover workers had made some requests.
-    let mut success_count;
-    let mut errors: Vec<String>;
-    loop {
-        tx.send(WorkerReq::Report).unwrap();
-        (success_count, errors) = res_rx.recv().unwrap();
-        assert_eq!(Vec::<String>::new(), errors, "client reported errors");
-        if success_count > 3 {
-            break;
-        }
-    }
+    background_work
+        .wait_for_progress(3, Duration::from_secs(5))
+        .await;
 
     let agents = reqwest::Client::new(ClientOptions::default());
     let cluster_realm = cluster.realms[0].realm;
@@ -142,15 +82,9 @@ async fn leader_handover() {
         assert_ne!(hsm_id1, hsm_id2, "leader should have changed (1 to 2)");
 
         // make sure the background worker made some progress.
-        let count_before_leader_change = success_count;
-        loop {
-            tx.send(WorkerReq::Report).unwrap();
-            (success_count, errors) = res_rx.recv().unwrap();
-            assert_eq!(Vec::<String>::new(), errors, "client reported errors");
-            if success_count > 5 + count_before_leader_change {
-                break;
-            }
-        }
+        background_work
+            .wait_for_progress(5, Duration::from_secs(5))
+            .await;
 
         // Now ask for a stepdown based on the realm/group Id.
         rpc::send(
@@ -176,21 +110,14 @@ async fn leader_handover() {
         assert_ne!(hsm_id2, hsm_id3, "leader should have changed (2 to 3)");
 
         // check in on our background register/recover progress.
-        let count_before_leader_change = success_count;
-        loop {
-            tx.send(WorkerReq::Report).unwrap();
-            (success_count, errors) = res_rx.recv().unwrap();
-            assert_eq!(Vec::<String>::new(), errors, "client reported errors");
-            if success_count > 3 + count_before_leader_change {
-                break;
-            }
-        }
+        background_work
+            .wait_for_progress(3, Duration::from_secs(5))
+            .await;
     }
 
     // all done.
-    tx.send(WorkerReq::Shutdown).unwrap();
-    (_, errors) = res_rx.recv().unwrap();
-    assert_eq!(Vec::<String>::new(), errors, "client reported errors");
+    let p = background_work.progress(WorkerReq::Shutdown).await;
+    assert_eq!(Vec::<String>::new(), p.errors, "client reported errors");
 
     processes.kill();
 }

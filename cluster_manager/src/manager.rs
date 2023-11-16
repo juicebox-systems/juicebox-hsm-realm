@@ -6,7 +6,6 @@ use hyper::http;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use observability::metrics;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,13 +14,16 @@ use std::time::{Duration, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{info, instrument, warn, Instrument, Span};
+use tracing::{info, span, warn, Instrument, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
-use hsm_api::GroupId;
+use hsm_api::{GroupId, HsmId, LogIndex};
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::Rpc;
 use juicebox_realm_api::types::RealmId;
+use observability::logging::TracingSource;
+use observability::metrics;
 use observability::tracing::TracingMiddleware;
 use service_core::http::ReqwestClientMetrics;
 use service_core::rpc::handle_rpc;
@@ -29,6 +31,7 @@ use store::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
 use store::{Lease, LeaseKey, LeaseType, ServiceKind, StoreClient};
 
 mod leader;
+mod rebalance;
 mod stepdown;
 
 const LEASE_DURATION: Duration = Duration::from_secs(3);
@@ -123,6 +126,7 @@ impl Manager {
         name: String,
         store: StoreClient,
         update_interval: Duration,
+        rebalance_interval: Duration,
         metrics: metrics::Client,
     ) -> Self {
         let m = Self(Arc::new(ManagerInner {
@@ -133,9 +137,31 @@ impl Manager {
         }));
         let manager = m.clone();
         tokio::spawn(async move {
+            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
             loop {
                 sleep(update_interval).await;
-                manager.run().await;
+
+                let span = span!(Level::TRACE, "ensure_groups_have_leader_loop");
+                span.set_parent(cx.clone());
+
+                if let Err(err) = manager.ensure_groups_have_leader().await {
+                    warn!(?err, "Error while checking all groups have a leader")
+                }
+            }
+        });
+
+        let manager = m.clone();
+        tokio::spawn(async move {
+            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+            loop {
+                sleep(rebalance_interval).await;
+
+                let span = span!(Level::TRACE, "rebalance_work_loop");
+                span.set_parent(cx.clone());
+
+                if let Err(err) = manager.rebalance_work().await {
+                    warn!(?err, "Error while rebalancing the cluster")
+                }
             }
         });
         m
@@ -217,6 +243,9 @@ impl Service<Request<IncomingBody>> for Manager {
                     cluster_api::StepDownRequest::PATH => {
                         handle_rpc(&manager, request, Self::handle_leader_stepdown).await
                     }
+                    cluster_api::RebalanceRequest::PATH => {
+                        handle_rpc(&manager, request, Self::handle_rebalance).await
+                    }
                     _ => Ok(Response::builder()
                         .status(http::StatusCode::NOT_FOUND)
                         .body(Full::from(Bytes::new()))
@@ -231,14 +260,6 @@ impl Service<Request<IncomingBody>> for Manager {
 }
 
 impl Manager {
-    /// Perform one pass of the management tasks.
-    #[instrument(level = "trace", skip(self))]
-    async fn run(&self) {
-        if let Err(err) = self.ensure_groups_have_leader().await {
-            warn!(?err, "Error while checking/updating cluster state")
-        }
-    }
-
     // Track that the group is going through some management operation that
     // should block other management operations. Returns None if the group is
     // already busy by some other task. When the returned ManagementGrant is
@@ -281,6 +302,128 @@ impl Manager {
                 )))
                 .unwrap()
         }
+    }
+}
+
+#[derive(Debug)]
+struct HsmWorkload {
+    id: HsmId,
+    groups: Vec<GroupWorkload>,
+}
+
+impl HsmWorkload {
+    fn new(s: &hsm_api::StatusResponse) -> Option<HsmWorkload> {
+        s.realm.as_ref().map(|rs| {
+            let groups = rs
+                .groups
+                .iter()
+                .map(|gs| GroupWorkload::new(rs.id, gs))
+                .collect();
+            HsmWorkload { id: s.id, groups }
+        })
+    }
+
+    fn work(&self) -> WorkAmount {
+        self.groups.iter().map(|g| g.work()).sum()
+    }
+
+    // Returns a list of moveable workloads that are ordered by their distance to the target_size, closest first.
+    fn moveable_workloads(&self, target_size: WorkAmount) -> Vec<&GroupWorkload> {
+        let mut moveable: Vec<&GroupWorkload> = self
+            .groups
+            .iter()
+            .filter(|w| w.members.len() > 1 && w.leader.is_some())
+            .collect();
+        moveable.sort_by_key(|w| target_size.abs_diff(w.work()));
+        moveable
+    }
+
+    // Returns true if 'self' is in a state where it could reasonably become
+    // leader for the 'target' group.
+    fn can_lead(&self, target: &GroupWorkload) -> bool {
+        if !target.members.contains(&self.id) {
+            return false;
+        }
+        const MAX_CAPTURE_TRAILING: u64 = 1000;
+
+        self.groups
+            .iter()
+            .find(|g| g.group == target.group && g.realm == target.realm)
+            .is_some_and(|my_group| {
+                matches!(
+                    (my_group.last_captured, target.last_captured),
+                    (Some(mine), Some(target))
+                    if mine.0 > target.0.saturating_sub(MAX_CAPTURE_TRAILING))
+            })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct GroupWorkload {
+    witness: WorkAmount,
+    leader: Option<WorkAmount>,
+    members: Vec<HsmId>,
+    last_captured: Option<LogIndex>,
+    group: GroupId,
+    realm: RealmId,
+}
+
+impl GroupWorkload {
+    fn new(realm: RealmId, gs: &hsm_api::GroupStatus) -> GroupWorkload {
+        let leader = gs.leader.as_ref().map(|l| {
+            let mut w = WorkAmount(2);
+            if let Some(part) = &l.owned_range {
+                let part_size = part.end.0[0] - part.start.0[0];
+                w += WorkAmount(part_size as usize);
+            }
+            w
+        });
+        GroupWorkload {
+            witness: WorkAmount(1),
+            leader,
+            last_captured: gs.captured.as_ref().map(|(idx, _mac)| *idx),
+            members: gs.configuration.clone(),
+            group: gs.id,
+            realm,
+        }
+    }
+
+    fn work(&self) -> WorkAmount {
+        self.witness + self.leader.unwrap_or(WorkAmount(0))
+    }
+}
+
+/// Represents the amount of work/load a task is estimated to consume. Larger is busier.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct WorkAmount(usize);
+
+impl WorkAmount {
+    fn abs_diff(&self, o: Self) -> Self {
+        WorkAmount(self.0.abs_diff(o.0))
+    }
+}
+
+impl std::ops::Add for WorkAmount {
+    type Output = WorkAmount;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        WorkAmount(self.0 + rhs.0)
+    }
+}
+
+impl std::ops::AddAssign for WorkAmount {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0
+    }
+}
+
+impl std::iter::Sum for WorkAmount {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        let mut t = WorkAmount(0);
+        for w in iter {
+            t += w;
+        }
+        t
     }
 }
 
@@ -333,11 +476,13 @@ mod tests {
             String::from("one"),
             store.clone(),
             Duration::from_secs(1000),
+            Duration::from_secs(1000),
             metrics::Client::NONE,
         );
         let m2 = Manager::new(
             String::from("two"),
             store,
+            Duration::from_secs(1000),
             Duration::from_secs(1000),
             metrics::Client::NONE,
         );

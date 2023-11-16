@@ -102,7 +102,6 @@ impl Manager {
         super::leader::assign_group_a_leader(
             &self.0.agents,
             grant,
-            stepdown.config,
             Some(stepdown.hsm),
             &hsm_status,
             last,

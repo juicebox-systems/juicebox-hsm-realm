@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tracing::{info, instrument, trace, warn};
 use url::Url;
 
-use super::{ManagementGrant, Manager};
+use super::{HsmWorkload, ManagementGrant, Manager, WorkAmount};
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse};
 use cluster_core::{get_hsm_statuses, Error};
 use hsm_api::{GroupId, HsmId, LogIndex};
@@ -15,20 +15,18 @@ use store::ServiceKind;
 impl Manager {
     #[instrument(level = "trace", skip(self))]
     pub(super) async fn ensure_groups_have_leader(&self) -> Result<(), Error> {
-        trace!("checking that all groups have a leader");
         let addresses = self.0.store.get_addresses(Some(ServiceKind::Agent)).await?;
         let hsm_status =
             get_hsm_statuses(&self.0.agents, addresses.iter().map(|(url, _)| url)).await;
 
-        let mut groups: HashMap<GroupId, (Vec<HsmId>, RealmId, Option<HsmId>)> = HashMap::new();
+        let mut groups: HashMap<(RealmId, GroupId), Option<HsmId>> = HashMap::new();
         for (hsm, _url) in hsm_status.values() {
             if let Some(realm) = &hsm.realm {
                 for g in &realm.groups {
-                    groups
-                        .entry(g.id)
-                        .or_insert_with(|| (g.configuration.clone(), realm.id, None));
-                    if let Some(_leader) = &g.leader {
-                        groups.entry(g.id).and_modify(|v| v.2 = Some(hsm.id));
+                    if g.leader.is_some() {
+                        groups.insert((realm.id, g.id), Some(hsm.id));
+                    } else {
+                        groups.entry((realm.id, g.id)).or_insert(None);
                     }
                 }
             }
@@ -36,9 +34,8 @@ impl Manager {
 
         trace!(count=?groups.len(), "found groups");
 
-        for (group_id, (config, realm_id, _)) in groups
-            .into_iter()
-            .filter(|(_, (_, _, leader))| leader.is_none())
+        for ((realm_id, group_id), _leader) in
+            groups.into_iter().filter(|(_, leader)| leader.is_none())
         {
             info!(?group_id, ?realm_id, "Group has no leader");
             match self.mark_as_busy(realm_id, group_id).await {
@@ -51,8 +48,7 @@ impl Manager {
                 }
                 Ok(Some(grant)) => {
                     // This group doesn't have a leader, we'll pick one and ask it to become leader.
-                    assign_group_a_leader(&self.0.agents, &grant, config, None, &hsm_status, None)
-                        .await?;
+                    assign_group_a_leader(&self.0.agents, &grant, None, &hsm_status, None).await?;
                 }
                 Err(err) => {
                     warn!(?err, "GRPC error trying to obtain lease");
@@ -69,7 +65,6 @@ impl Manager {
 pub(super) async fn assign_group_a_leader(
     agent_client: &ReqwestClientMetrics,
     grant: &ManagementGrant,
-    config: Vec<HsmId>,
     skipping: Option<HsmId>,
     hsm_status: &HashMap<HsmId, (hsm_api::StatusResponse, Url)>,
     last: Option<LogIndex>,
@@ -77,15 +72,32 @@ pub(super) async fn assign_group_a_leader(
     // We calculate a score for each group member based on how much work we
     // think its doing. Then use that to control the order in which we try to
     // make a member the leader.
-    let mut scored: Vec<Score> = config
-        .into_iter()
-        .filter(|id| match skipping {
-            Some(hsm) if *id == hsm => false,
-            None | Some(_) => true,
+    let group_members = &hsm_status
+        .values()
+        .filter_map(|(sr, _url)| sr.realm.as_ref())
+        .flat_map(|sr| sr.groups.iter().map(|g| (sr.id, g)))
+        .find(|(realm, group)| group.id == grant.group && *realm == grant.realm)
+        .unwrap()
+        .1
+        .configuration;
+
+    let mut scored: Vec<Score> = hsm_status
+        .values()
+        .filter(|(status, _url)| skipping != Some(status.id) && group_members.contains(&status.id))
+        .flat_map(|(status, _url)| {
+            HsmWorkload::new(status).map(|w| Score {
+                id: w.id,
+                workload: w.work(),
+                last_captured: w
+                    .groups
+                    .iter()
+                    .find(|g| g.group == grant.group && g.realm == grant.realm)
+                    .map(|g| g.last_captured)
+                    .unwrap_or_default(),
+            })
         })
-        .filter_map(|id| hsm_status.get(&id))
-        .map(|(m, _)| score(&grant.group, m))
         .collect();
+
     scored.sort();
 
     let mut last_result: Result<Option<HsmId>, RpcError> = Ok(None);
@@ -121,36 +133,10 @@ pub(super) async fn assign_group_a_leader(
     last_result
 }
 
-fn score(group: &GroupId, m: &hsm_api::StatusResponse) -> Score {
-    let mut work: usize = 0;
-    let mut last_captured = None;
-    if let Some(r) = &m.realm {
-        // group member scores +1, leader scores + 2 + MSB of the partition size. (0-255)
-        for g in &r.groups {
-            work += 1;
-            if let Some(leader) = &g.leader {
-                work += 2;
-                if let Some(part) = &leader.owned_range {
-                    let part_size = part.end.0[0] - part.start.0[0];
-                    work += part_size as usize;
-                }
-            }
-            if g.id == *group {
-                last_captured = g.captured.as_ref().map(|(index, _)| *index);
-            }
-        }
-    }
-    Score {
-        workload: work,
-        last_captured,
-        id: m.id,
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Score {
-    // larger is busier
-    workload: usize,
+    // total workload on the HSM
+    workload: WorkAmount,
     last_captured: Option<LogIndex>,
     id: HsmId,
 }
@@ -173,33 +159,33 @@ impl PartialOrd for Score {
 
 #[cfg(test)]
 mod tests {
-    use super::Score;
+    use super::{Score, WorkAmount};
     use hsm_api::{HsmId, LogIndex};
 
     #[test]
     fn score_order() {
         let a = Score {
-            workload: 20,
+            workload: WorkAmount(20),
             last_captured: Some(LogIndex(14)),
             id: HsmId([1; 16]),
         };
         let b = Score {
-            workload: 10,
+            workload: WorkAmount(10),
             last_captured: Some(LogIndex(13)),
             id: HsmId([2; 16]),
         };
         let c = Score {
-            workload: 10,
+            workload: WorkAmount(10),
             last_captured: Some(LogIndex(1)),
             id: HsmId([3; 16]),
         };
         let d = Score {
-            workload: 10,
+            workload: WorkAmount(10),
             last_captured: None,
             id: HsmId([4; 16]),
         };
         let e = Score {
-            workload: 42,
+            workload: WorkAmount(42),
             last_captured: Some(LogIndex(1)),
             id: HsmId([5; 16]),
         };

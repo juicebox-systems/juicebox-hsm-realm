@@ -141,6 +141,19 @@ enum Command {
         id: String,
     },
 
+    /// Rebalance the cluster workload by potentially moving group leadership.
+    Rebalance {
+        /// URL to a cluster manager, which will execute the request. By
+        /// default it will find a cluster manager using service discovery.
+        #[arg(short, long)]
+        cluster: Option<Url>,
+
+        /// Repeatedly rebalance until the cluster is fully balanced. This
+        /// may make multiple leadership moves.
+        #[arg(short, long, default_value_t = false)]
+        full: bool,
+    },
+
     /// Transfer ownership of user records from one group to another.
     ///
     /// Both groups must already exist and be part of the same realm.
@@ -378,6 +391,10 @@ async fn run(args: Args) -> anyhow::Result<()> {
             id,
         } => {
             commands::stepdown::stepdown(&store, &agents_client, &cluster, stepdown_type, &id).await
+        }
+
+        Command::Rebalance { cluster, full } => {
+            commands::rebalance::rebalance(&store, &agents_client, cluster, full).await
         }
 
         Command::UserSummary {

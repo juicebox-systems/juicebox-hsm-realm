@@ -29,6 +29,10 @@ struct Args {
     /// Interval for checking the cluster state in milliseconds.
     #[arg(short, long, default_value="2000", value_parser=parse_duration)]
     interval: Duration,
+
+    /// Interval for rebalancing the cluster in milliseconds.
+    #[arg(long,default_value="60000", value_parser=parse_duration)]
+    rebalance_interval: Duration,
 }
 
 #[tokio::main]
@@ -84,7 +88,13 @@ async fn main() {
         .await
         .expect("Unable to connect to Bigtable data");
 
-    let manager = Manager::new(args.listen.to_string(), store, args.interval, metrics);
+    let manager = Manager::new(
+        args.listen.to_string(),
+        store,
+        args.interval,
+        args.rebalance_interval,
+        metrics,
+    );
     let (url, handle) = manager
         .listen(args.listen)
         .await
