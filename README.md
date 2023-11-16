@@ -124,6 +124,7 @@ above:
 - `codegen` generates bindings from Google's Protocol Buffers definitions.
 - `entrust_init` is used to set up Entrust HSMs before they can participate in
   a realm.
+- `entrust_ops` is used to manage Entrust HSMs more safely and conveniently.
 - `src/bin/demo_runner` runs a large realm on localhost and, by default, runs
   the demo against it.
 - `src/bin/hsm_bench` runs a small realm on localhost and, by default, runs a

@@ -24,6 +24,7 @@ cargo build --release \
     -p cluster_manager \
     -p entrust_agent \
     -p entrust_init \
+    -p entrust_ops \
     -p load_balancer
 
 outputs='
@@ -32,6 +33,7 @@ outputs='
     release/cluster_manager
     release/entrust_agent
     release/entrust_init
+    release/entrust_ops
     release/load_balancer
 '
 

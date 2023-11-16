@@ -19,7 +19,8 @@ MODE='release' # or 'debug'
 while getopts e: FLAG
 do
   case "${FLAG}" in
-    e) REMOTE_HOST="${OPTARG}"; ENTRUST=1; MODE='release';;
+    e) REMOTE_HOST="${OPTARG}"; ENTRUST=1 ;;
+    *) exit 1 ;;
   esac
 done
 
@@ -52,12 +53,13 @@ gcloud storage cp \
   "gs://$GSPATH/"
 
 if [ "$ENTRUST" -eq "1" ]; then
- gcloud storage cp \
-   "target/$MODE/entrust_agent" \
-   "target/$MODE/entrust_init" \
-   "target/powerpc-unknown-linux-gnu/$MODE/entrust_hsm.sar" \
-   "target/powerpc-unknown-linux-gnu/$MODE/userdata.sar" \
-   "gs://$GSPATH/"
+  gcloud storage cp \
+    "target/$MODE/entrust_agent" \
+    "target/$MODE/entrust_init" \
+    "target/$MODE/entrust_ops" \
+    "target/powerpc-unknown-linux-gnu/$MODE/entrust_hsm.sar" \
+    "target/powerpc-unknown-linux-gnu/$MODE/userdata.sar" \
+    "gs://$GSPATH/"
 fi
 
 echo 'Upload done:'

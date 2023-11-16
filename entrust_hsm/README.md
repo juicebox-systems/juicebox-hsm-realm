@@ -32,53 +32,36 @@ Our `entrust_init` tool is used to configure NVRAM access and create realm keys.
 
 The code signing key (aka seeinteg) is required to be an OCS protected key.
 
-Create the security world (if needed). For production pick better quorums and
-don't set dseeall
-
+Create the security world (if needed).
  ```sh
-sudo /opt/nfast/bin/nopclearfail --initialization --module=1 --wait
-sudo /opt/nfast/bin/new-world --initialize --acs-quorum=1/1 dseeall
-sudo /opt/nfast/bin/nopclearfail --operational -m 1 --wait
+sudo target/release/entrust_ops hsm restart --initialization
+# Note: We used to pass `dseeall` (for debugging) to /opt/nfast/bin/new-world,
+# but entrust_ops doesn't support it.
+sudo target/release/entrust_ops hsm create-world
+sudo target/release/entrust_ops hsm restart --operational
 ```
 
-Create an OCS cardset ```sudo /opt/nfast/bin/createocs --name codesign -Q 1/1 -m 1 -P -R```
-
-Create a signing key
- ```sh
-$ sudo /opt/nfast/bin/generatekey -m 1 -c codesign  seeinteg
-recovery: Key recovery? (yes/no) [yes] > no
-type: Key type? (RSA, DSA) [RSA] >
-size: Key size? (bits, minimum 1024) [4096] >
-OPTIONAL: pubexp: Public exponent for RSA key (hex)? []
->
-plainname: Key name? [] > jbox-signer
-nvram: Blob in NVRAM (needs ACS)? (yes/no) [no] >
-key generation parameters:
- operation    Operation to perform               generate
- application  Application                        seeinteg
- protect      Protected by                       token
- slot         Slot to read cards from            0
- recovery     Key recovery                       no
- verify       Verify security of key             yes
- type         Key type                           RSA
- size         Key size                           4096
- pubexp       Public exponent for RSA key (hex)
- plainname    Key name                           jbox-signer
- nvram        Blob in NVRAM (needs ACS)          no
-
-Key successfully generated.
-```
-
-Sign the SEEMachine software.
+Create an OCS cardset:
 ```sh
-/opt/nfast/bin/tct2 --sign-and-pack --infile entrust_hsm.elf --outfile=entrust_hsm.sar  -k jbox-signer --is-machine --machine-type powerPCELF
+sudo target/release/entrust_ops smartcard write-ocs
+```
+
+Create a signing key:
+
+```sh
+sudo target/release/entrust_ops sign create-key
+```
+
+Sign the SEEMachine software:
+
+```sh
+sudo target/release/entrust_ops sign software
 ```
 
 Create and sign a dummy userdata file (the exact contents of this file don't matter).
 
 ```sh
-echo "dummy" > userdata.dummy
-/opt/nfast/bin/tct2 --sign-and-pack --infile userdata.dummy --outfile=userdata.sar -k jbox-signer --machine-key-ident jbox-signer --machine-type powerPCELF
+target/release/entrust_ops sign userdata
 ```
 
 Signing will require the OCS card(s) from above to be loaded.
