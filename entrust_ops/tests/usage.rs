@@ -1,7 +1,6 @@
 use clap::CommandFactory;
+use expect_test::expect_file;
 use std::fmt::Write;
-use std::fs;
-use std::io;
 use std::process;
 
 use entrust_ops::Args;
@@ -13,7 +12,14 @@ fn get_usage(args: &[&str]) -> String {
         .args(args)
         .arg("--help")
         .env_clear()
-        .env("HOME", "/home/ceremony-test")
+        .env(
+            "ENTRUST_INIT",
+            "/home/entrust_ops_test/juicebox-hsm-realm/target/release/entrust_init",
+        )
+        .env(
+            "SIGNING_DIR",
+            "/home/entrust_ops_test/juicebox-hsm-realm/target/powerpc-unknown-linux-gnu/release",
+        )
         .output()
         .unwrap_or_else(|err| panic!("failed to run {bin} {} --help: {err}", args.join(" ")));
 
@@ -41,8 +47,9 @@ fn get_all_usage() -> String {
         writeln!(buf).unwrap();
         writeln!(buf, "```").unwrap();
         // This could almost do `command.render_long_help()`, but then the
-        // usage is unreproducible because `$HOME` varies. Instead, use a child
-        // process to override $HOME.
+        // usage is unreproducible because the paths vary depending on where
+        // you run this. Instead, use a child process to override environment
+        // variables to control the paths.
         write!(buf, "{}", get_usage(&argv[1..])).unwrap();
         writeln!(buf, "```").unwrap();
         writeln!(buf).unwrap();
@@ -65,23 +72,13 @@ fn get_all_usage() -> String {
     writeln!(&mut all_usage, "_{that} file is automatically generated._").unwrap();
     writeln!(&mut all_usage).unwrap();
 
-    recursive_usage(&mut all_usage, &["ceremony"], &mut Args::command());
+    recursive_usage(&mut all_usage, &["entrust_ops"], &mut Args::command());
     all_usage
 }
 
 /// Snapshot test for usage output. See `usage.md`.
 #[test]
 fn test_usage() {
-    let expected = fs::read_to_string("usage.md").unwrap();
     let actual = get_all_usage();
-    if expected == actual {
-        if let Err(err) = fs::remove_file("usage.actual.md") {
-            if err.kind() != io::ErrorKind::NotFound {
-                panic!("failed to delete `usage.actual.md`: {err}");
-            }
-        }
-    } else {
-        fs::write("usage.actual.md", &actual).unwrap();
-        panic!("usage differs: compare expected (`usage.md`) with actual (`usage.actual.md`)");
-    }
+    expect_file!["../usage.md"].assert_eq(&actual);
 }

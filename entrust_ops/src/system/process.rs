@@ -34,6 +34,7 @@ impl<'a> Process<'a> {
 
     /// Sets the child process's working directory. Otherwise, the parent's
     /// working directory is used.
+    #[allow(unused)]
     pub fn dir(mut self, dir: &'a str) -> Self {
         assert!(self.dir.is_none());
         self.dir = Some(dir);
@@ -103,6 +104,7 @@ impl Context {
     /// The child stdin, stdout, and stderr are inherited.
     ///
     /// For dry runs, the command is not executed and `Ok(true)` is returned.
+    #[allow(unused)]
     pub(crate) fn exec_ok(&self, process: Process) -> Result<bool, Error> {
         if self.common_args.dry_run {
             println!("Not running because --dry-run:");

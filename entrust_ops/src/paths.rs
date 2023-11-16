@@ -10,8 +10,6 @@
 use std::env;
 use std::sync::OnceLock;
 
-use crate::commands::vendor::Disc as EntrustDisc;
-
 /// Private global used to access the [`Paths`] singleton, even before `main`
 /// runs.
 ///
@@ -25,23 +23,9 @@ static PATHS: OnceLock<Paths> = OnceLock::new();
 /// or, if that's not yet available, through [`Paths::get`].
 #[derive(Debug)]
 pub struct Paths {
-    /// The path to the device representing the DVD burner: `/dev/sr0`.
-    pub dvd_device: String,
-
     /// The path where the `entrust_init` program will be built or placed. This
     /// file may not exist yet.
     pub entrust_init: String,
-
-    /// The path to the latest Solo XC firmware file, once the vendor's
-    /// firmware `.iso.zip` is extracted and mounted.
-    pub firmware_file: String,
-
-    /// The path to the `juicebox-hsm-realm` source code directory.
-    pub juicebox_hsm_realm_dir: String,
-
-    /// The path to the directory where the realm DVD is mounted (the mountpoint).
-    /// The directory may not exist yet.
-    pub mount_dir: String,
 
     /// The path to the directory containing the vendor's installed files:
     /// `/opt/nfast`.
@@ -51,26 +35,10 @@ pub struct Paths {
     /// `/opt/nfast/bin`.
     pub nfast_bin: String,
 
-    /// The path to the ISO file that is created when preparing to burn the
-    /// realm DVD. This file may not exist yet.
-    pub realm_iso: String,
-
     /// The path to the directory containing the signed archive files (SAR
     /// files), as well as the unsigned ELF and userdata input files. The
     /// directory and files may not exist yet.
     pub signing_dir: String,
-
-    /// The path to the directory where the vendor's ISO files are extracted.
-    pub vendor_iso_dir: String,
-
-    /// The path to the directory containing the mountpoints for the vendor's
-    /// ISO files. The directory may not exist yet.
-    pub vendor_iso_mount_parent: String,
-
-    /// The path to the directory containing the the vendor's `.iso.zip` files
-    /// (with shortened filenames). This assumes the Windows partition is
-    /// already mounted at `/run/win` containing these files.
-    pub vendor_iso_zip_dir: String,
 
     /// The path to the directory containing key blobs and other files related
     /// to the current Security World: `/opt/nfast/kmdata/local`.
@@ -83,30 +51,47 @@ impl Paths {
     /// Callers should prefer [`crate::Context::paths`] where possible.
     pub fn get() -> &'static Self {
         PATHS.get_or_init(|| {
-            let home = env::var("HOME").expect("failed to read $HOME");
-            let juicebox_hsm_realm_dir = join_path(&home, "juicebox-hsm-realm");
             let nfast_dir = String::from("/opt/nfast");
-            let vendor_iso_mount_parent = String::from("/run/ceremony");
+
+            let program_dir_std: std::path::PathBuf = env::current_exe()
+                .expect("failed to get path of current executable")
+                .parent()
+                .expect("failed to get parent directory of current executable")
+                .to_owned();
+            let program_dir: &str = program_dir_std
+                .to_str()
+                .expect("current executable path contains invalid UTF-8");
+
+            let entrust_init =
+                env::var("ENTRUST_INIT").unwrap_or_else(|_| join_path(program_dir, "entrust_init"));
+
+            let signing_dir = env::var("SIGNING_DIR").unwrap_or_else(|_| {
+                let relative = |mode| {
+                    program_dir_std
+                        .parent()
+                        .unwrap()
+                        .join("powerpc-unknown-linux-gnu")
+                        .join(mode)
+                        .into_os_string()
+                        .into_string()
+                        .expect("current working directory is invalid UTF-8")
+                };
+                if std::path::Path::ends_with(&program_dir_std, "target/release") {
+                    relative("release")
+                } else if std::path::Path::ends_with(&program_dir_std, "target/debug") {
+                    relative("debug")
+                } else {
+                    // This is not a very good default, but the user may not be
+                    // doing anything needing a signing dir.
+                    String::from("/could not determine/path to signing dir")
+                }
+            });
 
             Self {
-                dvd_device: String::from("/dev/sr0"),
-                entrust_init: join_path(&juicebox_hsm_realm_dir, "target/release/entrust_init"),
-                firmware_file: join_path(
-                    &EntrustDisc::Firmware.mount_path_with_parent(&vendor_iso_mount_parent),
-                    "firmware/SoloXC/latest/soloxc-13-3-1-vsn37.nff",
-                ),
-                juicebox_hsm_realm_dir: juicebox_hsm_realm_dir.clone(),
-                mount_dir: String::from("/run/dvd"),
+                entrust_init,
                 nfast_bin: join_path(&nfast_dir, "bin"),
                 nfast_dir: nfast_dir.clone(),
-                realm_iso: join_path(&home, "realm.iso"),
-                signing_dir: join_path(
-                    &juicebox_hsm_realm_dir,
-                    "target/powerpc-unknown-linux-gnu/release",
-                ),
-                vendor_iso_dir: home.clone(),
-                vendor_iso_mount_parent,
-                vendor_iso_zip_dir: String::from("/run/win/Users/defaultuser0"),
+                signing_dir,
                 world_dir: join_path(&nfast_dir, "kmdata/local"),
             }
         })

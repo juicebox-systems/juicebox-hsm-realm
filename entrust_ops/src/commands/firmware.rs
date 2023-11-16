@@ -1,6 +1,6 @@
 use clap::{self, Subcommand};
 
-use crate::{join_path, Context, Error, Paths, Process};
+use crate::{join_path, Context, Error, Process};
 
 /// Manage HSM firmware.
 #[derive(Debug, Subcommand)]
@@ -8,7 +8,6 @@ pub enum Command {
     /// Print information about an HSM firmware file.
     FileInfo {
         /// A binary NFF file for this particular HSM model.
-        #[clap(default_value_t = Paths::get().firmware_file.clone())]
         file: String,
     },
 
@@ -17,7 +16,6 @@ pub enum Command {
     /// The HSM must be in maintenance mode.
     Write {
         /// A binary NFF file for this particular HSM model.
-        #[clap(default_value_t = Paths::get().firmware_file.clone())]
         file: String,
     },
 }

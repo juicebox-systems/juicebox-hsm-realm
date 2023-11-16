@@ -43,6 +43,7 @@ mod file_modes {
 
 /// Like [`std::fs::DirEntry`] but assumes UTF-8 filenames and gets file
 /// metadata. This simplifies error handling. See [`Context::list_dir`].
+#[allow(unused)]
 pub struct DirEntry {
     pub filename: String,
     pub metadata: Metadata,
@@ -73,6 +74,7 @@ impl Context {
     /// Creates the directory `path` and any ancestors.
     ///
     /// It is not an error if `path` or its ancestors already exist.
+    #[allow(unused)]
     pub(crate) fn create_dir_all(&self, path: &str) -> Result<(), Error> {
         if self.common_args.dry_run {
             println!("Not creating {path:?} dir and its parents because --dry-run");

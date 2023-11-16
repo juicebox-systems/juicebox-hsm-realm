@@ -2,10 +2,8 @@
 
 use sha2::{Digest, Sha256};
 use std::fmt;
-use std::io::{self, Write};
 
 use super::Context;
-use crate::bip39;
 use crate::Error;
 
 /// The output of SHA-256 (from the SHA2 family of cryptographic hash functions).
@@ -24,6 +22,7 @@ impl Sha256Sum {
         Self(Sha256::digest(data).into())
     }
 
+    #[allow(unused)]
     pub fn from_hex(hex: &str) -> Result<Self, hex::FromHexError> {
         let mut bytes = [0u8; 32];
         hex::decode_to_slice(hex, &mut bytes)?;
@@ -41,25 +40,6 @@ impl fmt::Debug for Sha256Sum {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         hex::encode(self.0).fmt(f)
     }
-}
-
-/// Prints a BIP39 mnemonic phrase to stdout.
-///
-/// The phrase is split across multiple lines, with each line indented by 4 spaces
-/// and including up to 4 words.
-pub fn print_bip39_mnemonic(mnemonic: &[&'static str]) {
-    let mut out = io::stdout().lock();
-    for (i, word) in mnemonic.iter().enumerate() {
-        if i % 4 == 0 {
-            if i > 0 {
-                writeln!(out).unwrap();
-            }
-            write!(out, "    {}", word).unwrap();
-        } else {
-            write!(out, " {}", word).unwrap();
-        }
-    }
-    writeln!(out).unwrap();
 }
 
 /// Methods to calculate and check file digests.
@@ -87,9 +67,6 @@ impl Context {
 
         println!("File {file:?}");
         println!("SHA-256: {digest}");
-        println!("as BIP-39 mnemonic:");
-        let mnemonic = bip39::to_mnemonic(&digest.0).unwrap();
-        print_bip39_mnemonic(&mnemonic);
         if &digest != expected && !self.common_args.dry_run {
             return Err(Error::new(format!(
                 "expected SHA-256 {expected} for {file:?}"
@@ -122,9 +99,6 @@ impl Context {
         let digest = self.file_digest(file)?;
         println!("File {file:?}");
         println!("SHA-256: {digest}");
-        println!("as BIP-39 mnemonic:");
-        let mnemonic = bip39::to_mnemonic(&digest.0).unwrap();
-        print_bip39_mnemonic(&mnemonic);
         println!();
         Ok(())
     }

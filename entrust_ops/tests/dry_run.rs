@@ -1,6 +1,5 @@
+use expect_test::expect_file;
 use std::fmt::Write as _;
-use std::fs;
-use std::io;
 use std::io::Write as _;
 use std::process::{self, Stdio};
 
@@ -15,25 +14,23 @@ impl TestCase {
     }
 
     fn name(&self) -> String {
-        format!("ceremony {}", self.args.join(" "))
+        format!("entrust_ops {}", self.args.join(" "))
     }
 }
 
 const TEST_CASES: &[TestCase] = &[
-    TestCase {
-        args: &["bip39", "decode"],
-        stdin: "ozone drill grab fiber curtain
-
-            grace pudding thank
-            cruise elder eight picnic",
-    },
-    TestCase::new(&["bip39", "encode", "9e885d952ad362caeb4efe34a8e91bd2"]),
-    TestCase::new(&["build", "init", "hsm"]),
-    TestCase::new(&["computer", "shutdown"]),
     TestCase::new(&["feature", "activate", "certificate.txt"]),
     TestCase::new(&["feature", "info"]),
-    TestCase::new(&["firmware", "file-info"]),
-    TestCase::new(&["firmware", "write"]),
+    TestCase::new(&[
+        "firmware",
+        "file-info",
+        "firmware/SoloXC/latest/soloxc-13-3-1-vsn37.nff",
+    ]),
+    TestCase::new(&[
+        "firmware",
+        "write",
+        "firmware/SoloXC/latest/soloxc-13-3-1-vsn37.nff",
+    ]),
     TestCase::new(&["hsm", "create-world"]),
     TestCase::new(&["hsm", "erase"]),
     TestCase::new(&["hsm", "info"]),
@@ -53,12 +50,6 @@ const TEST_CASES: &[TestCase] = &[
     TestCase::new(&["realm", "create-keys"]),
     TestCase::new(&["realm", "noise-public-key"]),
     TestCase::new(&["realm", "print-acl", "noise"]),
-    TestCase::new(&["realm-dvd", "create-iso"]),
-    TestCase::new(&["realm-dvd", "mount"]),
-    TestCase::new(&["realm-dvd", "restore"]),
-    TestCase::new(&["realm-dvd", "unmount"]),
-    TestCase::new(&["realm-dvd", "verify"]),
-    TestCase::new(&["realm-dvd", "write"]),
     TestCase::new(&["sign", "create-key"]),
     TestCase::new(&["sign", "key-info"]),
     TestCase::new(&["sign", "software"]),
@@ -66,9 +57,6 @@ const TEST_CASES: &[TestCase] = &[
     TestCase::new(&["smartcard", "erase"]),
     TestCase::new(&["smartcard", "info"]),
     TestCase::new(&["smartcard", "write-ocs"]),
-    TestCase::new(&["vendor", "install", "codesafe", "secworld"]),
-    TestCase::new(&["vendor", "mount", "codesafe", "firmware", "secworld"]),
-    TestCase::new(&["vendor", "unmount", "codesafe", "firmware", "secworld"]),
 ];
 
 // The output isn't perl, but its syntax highlighting is better than nothing.
@@ -103,7 +91,14 @@ fn dry_run() -> String {
             .arg("--dry-run")
             .args(test.args)
             .env_clear()
-            .env("HOME", "/home/ceremony-test")
+            .env(
+                "ENTRUST_INIT",
+                "/home/entrust_ops_test/juicebox-hsm-realm/target/release/entrust_init",
+            )
+            .env(
+                "SIGNING_DIR",
+                "/home/entrust_ops_test/juicebox-hsm-realm/target/powerpc-unknown-linux-gnu/release",
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -161,16 +156,6 @@ fn dry_run() -> String {
 /// Snapshot test for dry run output. See `dry_run.md`.
 #[test]
 fn test_dry_run() {
-    let expected = fs::read_to_string("tests/dry_run.md").unwrap();
     let actual = dry_run();
-    if expected == actual {
-        if let Err(err) = fs::remove_file("tests/dry_run.actual.md") {
-            if err.kind() != io::ErrorKind::NotFound {
-                panic!("failed to delete `tests/dry_run.actual.md`: {err}");
-            }
-        }
-    } else {
-        fs::write("tests/dry_run.actual.md", &actual).unwrap();
-        panic!("dry run output differs: compare expected (`tests/dry_run.md`) with actual (`tests/dry_run.actual.md`)");
-    }
+    expect_file!["dry_run.md"].assert_eq(&actual);
 }

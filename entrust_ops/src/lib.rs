@@ -1,6 +1,5 @@
 use clap::{self, command, Parser};
 
-mod bip39;
 pub mod commands;
 mod digests;
 mod errors;
@@ -9,8 +8,8 @@ mod system;
 
 use digests::Sha256Sum;
 pub use errors::Error;
+use paths::join_path;
 pub use paths::Paths;
-use paths::{join_path, join_paths};
 use system::Process;
 
 /// Command-line arguments.
