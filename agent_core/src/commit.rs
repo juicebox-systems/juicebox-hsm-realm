@@ -17,12 +17,12 @@ use hsm_api::{
     AppResultType, Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole,
     HsmId, LogIndex, PersistStateRequest, PersistStateResponse,
 };
-use juicebox_networking::reqwest::Client;
-use juicebox_networking::rpc;
+use juicebox_networking::rpc::{self, SendOptions};
 use juicebox_realm_api::requests::NoiseResponse;
 use juicebox_realm_api::types::RealmId;
 use observability::logging::TracingSource;
 use observability::metrics_tag as tag;
+use service_core::http::ReqwestClientMetrics;
 use store::StoreClient;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -166,10 +166,11 @@ impl<T: Transport + 'static> Agent<T> {
     ) -> Vec<Captured> {
         let urls: Vec<Url> = config.iter().filter_map(|hsm| peers.url(hsm)).collect();
         join_all(urls.iter().map(|url| {
-            rpc::send(
+            rpc::send_with_options(
                 &self.0.peer_client,
                 url,
                 ReadCapturedRequest { realm, group },
+                SendOptions::default().with_timeout(Duration::from_millis(500)),
             )
         }))
         .await
@@ -287,7 +288,7 @@ struct PeerCache {
 impl PeerCache {
     async fn new(
         store: StoreClient,
-        agent_client: Client<AgentService>,
+        agent_client: ReqwestClientMetrics<AgentService>,
         interval: Duration,
     ) -> Self {
         let init_peers: HashMap<HsmId, Url> = match discover_hsm_ids(&store, &agent_client).await {

@@ -6,7 +6,7 @@ use hyper::http;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use observability::tracing::TracingMiddleware;
+use observability::metrics;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,9 +20,11 @@ use url::Url;
 
 use agent_api::AgentService;
 use hsm_api::GroupId;
-use juicebox_networking::reqwest::{Client, ClientOptions};
+use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::Rpc;
 use juicebox_realm_api::types::RealmId;
+use observability::tracing::TracingMiddleware;
+use service_core::http::ReqwestClientMetrics;
 use service_core::rpc::handle_rpc;
 use store::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
 use store::{Lease, LeaseKey, LeaseType, ServiceKind, StoreClient};
@@ -39,7 +41,7 @@ struct ManagerInner {
     // Name to use as owner in leases.
     name: String,
     store: StoreClient,
-    agents: Client<AgentService>,
+    agents: ReqwestClientMetrics<AgentService>,
     // Set when the initial registration in service discovery completes
     // successfully.
     registered: AtomicBool,
@@ -118,11 +120,16 @@ impl From<ManagementLease> for LeaseKey {
 }
 
 impl Manager {
-    pub fn new(name: String, store: StoreClient, update_interval: Duration) -> Self {
+    pub fn new(
+        name: String,
+        store: StoreClient,
+        update_interval: Duration,
+        metrics: metrics::Client,
+    ) -> Self {
         let m = Self(Arc::new(ManagerInner {
             name,
             store,
-            agents: Client::new(ClientOptions::default()),
+            agents: ReqwestClientMetrics::new(metrics, ClientOptions::default()),
             registered: AtomicBool::new(false),
         }));
         let manager = m.clone();
@@ -327,8 +334,14 @@ mod tests {
             String::from("one"),
             store.clone(),
             Duration::from_secs(1000),
+            metrics::Client::NONE,
         );
-        let m2 = Manager::new(String::from("two"), store, Duration::from_secs(1000));
+        let m2 = Manager::new(
+            String::from("two"),
+            store,
+            Duration::from_secs(1000),
+            metrics::Client::NONE,
+        );
 
         let realm1 = RealmId([1; 16]);
         let realm2 = RealmId([2; 16]);

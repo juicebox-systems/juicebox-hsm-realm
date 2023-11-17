@@ -7,9 +7,9 @@ use super::{ManagementGrant, Manager};
 use agent_api::{AgentService, BecomeLeaderRequest, BecomeLeaderResponse};
 use cluster_core::{get_hsm_statuses, Error};
 use hsm_api::{GroupId, HsmId, LogIndex};
-use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
+use service_core::http::ReqwestClientMetrics;
 use store::ServiceKind;
 
 impl Manager {
@@ -67,7 +67,7 @@ impl Manager {
 /// is responsible for deciding that the group needs a leader.
 #[instrument(level = "trace", skip_all)]
 pub(super) async fn assign_group_a_leader(
-    agent_client: &Client<AgentService>,
+    agent_client: &ReqwestClientMetrics<AgentService>,
     grant: &ManagementGrant,
     config: Vec<HsmId>,
     skipping: Option<HsmId>,

@@ -77,14 +77,14 @@ async fn main() {
         .connect_data(
             auth_manager,
             store::Options {
-                metrics,
+                metrics: metrics.clone(),
                 ..store::Options::default()
             },
         )
         .await
         .expect("Unable to connect to Bigtable data");
 
-    let manager = Manager::new(args.listen.to_string(), store, args.interval);
+    let manager = Manager::new(args.listen.to_string(), store, args.interval, metrics);
     let (url, handle) = manager
         .listen(args.listen)
         .await
