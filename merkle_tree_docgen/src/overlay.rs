@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{dot_to_png, format_branch_label, DocTree, RecordIdHighlighter};
+use super::{format_branch_label, DocTree, RecordIdHighlighter};
 use bitvec::Bits;
 use hsm_api::merkle::{Dir, KeyVec, Node};
 use hsm_api::{OwnedRange, RecordId};
@@ -13,7 +13,6 @@ pub fn tree_overlay(dir: &Path) {
     let dir = dir.join("overlay");
     new_value(&dir);
     proof_value(&dir);
-    dot_to_png(&dir);
 }
 
 fn new_value(dir: &Path) {

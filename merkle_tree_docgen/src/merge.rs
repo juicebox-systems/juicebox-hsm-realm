@@ -80,6 +80,4 @@ pub fn doc_merge(dir: &Path) {
             .set("fillcolor", color);
     }
     dot.write(&dir, "final.dot").unwrap();
-
-    super::dot_to_png(&dir);
 }
