@@ -9,7 +9,13 @@ pub enum Command {
     ///
     /// The HSM must be in initialization mode. This erases the HSM and
     /// writes to a single ACS smartcard.
-    CreateWorld,
+    CreateWorld {
+        /// Enable debugging (`dseeall`) in the new Security World. This could
+        /// leak information, so it's not recommended for production
+        /// environments.
+        #[arg(long, alias = "dseeall", default_value_t = false)]
+        debugging: bool,
+    },
 
     /// Reinitialize the HSM state, generating a new module key.
     ///
@@ -64,16 +70,22 @@ pub enum Mode {
 
 pub fn run(command: &Command, context: &Context) -> Result<(), Error> {
     match command {
-        Command::CreateWorld => context.exec(Process::new(
-            &join_path(&context.paths.nfast_bin, "new-world"),
-            &[
+        Command::CreateWorld { debugging } => {
+            let mut args = vec![
                 "--initialize",
                 "--no-remoteshare-cert",
                 "--no-recovery",
                 "--acs-quorum",
                 "1/1",
-            ],
-        )),
+            ];
+            if *debugging {
+                args.push("dseeall");
+            }
+            context.exec(Process::new(
+                &join_path(&context.paths.nfast_bin, "new-world"),
+                &args,
+            ))
+        }
 
         Command::Erase => context.exec(Process::new(
             &join_path(&context.paths.nfast_bin, "initunit"),

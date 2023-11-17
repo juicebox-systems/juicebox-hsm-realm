@@ -32,12 +32,12 @@ Our `entrust_init` tool is used to configure NVRAM access and create realm keys.
 
 The code signing key (aka seeinteg) is required to be an OCS protected key.
 
-Create the security world (if needed).
+Create the Security World (if needed). Note that you'd want to disable Security
+World debugging for production and possibly use a larger ACS quorum.
+
  ```sh
 sudo target/release/entrust_ops hsm restart --initialization
-# Note: We used to pass `dseeall` (for debugging) to /opt/nfast/bin/new-world,
-# but entrust_ops doesn't support it.
-sudo target/release/entrust_ops hsm create-world
+sudo target/release/entrust_ops hsm create-world --debugging
 sudo target/release/entrust_ops hsm restart --operational
 ```
 

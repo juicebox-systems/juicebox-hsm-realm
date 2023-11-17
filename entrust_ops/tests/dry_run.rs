@@ -32,6 +32,7 @@ const TEST_CASES: &[TestCase] = &[
         "firmware/SoloXC/latest/soloxc-13-3-1-vsn37.nff",
     ]),
     TestCase::new(&["hsm", "create-world"]),
+    TestCase::new(&["hsm", "create-world", "--debugging"]),
     TestCase::new(&["hsm", "erase"]),
     TestCase::new(&["hsm", "info"]),
     TestCase::new(&["hsm", "join-world"]),

@@ -124,7 +124,9 @@ Args {
         dry_run: true,
     },
     command: Hsm(
-        CreateWorld,
+        CreateWorld {
+            debugging: false,
+        },
     ),
 }
 
@@ -137,6 +139,37 @@ Spawning Process {
         "--no-recovery",
         "--acs-quorum",
         "1/1",
+    ],
+    dir: None,
+}
+```
+
+## `entrust_ops hsm create-world --debugging`
+
+#### stdout
+
+```perl
+Args {
+    common: CommonArgs {
+        dry_run: true,
+    },
+    command: Hsm(
+        CreateWorld {
+            debugging: true,
+        },
+    ),
+}
+
+Not running because --dry-run:
+Spawning Process {
+    program: "/opt/nfast/bin/new-world",
+    args: [
+        "--initialize",
+        "--no-remoteshare-cert",
+        "--no-recovery",
+        "--acs-quorum",
+        "1/1",
+        "dseeall",
     ],
     dir: None,
 }

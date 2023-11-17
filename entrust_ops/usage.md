@@ -161,6 +161,9 @@ The HSM must be in initialization mode. This erases the HSM and writes to a sing
 Usage: entrust_ops hsm create-world [OPTIONS]
 
 Options:
+      --debugging
+          Enable debugging (`dseeall`) in the new Security World. This could leak information, so it's not recommended for production environments
+
       --dry-run
           Don't execute commands but display them unambiguously
 
