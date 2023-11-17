@@ -57,6 +57,7 @@ if [ "$ENTRUST" -eq "1" ]; then
     "target/$MODE/entrust_agent" \
     "target/$MODE/entrust_init" \
     "target/$MODE/entrust_ops" \
+    "target/powerpc-unknown-linux-gnu/$MODE/"entrust_signed_by_* \
     "target/powerpc-unknown-linux-gnu/$MODE/entrust_hsm.sar" \
     "target/powerpc-unknown-linux-gnu/$MODE/userdata.sar" \
     "gs://$GSPATH/"
