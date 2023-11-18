@@ -4,9 +4,9 @@ use tokio::time::sleep;
 use tracing::info;
 
 use agent_api::{
-    CompleteTransferRequest, CompleteTransferResponse, TransferInRequest, TransferInResponse,
-    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
-    TransferStatementRequest, TransferStatementResponse,
+    AgentService, CompleteTransferRequest, CompleteTransferResponse, TransferInRequest,
+    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
+    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 use hsm_api::{GroupId, OwnedRange};
 use juicebox_networking::reqwest::{Client, ClientOptions};
@@ -44,7 +44,7 @@ pub async fn transfer(
         "cannot transfer ownership to the same group (unsupported)"
     );
 
-    let agent_client = Client::new(ClientOptions::default());
+    let agent_client = Client::<AgentService>::new(ClientOptions::default());
 
     let leaders = super::leader::find_leaders(store, &agent_client)
         .await

@@ -10,7 +10,6 @@ use hyper::server::conn::{http1, http2};
 use hyper::service::Service;
 use hyper::StatusCode;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use observability::tracing::TracingMiddleware;
 use rustls::server::ResolvesServerCert;
 use semver::Version;
 use serde::Serialize;
@@ -35,8 +34,8 @@ use agent_api::{
 };
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use juicebox_marshalling as marshalling;
-use juicebox_networking::reqwest::{Client, ClientOptions};
-use juicebox_networking::rpc;
+use juicebox_networking::reqwest::ClientOptions;
+use juicebox_networking::rpc::{self, SendOptions};
 use juicebox_realm_api::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use juicebox_realm_api::types::{RealmId, JUICEBOX_VERSION_HEADER};
 use juicebox_realm_auth::validation::{Require, Validator as AuthTokenValidator};
@@ -44,7 +43,9 @@ use juicebox_realm_auth::Scope;
 use observability::logging::TracingSource;
 use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
+use observability::tracing::TracingMiddleware;
 use secret_manager::{tenant_secret_name, SecretManager};
+use service_core::http::ReqwestClientMetrics;
 use store::{ServiceKind, StoreClient};
 
 #[derive(Clone)]
@@ -54,7 +55,7 @@ struct State {
     name: String,
     store: StoreClient,
     secret_manager: Box<dyn SecretManager>,
-    agent_client: Client<AgentService>,
+    agent_client: ReqwestClientMetrics<AgentService>,
     realms: Mutex<Arc<HashMap<RealmId, Vec<Partition>>>>,
     metrics: metrics::Client,
     semver: Version,
@@ -73,7 +74,7 @@ impl LoadBalancer {
             name,
             store,
             secret_manager,
-            agent_client: Client::new(ClientOptions::default()),
+            agent_client: ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
             metrics: metrics.clone(),
             semver: Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
@@ -204,16 +205,19 @@ struct Partition {
 async fn refresh(
     name: &str,
     store: &StoreClient,
-    agent_client: &Client<AgentService>,
+    agent_client: &ReqwestClientMetrics<AgentService>,
 ) -> HashMap<RealmId, Vec<Partition>> {
     match store.get_addresses(Some(ServiceKind::Agent)).await {
         Err(err) => todo!("{err:?}"),
         Ok(addresses) => {
-            let responses = join_all(
-                addresses
-                    .iter()
-                    .map(|(address, _)| rpc::send(agent_client, address, StatusRequest {})),
-            )
+            let responses = join_all(addresses.iter().map(|(address, _)| {
+                rpc::send_with_options(
+                    agent_client,
+                    address,
+                    StatusRequest {},
+                    SendOptions::default().with_timeout(Duration::from_secs(5)),
+                )
+            }))
             .await;
 
             let mut realms: HashMap<RealmId, Vec<Partition>> = HashMap::new();
@@ -438,7 +442,7 @@ async fn handle_client_request(
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
-    agent_client: &Client<AgentService>,
+    agent_client: &ReqwestClientMetrics<AgentService>,
     metrics: &metrics::Client,
 ) -> ClientResponse {
     let mut tags = Vec::with_capacity(5);
@@ -480,7 +484,7 @@ async fn handle_client_request_inner(
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
-    agent_client: &Client<AgentService>,
+    agent_client: &ReqwestClientMetrics<AgentService>,
     request_tags: &mut Vec<Tag>,
 ) -> ClientResponse {
     type Response = ClientResponse;

@@ -5,6 +5,7 @@ use clap::Parser;
 use dogstatsd::{ServiceCheckOptions, ServiceStatus};
 use futures::StreamExt;
 use opentelemetry::sdk::trace::Sampler;
+use service_core::http::ReqwestClientMetrics;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -173,11 +174,14 @@ impl Checker {
     #[instrument(level = "trace", skip(self, mc))]
     async fn run(&self, mc: metrics::Client, args: &Args) -> anyhow::Result<()> {
         let http_client = HttpReporter::new(
-            reqwest::Client::<LoadBalancerService>::new(reqwest::ClientOptions {
-                additional_root_certs: self.certs.clone(),
-                timeout: args.http_timeout,
-                default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
-            }),
+            ReqwestClientMetrics::<LoadBalancerService>::new(
+                mc.clone(),
+                reqwest::ClientOptions {
+                    additional_root_certs: self.certs.clone(),
+                    timeout: args.http_timeout,
+                    default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
+                },
+            ),
             mc,
         );
 
@@ -345,14 +349,14 @@ fn report_service_check(mc: &metrics::Client, r: &anyhow::Result<()>) {
 }
 
 struct HttpReporter {
-    client: reqwest::Client<LoadBalancerService>,
+    client: ReqwestClientMetrics<LoadBalancerService>,
     // count of requests made by this specific instance
     count: AtomicUsize,
     metrics: metrics::Client,
 }
 
 impl HttpReporter {
-    fn new(client: reqwest::Client<LoadBalancerService>, mc: metrics::Client) -> Self {
+    fn new(client: ReqwestClientMetrics<LoadBalancerService>, mc: metrics::Client) -> Self {
         Self {
             client,
             count: AtomicUsize::new(0),
@@ -416,8 +420,6 @@ impl http::Client for HttpReporter {
                     );
                 }
             }
-            self.metrics
-                .timing("service_checker.http_send", elapsed, [tag_url, tag_status]);
         }
         if elapsed > Duration::from_secs(1) {
             warn!(?elapsed, prev_request_count=%count, ?cdn, "slow http request")

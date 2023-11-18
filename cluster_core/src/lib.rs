@@ -11,6 +11,7 @@ use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex};
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
+use service_core::http::ReqwestClientMetrics;
 
 mod leader;
 mod realm;
@@ -76,7 +77,7 @@ async fn wait_for_commit(
 }
 
 pub async fn get_hsm_statuses(
-    agents: &Client<AgentService>,
+    agents: &ReqwestClientMetrics<AgentService>,
     agent_urls: impl Iterator<Item = &Url>,
 ) -> HashMap<HsmId, (hsm_api::StatusResponse, Url)> {
     join_all(
