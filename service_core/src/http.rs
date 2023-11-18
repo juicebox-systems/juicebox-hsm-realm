@@ -35,11 +35,19 @@ impl<F: rpc::Service> jb_http::Client for ReqwestClientMetrics<F> {
         let result = mapper.await;
 
         let elapsed = start.elapsed();
-        let tags = match &result {
-            Err(err) => [tag!(?method), tag!(url), error_tag(err)],
+        let mut tags = Vec::with_capacity(4);
+        tags.push(tag!(?method));
+        tags.push(tag!(?url));
+        match &result {
+            Err(err) => {
+                tags.push(error_tag(err));
+                if let Some(status_code) = err.status() {
+                    tags.push(tag!(?status_code))
+                }
+            }
             Ok(r) => {
                 let status_code = r.status_code;
-                [tag!(?method), tag!(url), tag!(status_code)]
+                tags.push(tag!(status_code));
             }
         };
         self.metrics.timing("reqwest.client.time", elapsed, tags);
