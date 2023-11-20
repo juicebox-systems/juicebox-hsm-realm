@@ -9,7 +9,6 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
 use juicebox_networking::reqwest;
-use juicebox_networking::rpc::LoadBalancerService;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::types::Policy;
 use juicebox_sdk::{Client, Pin, UserInfo, UserSecret};
@@ -98,8 +97,7 @@ async fn main() {
         .unwrap();
 
     info!(clients = args.concurrency, "creating clients");
-    let clients: Vec<Arc<Mutex<Client<_, reqwest::Client<LoadBalancerService>, _>>>> = (0..args
-        .concurrency)
+    let clients: Vec<Arc<Mutex<Client<_, reqwest::Client, _>>>> = (0..args.concurrency)
         .map(|i| Arc::new(Mutex::new(cluster.client_for_user(format!("mario{i}")))))
         .collect();
 

@@ -4,7 +4,6 @@ use reqwest::Url;
 use std::cmp::min;
 use std::collections::HashSet;
 
-use agent_api::AgentService;
 use hsm_api::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
 use juicebox_marshalling::to_be4;
 use juicebox_networking::reqwest::Client;
@@ -16,7 +15,7 @@ use crate::get_hsm_statuses;
 pub async fn assimilate(
     realm: Option<RealmId>,
     group_size: usize,
-    agents_client: &Client<AgentService>,
+    agents_client: &Client,
     store: &StoreClient,
 ) -> anyhow::Result<()> {
     assert_ne!(group_size, 0);
@@ -172,7 +171,7 @@ async fn nominal_groups(
     group_size: usize,
     realm: RealmId,
     hsm_statuses: &[(Url, StatusResponse)],
-    agents_client: &Client<AgentService>,
+    agents_client: &Client,
 ) -> anyhow::Result<Vec<GroupId>> {
     // Groups are not "reused" so that if the number of HSMs is exactly the
     // group size, then the result is that many groups, not just one.

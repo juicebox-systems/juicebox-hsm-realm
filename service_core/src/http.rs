@@ -3,17 +3,17 @@ use async_trait::async_trait;
 use std::time::Instant;
 
 use juicebox_networking::http as jb_http;
-use juicebox_networking::{reqwest, rpc};
+use juicebox_networking::reqwest;
 use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
 
 #[derive(Clone, Debug)]
-pub struct ReqwestClientMetrics<F: rpc::Service> {
-    client: reqwest::Client<F>,
+pub struct ReqwestClientMetrics {
+    client: reqwest::Client,
     metrics: metrics::Client,
 }
 
-impl<F: rpc::Service> ReqwestClientMetrics<F> {
+impl ReqwestClientMetrics {
     pub fn new(metrics: metrics::Client, options: reqwest::ClientOptions) -> Self {
         Self {
             client: reqwest::Client::new(options),
@@ -23,7 +23,7 @@ impl<F: rpc::Service> ReqwestClientMetrics<F> {
 }
 
 #[async_trait]
-impl<F: rpc::Service> jb_http::Client for ReqwestClientMetrics<F> {
+impl jb_http::Client for ReqwestClientMetrics {
     async fn send(&self, request: jb_http::Request) -> Option<jb_http::Response> {
         let start = Instant::now();
         let url = request.url.clone();

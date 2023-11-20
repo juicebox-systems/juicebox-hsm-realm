@@ -17,7 +17,6 @@ use thiserror::Error;
 use tokio::time::timeout;
 use tracing::{debug, error, info, instrument, warn};
 
-use juicebox_networking::rpc::LoadBalancerService;
 use juicebox_networking::{http, reqwest};
 use juicebox_realm_auth::creation::create_token;
 use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
@@ -174,7 +173,7 @@ impl Checker {
     #[instrument(level = "trace", skip(self, mc))]
     async fn run(&self, mc: metrics::Client, args: &Args) -> anyhow::Result<()> {
         let http_client = HttpReporter::new(
-            ReqwestClientMetrics::<LoadBalancerService>::new(
+            ReqwestClientMetrics::new(
                 mc.clone(),
                 reqwest::ClientOptions {
                     additional_root_certs: self.certs.clone(),
@@ -349,14 +348,14 @@ fn report_service_check(mc: &metrics::Client, r: &anyhow::Result<()>) {
 }
 
 struct HttpReporter {
-    client: ReqwestClientMetrics<LoadBalancerService>,
+    client: ReqwestClientMetrics,
     // count of requests made by this specific instance
     count: AtomicUsize,
     metrics: metrics::Client,
 }
 
 impl HttpReporter {
-    fn new(client: ReqwestClientMetrics<LoadBalancerService>, mc: metrics::Client) -> Self {
+    fn new(client: ReqwestClientMetrics, mc: metrics::Client) -> Self {
         Self {
             client,
             count: AtomicUsize::new(0),

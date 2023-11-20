@@ -14,7 +14,6 @@ use tracing::{debug, error, info, warn};
 
 use google::{auth, GrpcConnectionOptions};
 use juicebox_networking::reqwest;
-use juicebox_networking::rpc::LoadBalancerService;
 use juicebox_realm_auth::creation::create_token;
 use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
 use juicebox_sdk::{
@@ -26,11 +25,7 @@ use secret_manager::{
     new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
 };
 
-type Client = juicebox_sdk::Client<
-    TokioSleeper,
-    reqwest::Client<LoadBalancerService>,
-    HashMap<RealmId, AuthToken>,
->;
+type Client = juicebox_sdk::Client<TokioSleeper, reqwest::Client, HashMap<RealmId, AuthToken>>;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -349,7 +344,7 @@ async fn run_op(op: Operation, i: u64, client_builder: Arc<ClientBuilder>) -> Re
 }
 
 struct ClientBuilder {
-    shared_http_client: Option<reqwest::Client<LoadBalancerService>>,
+    shared_http_client: Option<reqwest::Client>,
     certs: Vec<Certificate>,
     configuration: Configuration,
     tenant: String,

@@ -29,9 +29,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use super::server::{HealthCheckStatus, ManagerOptions, ServiceManager};
-use agent_api::{
-    AgentService, AppRequest, AppResponse, HashedUserId, StatusRequest, StatusResponse,
-};
+use agent_api::{AppRequest, AppResponse, HashedUserId, StatusRequest, StatusResponse};
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use juicebox_marshalling as marshalling;
 use juicebox_networking::reqwest::ClientOptions;
@@ -55,7 +53,7 @@ struct State {
     name: String,
     store: StoreClient,
     secret_manager: Box<dyn SecretManager>,
-    agent_client: ReqwestClientMetrics<AgentService>,
+    agent_client: ReqwestClientMetrics,
     realms: Mutex<Arc<HashMap<RealmId, Vec<Partition>>>>,
     metrics: metrics::Client,
     semver: Version,
@@ -205,7 +203,7 @@ struct Partition {
 async fn refresh(
     name: &str,
     store: &StoreClient,
-    agent_client: &ReqwestClientMetrics<AgentService>,
+    agent_client: &ReqwestClientMetrics,
 ) -> HashMap<RealmId, Vec<Partition>> {
     match store.get_addresses(Some(ServiceKind::Agent)).await {
         Err(err) => todo!("{err:?}"),
@@ -442,7 +440,7 @@ async fn handle_client_request(
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
-    agent_client: &ReqwestClientMetrics<AgentService>,
+    agent_client: &ReqwestClientMetrics,
     metrics: &metrics::Client,
 ) -> ClientResponse {
     let mut tags = Vec::with_capacity(5);
@@ -484,7 +482,7 @@ async fn handle_client_request_inner(
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
-    agent_client: &ReqwestClientMetrics<AgentService>,
+    agent_client: &ReqwestClientMetrics,
     request_tags: &mut Vec<Tag>,
 ) -> ClientResponse {
     type Response = ClientResponse;

@@ -2,7 +2,6 @@ use anyhow::anyhow;
 use reqwest::Url;
 use std::collections::HashMap;
 
-use agent_api::AgentService;
 use hsm_api::PublicKey;
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
@@ -15,7 +14,7 @@ use crate::get_hsm_statuses;
 
 pub async fn print_sensible_configuration(
     load_balancer: &Url,
-    agents_client: &Client<AgentService>,
+    agents_client: &Client,
     store: &StoreClient,
 ) -> anyhow::Result<()> {
     let hsm_statuses = get_hsm_statuses(agents_client, store).await?;

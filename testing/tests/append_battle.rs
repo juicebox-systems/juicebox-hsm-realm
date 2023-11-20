@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
-use agent_api::{AgentService, AppResponse, BecomeLeaderResponse, HashedUserId};
+use agent_api::{AppResponse, BecomeLeaderResponse, HashedUserId};
 use hsm_api::RecordId;
 use juicebox_marshalling as marshalling;
 use juicebox_networking::reqwest::{self, Client, ClientOptions};
@@ -69,7 +69,7 @@ async fn leader_battle() {
         timeout: TIMEOUT,
         ..ClientOptions::default()
     };
-    let agent_client: Client<AgentService> = reqwest::Client::new(opts);
+    let agent_client: Client = reqwest::Client::new(opts);
 
     make_all_agents_leader(&agent_client, &cluster.realms[0]).await;
 
@@ -151,7 +151,7 @@ enum AgentAppRequestError {
 }
 
 async fn make_app_request_to_agents(
-    agent_client: &Client<AgentService>,
+    agent_client: &Client,
     realm: &RealmResult,
     req: SecretsRequest,
 ) -> (Vec<SecretsResponse>, Vec<AgentAppRequestError>) {
@@ -194,7 +194,7 @@ async fn make_app_request_to_agents(
 }
 
 // Asks all the agents in the realm to become leader and verifies that they all think they're leader.
-async fn make_all_agents_leader(agent_client: &Client<AgentService>, realm: &RealmResult) {
+async fn make_all_agents_leader(agent_client: &Client, realm: &RealmResult) {
     let start = Instant::now();
     let group = *realm.groups.last().unwrap();
     loop {
@@ -234,7 +234,7 @@ async fn make_all_agents_leader(agent_client: &Client<AgentService>, realm: &Rea
     }
 }
 
-async fn num_leaders(agent_client: &Client<AgentService>, realm: &RealmResult) -> usize {
+async fn num_leaders(agent_client: &Client, realm: &RealmResult) -> usize {
     let group = *realm.groups.last().unwrap();
     join_all(
         realm

@@ -5,13 +5,13 @@ use reqwest::Url;
 use std::fmt;
 use std::time::Duration;
 
-use agent_api::{AgentService, StatusRequest, StatusResponse};
+use agent_api::{StatusRequest, StatusResponse};
 use hsm_api::{GroupStatus, HsmId, OwnedRange};
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError};
 use store::{ServiceKind, StoreClient};
 
-pub async fn list_agents(c: &Client<AgentService>, store: &StoreClient) -> anyhow::Result<()> {
+pub async fn list_agents(c: &Client, store: &StoreClient) -> anyhow::Result<()> {
     let addresses: Vec<(Url, _)> = store
         .get_addresses(Some(ServiceKind::Agent))
         .await

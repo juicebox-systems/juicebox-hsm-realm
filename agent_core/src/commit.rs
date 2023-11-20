@@ -10,7 +10,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::hsm::Transport;
 use super::Agent;
-use agent_api::{AgentService, ReadCapturedRequest, ReadCapturedResponse};
+use agent_api::{ReadCapturedRequest, ReadCapturedResponse};
 use cluster_core::discover_hsm_ids;
 use election::HsmElection;
 use hsm_api::{
@@ -288,7 +288,7 @@ struct PeerCache {
 impl PeerCache {
     async fn new(
         store: StoreClient,
-        agent_client: ReqwestClientMetrics<AgentService>,
+        agent_client: ReqwestClientMetrics,
         interval: Duration,
     ) -> Self {
         let init_peers: HashMap<HsmId, Url> = match discover_hsm_ids(&store, &agent_client).await {

@@ -4,7 +4,6 @@ use once_cell::sync::Lazy;
 use std::iter::zip;
 use std::path::PathBuf;
 
-use agent_api::AgentService;
 use cluster_core::new_group;
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use hsm_core::merkle::testing::rec_id;
@@ -144,7 +143,7 @@ async fn transfer() {
     processes.kill();
 }
 
-async fn split_merge_empty_cluster(agent_client: &Client<AgentService>, cluster: &ClusterResult) {
+async fn split_merge_empty_cluster(agent_client: &Client, cluster: &ClusterResult) {
     // create another group
     let new_group_id = new_group(
         agent_client,

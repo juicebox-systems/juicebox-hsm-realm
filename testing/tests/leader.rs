@@ -1,4 +1,3 @@
-use agent_api::AgentService;
 use once_cell::sync::Lazy;
 use std::{path::PathBuf, sync::mpsc::channel};
 use tokio::task::JoinSet;
@@ -108,7 +107,7 @@ async fn leader_handover() {
         }
     }
 
-    let agents = reqwest::Client::<AgentService>::new(ClientOptions::default());
+    let agents = reqwest::Client::new(ClientOptions::default());
     let cluster_realm = cluster.realms[0].realm;
     let cluster_group = cluster.realms[0].groups[1]; // first non-trivial group
     let mut cluster_manager = cluster.cluster_managers.iter().cycle();
