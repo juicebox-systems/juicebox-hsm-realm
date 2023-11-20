@@ -6,7 +6,6 @@ use std::process::ExitCode;
 use std::time::{Duration, SystemTime};
 use tracing::{info, Level};
 
-use agent_api::AgentService;
 use google::{auth, GrpcConnectionOptions};
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use juicebox_networking::reqwest::{Client, ClientOptions};
@@ -308,7 +307,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .await
         .context("unable to connect to Bigtable")?;
 
-    let agents_client = Client::<AgentService>::new(ClientOptions::default());
+    let agents_client = Client::new(ClientOptions::default());
 
     match args.command {
         Command::Agents => commands::agents::list_agents(&agents_client, &store).await,

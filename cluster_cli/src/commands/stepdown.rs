@@ -6,8 +6,8 @@ use std::collections::HashSet;
 use thiserror::Error;
 
 use crate::StepdownType;
-use agent_api::{AgentService, StatusRequest};
-use cluster_api::{ClusterService, StepDownRequest, StepDownResponse};
+use agent_api::StatusRequest;
+use cluster_api::{StepDownRequest, StepDownResponse};
 use hsm_api::{GroupId, HsmId};
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_networking::rpc;
@@ -16,7 +16,7 @@ use store::{ServiceKind, StoreClient};
 
 pub(crate) async fn stepdown(
     store: &StoreClient,
-    agent_client: &Client<AgentService>,
+    agent_client: &Client,
     cluster_url: &Option<Url>,
     stepdown_type: Option<StepdownType>,
     id: &str,
@@ -35,7 +35,7 @@ pub(crate) async fn stepdown(
     };
     let req = resolve_stepdown_req(store, agent_client, stepdown_type, id).await?;
 
-    let c = Client::<ClusterService>::new(ClientOptions::default());
+    let c = Client::new(ClientOptions::default());
     let r = rpc::send(&c, &url, req).await;
     match r.context("error while asking cluster manager to perform leadership stepdown")? {
         StepDownResponse::Ok => {
@@ -50,7 +50,7 @@ pub(crate) async fn stepdown(
 
 async fn resolve_stepdown_req(
     store: &StoreClient,
-    agent_client: &Client<AgentService>,
+    agent_client: &Client,
     stepdown_type: Option<StepdownType>,
     id: &str,
 ) -> anyhow::Result<StepDownRequest> {
@@ -85,7 +85,7 @@ async fn resolve_stepdown_req(
 
 async fn collect_cluster_info(
     store: &StoreClient,
-    agent_client: &Client<AgentService>,
+    agent_client: &Client,
 ) -> anyhow::Result<(HashSet<HsmId>, HashSet<(RealmId, GroupId)>)> {
     let mut hsms = HashSet::new();
     let mut groups = HashSet::new();

@@ -1,7 +1,6 @@
 use anyhow::anyhow;
 use reqwest::Url;
 
-use agent_api::AgentService;
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
 use store::StoreClient;
@@ -11,7 +10,7 @@ use crate::get_hsm_statuses;
 pub async fn join_realm(
     realm: RealmId,
     agent_addresses: &[Url],
-    agents_client: &Client<AgentService>,
+    agents_client: &Client,
     store: &StoreClient,
 ) -> anyhow::Result<()> {
     println!(

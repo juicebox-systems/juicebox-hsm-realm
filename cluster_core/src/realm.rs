@@ -4,8 +4,8 @@ use tracing::{debug, info};
 use url::Url;
 
 use agent_api::{
-    AgentService, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse,
-    NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, StatusRequest,
+    JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest,
+    NewGroupResponse, NewRealmRequest, NewRealmResponse, StatusRequest,
 };
 use hsm_api::{GroupId, HsmId, HsmRealmStatement, GROUPS_LIMIT};
 use juicebox_networking::reqwest::Client;
@@ -27,7 +27,7 @@ pub enum NewRealmError {
 }
 
 pub async fn new_realm(
-    agents_client: &Client<AgentService>,
+    agents_client: &Client,
     agent: &Url,
 ) -> Result<(RealmId, GroupId), NewRealmError> {
     type Error = NewRealmError;
@@ -81,7 +81,7 @@ pub enum JoinRealmError {
 ///
 /// `existing` is an agent URL with an HSM that is already a member of `realm`.
 pub async fn join_realm(
-    agents_client: &Client<AgentService>,
+    agents_client: &Client,
     realm: RealmId,
     new: &[Url],
     existing: &Url,
@@ -167,7 +167,7 @@ pub enum NewGroupError {
 /// `group` is a list of agent URLs. Each HSM attached to those agents must
 /// already be a member of `realm`.
 pub async fn new_group(
-    agents_client: &Client<AgentService>,
+    agents_client: &Client,
     realm: RealmId,
     agents: &[Url],
 ) -> Result<GroupId, NewGroupError> {

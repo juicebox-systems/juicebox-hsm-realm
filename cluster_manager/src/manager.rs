@@ -18,7 +18,6 @@ use tokio::time::sleep;
 use tracing::{info, instrument, warn, Instrument, Span};
 use url::Url;
 
-use agent_api::AgentService;
 use hsm_api::GroupId;
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::Rpc;
@@ -41,7 +40,7 @@ struct ManagerInner {
     // Name to use as owner in leases.
     name: String,
     store: StoreClient,
-    agents: ReqwestClientMetrics<AgentService>,
+    agents: ReqwestClientMetrics,
     // Set when the initial registration in service discovery completes
     // successfully.
     registered: AtomicBool,

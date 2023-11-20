@@ -3,7 +3,7 @@ use futures::future::join_all;
 use reqwest::Url;
 use tracing::debug;
 
-use agent_api::{AgentService, StatusRequest};
+use agent_api::StatusRequest;
 use hsm_api::StatusResponse;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
@@ -11,7 +11,7 @@ use store::{ServiceKind, StoreClient};
 
 /// Returns the status of every available HSM, sorted by HSM ID.
 pub async fn get_hsm_statuses(
-    agents_client: &Client<AgentService>,
+    agents_client: &Client,
     store: &StoreClient,
 ) -> anyhow::Result<Vec<(Url, StatusResponse)>> {
     let addresses: Vec<(Url, ServiceKind)> = store

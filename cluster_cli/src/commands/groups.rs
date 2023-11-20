@@ -1,7 +1,6 @@
 use reqwest::Url;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use agent_api::AgentService;
 use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, OwnedRange};
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
@@ -16,7 +15,7 @@ struct GroupInfo {
     leader: Option<(HsmId, LeaderStatus)>,
 }
 
-pub async fn status(c: &Client<AgentService>, store: &StoreClient) -> anyhow::Result<()> {
+pub async fn status(c: &Client, store: &StoreClient) -> anyhow::Result<()> {
     let status_responses = get_hsm_statuses(c, store).await?;
 
     let mut realms: BTreeMap<RealmId, BTreeSet<GroupId>> = BTreeMap::new();

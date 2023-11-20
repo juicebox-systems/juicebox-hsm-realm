@@ -4,7 +4,7 @@ use tracing::{info, instrument, trace, warn};
 use url::Url;
 
 use super::{ManagementGrant, Manager};
-use agent_api::{AgentService, BecomeLeaderRequest, BecomeLeaderResponse};
+use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse};
 use cluster_core::{get_hsm_statuses, Error};
 use hsm_api::{GroupId, HsmId, LogIndex};
 use juicebox_networking::rpc::{self, RpcError};
@@ -67,7 +67,7 @@ impl Manager {
 /// is responsible for deciding that the group needs a leader.
 #[instrument(level = "trace", skip_all)]
 pub(super) async fn assign_group_a_leader(
-    agent_client: &ReqwestClientMetrics<AgentService>,
+    agent_client: &ReqwestClientMetrics,
     grant: &ManagementGrant,
     config: Vec<HsmId>,
     skipping: Option<HsmId>,

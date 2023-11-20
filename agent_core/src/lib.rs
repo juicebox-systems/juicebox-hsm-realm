@@ -31,16 +31,15 @@ mod tenants;
 
 use agent_api::merkle::TreeStoreError;
 use agent_api::{
-    AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CompleteTransferRequest, CompleteTransferResponse, HashedUserId, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
-    NewRealmRequest, NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest,
-    StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse,
-    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
-    TransferStatementRequest, TransferStatementResponse,
+    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
+    CompleteTransferResponse, HashedUserId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
+    JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
+    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse, StepDownRequest,
+    StepDownResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
+    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
+    TransferStatementResponse,
 };
 use append::{Append, AppendingState};
-use cluster_api::ClusterService;
 use hsm::{HsmClient, Transport};
 use hsm_api::merkle::{Dir, StoreDelta};
 use hsm_api::{
@@ -69,7 +68,7 @@ struct AgentInner<T> {
     hsm: HsmClient<T>,
     store: store::StoreClient,
     store_admin: store::StoreAdminClient,
-    peer_client: ReqwestClientMetrics<AgentService>,
+    peer_client: ReqwestClientMetrics,
     state: Mutex<State>,
     metrics: metrics::Client,
     accountant: UserAccountingWriter,
@@ -357,10 +356,8 @@ impl<T: Transport + 'static> Agent<T> {
             .await
         {
             Ok(managers) if !managers.is_empty() => {
-                let mc = ReqwestClientMetrics::<ClusterService>::new(
-                    self.0.metrics.clone(),
-                    ClientOptions::default(),
-                );
+                let mc =
+                    ReqwestClientMetrics::new(self.0.metrics.clone(), ClientOptions::default());
                 for manager in &managers {
                     let req = cluster_api::StepDownRequest::Hsm(id);
                     match rpc::send(&mc, &manager.0, req).await {

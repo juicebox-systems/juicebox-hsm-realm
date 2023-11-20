@@ -4,7 +4,7 @@ use futures::future::join_all;
 use std::collections::HashSet;
 use std::time::SystemTime;
 
-use agent_api::{AgentService, StatusRequest};
+use agent_api::StatusRequest;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
 use juicebox_sdk::RealmId;
@@ -14,7 +14,7 @@ use crate::UserSummaryWhen;
 
 pub(crate) async fn user_summary(
     store: &StoreClient,
-    agents_client: &Client<AgentService>,
+    agents_client: &Client,
     mut realms: Vec<RealmId>,
     when: UserSummaryWhen,
     start: Option<SystemTime>,
@@ -71,7 +71,7 @@ fn date_range(
 
 async fn find_realms(
     store: &StoreClient,
-    agents_client: &Client<AgentService>,
+    agents_client: &Client,
 ) -> Result<Vec<RealmId>, tonic::Status> {
     let agents = store.get_addresses(Some(store::ServiceKind::Agent)).await?;
 
