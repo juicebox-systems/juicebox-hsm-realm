@@ -113,6 +113,9 @@ async fn main() -> ExitCode {
             Err(_) => Err(anyhow!("timed out waiting for service check to complete")),
         };
         report_service_check(&mc, &res);
+        if let Err(err) = &res {
+            error!(?err, "service check error");
+        }
         if !args.forever {
             break;
         }
