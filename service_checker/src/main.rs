@@ -564,7 +564,13 @@ async fn check_tls_cert_expiration(
         [tag!(url)],
     );
 
-    Ok(())
+    if remaining_days > 15.0 {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "server TLS certificate for {url:?} expires in {remaining} (not_after={not_after})"
+        ))
+    }
 }
 
 #[cfg(test)]
