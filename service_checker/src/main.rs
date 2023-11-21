@@ -97,7 +97,7 @@ async fn main() -> ExitCode {
     });
 
     info!(?args.tenant, ?args.user, "Starting service checker");
-    let checker = match Checker::new(&args).await {
+    let mut checker = match Checker::new(&args).await {
         Ok(c) => c,
         Err(err) => {
             eprintln!("error: {err}");
@@ -138,6 +138,10 @@ struct Checker {
     auth_key: AuthKey,
     auth_key_version: AuthKeyVersion,
     certs: Vec<Certificate>,
+    /// When the next TLS certificate expiration check should occur . This is
+    /// used to limit how frequently to check when running in `--forever` mode,
+    /// primarily to avoid log spew.
+    next_cert_check: Instant,
 }
 
 impl Checker {
@@ -172,11 +176,12 @@ impl Checker {
             auth_key,
             auth_key_version,
             certs,
+            next_cert_check: Instant::now(),
         })
     }
 
     #[instrument(level = "trace", skip(self, mc))]
-    async fn run(&self, mc: metrics::Client, args: &Args) -> anyhow::Result<()> {
+    async fn run(&mut self, mc: metrics::Client, args: &Args) -> anyhow::Result<()> {
         let http_client = HttpReporter::new(
             ReqwestClientMetrics::new(
                 mc.clone(),
@@ -213,18 +218,24 @@ impl Checker {
             }
         }
 
-        // Check all the certificates without short-circuiting.
-        let tls_cert_checks = join_all(self.configuration.realms.iter().map(|realm| {
-            check_tls_cert_expiration(
-                realm.address.as_str(),
-                http_client.client.client.clone(),
-                mc.clone(),
-                args,
-            )
-        }))
-        .await
-        .into_iter()
-        .collect::<anyhow::Result<()>>();
+        let now = Instant::now();
+        let tls_cert_checks = if now >= self.next_cert_check {
+            self.next_cert_check = now + Duration::from_secs(60 * 5);
+            // Check all the certificates without short-circuiting.
+            join_all(self.configuration.realms.iter().map(|realm| {
+                check_tls_cert_expiration(
+                    realm.address.as_str(),
+                    http_client.client.client.clone(),
+                    mc.clone(),
+                    args,
+                )
+            }))
+            .await
+            .into_iter()
+            .collect::<anyhow::Result<()>>()
+        } else {
+            Ok(())
+        };
 
         match first_op_error {
             None => Ok(()),
