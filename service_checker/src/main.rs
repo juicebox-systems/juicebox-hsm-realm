@@ -1,10 +1,12 @@
-use ::reqwest::Certificate;
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use clap::Parser;
 use dogstatsd::{ServiceCheckOptions, ServiceStatus};
+use futures::future::join_all;
 use futures::StreamExt;
 use opentelemetry::sdk::trace::Sampler;
+use reqwest::tls::TlsInfo;
+use reqwest::Certificate;
 use service_core::http::ReqwestClientMetrics;
 use std::collections::HashMap;
 use std::fs;
@@ -13,11 +15,13 @@ use std::process::ExitCode;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::time::timeout;
 use tracing::{debug, error, info, instrument, warn};
+use x509_cert::der::{Decode, SliceReader};
 
-use juicebox_networking::{http, reqwest};
+use juicebox_networking::{http, reqwest as jb_reqwest};
 use juicebox_realm_auth::creation::create_token;
 use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
 use juicebox_sdk::{
@@ -106,9 +110,7 @@ async fn main() -> ExitCode {
     loop {
         res = match timeout(args.timeout, checker.run(mc.clone(), &args)).await {
             Ok(res) => res,
-            Err(_) => Err(anyhow!(
-                "timed out waiting for register/recover to complete"
-            )),
+            Err(_) => Err(anyhow!("timed out waiting for service check to complete")),
         };
         report_service_check(&mc, &res);
         if !args.forever {
@@ -122,7 +124,7 @@ async fn main() -> ExitCode {
     match res {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("error: {err}");
+            eprintln!("error: {err:?}");
             ExitCode::FAILURE
         }
     }
@@ -175,17 +177,17 @@ impl Checker {
         let http_client = HttpReporter::new(
             ReqwestClientMetrics::new(
                 mc.clone(),
-                reqwest::ClientOptions {
+                jb_reqwest::ClientOptions {
                     additional_root_certs: self.certs.clone(),
                     timeout: args.http_timeout,
                     default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
                 },
             ),
-            mc,
+            mc.clone(),
         );
 
         let client_builder = Arc::new(ClientBuilder {
-            shared_http_client: http_client,
+            shared_http_client: http_client.clone(),
             configuration: self.configuration.clone(),
             tenant: args.tenant.clone(),
             auth_key: self.auth_key.clone(),
@@ -197,20 +199,35 @@ impl Checker {
             futures::stream::iter((1..=args.count).map(|i| run_op(i, client_builder.clone())))
                 .buffer_unordered(args.concurrency);
 
-        let mut last_error: Option<OpError> = None;
+        let mut first_op_error: Option<OpError> = None;
         while let Some(result) = stream.next().await {
             match result {
                 Ok(_) => {}
                 Err(err) => {
                     warn!(%err, "error during register/recover operation");
-                    last_error = Some(err);
+                    first_op_error.get_or_insert(err);
                 }
             }
         }
-        match last_error {
-            Some(err) => Err(err.into()),
+
+        // Check all the certificates without short-circuiting.
+        let tls_cert_checks = join_all(self.configuration.realms.iter().map(|realm| {
+            check_tls_cert_expiration(
+                realm.address.as_str(),
+                http_client.client.client.clone(),
+                mc.clone(),
+                args,
+            )
+        }))
+        .await
+        .into_iter()
+        .collect::<anyhow::Result<()>>();
+
+        match first_op_error {
             None => Ok(()),
+            Some(err) => Err(err.into()),
         }
+        .and(tls_cert_checks)
     }
 }
 
@@ -495,6 +512,59 @@ struct CloudFrontServerTimings {
     // The time between when the edge location finished receiving the request
     // and when it sent the first byte of the response to the viewer.
     downstream_first_byte: Option<Duration>,
+}
+
+async fn check_tls_cert_expiration(
+    url: &str,
+    http_client: jb_reqwest::Client,
+    metrics: metrics::Client,
+    args: &Args,
+) -> anyhow::Result<()> {
+    let request = http_client.to_reqwest(http::Request {
+        method: http::Method::Get,
+        url: url.to_owned(),
+        headers: HashMap::default(),
+        body: None,
+        timeout: Some(args.http_timeout),
+    });
+
+    let response = request
+        .send()
+        .await
+        .with_context(|| format!("failed to issue HTTP request to get {url:?} TLS certificate"))?;
+
+    let tls_info = response.extensions().get::<TlsInfo>().with_context(|| {
+        format!("HTTP request to check {url:?} TLS certificate did not return TLS info")
+    })?;
+    let der = tls_info.peer_certificate().ok_or_else(|| {
+        anyhow!("HTTP request to check {url:?} TLS certificate did not return certificate")
+    })?;
+    let cert = SliceReader::new(der)
+        .and_then(|mut reader| x509_cert::Certificate::decode(&mut reader))
+        .with_context(|| format!("failed to decode {url:?} TLS certificate"))?;
+
+    let not_after = cert.tbs_certificate.validity.not_after;
+    let remaining_duration = (UNIX_EPOCH + not_after.to_unix_duration())
+        .duration_since(SystemTime::now())
+        .unwrap_or(Duration::ZERO);
+    let remaining_days = remaining_duration.as_secs_f64() / 60.0 / 60.0 / 24.0;
+    let remaining = format!("{:.1} days", remaining_days);
+
+    if remaining_days > 30.0 {
+        info!(url, remaining, %not_after, "server TLS certificate expiration OK");
+    } else if remaining_days > 20.0 {
+        warn!(url, remaining, %not_after, "server TLS certificate expires soon");
+    } else {
+        error!(url, remaining, %not_after, "server TLS certificate expires soon");
+    }
+
+    metrics.gauge(
+        "service_checker.tls_cert.remaining_days",
+        remaining_days,
+        [tag!(url)],
+    );
+
+    Ok(())
 }
 
 #[cfg(test)]
