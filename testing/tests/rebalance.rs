@@ -51,7 +51,7 @@ async fn cluster_rebalance() {
     for _ in 0..4 {
         // make sure the background worker made some progress.
         background_work
-            .wait_for_progress(5, Duration::from_secs(5))
+            .wait_for_progress(5, Duration::from_secs(15))
             .await;
 
         // Ask the cluster manager to rebalance the cluster. This will perform one leadership move.

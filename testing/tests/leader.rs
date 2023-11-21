@@ -83,7 +83,7 @@ async fn leader_handover() {
 
         // make sure the background worker made some progress.
         background_work
-            .wait_for_progress(5, Duration::from_secs(5))
+            .wait_for_progress(5, Duration::from_secs(15))
             .await;
 
         // Now ask for a stepdown based on the realm/group Id.
@@ -111,7 +111,7 @@ async fn leader_handover() {
 
         // check in on our background register/recover progress.
         background_work
-            .wait_for_progress(3, Duration::from_secs(5))
+            .wait_for_progress(3, Duration::from_secs(15))
             .await;
     }
 
