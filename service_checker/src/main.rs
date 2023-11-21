@@ -578,7 +578,7 @@ async fn check_tls_cert_expiration(
         [tag!(url)],
     );
 
-    if remaining_days > 15.0 {
+    if remaining_days > 5.0 {
         Ok(())
     } else {
         Err(anyhow!(
