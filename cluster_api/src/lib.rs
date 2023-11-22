@@ -42,29 +42,36 @@ impl Rpc<ClusterService> for RebalanceRequest {
     type Response = RebalanceResponse;
 }
 
+/// RebalanceRequest moves zero or one group leadership roles between HSMs in
+/// order to make the workload between the HSMs more even. Multiple
+/// RebalanceRequest's may be needed to fully balance out the workloads.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RebalanceRequest {}
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum RebalanceResponse {
+    /// The workloads are already as balanced as we can make them.
     AlreadyBalanced,
-    // Leadership of a group was transferred to make the cluster more balanced.
-    // There may or may not be additional changes to do.
+    /// Leadership of a group was transferred to make the cluster more balanced.
+    /// There may or may not be additional changes to do.
     Rebalanced(RebalancedLeader),
-    // An attempt to move leadership was made, but the stepdown request to the
-    // current leader failed.
+    /// An attempt to move leadership was made, but the stepdown request to the
+    /// current leader failed.
     StepDownFailed,
-    // An attempt to move leadership was made, but the planned destination
-    // failed to become leader and leadership was moved back to the original
-    // HSM.
+    /// An attempt to move leadership was made, but the planned destination
+    /// failed to become leader and leadership was moved back to the original
+    /// HSM.
     LeadershipTransferRolledBack,
-    // An attempt to move leadership was made, but the planned destination
-    // failed to become leader, and we were also unable to get the original
-    // leader to become leader again.
+    /// An attempt to move leadership was made, but the planned destination
+    /// failed to become leader, and we were also unable to get the original
+    /// leader to become leader again.
     LeadershipTransferFailed,
-    // We'd like to move this group, but the group is busy with some other
-    // cluster management transition.
-    Busy { realm: RealmId, group: GroupId },
+    /// We'd like to move this group, but the group is busy with some other
+    /// cluster management transition.
+    Busy {
+        realm: RealmId,
+        group: GroupId,
+    },
     NoStore,
     RpcError(RpcError),
 }
