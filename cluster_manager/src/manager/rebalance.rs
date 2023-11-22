@@ -151,8 +151,8 @@ impl Manager {
                         }
                     }
                 }
-                n => {
-                    warn!(?n, ?realm, ?group, from=?rebalance.from, "stepdown not okay");
+                response => {
+                    warn!(?response, ?realm, ?group, from=?rebalance.from, "stepdown not okay");
                     return Err(RebalanceError::StepDownFailed);
                 }
             }
