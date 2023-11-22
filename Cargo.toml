@@ -205,6 +205,7 @@ x25519-dalek = { version = "2.0", features = [
     "serde",
     "static_secrets",
 ] }
+x509-cert = { version = "0.2.4", default-features = false }
 
 # These local forks are checked out as Git submodules.
 #

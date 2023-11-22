@@ -23,6 +23,7 @@ service_core = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+x509-cert = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }

@@ -9,7 +9,7 @@ use observability::metrics_tag as tag;
 
 #[derive(Clone, Debug)]
 pub struct ReqwestClientMetrics {
-    client: reqwest::Client,
+    pub client: reqwest::Client,
     metrics: metrics::Client,
 }
 
