@@ -49,6 +49,13 @@ impl Manager {
         }
     }
 
+    /// Performs a single rebalance pass on the cluster. To take full advantage
+    /// of all the capacity of the HSMs in the cluster we'd like the total
+    /// workload to be evenly spread across them. This looks to see if there a
+    /// group leadership role that can be moved to a different HSM so that the
+    /// work is more evenly spread across the HSMs. If it finds a possible move
+    /// it handles the leadership handoff between the two HSMs. See
+    /// [`next_rebalance()`] for more details on how it determines what to move.
     pub(super) async fn rebalance_work(&self) -> Result<Option<RebalancedLeader>, RebalanceError> {
         let addresses = self
             .0
@@ -168,6 +175,20 @@ struct Rebalance {
     to: HsmId,
 }
 
+/// Returns a group leadership move that would make the workload across the HSMs
+/// more even. The workload for a HSM is relative to number of groups its a
+/// member of. The workload for a particular group on a HSM depends on if the
+/// HSM is leader and the size of the key range that the group owns.
+///
+/// This looks for a group leadership workload that can be moved that would
+/// result in the 2 HSMs involved having total workloads closer to the overall
+/// average after the move. The algorithm is stable in that it will only make
+/// moves that improve the balance. It may take multiple moves to get to a final
+/// configuration, but it should settle into a stable state. It is also
+/// deterministic such that if multiple cluster managers call this at the same
+/// time they'll get the same result. This means they fight over the lease as to
+/// who makes the change, rather than the managers simultaneously moving the
+/// workloads in different directions.
 fn next_rebalance(mut hsm_workloads: &mut [HsmWorkload]) -> Option<Rebalance> {
     if hsm_workloads.len() < 2 {
         return None;
