@@ -236,6 +236,22 @@ impl Client {
         S: Into<Cow<'a, str>>,
         T: AsRef<str>,
     {
+        if let Some(o) = options {
+            // Because the ServiceCheckOptions fields are &'static str we can't
+            // just fix them up here.
+            if let Some(m) = o.message {
+                debug_assert!(
+                    is_valid_message(m),
+                    "ServiceCheckOptions::message contains invalid characters"
+                );
+            }
+            if let Some(h) = o.hostname {
+                debug_assert!(
+                    is_valid_message(h),
+                    "ServiceCheckOptions::hostname contains invalid characters"
+                );
+            }
+        }
         if let Some(client) = &self.inner {
             client
                 .service_check(metric_name(stat), val, tags, options)
@@ -282,6 +298,26 @@ fn is_valid_metic_name(n: &str) -> bool {
         }
     }
     n.len() < 100
+}
+
+/// The Message field of service check should be serialized at the end of the
+/// string but currently is not. This leads to issues where characters in the
+/// message can break the parsing of the remaining payload, such as the tags.
+/// This function verifies that the message contains no such breakages.
+pub fn is_valid_message(m: &str) -> bool {
+    m.chars().all(is_valid_message_char)
+}
+
+#[inline]
+fn is_valid_message_char(c: char) -> bool {
+    matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '_' | '-' | ' ')
+}
+
+/// Will replace characters that are not valid in a service check message with a ' '.
+pub fn make_valid_message(m: &str) -> String {
+    m.chars()
+        .map(|c| if is_valid_message_char(c) { c } else { ' ' })
+        .collect()
 }
 
 /// This trait allows numeric metric values to be recorded more ergonomically.
@@ -363,7 +399,7 @@ impl Warn for DogstatsdResult {
 
 #[cfg(test)]
 mod tests {
-    use crate::metrics::is_valid_metic_name;
+    use crate::metrics::{is_valid_message, is_valid_metic_name, make_valid_message};
     use crate::metrics_tag as tag;
 
     #[derive(Debug)]
@@ -406,5 +442,30 @@ mod tests {
         assert!(!is_valid_metic_name("num bobs"));
         assert!(!is_valid_metic_name("num.bobs.🦀"));
         assert!(!is_valid_metic_name("bobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobA"));
+    }
+
+    #[test]
+    fn test_valid_message() {
+        assert!(is_valid_message("bobbins"));
+        assert!(is_valid_message("Hello World"));
+        assert!(is_valid_message("127.0.0.1"));
+        assert!(is_valid_message("Hello_World"));
+        assert!(is_valid_message("Hello-World"));
+        assert!(!is_valid_message("Hello|World"));
+        assert!(!is_valid_message("Hello#World"));
+        assert!(!is_valid_message("Hello:World"));
+        assert!(!is_valid_message("Hello\nWorld"));
+    }
+
+    #[test]
+    fn test_make_valid_message() {
+        assert_eq!("bobbins", &make_valid_message("bobbins"));
+        assert_eq!("hello_world", &make_valid_message("hello_world"));
+        assert_eq!("hello world", &make_valid_message("hello\nworld"));
+        assert_eq!("hello world", &make_valid_message("hello!world"));
+        assert_eq!(
+            "hello from  127.0.0.1 8080",
+            &make_valid_message("hello from  127.0.0.1:8080")
+        );
     }
 }
