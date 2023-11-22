@@ -75,10 +75,10 @@ pub(super) async fn assign_group_a_leader(
     let group_members = &hsm_status
         .values()
         .filter_map(|(sr, _url)| sr.realm.as_ref())
-        .flat_map(|sr| sr.groups.iter().map(|g| (sr.id, g)))
-        .find(|(realm, group)| group.id == grant.group && *realm == grant.realm)
+        .filter(|rs| rs.id == grant.realm)
+        .flat_map(|rs| rs.groups.iter())
+        .find(|group| group.id == grant.group)
         .unwrap()
-        .1
         .configuration;
 
     let mut scored: Vec<Score> = hsm_status
