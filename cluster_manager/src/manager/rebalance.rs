@@ -197,9 +197,10 @@ fn next_rebalance(mut hsm_workloads: &mut [HsmWorkload]) -> Option<Rebalance> {
                 });
             }
         }
-        // Under some scenario's it may not be possible to move anything off the busiest
-        // node, but the remaining nodes may be unbalanced. So retry with the busiest one
-        // removed
+        // Under some scenario's it may not be possible to move anything off the
+        // busiest node, but the remaining nodes may be unbalanced. So retry
+        // with the busiest one removed. e.g. If you have a large group that
+        // can't currently be moved and bunch of smaller groups that can.
         let len = hsm_workloads.len();
         hsm_workloads = &mut hsm_workloads[..len - 1];
     }
