@@ -411,6 +411,14 @@ impl std::ops::Add for WorkAmount {
     }
 }
 
+impl std::ops::Sub for WorkAmount {
+    type Output = WorkAmount;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        WorkAmount(self.0.saturating_sub(rhs.0))
+    }
+}
+
 impl std::ops::AddAssign for WorkAmount {
     fn add_assign(&mut self, rhs: Self) {
         self.0 += rhs.0
