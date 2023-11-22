@@ -77,7 +77,8 @@ impl Manager {
             .flat_map(|(_, (sr, _))| HsmWorkload::new(&sr))
             .collect();
 
-        if let Some(rebalance) = next_rebalance(&mut hsm_workloads) {
+        let rebalance_result = next_rebalance(&mut hsm_workloads);
+        if let Some(rebalance) = &rebalance_result {
             let (realm, group) = (rebalance.realm, rebalance.group);
             let grant = self
                 .mark_as_busy(realm, group)
@@ -88,6 +89,10 @@ impl Manager {
                 info!(?realm, ?group, "group busy, skipping re-balance attempt");
                 return Err(RebalanceError::Busy(realm, group));
             };
+            println!(
+                "current workloads{}",
+                workloads_debug(&hsm_workloads, &rebalance_result),
+            );
             info!(?realm, ?group, from=?rebalance.from, to=?rebalance.to, "rebalance is moving group leadership");
             match rpc::send(
                 &self.0.agents,
@@ -226,14 +231,93 @@ fn next_rebalance(mut hsm_workloads: &mut [HsmWorkload]) -> Option<RebalancedLea
     None
 }
 
+// Returns debug output describing the provided set of workloads.
+fn workloads_debug(workloads: &[HsmWorkload], r: &Option<RebalancedLeader>) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    for w in workloads.iter().rev() {
+        writeln!(
+            &mut out,
+            "\nHSM ID: {:?}             Total Workload:{}",
+            w.id,
+            w.work()
+        )
+        .unwrap();
+        for g in &w.groups {
+            write!(
+                &mut out,
+                "\tGroup: {:?} {} Workload:{}",
+                g.group,
+                if g.leader.is_some() {
+                    "Leader "
+                } else {
+                    "Witness"
+                },
+                g.work(),
+            )
+            .unwrap();
+            match r {
+                Some(r) if r.group == g.group && r.realm == g.realm && r.to == w.id => {
+                    writeln!(&mut out, " [destination]").unwrap()
+                }
+                Some(r) if r.group == g.group && r.realm == g.realm && r.from == w.id => {
+                    writeln!(&mut out, " [moving]").unwrap()
+                }
+                _ => writeln!(&mut out).unwrap(),
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    use expect_test::expect_file;
     use hsm_api::LogIndex;
 
     use super::super::GroupWorkload;
     use super::*;
 
     const REALM: RealmId = RealmId([1; 16]);
+
+    #[test]
+    fn workload_debug_dump() {
+        let ids = vec![HsmId([1; 16]), HsmId([2; 16]), HsmId([3; 16])];
+        let groups = make_test_groups(3, ids.clone());
+        let mut workloads = vec![
+            HsmWorkload {
+                id: ids[0],
+                groups: vec![
+                    GroupWorkload {
+                        leader: Some(WorkAmount(2)),
+                        ..groups[0].clone()
+                    },
+                    GroupWorkload {
+                        leader: Some(WorkAmount(2 + 0x080)),
+                        ..groups[1].clone()
+                    },
+                    groups[2].clone(),
+                ],
+            },
+            HsmWorkload {
+                id: ids[1],
+                groups: vec![
+                    groups[1].clone(),
+                    GroupWorkload {
+                        leader: Some(WorkAmount(2 + 0x80)),
+                        ..groups[2].clone()
+                    },
+                ],
+            },
+            HsmWorkload {
+                id: ids[2],
+                groups: vec![groups[1].clone(), groups[2].clone()],
+            },
+        ];
+        let to_move = next_rebalance(&mut workloads);
+
+        expect_file!["workload_debug.txt"].assert_eq(&workloads_debug(&workloads, &to_move));
+    }
 
     // 3 hsms, 3 groups.
     // the unused single hsm group from the realm creation + 2 active groups

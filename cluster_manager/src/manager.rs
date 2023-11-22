@@ -399,6 +399,12 @@ impl WorkAmount {
     }
 }
 
+impl std::fmt::Display for WorkAmount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl std::ops::Add for WorkAmount {
     type Output = WorkAmount;
 
