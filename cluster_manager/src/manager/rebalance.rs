@@ -78,7 +78,7 @@ impl Manager {
             .collect();
 
         if let Some(rebalance) = next_rebalance(&mut hsm_workloads) {
-            let (realm, group) = rebalance.leader;
+            let (realm, group) = (rebalance.realm, rebalance.group);
             let grant = self
                 .mark_as_busy(realm, group)
                 .await
@@ -168,13 +168,6 @@ impl Manager {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct Rebalance {
-    leader: (RealmId, GroupId),
-    from: HsmId,
-    to: HsmId,
-}
-
 /// Returns a group leadership move that would make the workload across the HSMs
 /// more even. The workload for a HSM is relative to number of groups its a
 /// member of. The workload for a particular group on a HSM depends on if the
@@ -189,7 +182,7 @@ struct Rebalance {
 /// time they'll get the same result. This means they fight over the lease as to
 /// who makes the change, rather than the managers simultaneously moving the
 /// workloads in different directions.
-fn next_rebalance(mut hsm_workloads: &mut [HsmWorkload]) -> Option<Rebalance> {
+fn next_rebalance(mut hsm_workloads: &mut [HsmWorkload]) -> Option<RebalancedLeader> {
     if hsm_workloads.len() < 2 {
         return None;
     }
@@ -215,8 +208,9 @@ fn next_rebalance(mut hsm_workloads: &mut [HsmWorkload]) -> Option<Rebalance> {
                 })
                 .min_by_key(|dest| dest.work())
             {
-                return Some(Rebalance {
-                    leader: (to_move.realm, to_move.group),
+                return Some(RebalancedLeader {
+                    realm: to_move.realm,
+                    group: to_move.group,
                     from: busiest.id,
                     to: dest.id,
                 });
@@ -279,8 +273,9 @@ mod tests {
         ];
         let to_move = next_rebalance(&mut workloads);
         assert_eq!(
-            Some(Rebalance {
-                leader: (REALM, groups[1].group),
+            Some(RebalancedLeader {
+                realm: REALM,
+                group: groups[1].group,
                 from: ids[0],
                 to: ids[2]
             }),
@@ -295,7 +290,6 @@ mod tests {
     #[test]
     fn rebalance_1_to_3() {
         let ids = vec![HsmId([1; 16]), HsmId([2; 16]), HsmId([3; 16])];
-        let realm = RealmId([1; 16]);
         let groups = make_test_groups(3, ids.clone());
         let mut workloads = vec![
             HsmWorkload {
@@ -326,8 +320,9 @@ mod tests {
         ];
         let to_move = next_rebalance(&mut workloads);
         assert_eq!(
-            Some(Rebalance {
-                leader: (realm, groups[1].group),
+            Some(RebalancedLeader {
+                realm: REALM,
+                group: groups[1].group,
                 from: ids[0],
                 to: ids[1]
             }),
@@ -338,8 +333,9 @@ mod tests {
         apply_rebalance(&mut workloads, to_move);
         let to_move = next_rebalance(&mut workloads);
         assert_eq!(
-            Some(Rebalance {
-                leader: (realm, groups[2].group),
+            Some(RebalancedLeader {
+                realm: REALM,
+                group: groups[2].group,
                 from: ids[0],
                 to: ids[2]
             }),
@@ -410,8 +406,9 @@ mod tests {
         ];
         let to_move = next_rebalance(&mut workloads);
         assert_eq!(
-            Some(Rebalance {
-                leader: (REALM, groups[2].group),
+            Some(RebalancedLeader {
+                realm: REALM,
+                group: groups[2].group,
                 from: ids[0],
                 to: ids[2]
             }),
@@ -421,8 +418,9 @@ mod tests {
         apply_rebalance(&mut workloads, to_move);
         let to_move = next_rebalance(&mut workloads);
         assert_eq!(
-            Some(Rebalance {
-                leader: (REALM, groups[1].group),
+            Some(RebalancedLeader {
+                realm: REALM,
+                group: groups[1].group,
                 from: ids[0],
                 to: ids[1]
             }),
@@ -475,8 +473,9 @@ mod tests {
         ];
         let to_move = next_rebalance(&mut workloads);
         assert_eq!(
-            Some(Rebalance {
-                leader: (REALM, groups[2].group),
+            Some(RebalancedLeader {
+                realm: REALM,
+                group: groups[2].group,
                 from: ids[0],
                 to: ids[2]
             }),
@@ -486,8 +485,9 @@ mod tests {
         apply_rebalance(&mut workloads, to_move);
         let to_move = next_rebalance(&mut workloads);
         assert_eq!(
-            Some(Rebalance {
-                leader: (REALM, groups[3].group),
+            Some(RebalancedLeader {
+                realm: REALM,
+                group: groups[3].group,
                 from: ids[2],
                 to: ids[1]
             }),
@@ -531,8 +531,9 @@ mod tests {
         let w = workloads.iter_mut().find(|w| w.id == ids[1]).unwrap();
         w.groups[0].last_captured = Some(LogIndex(97_123));
         assert_eq!(
-            Some(Rebalance {
-                leader: (REALM, groups[1].group),
+            Some(RebalancedLeader {
+                realm: REALM,
+                group: groups[1].group,
                 from: ids[0],
                 to: ids[1],
             }),
@@ -558,7 +559,7 @@ mod tests {
         groups
     }
 
-    fn apply_rebalance(workloads: &mut [HsmWorkload], rebalance: Option<Rebalance>) {
+    fn apply_rebalance(workloads: &mut [HsmWorkload], rebalance: Option<RebalancedLeader>) {
         if let Some(rebalance) = rebalance {
             let from = workloads
                 .iter_mut()
@@ -567,7 +568,7 @@ mod tests {
             let group_idx = from
                 .groups
                 .iter()
-                .position(|w| (w.realm, w.group) == rebalance.leader)
+                .position(|w| w.group == rebalance.group && w.realm == rebalance.realm)
                 .unwrap();
             let leader = from.groups[group_idx].leader.take();
 
@@ -575,7 +576,7 @@ mod tests {
             let group_idx = to
                 .groups
                 .iter()
-                .position(|w| (w.realm, w.group) == rebalance.leader)
+                .position(|w| w.group == rebalance.group && w.realm == rebalance.realm)
                 .unwrap();
             to.groups[group_idx].leader = leader;
         }
