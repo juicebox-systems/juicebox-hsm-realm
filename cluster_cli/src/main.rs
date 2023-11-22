@@ -508,6 +508,7 @@ mod tests {
             vec!["cluster", "join-realm", "--help"],
             vec!["cluster", "new-group", "--help"],
             vec!["cluster", "new-realm", "--help"],
+            vec!["cluster", "rebalance", "--help"],
             vec!["cluster", "stepdown", "--help"],
             vec!["cluster", "transfer", "--help"],
             vec!["cluster", "user-summary", "--help"],

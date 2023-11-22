@@ -261,6 +261,20 @@ Options:
 
 ```
 
+## `cluster rebalance --help`
+
+```
+Rebalance the cluster workload by potentially moving group leadership
+
+Usage: cluster rebalance [OPTIONS]
+
+Options:
+  -c, --cluster <CLUSTER>  URL to a cluster manager, which will execute the request. By default it will find a cluster manager using service discovery
+  -f, --full               Repeatedly rebalance until the cluster is fully balanced. This may make multiple leadership moves
+  -h, --help               Print help
+
+```
+
 ## `cluster stepdown --help`
 
 ```
