@@ -201,7 +201,11 @@ fn next_rebalance(mut hsm_workloads: &mut [HsmWorkload]) -> Option<Rebalance> {
         let busiest = hsm_workloads.last().unwrap();
         let busiest_work = busiest.work();
         assert!(busiest_work >= avg);
-        let moveable = busiest.moveable_workloads(busiest_work - avg);
+        // We examine workloads to move in order of how close to the average
+        // workload the HSM would have after the move.
+        let target_move_size = busiest_work - avg;
+        let mut moveable = busiest.moveable_workloads();
+        moveable.sort_by_key(|w| target_move_size.abs_diff(w.work()));
 
         for to_move in moveable {
             if let Some(dest) = hsm_workloads

@@ -327,15 +327,11 @@ impl HsmWorkload {
         self.groups.iter().map(|g| g.work()).sum()
     }
 
-    // Returns a list of moveable workloads that are ordered by their distance to the target_size, closest first.
-    fn moveable_workloads(&self, target_size: WorkAmount) -> Vec<&GroupWorkload> {
-        let mut moveable: Vec<&GroupWorkload> = self
-            .groups
+    fn moveable_workloads(&self) -> Vec<&GroupWorkload> {
+        self.groups
             .iter()
             .filter(|w| w.members.len() > 1 && w.leader.is_some())
-            .collect();
-        moveable.sort_by_key(|w| target_size.abs_diff(w.work()));
-        moveable
+            .collect()
     }
 
     // Returns true if 'self' is in a state where it could reasonably become
