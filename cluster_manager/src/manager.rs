@@ -18,7 +18,7 @@ use tracing::{info, span, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
-use hsm_api::{GroupId, HsmId, LogIndex};
+use hsm_api::GroupId;
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::Rpc;
 use juicebox_realm_api::types::RealmId;
@@ -302,138 +302,6 @@ impl Manager {
                 )))
                 .unwrap()
         }
-    }
-}
-
-#[derive(Debug)]
-struct HsmWorkload {
-    id: HsmId,
-    groups: Vec<GroupWorkload>,
-}
-
-impl HsmWorkload {
-    fn new(s: &hsm_api::StatusResponse) -> Option<HsmWorkload> {
-        s.realm.as_ref().map(|rs| {
-            let groups = rs
-                .groups
-                .iter()
-                .map(|gs| GroupWorkload::new(rs.id, gs))
-                .collect();
-            HsmWorkload { id: s.id, groups }
-        })
-    }
-
-    fn work(&self) -> WorkAmount {
-        self.groups.iter().map(|g| g.work()).sum()
-    }
-
-    fn moveable_workloads(&self) -> Vec<&GroupWorkload> {
-        self.groups
-            .iter()
-            .filter(|w| w.members.len() > 1 && w.leader.is_some())
-            .collect()
-    }
-
-    // Returns true if 'self' is in a state where it could reasonably become
-    // leader for the 'target' group.
-    fn can_lead(&self, target: &GroupWorkload) -> bool {
-        if !target.members.contains(&self.id) {
-            return false;
-        }
-        const MAX_CAPTURE_TRAILING: u64 = 1000;
-
-        self.groups
-            .iter()
-            .find(|g| g.group == target.group && g.realm == target.realm)
-            .is_some_and(|my_group| {
-                matches!(
-                    (my_group.last_captured, target.last_captured),
-                    (Some(mine), Some(target))
-                    if mine.0 > target.0.saturating_sub(MAX_CAPTURE_TRAILING))
-            })
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct GroupWorkload {
-    witness: WorkAmount,
-    leader: Option<WorkAmount>,
-    members: Vec<HsmId>,
-    last_captured: Option<LogIndex>,
-    group: GroupId,
-    realm: RealmId,
-}
-
-impl GroupWorkload {
-    fn new(realm: RealmId, gs: &hsm_api::GroupStatus) -> GroupWorkload {
-        let leader = gs.leader.as_ref().map(|l| {
-            let mut w = WorkAmount(2);
-            if let Some(part) = &l.owned_range {
-                let part_size = part.end.0[0] - part.start.0[0];
-                w += WorkAmount(part_size as usize);
-            }
-            w
-        });
-        GroupWorkload {
-            witness: WorkAmount(1),
-            leader,
-            last_captured: gs.captured.as_ref().map(|(idx, _mac)| *idx),
-            members: gs.configuration.clone(),
-            group: gs.id,
-            realm,
-        }
-    }
-
-    fn work(&self) -> WorkAmount {
-        self.witness + self.leader.unwrap_or(WorkAmount(0))
-    }
-}
-
-/// Represents the amount of work/load a task is estimated to consume. Larger is busier.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct WorkAmount(usize);
-
-impl WorkAmount {
-    fn abs_diff(&self, o: Self) -> Self {
-        WorkAmount(self.0.abs_diff(o.0))
-    }
-}
-
-impl std::fmt::Display for WorkAmount {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl std::ops::Add for WorkAmount {
-    type Output = WorkAmount;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        WorkAmount(self.0 + rhs.0)
-    }
-}
-
-impl std::ops::Sub for WorkAmount {
-    type Output = WorkAmount;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        WorkAmount(self.0.saturating_sub(rhs.0))
-    }
-}
-
-impl std::ops::AddAssign for WorkAmount {
-    fn add_assign(&mut self, rhs: Self) {
-        self.0 += rhs.0
-    }
-}
-
-impl std::iter::Sum for WorkAmount {
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        let mut t = WorkAmount(0);
-        for w in iter {
-            t += w;
-        }
-        t
     }
 }
 

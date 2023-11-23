@@ -1,11 +1,12 @@
-use cluster_api::RebalancedLeader;
 use std::collections::HashMap;
 use tracing::{info, warn};
 use url::Url;
 
-use super::{HsmWorkload, Manager, WorkAmount};
+use super::Manager;
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse, StepDownRequest, StepDownResponse};
+use cluster_api::RebalancedLeader;
 use cluster_core::get_hsm_statuses;
+use cluster_core::workload::{HsmWorkload, WorkAmount};
 use hsm_api::{GroupId, HsmId};
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
@@ -193,8 +194,7 @@ fn next_rebalance(mut hsm_workloads: &mut [HsmWorkload]) -> Option<RebalancedLea
     }
     hsm_workloads.sort_by_key(HsmWorkload::work);
     while hsm_workloads.len() >= 2 {
-        let total: WorkAmount = hsm_workloads.iter().map(|w| w.work()).sum();
-        let avg = WorkAmount((total.0 as f64 / hsm_workloads.len() as f64) as usize);
+        let avg = WorkAmount::avg(hsm_workloads.iter().map(|w| w.work()));
 
         let busiest = hsm_workloads.last().unwrap();
         let busiest_work = busiest.work();
@@ -272,10 +272,10 @@ fn workloads_debug(workloads: &[HsmWorkload], r: &Option<RebalancedLeader>) -> S
 
 #[cfg(test)]
 mod tests {
+    use cluster_core::workload::{GroupWorkload, HsmWorkload, WorkAmount};
     use expect_test::expect_file;
     use hsm_api::LogIndex;
 
-    use super::super::GroupWorkload;
     use super::*;
 
     const REALM: RealmId = RealmId([1; 16]);
@@ -289,11 +289,11 @@ mod tests {
                 id: ids[0],
                 groups: vec![
                     GroupWorkload {
-                        leader: Some(WorkAmount(2)),
+                        leader: Some(WorkAmount::new(2)),
                         ..groups[0].clone()
                     },
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x080)),
+                        leader: Some(WorkAmount::new(2 + 0x080)),
                         ..groups[1].clone()
                     },
                     groups[2].clone(),
@@ -304,7 +304,7 @@ mod tests {
                 groups: vec![
                     groups[1].clone(),
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x80)),
+                        leader: Some(WorkAmount::new(2 + 0x80)),
                         ..groups[2].clone()
                     },
                 ],
@@ -330,11 +330,11 @@ mod tests {
                 id: ids[0],
                 groups: vec![
                     GroupWorkload {
-                        leader: Some(WorkAmount(2)),
+                        leader: Some(WorkAmount::new(2)),
                         ..groups[0].clone()
                     },
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x080)),
+                        leader: Some(WorkAmount::new(2 + 0x080)),
                         ..groups[1].clone()
                     },
                     groups[2].clone(),
@@ -345,7 +345,7 @@ mod tests {
                 groups: vec![
                     groups[1].clone(),
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x80)),
+                        leader: Some(WorkAmount::new(2 + 0x80)),
                         ..groups[2].clone()
                     },
                 ],
@@ -380,15 +380,15 @@ mod tests {
                 id: ids[0],
                 groups: vec![
                     GroupWorkload {
-                        leader: Some(WorkAmount(2)),
+                        leader: Some(WorkAmount::new(2)),
                         ..groups[0].clone()
                     },
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x80)),
+                        leader: Some(WorkAmount::new(2 + 0x80)),
                         ..groups[1].clone()
                     },
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x080)),
+                        leader: Some(WorkAmount::new(2 + 0x080)),
                         ..groups[2].clone()
                     },
                 ],
@@ -440,19 +440,19 @@ mod tests {
                 id: ids[0],
                 groups: vec![
                     GroupWorkload {
-                        leader: Some(WorkAmount(2)),
+                        leader: Some(WorkAmount::new(2)),
                         ..groups[0].clone()
                     },
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x10)),
+                        leader: Some(WorkAmount::new(2 + 0x10)),
                         ..groups[1].clone()
                     },
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x040)),
+                        leader: Some(WorkAmount::new(2 + 0x040)),
                         ..groups[2].clone()
                     },
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x50)),
+                        leader: Some(WorkAmount::new(2 + 0x50)),
                         ..groups[3].clone()
                     },
                     groups[4].clone(),
@@ -467,7 +467,7 @@ mod tests {
                     groups[2].clone(),
                     groups[3].clone(),
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x50)),
+                        leader: Some(WorkAmount::new(2 + 0x50)),
                         ..groups[4].clone()
                     },
                     groups[5].clone(),
@@ -482,7 +482,7 @@ mod tests {
                     groups[3].clone(),
                     groups[4].clone(),
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x30)),
+                        leader: Some(WorkAmount::new(2 + 0x30)),
                         ..groups[5].clone()
                     },
                 ],
@@ -527,15 +527,15 @@ mod tests {
                 id: ids[0],
                 groups: vec![
                     GroupWorkload {
-                        leader: Some(WorkAmount(2)),
+                        leader: Some(WorkAmount::new(2)),
                         ..groups[0].clone()
                     },
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x10)),
+                        leader: Some(WorkAmount::new(2 + 0x10)),
                         ..groups[1].clone()
                     },
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x80)),
+                        leader: Some(WorkAmount::new(2 + 0x80)),
                         ..groups[2].clone()
                     },
                 ],
@@ -549,7 +549,7 @@ mod tests {
                 groups: vec![
                     groups[2].clone(),
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x10)),
+                        leader: Some(WorkAmount::new(2 + 0x10)),
                         ..groups[3].clone()
                     },
                 ],
@@ -592,11 +592,11 @@ mod tests {
                 id: ids[0],
                 groups: vec![
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x40)),
+                        leader: Some(WorkAmount::new(2 + 0x40)),
                         ..groups[0].clone()
                     },
                     GroupWorkload {
-                        leader: Some(WorkAmount(2 + 0x80)),
+                        leader: Some(WorkAmount::new(2 + 0x80)),
                         last_captured: Some(LogIndex(98_000)),
                         ..groups[1].clone()
                     },
@@ -631,7 +631,7 @@ mod tests {
     fn make_test_groups(num: u8, members: Vec<HsmId>) -> Vec<GroupWorkload> {
         let mut groups = (0..num)
             .map(|i| GroupWorkload {
-                witness: WorkAmount(1),
+                witness: WorkAmount::new(1),
                 leader: None,
                 members: members.clone(),
                 last_captured: Some(LogIndex(i as u64 * 10_000)),

@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use tracing::{info, instrument, trace, warn};
 use url::Url;
 
-use super::{HsmWorkload, ManagementGrant, Manager, WorkAmount};
+use super::{ManagementGrant, Manager};
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse};
+use cluster_core::workload::{HsmWorkload, WorkAmount};
 use cluster_core::{get_hsm_statuses, Error};
 use hsm_api::{GroupId, HsmId, LogIndex};
 use juicebox_networking::rpc::{self, RpcError};
@@ -165,27 +166,27 @@ mod tests {
     #[test]
     fn score_order() {
         let a = Score {
-            workload: WorkAmount(20),
+            workload: WorkAmount::new(20),
             last_captured: Some(LogIndex(14)),
             id: HsmId([1; 16]),
         };
         let b = Score {
-            workload: WorkAmount(10),
+            workload: WorkAmount::new(10),
             last_captured: Some(LogIndex(13)),
             id: HsmId([2; 16]),
         };
         let c = Score {
-            workload: WorkAmount(10),
+            workload: WorkAmount::new(10),
             last_captured: Some(LogIndex(1)),
             id: HsmId([3; 16]),
         };
         let d = Score {
-            workload: WorkAmount(10),
+            workload: WorkAmount::new(10),
             last_captured: None,
             id: HsmId([4; 16]),
         };
         let e = Score {
-            workload: WorkAmount(42),
+            workload: WorkAmount::new(42),
             last_captured: Some(LogIndex(1)),
             id: HsmId([5; 16]),
         };
