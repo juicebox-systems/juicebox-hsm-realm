@@ -561,6 +561,7 @@ dependencies = [
  "juicebox_networking",
  "juicebox_sdk",
  "serde",
+ "thiserror",
 ]
 
 [[package]]

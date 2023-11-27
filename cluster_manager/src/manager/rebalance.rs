@@ -4,49 +4,23 @@ use url::Url;
 
 use super::Manager;
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse, StepDownRequest, StepDownResponse};
-use cluster_api::RebalancedLeader;
+use cluster_api::{RebalanceError, RebalanceResult, RebalancedLeader};
 use cluster_core::get_hsm_statuses;
 use cluster_core::workload::{HsmWorkload, WorkAmount};
-use hsm_api::{GroupId, HsmId};
-use juicebox_networking::rpc::{self, RpcError};
-use juicebox_realm_api::types::RealmId;
+use hsm_api::HsmId;
+use juicebox_networking::rpc::{self};
 use service_core::rpc::HandlerError;
 use store::ServiceKind;
-
-#[derive(Debug)]
-pub(super) enum RebalanceError {
-    NoStore,
-    StepDownFailed,
-    LeadershipTransferFailed,
-    LeadershipTransferRolledBack,
-    Busy(RealmId, GroupId),
-    Rpc(RpcError),
-}
-
-impl From<RpcError> for RebalanceError {
-    fn from(value: RpcError) -> Self {
-        RebalanceError::Rpc(value)
-    }
-}
 
 impl Manager {
     pub(super) async fn handle_rebalance(
         &self,
         _req: cluster_api::RebalanceRequest,
-    ) -> Result<cluster_api::RebalanceResponse, HandlerError> {
-        type Response = cluster_api::RebalanceResponse;
-
+    ) -> Result<Result<RebalanceResult, RebalanceError>, HandlerError> {
         match self.rebalance_work().await {
-            Ok(None) => Ok(Response::AlreadyBalanced),
-            Ok(Some(r)) => Ok(Response::Rebalanced(r)),
-            Err(RebalanceError::NoStore) => Ok(Response::NoStore),
-            Err(RebalanceError::Rpc(rpc)) => Ok(Response::RpcError(rpc)),
-            Err(RebalanceError::Busy(realm, group)) => Ok(Response::Busy { realm, group }),
-            Err(RebalanceError::LeadershipTransferRolledBack) => {
-                Ok(Response::LeadershipTransferRolledBack)
-            }
-            Err(RebalanceError::LeadershipTransferFailed) => Ok(Response::LeadershipTransferFailed),
-            Err(RebalanceError::StepDownFailed) => Ok(Response::StepDownFailed),
+            Ok(None) => Ok(Ok(RebalanceResult::AlreadyBalanced)),
+            Ok(Some(r)) => Ok(Ok(RebalanceResult::Rebalanced(r))),
+            Err(err) => Ok(Err(err)),
         }
     }
 
@@ -88,7 +62,7 @@ impl Manager {
 
             if grant.is_none() {
                 info!(?realm, ?group, "group busy, skipping re-balance attempt");
-                return Err(RebalanceError::Busy(realm, group));
+                return Err(RebalanceError::Busy { realm, group });
             };
             println!(
                 "current workloads{}",
@@ -274,7 +248,8 @@ fn workloads_debug(workloads: &[HsmWorkload], r: &Option<RebalancedLeader>) -> S
 mod tests {
     use cluster_core::workload::{GroupWorkload, HsmWorkload, WorkAmount};
     use expect_test::expect_file;
-    use hsm_api::LogIndex;
+    use hsm_api::{GroupId, LogIndex};
+    use juicebox_realm_api::types::RealmId;
 
     use super::*;
 
