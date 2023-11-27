@@ -273,6 +273,9 @@ async fn run_op(user_num: u64, client_builder: Arc<ClientBuilder>) -> Result<(),
 
 #[derive(Debug, Error)]
 enum OpError {
+    // These are formatted with - rather than the typical : because the strings
+    // will end up in a service check message and having : in the message causes
+    // issues with the parsing of the resulting payloads in the datadog agent.
     #[error("register failed - {0:?}")]
     Register(#[from] RegisterError),
     #[error("recover failed - {0:?}")]
