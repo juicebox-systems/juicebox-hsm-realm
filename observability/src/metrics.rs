@@ -316,7 +316,7 @@ fn is_valid_message_char(c: char) -> bool {
 /// Will replace characters that are not valid in a service check message with a ' '.
 pub fn make_valid_message(m: &str) -> String {
     m.chars()
-        .map(|c| if is_valid_message_char(c) { c } else { ' ' })
+        .map(|c| if is_valid_message_char(c) { c } else { '_' })
         .collect()
 }
 
@@ -461,10 +461,10 @@ mod tests {
     fn test_make_valid_message() {
         assert_eq!("bobbins", &make_valid_message("bobbins"));
         assert_eq!("hello_world", &make_valid_message("hello_world"));
-        assert_eq!("hello world", &make_valid_message("hello\nworld"));
-        assert_eq!("hello world", &make_valid_message("hello!world"));
+        assert_eq!("hello_world", &make_valid_message("hello\nworld"));
+        assert_eq!("hello_world", &make_valid_message("hello!world"));
         assert_eq!(
-            "hello from  127.0.0.1 8080",
+            "hello from  127.0.0.1_8080",
             &make_valid_message("hello from  127.0.0.1:8080")
         );
     }
