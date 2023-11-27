@@ -6,7 +6,6 @@ use hyper::http;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use observability::metrics;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,13 +14,16 @@ use std::time::{Duration, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{info, instrument, warn, Instrument, Span};
+use tracing::{info, span, warn, Instrument, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use hsm_api::GroupId;
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::Rpc;
 use juicebox_realm_api::types::RealmId;
+use observability::logging::TracingSource;
+use observability::metrics;
 use observability::tracing::TracingMiddleware;
 use service_core::http::ReqwestClientMetrics;
 use service_core::rpc::handle_rpc;
@@ -29,6 +31,7 @@ use store::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
 use store::{Lease, LeaseKey, LeaseType, ServiceKind, StoreClient};
 
 mod leader;
+mod rebalance;
 mod stepdown;
 
 const LEASE_DURATION: Duration = Duration::from_secs(3);
@@ -123,6 +126,7 @@ impl Manager {
         name: String,
         store: StoreClient,
         update_interval: Duration,
+        rebalance_interval: Duration,
         metrics: metrics::Client,
     ) -> Self {
         let m = Self(Arc::new(ManagerInner {
@@ -133,9 +137,31 @@ impl Manager {
         }));
         let manager = m.clone();
         tokio::spawn(async move {
+            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
             loop {
                 sleep(update_interval).await;
-                manager.run().await;
+
+                let span = span!(Level::TRACE, "ensure_groups_have_leader_loop");
+                span.set_parent(cx.clone());
+
+                if let Err(err) = manager.ensure_groups_have_leader().await {
+                    warn!(?err, "Error while checking all groups have a leader")
+                }
+            }
+        });
+
+        let manager = m.clone();
+        tokio::spawn(async move {
+            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+            loop {
+                sleep(rebalance_interval).await;
+
+                let span = span!(Level::TRACE, "rebalance_work_loop");
+                span.set_parent(cx.clone());
+
+                if let Err(err) = manager.rebalance_work().await {
+                    warn!(?err, "Error while rebalancing the cluster")
+                }
             }
         });
         m
@@ -217,6 +243,9 @@ impl Service<Request<IncomingBody>> for Manager {
                     cluster_api::StepDownRequest::PATH => {
                         handle_rpc(&manager, request, Self::handle_leader_stepdown).await
                     }
+                    cluster_api::RebalanceRequest::PATH => {
+                        handle_rpc(&manager, request, Self::handle_rebalance).await
+                    }
                     _ => Ok(Response::builder()
                         .status(http::StatusCode::NOT_FOUND)
                         .body(Full::from(Bytes::new()))
@@ -231,14 +260,6 @@ impl Service<Request<IncomingBody>> for Manager {
 }
 
 impl Manager {
-    /// Perform one pass of the management tasks.
-    #[instrument(level = "trace", skip(self))]
-    async fn run(&self) {
-        if let Err(err) = self.ensure_groups_have_leader().await {
-            warn!(?err, "Error while checking/updating cluster state")
-        }
-    }
-
     // Track that the group is going through some management operation that
     // should block other management operations. Returns None if the group is
     // already busy by some other task. When the returned ManagementGrant is
@@ -333,11 +354,13 @@ mod tests {
             String::from("one"),
             store.clone(),
             Duration::from_secs(1000),
+            Duration::from_secs(1000),
             metrics::Client::NONE,
         );
         let m2 = Manager::new(
             String::from("two"),
             store,
+            Duration::from_secs(1000),
             Duration::from_secs(1000),
             metrics::Client::NONE,
         );

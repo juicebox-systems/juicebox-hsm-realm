@@ -11,3 +11,4 @@ serde = { workspace = true }
 hsm_api = { workspace = true }
 juicebox_sdk = { workspace = true }
 juicebox_networking = { workspace = true }
+thiserror = { workspace = true }

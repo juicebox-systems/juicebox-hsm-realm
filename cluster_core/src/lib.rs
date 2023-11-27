@@ -16,6 +16,7 @@ use service_core::http::ReqwestClientMetrics;
 mod leader;
 mod realm;
 mod transfer;
+pub mod workload;
 
 pub use leader::{discover_hsm_ids, find_leaders};
 pub use realm::{join_realm, new_group, new_realm, JoinRealmError, NewGroupError, NewRealmError};

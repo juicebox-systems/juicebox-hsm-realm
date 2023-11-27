@@ -55,6 +55,11 @@ Options:
           
           [default: 2000]
 
+      --rebalance-interval <REBALANCE_INTERVAL>
+          Interval for rebalancing the cluster in milliseconds
+          
+          [default: 60000]
+
   -h, --help
           Print help (see a summary with '-h')
 
