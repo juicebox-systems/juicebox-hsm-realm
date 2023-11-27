@@ -100,7 +100,8 @@ cluster_api = { path = "cluster_api" }
 cluster_core = { path = "cluster_core" }
 digest = "0.10.7"
 # Diego audited dogstatsd v0.10.0 in Aug 2023.
-dogstatsd = "=0.10.0"
+# Simon audited dogstatsd v0.11.1 in Nov 2023.
+dogstatsd = "=0.11.1"
 election = { path = "election" }
 entrust_api = { path = "entrust_api" }
 entrust_nfast = { path = "entrust_nfast" }

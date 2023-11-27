@@ -237,6 +237,19 @@ impl Client {
         T: AsRef<str>,
     {
         if let Some(client) = &self.inner {
+            let msg;
+            let hostname;
+            if let Some(mut o) = options {
+                if let Some(m) = o.message {
+                    msg = make_valid_message(m);
+                    o.message = Some(&msg);
+                }
+                if let Some(h) = o.hostname {
+                    hostname = make_valid_message(h);
+                    o.hostname = Some(&hostname);
+                }
+            }
+
             client
                 .service_check(metric_name(stat), val, tags, options)
                 .warn_err();
@@ -282,6 +295,23 @@ fn is_valid_metic_name(n: &str) -> bool {
         }
     }
     n.len() < 100
+}
+
+/// The Message field of service check should be serialized at the end of the
+/// string but currently is not. This leads to issues where characters in the
+/// message can break the parsing of the remaining payload, such as the tags.
+/// This function will replace characters that are not valid in a message with a
+/// '_'.
+pub fn make_valid_message(m: &str) -> String {
+    m.chars()
+        .map(|c| {
+            if matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '_' | '-' | ' ') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// This trait allows numeric metric values to be recorded more ergonomically.
@@ -363,7 +393,7 @@ impl Warn for DogstatsdResult {
 
 #[cfg(test)]
 mod tests {
-    use crate::metrics::is_valid_metic_name;
+    use crate::metrics::{is_valid_metic_name, make_valid_message};
     use crate::metrics_tag as tag;
 
     #[derive(Debug)]
@@ -406,5 +436,17 @@ mod tests {
         assert!(!is_valid_metic_name("num bobs"));
         assert!(!is_valid_metic_name("num.bobs.🦀"));
         assert!(!is_valid_metic_name("bobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobA"));
+    }
+
+    #[test]
+    fn test_make_valid_message() {
+        assert_eq!("bobbins", &make_valid_message("bobbins"));
+        assert_eq!("hello_world", &make_valid_message("hello_world"));
+        assert_eq!("hello_world", &make_valid_message("hello\nworld"));
+        assert_eq!("hello_world", &make_valid_message("hello!world"));
+        assert_eq!(
+            "hello from  127.0.0.1_8080",
+            &make_valid_message("hello from  127.0.0.1:8080")
+        );
     }
 }

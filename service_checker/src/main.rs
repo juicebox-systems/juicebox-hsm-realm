@@ -273,13 +273,16 @@ async fn run_op(user_num: u64, client_builder: Arc<ClientBuilder>) -> Result<(),
 
 #[derive(Debug, Error)]
 enum OpError {
-    #[error("register failed: {0:?}")]
+    // These are formatted with - rather than the typical : because the strings
+    // will end up in a service check message and having : in the message causes
+    // issues with the parsing of the resulting payloads in the datadog agent.
+    #[error("register failed - {0:?}")]
     Register(#[from] RegisterError),
-    #[error("recover failed: {0:?}")]
+    #[error("recover failed - {0:?}")]
     Recover(#[from] RecoverError),
     #[error("recover returned a different secret to the one registered")]
     RecoveredIncorrectSecret,
-    #[error("delete failed: {0:?}")]
+    #[error("delete failed - {0:?}")]
     Delete(#[from] DeleteError),
 }
 
@@ -363,14 +366,13 @@ fn report_service_check(mc: &metrics::Client, r: &anyhow::Result<()>) {
     match r {
         Ok(()) => mc.service_check(STAT, ServiceStatus::OK, metrics::NO_TAGS, None),
         Err(err) => {
-            // this is dumb, thanks dogstatsd
-            let msg: &'static str = Box::leak(format!("{:?}", err).into_boxed_str());
+            let msg = format!("{:?}", err);
             mc.service_check(
                 STAT,
                 ServiceStatus::Critical,
                 metrics::NO_TAGS,
                 Some(ServiceCheckOptions {
-                    message: Some(msg),
+                    message: Some(&msg),
                     ..ServiceCheckOptions::default()
                 }),
             )
