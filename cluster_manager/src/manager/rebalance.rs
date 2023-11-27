@@ -17,11 +17,7 @@ impl Manager {
         &self,
         _req: cluster_api::RebalanceRequest,
     ) -> Result<Result<RebalanceSuccess, RebalanceError>, HandlerError> {
-        match self.rebalance_work().await {
-            Ok(None) => Ok(Ok(RebalanceSuccess::AlreadyBalanced)),
-            Ok(Some(r)) => Ok(Ok(RebalanceSuccess::Rebalanced(r))),
-            Err(err) => Ok(Err(err)),
-        }
+        Ok(self.rebalance_work().await)
     }
 
     /// Performs a single rebalance pass on the cluster. To take full advantage
@@ -31,7 +27,7 @@ impl Manager {
     /// work is more evenly spread across the HSMs. If it finds a possible move
     /// it handles the leadership handoff between the two HSMs. See
     /// [`next_rebalance()`] for more details on how it determines what to move.
-    pub(super) async fn rebalance_work(&self) -> Result<Option<RebalancedLeader>, RebalanceError> {
+    pub(super) async fn rebalance_work(&self) -> Result<RebalanceSuccess, RebalanceError> {
         let addresses = self
             .0
             .store
@@ -90,7 +86,7 @@ impl Manager {
                     {
                         BecomeLeaderResponse::Ok => {
                             info!(?realm, ?group, from=?rebalance.from, to=?rebalance.to, "rebalanced group leader");
-                            return Ok(Some(RebalancedLeader {
+                            return Ok(RebalanceSuccess::Rebalanced(RebalancedLeader {
                                 realm,
                                 group,
                                 from: rebalance.from,
@@ -144,7 +140,7 @@ impl Manager {
                 }
             }
         }
-        Ok(None)
+        Ok(RebalanceSuccess::AlreadyBalanced)
     }
 }
 
