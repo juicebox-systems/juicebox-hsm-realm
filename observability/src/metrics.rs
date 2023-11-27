@@ -300,20 +300,17 @@ fn is_valid_metic_name(n: &str) -> bool {
 /// The Message field of service check should be serialized at the end of the
 /// string but currently is not. This leads to issues where characters in the
 /// message can break the parsing of the remaining payload, such as the tags.
-/// This function verifies that the message contains no such breakages.
-pub fn is_valid_message(m: &str) -> bool {
-    m.chars().all(is_valid_message_char)
-}
-
-#[inline]
-fn is_valid_message_char(c: char) -> bool {
-    matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '_' | '-' | ' ')
-}
-
-/// Will replace characters that are not valid in a service check message with a ' '.
+/// This function will replace characters that are not valid in a message with a
+/// '_'.
 pub fn make_valid_message(m: &str) -> String {
     m.chars()
-        .map(|c| if is_valid_message_char(c) { c } else { '_' })
+        .map(|c| {
+            if matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '_' | '-' | ' ') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -396,7 +393,7 @@ impl Warn for DogstatsdResult {
 
 #[cfg(test)]
 mod tests {
-    use crate::metrics::{is_valid_message, is_valid_metic_name, make_valid_message};
+    use crate::metrics::{is_valid_metic_name, make_valid_message};
     use crate::metrics_tag as tag;
 
     #[derive(Debug)]
@@ -439,19 +436,6 @@ mod tests {
         assert!(!is_valid_metic_name("num bobs"));
         assert!(!is_valid_metic_name("num.bobs.🦀"));
         assert!(!is_valid_metic_name("bobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobA"));
-    }
-
-    #[test]
-    fn test_valid_message() {
-        assert!(is_valid_message("bobbins"));
-        assert!(is_valid_message("Hello World"));
-        assert!(is_valid_message("127.0.0.1"));
-        assert!(is_valid_message("Hello_World"));
-        assert!(is_valid_message("Hello-World"));
-        assert!(!is_valid_message("Hello|World"));
-        assert!(!is_valid_message("Hello#World"));
-        assert!(!is_valid_message("Hello:World"));
-        assert!(!is_valid_message("Hello\nWorld"));
     }
 
     #[test]
