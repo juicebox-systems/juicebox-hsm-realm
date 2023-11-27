@@ -40,7 +40,7 @@ pub enum StepDownResponse {
 
 impl Rpc<ClusterService> for RebalanceRequest {
     const PATH: &'static str = "rebalance";
-    type Response = Result<RebalanceResult, RebalanceError>;
+    type Response = Result<RebalanceSuccess, RebalanceError>;
 }
 
 /// RebalanceRequest moves zero or one group leadership roles between HSMs in
@@ -50,7 +50,7 @@ impl Rpc<ClusterService> for RebalanceRequest {
 pub struct RebalanceRequest {}
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub enum RebalanceResult {
+pub enum RebalanceSuccess {
     /// The workloads are already as balanced as we can make them.
     AlreadyBalanced,
     /// Leadership of a group was transferred to make the cluster more balanced.

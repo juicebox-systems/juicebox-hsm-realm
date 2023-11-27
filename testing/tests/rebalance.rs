@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use testing::background::{BackgroundClientRequests, WorkerReq};
 
-use cluster_api::{RebalanceRequest, RebalanceResult};
+use cluster_api::{RebalanceRequest, RebalanceSuccess};
 use juicebox_networking::reqwest::{self, ClientOptions};
 use juicebox_networking::rpc;
 use juicebox_process_group::ProcessGroup;
@@ -62,7 +62,7 @@ async fn cluster_rebalance() {
         )
         .await;
         assert!(
-            matches!(rebalance, Ok(Ok(RebalanceResult::Rebalanced(_)))),
+            matches!(rebalance, Ok(Ok(RebalanceSuccess::Rebalanced(_)))),
             "{:?}",
             rebalance
         );
@@ -75,7 +75,7 @@ async fn cluster_rebalance() {
         RebalanceRequest {},
     )
     .await;
-    assert_eq!(rebalance, Ok(Ok(RebalanceResult::AlreadyBalanced)));
+    assert_eq!(rebalance, Ok(Ok(RebalanceSuccess::AlreadyBalanced)));
 
     // all done.
     let p = background_work.progress(WorkerReq::Shutdown).await;

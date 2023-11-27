@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use cluster_api::{RebalanceError, RebalanceRequest, RebalanceResult};
+use cluster_api::{RebalanceError, RebalanceRequest, RebalanceSuccess};
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
 use reqwest::Url;
@@ -26,28 +26,28 @@ pub(crate) async fn rebalance(
 
     let res = rpc::send(agent_client, &url, RebalanceRequest {}).await?;
     print(&res);
-    if !full || !matches!(res, Ok(RebalanceResult::Rebalanced(_))) {
+    if !full || !matches!(res, Ok(RebalanceSuccess::Rebalanced(_))) {
         return Ok(res.map(|_| ())?);
     }
     loop {
         let res = rpc::send(agent_client, &url, RebalanceRequest {}).await?;
-        if matches!(res, Ok(RebalanceResult::AlreadyBalanced)) {
+        if matches!(res, Ok(RebalanceSuccess::AlreadyBalanced)) {
             println!("Finished rebalancing.");
             return Ok(());
         }
         print(&res);
-        if !matches!(res, Ok(RebalanceResult::Rebalanced(_))) {
+        if !matches!(res, Ok(RebalanceSuccess::Rebalanced(_))) {
             return Ok(res.map(|_| ())?);
         }
     }
 }
 
-fn print(res: &Result<RebalanceResult, RebalanceError>) {
+fn print(res: &Result<RebalanceSuccess, RebalanceError>) {
     match res {
-        Ok(RebalanceResult::AlreadyBalanced) => {
+        Ok(RebalanceSuccess::AlreadyBalanced) => {
             println!("Already balanced.");
         }
-        Ok(RebalanceResult::Rebalanced(r)) => println!(
+        Ok(RebalanceSuccess::Rebalanced(r)) => println!(
             "Moved leadership for {:?} in realm {:?} from {:?} to {:?}.",
             r.group, r.realm, r.from, r.to
         ),

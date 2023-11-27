@@ -4,7 +4,7 @@ use url::Url;
 
 use super::Manager;
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse, StepDownRequest, StepDownResponse};
-use cluster_api::{RebalanceError, RebalanceResult, RebalancedLeader};
+use cluster_api::{RebalanceError, RebalanceSuccess, RebalancedLeader};
 use cluster_core::get_hsm_statuses;
 use cluster_core::workload::{HsmWorkload, WorkAmount};
 use hsm_api::HsmId;
@@ -16,10 +16,10 @@ impl Manager {
     pub(super) async fn handle_rebalance(
         &self,
         _req: cluster_api::RebalanceRequest,
-    ) -> Result<Result<RebalanceResult, RebalanceError>, HandlerError> {
+    ) -> Result<Result<RebalanceSuccess, RebalanceError>, HandlerError> {
         match self.rebalance_work().await {
-            Ok(None) => Ok(Ok(RebalanceResult::AlreadyBalanced)),
-            Ok(Some(r)) => Ok(Ok(RebalanceResult::Rebalanced(r))),
+            Ok(None) => Ok(Ok(RebalanceSuccess::AlreadyBalanced)),
+            Ok(Some(r)) => Ok(Ok(RebalanceSuccess::Rebalanced(r))),
             Err(err) => Ok(Err(err)),
         }
     }
