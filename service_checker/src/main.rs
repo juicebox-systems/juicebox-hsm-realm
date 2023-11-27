@@ -366,15 +366,13 @@ fn report_service_check(mc: &metrics::Client, r: &anyhow::Result<()>) {
     match r {
         Ok(()) => mc.service_check(STAT, ServiceStatus::OK, metrics::NO_TAGS, None),
         Err(err) => {
-            // this is dumb, thanks dogstatsd
-            let msg: &'static str =
-                Box::leak(metrics::make_valid_message(&format!("{:?}", err)).into_boxed_str());
+            let msg = format!("{:?}", err);
             mc.service_check(
                 STAT,
                 ServiceStatus::Critical,
                 metrics::NO_TAGS,
                 Some(ServiceCheckOptions {
-                    message: Some(msg),
+                    message: Some(&msg),
                     ..ServiceCheckOptions::default()
                 }),
             )

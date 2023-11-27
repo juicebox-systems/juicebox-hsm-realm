@@ -236,23 +236,20 @@ impl Client {
         S: Into<Cow<'a, str>>,
         T: AsRef<str>,
     {
-        if let Some(o) = options {
-            // Because the ServiceCheckOptions fields are &'static str we can't
-            // just fix them up here.
-            if let Some(m) = o.message {
-                debug_assert!(
-                    is_valid_message(m),
-                    "ServiceCheckOptions::message contains invalid characters"
-                );
-            }
-            if let Some(h) = o.hostname {
-                debug_assert!(
-                    is_valid_message(h),
-                    "ServiceCheckOptions::hostname contains invalid characters"
-                );
-            }
-        }
         if let Some(client) = &self.inner {
+            let msg;
+            let hostname;
+            if let Some(mut o) = options {
+                if let Some(m) = o.message {
+                    msg = make_valid_message(m);
+                    o.message = Some(&msg);
+                }
+                if let Some(h) = o.hostname {
+                    hostname = make_valid_message(h);
+                    o.hostname = Some(&hostname);
+                }
+            }
+
             client
                 .service_check(metric_name(stat), val, tags, options)
                 .warn_err();
