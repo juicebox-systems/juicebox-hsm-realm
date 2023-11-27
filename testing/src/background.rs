@@ -98,6 +98,8 @@ impl BackgroundClientRequests {
     ) -> WorkerResults {
         assert!(num_successes > 0);
         tokio::time::timeout(timeout, async {
+            // ensure the background process count is reset.
+            self.progress(WorkerReq::Report).await;
             let mut res = WorkerResults::default();
             loop {
                 res += self.progress(WorkerReq::Report).await;
