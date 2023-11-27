@@ -94,6 +94,6 @@ pub enum RebalanceError {
     #[error("Error accessing the datastore")]
     NoStore,
 
-    #[error("An RPC Error occurred: {0:?}")]
+    #[error("An RPC Error occurred between the cluster manager and the cluster: {0:?}")]
     Rpc(#[from] RpcError),
 }
