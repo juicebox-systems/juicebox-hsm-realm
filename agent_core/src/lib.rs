@@ -769,6 +769,7 @@ impl<T: Transport + 'static> Agent<T> {
         type Response = BecomeLeaderResponse;
         type HsmResponse = hsm_api::BecomeLeaderResponse;
 
+        info!(realm=?request.realm, group=?request.group, last=?request.last, "requested to become leader");
         let hsm = &self.0.hsm;
         let store = &self.0.store;
 
@@ -777,7 +778,10 @@ impl<T: Transport + 'static> Agent<T> {
                 .read_last_log_entry(&request.realm, &request.group)
                 .await
             {
-                Err(_) => return Ok(Response::NoStore),
+                Err(err) => {
+                    warn!(?err, "failed to read last log entry from store");
+                    return Ok(Response::NoStore);
+                }
                 Ok(Some(entry)) => entry,
                 Ok(None) => todo!(),
             },
@@ -792,7 +796,10 @@ impl<T: Transport + 'static> Agent<T> {
                         .read_log_entry(&request.realm, &request.group, idx)
                         .await
                     {
-                        Err(_) => return Ok(Response::NoStore),
+                        Err(err) => {
+                            warn!(?err, index=?idx, "failed to read specific log entry");
+                            return Ok(Response::NoStore);
+                        }
                         Ok(Some(entry)) => entry,
                         Ok(None) => {
                             if start.elapsed() > Duration::from_secs(5) {
