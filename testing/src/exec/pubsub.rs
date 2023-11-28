@@ -58,12 +58,12 @@ pub async fn run(pg: &mut ProcessGroup, port: u16, project: String) -> Uri {
             Err(err) => Box::new(err),
         };
 
-        // 10 seconds seems like a reasonable timeout. As of 2023-11, macos-12
+        // 20 seconds ought to be more than enough. As of 2023-11, macos-12
         // runners in CI often took over 10 seconds to connect, but they were
         // so overloaded that they went on to time out on other tests after
         // that.
         let elapsed = start.elapsed();
-        if elapsed > Duration::from_secs(10) {
+        if elapsed > Duration::from_secs(20) {
             panic!(
                 "failed to connect to pubsub emulator after {:.1} s and \
                 {connect_attempts} attempts. last error: {last_err}",
