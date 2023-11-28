@@ -73,15 +73,15 @@ struct Args {
     #[arg(long, default_value = "dev")]
     env: String,
 
-    /// Amount of time to allow for the entire service check operation to run before declaring a failure. in milliseconds.
-    #[arg(long, default_value="10000", value_parser=parse_duration)]
+    /// Amount of time to allow for the entire service check operation to run before declaring a failure.
+    #[arg(long, default_value="10s", value_parser=parse_duration)]
     timeout: Duration,
 
-    /// Timeout setting for http requests. in milliseconds
-    #[arg(long, default_value="5000", value_parser=parse_duration)]
+    /// Timeout setting for http requests.
+    #[arg(long, default_value="5s", value_parser=parse_duration)]
     http_timeout: Duration,
 
-    /// Continuously run the service check in a loop
+    /// Continuously run the service check in a loop.
     #[arg(long, default_value_t = false)]
     forever: bool,
 }

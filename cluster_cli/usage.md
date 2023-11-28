@@ -35,28 +35,28 @@ Options:
           The url to the bigtable emulator [default uses GCP endpoints]
 
       --bigtable-timeout <TIMEOUT>
-          The bigtable gRPC request timeout setting, in ms
+          The bigtable gRPC request timeout setting
           
-          [default: 20000]
+          [default: 20s]
 
       --bigtable-connect-timeout <CONNECT_TIMEOUT>
-          The bigtable gRPC connection timeout setting, in ms
+          The bigtable gRPC connection timeout setting
           
-          [default: 20000]
+          [default: 20s]
 
       --bigtable-http-keepalive-interval <HTTP2_KEEPALIVE_INTERVAL>
-          The bigtable gRPC http2 Keep-alive interval setting, in ms.
+          The bigtable gRPC http2 Keep-alive interval setting.
           
           Interval between sending http2 keep-alive ping messages.
           
-          [default: 4000]
+          [default: 4s]
 
       --bigtable-http-keepalive-timeout <HTTP2_KEEPALIVE_TIMEOUT>
-          The bigtable gRPC http2 Keep-alive timeout setting, in ms.
+          The bigtable gRPC http2 Keep-alive timeout setting.
           
           The timeout duration waiting for a http2 keep-alive ping response.
           
-          [default: 3000]
+          [default: 3s]
 
       --bigtable-http-keepalive-while-idle
           The bigtable gRPC http2 Keep-alive while idle setting.

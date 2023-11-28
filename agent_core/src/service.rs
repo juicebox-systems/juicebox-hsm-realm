@@ -30,32 +30,32 @@ pub struct AgentArgs<SA: Args + Debug> {
     #[arg(long = "pubsub-url")]
     pub pubsub_url: Option<Uri>,
 
-    /// The pub-sub gRPC request timeout setting, in ms.
+    /// The pub-sub gRPC request timeout setting.
     #[arg(long="pubsub-timeout",
             value_parser=parse_duration,
-            default_value=GrpcConnectionOptions::default().timeout.as_millis().to_string())]
+            default_value=format!("{:?}", GrpcConnectionOptions::default().timeout))]
     pubsub_timeout: Duration,
 
-    /// The pub-sub gRPC connection timeout setting, in ms.
+    /// The pub-sub gRPC connection timeout setting.
     #[arg(long="pubsub-connect-timeout",
             value_parser=parse_duration,
-            default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
+            default_value=format!("{:?}", GrpcConnectionOptions::default().connect_timeout))]
     pubsub_connect_timeout: Duration,
 
-    /// The pub-sub gRPC http keep-alive interval setting, in ms.
+    /// The pub-sub gRPC http keep-alive interval setting.
     ///
     /// Interval between sending http2 keep-alive ping messages.
     #[arg(long="pubsub-http-keepalive-interval",
             value_parser=parse_duration,
-            default_value=GrpcConnectionOptions::default().http2_keepalive_interval.as_millis().to_string())]
+            default_value=format!("{:?}", GrpcConnectionOptions::default().http2_keepalive_interval))]
     pubsub_http2_keepalive_interval: Duration,
 
-    /// The pub-sub gRPC http2 Keep-alive timeout setting, in ms.
+    /// The pub-sub gRPC http2 Keep-alive timeout setting.
     ///
     /// The timeout duration waiting for a http2 keep-alive ping response.
     #[arg(long = "pubsub-http-keepalive-timeout",
         value_parser=parse_duration,
-        default_value=GrpcConnectionOptions::default().http2_keepalive_timeout.as_millis().to_string())]
+        default_value=format!("{:?}", GrpcConnectionOptions::default().http2_keepalive_timeout))]
     pub pubsub_http2_keepalive_timeout: Duration,
 
     /// The pub-sub gRPC http2 Keep-alive while idle setting.

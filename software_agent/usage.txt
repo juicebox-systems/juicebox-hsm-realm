@@ -17,28 +17,28 @@ Options:
           The url to the bigtable emulator [default uses GCP endpoints]
 
       --bigtable-timeout <TIMEOUT>
-          The bigtable gRPC request timeout setting, in ms
+          The bigtable gRPC request timeout setting
           
-          [default: 20000]
+          [default: 20s]
 
       --bigtable-connect-timeout <CONNECT_TIMEOUT>
-          The bigtable gRPC connection timeout setting, in ms
+          The bigtable gRPC connection timeout setting
           
-          [default: 20000]
+          [default: 20s]
 
       --bigtable-http-keepalive-interval <HTTP2_KEEPALIVE_INTERVAL>
-          The bigtable gRPC http2 Keep-alive interval setting, in ms.
+          The bigtable gRPC http2 Keep-alive interval setting.
           
           Interval between sending http2 keep-alive ping messages.
           
-          [default: 4000]
+          [default: 4s]
 
       --bigtable-http-keepalive-timeout <HTTP2_KEEPALIVE_TIMEOUT>
-          The bigtable gRPC http2 Keep-alive timeout setting, in ms.
+          The bigtable gRPC http2 Keep-alive timeout setting.
           
           The timeout duration waiting for a http2 keep-alive ping response.
           
-          [default: 3000]
+          [default: 3s]
 
       --bigtable-http-keepalive-while-idle
           The bigtable gRPC http2 Keep-alive while idle setting.
@@ -52,28 +52,28 @@ Options:
           The url to the pubsub emulator [default uses GCP endpoints]
 
       --pubsub-timeout <PUBSUB_TIMEOUT>
-          The pub-sub gRPC request timeout setting, in ms
+          The pub-sub gRPC request timeout setting
           
-          [default: 20000]
+          [default: 20s]
 
       --pubsub-connect-timeout <PUBSUB_CONNECT_TIMEOUT>
-          The pub-sub gRPC connection timeout setting, in ms
+          The pub-sub gRPC connection timeout setting
           
-          [default: 20000]
+          [default: 20s]
 
       --pubsub-http-keepalive-interval <PUBSUB_HTTP2_KEEPALIVE_INTERVAL>
-          The pub-sub gRPC http keep-alive interval setting, in ms.
+          The pub-sub gRPC http keep-alive interval setting.
           
           Interval between sending http2 keep-alive ping messages.
           
-          [default: 4000]
+          [default: 4s]
 
       --pubsub-http-keepalive-timeout <PUBSUB_HTTP2_KEEPALIVE_TIMEOUT>
-          The pub-sub gRPC http2 Keep-alive timeout setting, in ms.
+          The pub-sub gRPC http2 Keep-alive timeout setting.
           
           The timeout duration waiting for a http2 keep-alive ping response.
           
-          [default: 3000]
+          [default: 3s]
 
       --pubsub-http-keepalive-while-idle
           The pub-sub gRPC http2 Keep-alive while idle setting.
