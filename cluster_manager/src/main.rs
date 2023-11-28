@@ -26,12 +26,12 @@ struct Args {
     )]
     listen: SocketAddr,
 
-    /// Interval for checking the cluster state in milliseconds.
-    #[arg(short, long, default_value="2000", value_parser=parse_duration)]
+    /// Interval for checking the cluster state.
+    #[arg(short, long, default_value="2000ms", value_parser=parse_duration)]
     interval: Duration,
 
-    /// Interval for rebalancing the cluster in milliseconds.
-    #[arg(long,default_value="60000", value_parser=parse_duration)]
+    /// Interval for rebalancing the cluster.
+    #[arg(long, default_value="60s", value_parser=parse_duration)]
     rebalance_interval: Duration,
 }
 

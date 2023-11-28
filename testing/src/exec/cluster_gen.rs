@@ -286,7 +286,7 @@ fn create_load_balancers(
                 .arg("--listen")
                 .arg(address.to_string())
                 .arg("--shutdown-timeout") // no point sitting around for graceful shutdowns in tests
-                .arg("10");
+                .arg("10ms");
             if let Some(secrets_file) = &args.secrets_file {
                 cmd.arg("--secrets-file").arg(secrets_file);
             }
