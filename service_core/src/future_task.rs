@@ -1,4 +1,5 @@
-use futures::{future::join_all, Future};
+use futures::future::join_all;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 

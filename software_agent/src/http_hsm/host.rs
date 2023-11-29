@@ -1,6 +1,5 @@
 use anyhow::Context;
 use bytes::Bytes;
-use futures::Future;
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -9,6 +8,7 @@ use observability::tracing::TracingMiddleware;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::fs;
+use std::future::Future;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::ops::Sub;

@@ -69,23 +69,22 @@ impl<P: Platform> Hsm<P> {
             e.insert((entry.index, entry.entry_mac.clone()));
 
             if let Some(ls) = self.volatile.leader.get_mut(&request.group) {
-                // If while leading another HSM becomes leader and
-                // writes a log entry the actual persisted log
-                // diverges from what our in memory copy of the log
-                // is.
+                // If while leading another HSM becomes leader and writes a log
+                // entry the actual persisted log diverges from what our in
+                // memory copy of the log is.
                 let status = has_log_diverged(&ls.log, &entry);
                 match status {
                     LogEntryStatus::Ok => {}
                     LogEntryStatus::PriorIndex => {
-                        // The start of log gets truncated on
-                        // commit. The commit may have been based on
-                        // captures from just witnesses not the
-                        // leader. So it's valid that the captured
-                        // index is earlier than anything in the in
+                        // The start of log gets truncated on commit. The
+                        // commit may have been based on captures from just
+                        // witnesses not the leader. So it's valid that the
+                        // captured index is earlier than anything in the in
                         // memory log.
                     }
                     LogEntryStatus::FutureIndex => {
-                        // Some other HSM successfully wrote a log entry, we should stop leading
+                        // Some other HSM successfully wrote a log entry, we
+                        // should stop leading
                         self.stepdown_at(request.group, StepDownPoint::LastLogIndex);
                     }
                     LogEntryStatus::EntryMacMismatch => {
@@ -98,16 +97,14 @@ impl<P: Platform> Hsm<P> {
                 }
             }
 
-            // If we're stepping down we need to get the commit
-            // index up to the stepping down index. It's not
-            // possible for the agent to create a commit request
-            // with that exact index as the witnesses may have
-            // already passed the index and they can't generate a
-            // capture statement for an earlier index. So while
-            // stepping down we collect the new log entries that
-            // we're witnessing into the stepping down log. Commit
-            // can then successfully process a commit request that
-            // is after the stepdown index and complete the
+            // If we're stepping down we need to get the commit index up to the
+            // stepping down index. It's not possible for the agent to create a
+            // commit request with that exact index as the witnesses may have
+            // already passed the index and they can't generate a capture
+            // statement for an earlier index. So while stepping down we
+            // collect the new log entries that we're witnessing into the
+            // stepping down log. Commit can then successfully process a commit
+            // request that is after the stepdown index and complete the
             // stepdown.
             if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
                 let status = has_log_diverged(&sd.log, &entry);
@@ -122,10 +119,10 @@ impl<P: Platform> Hsm<P> {
                                 sd.stepdown_at = prev;
                             }
                         }
-                        // We need to flag the future log entries
-                        // as abandoned. We remove them from the log as
-                        // they're not going to get committed, and we need
-                        // to rebuild the log with the persisted entries.
+                        // We need to flag the future log entries as abandoned.
+                        // We remove them from the log as they're not going to
+                        // get committed, and we need to rebuild the log with
+                        // the persisted entries.
                         while sd.log.last_index() >= entry.index {
                             let e = sd.log.pop_last();
                             sd.abandoned.push(e.entry.entry_mac);
@@ -194,9 +191,9 @@ impl<P: Platform> Hsm<P> {
                 && verify_capture(captured)
             {
                 // Ensure the entry MAC is valid for this log by checking it
-                // against entries we have. For a new leader this won't be
-                // able to commit until the witnesses catch up to at least
-                // the log entry that the new leader started from.
+                // against entries we have. For a new leader this won't be able
+                // to commit until the witnesses catch up to at least the log
+                // entry that the new leader started from.
                 if let Some(log_entry) = log.get_index(captured.index) {
                     if log_entry.entry.entry_mac == captured.mac {
                         election.vote(captured.hsm, captured.index);

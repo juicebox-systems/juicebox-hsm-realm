@@ -3210,7 +3210,6 @@ dependencies = [
  "bitvec",
  "chrono",
  "clap",
- "futures",
  "google",
  "hex",
  "hsm_api",

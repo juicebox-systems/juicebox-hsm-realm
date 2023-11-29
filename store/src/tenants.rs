@@ -42,7 +42,7 @@ fn tenant_user_table_brief(realm: &RealmId) -> String {
 }
 
 pub(crate) async fn initialize(
-    mut bigtable: BigtableTableAdminClient,
+    bigtable: &mut BigtableTableAdminClient,
     instance: &Instance,
     realm: &RealmId,
 ) -> Result<(), tonic::Status> {

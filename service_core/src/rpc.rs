@@ -1,7 +1,7 @@
 use bytes::Bytes;
-use futures::Future;
 use http_body_util::{BodyExt, Full};
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use std::future::Future;
 use tracing::{trace, warn};
 
 use juicebox_marshalling as marshalling;
