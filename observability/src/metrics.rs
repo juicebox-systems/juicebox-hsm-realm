@@ -1,4 +1,4 @@
-use dogstatsd::DogstatsdResult;
+use dogstatsd::{DogstatsdResult, ServiceCheckOptions};
 use std::borrow::Cow;
 use std::future::Future;
 use std::sync::Arc;
@@ -237,21 +237,25 @@ impl Client {
         T: AsRef<str>,
     {
         if let Some(client) = &self.inner {
-            let msg;
-            let hostname;
-            if let Some(mut o) = options {
+            let mut msg = None;
+            let mut hostname = None;
+            let mut timestamp = None;
+            if let Some(o) = &options {
                 if let Some(m) = o.message {
-                    msg = make_valid_message(m);
-                    o.message = Some(&msg);
+                    msg = Some(make_valid_message(m));
                 }
                 if let Some(h) = o.hostname {
-                    hostname = make_valid_message(h);
-                    o.hostname = Some(&hostname);
+                    hostname = Some(make_valid_message(h));
                 }
+                timestamp = o.timestamp;
             }
-
+            let fixed_options = Some(ServiceCheckOptions {
+                timestamp,
+                hostname: hostname.as_deref(),
+                message: msg.as_deref(),
+            });
             client
-                .service_check(metric_name(stat), val, tags, options)
+                .service_check(metric_name(stat), val, tags, fixed_options)
                 .warn_err();
         }
     }
