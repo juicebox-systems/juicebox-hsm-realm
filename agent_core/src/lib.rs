@@ -865,6 +865,9 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(HsmResponse::NotCaptured { have }) => match have {
                     // On an active group its possible that the index that the HSM has captured up to
                     // is behind the log entry we just read. Wait around a little to let it catch up.
+                    // Particularly for cluster rebalance operations its better to wait slightly here
+                    // so that the selected agent becomes leader, rather then ending up trying to undo
+                    // the leadership move.
                     Some(have_idx)
                         if LogIndex(have_idx.0.saturating_add(1000)) >= last_entry_index =>
                     {
