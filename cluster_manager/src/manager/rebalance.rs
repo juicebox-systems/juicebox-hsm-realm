@@ -73,6 +73,7 @@ impl Manager {
             .await?
             {
                 StepDownResponse::Ok { last } => {
+                    info!(?realm, ?group, last=?last, "leader stepped down, asking the target to become leader");
                     match rpc::send(
                         &self.0.agents,
                         &hsm_urls[&rebalance.to],

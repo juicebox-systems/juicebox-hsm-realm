@@ -124,7 +124,7 @@ impl Rpc<AgentService> for BecomeLeaderRequest {
     type Response = BecomeLeaderResponse;
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BecomeLeaderRequest {
     pub realm: RealmId,
     pub group: GroupId,
@@ -140,7 +140,7 @@ pub enum BecomeLeaderResponse {
     InvalidRealm,
     InvalidGroup,
     StepdownInProgress,
-    TimeoutWaitForLogIndex,
+    Timeout,
     NotCaptured { have: Option<LogIndex> },
 }
 

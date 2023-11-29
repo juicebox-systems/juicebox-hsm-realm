@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
@@ -766,6 +766,25 @@ impl<T: Transport + 'static> Agent<T> {
         &self,
         request: BecomeLeaderRequest,
     ) -> Result<BecomeLeaderResponse, HandlerError> {
+        info!(realm=?request.realm, group=?request.group, last=?request.last, "requested to become leader");
+        match timeout(
+            Duration::from_secs(5),
+            self.handle_become_leader_inner(&request),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => {
+                warn!(realm=?request.realm, group=?request.group, last=?request.last, "timeout trying to become leader");
+                Ok(BecomeLeaderResponse::Timeout)
+            }
+        }
+    }
+
+    async fn handle_become_leader_inner(
+        &self,
+        request: &BecomeLeaderRequest,
+    ) -> Result<BecomeLeaderResponse, HandlerError> {
         type Response = BecomeLeaderResponse;
         type HsmResponse = hsm_api::BecomeLeaderResponse;
 
@@ -777,27 +796,32 @@ impl<T: Transport + 'static> Agent<T> {
                 .read_last_log_entry(&request.realm, &request.group)
                 .await
             {
-                Err(_) => return Ok(Response::NoStore),
+                Err(err) => {
+                    warn!(?err, "failed to read last log entry from store");
+                    return Ok(Response::NoStore);
+                }
                 Ok(Some(entry)) => entry,
-                Ok(None) => todo!(),
+                Ok(None) => panic!(
+                    "store says log is empty for realm {:?} group {:?}",
+                    request.realm, request.group
+                ),
             },
             // If the cluster manager is doing a coordinated leadership handoff it
             // knows what the last log index of the stepping down leader owned,
             // we'll wait for that to be available.
             Some(idx) => {
                 let entry: LogEntry;
-                let start = Instant::now();
                 loop {
                     entry = match store
                         .read_log_entry(&request.realm, &request.group, idx)
                         .await
                     {
-                        Err(_) => return Ok(Response::NoStore),
+                        Err(err) => {
+                            warn!(?err, index=?idx, "failed to read specific log entry");
+                            return Ok(Response::NoStore);
+                        }
                         Ok(Some(entry)) => entry,
                         Ok(None) => {
-                            if start.elapsed() > Duration::from_secs(5) {
-                                return Ok(Response::TimeoutWaitForLogIndex);
-                            }
                             sleep(Duration::from_millis(2)).await;
                             continue;
                         }
@@ -808,33 +832,51 @@ impl<T: Transport + 'static> Agent<T> {
             }
         };
         let last_entry_index = last_entry.index;
-
-        match hsm
-            .send(hsm_api::BecomeLeaderRequest {
-                realm: request.realm,
-                group: request.group,
-                last_entry,
-            })
-            .await
-        {
-            Err(_) => Ok(Response::NoHsm),
-            Ok(HsmResponse::Ok { configuration }) => {
-                self.start_leading(
-                    request.realm,
-                    request.group,
-                    configuration,
-                    last_entry_index,
-                );
-                Ok(Response::Ok)
+        info!(
+            index=?last_entry_index,
+            "read log entry, asking HSM to become leader"
+        );
+        loop {
+            match hsm
+                .send(hsm_api::BecomeLeaderRequest {
+                    realm: request.realm,
+                    group: request.group,
+                    last_entry: last_entry.clone(),
+                })
+                .await
+            {
+                Err(_) => return Ok(Response::NoHsm),
+                Ok(HsmResponse::Ok { configuration }) => {
+                    self.start_leading(
+                        request.realm,
+                        request.group,
+                        configuration,
+                        last_entry_index,
+                    );
+                    return Ok(Response::Ok);
+                }
+                Ok(HsmResponse::InvalidRealm) => return Ok(Response::InvalidRealm),
+                Ok(HsmResponse::InvalidGroup) => return Ok(Response::InvalidGroup),
+                Ok(HsmResponse::StepdownInProgress) => {
+                    info!(realm=?request.realm, group=?request.group, state=?self.0.state.lock().unwrap(), "didn't become leader because still stepping down");
+                    return Ok(Response::StepdownInProgress);
+                }
+                Ok(HsmResponse::InvalidMac) => panic!(),
+                Ok(HsmResponse::NotCaptured { have }) => match have {
+                    // On an active group its possible that the index that the HSM has captured up to
+                    // is behind the log entry we just read. Wait around a little to let it catch up.
+                    // Particularly for cluster rebalance operations its better to wait slightly here
+                    // so that the selected agent becomes leader, rather then ending up trying to undo
+                    // the leadership move.
+                    Some(have_idx)
+                        if LogIndex(have_idx.0.saturating_add(1000)) >= last_entry_index =>
+                    {
+                        // Its close, give it chance to catch up.
+                        sleep(Duration::from_millis(5)).await
+                    }
+                    Some(_) | None => return Ok(Response::NotCaptured { have }),
+                },
             }
-            Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
-            Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
-            Ok(HsmResponse::StepdownInProgress) => {
-                info!(realm=?request.realm, group=?request.group, state=?self.0.state.lock().unwrap(), "didn't become leader because still stepping down");
-                Ok(Response::StepdownInProgress)
-            }
-            Ok(HsmResponse::InvalidMac) => panic!(),
-            Ok(HsmResponse::NotCaptured { have }) => Ok(Response::NotCaptured { have }),
         }
     }
 
