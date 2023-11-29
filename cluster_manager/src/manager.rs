@@ -1,11 +1,11 @@
 use anyhow::Context;
 use bytes::Bytes;
-use futures::Future;
 use http_body_util::Full;
 use hyper::http;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};

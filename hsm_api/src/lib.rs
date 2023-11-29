@@ -1754,9 +1754,12 @@ pub struct GuessState {
 
 #[cfg(test)]
 mod tests {
+    use core::mem::size_of;
     use subtle::ConstantTimeEq;
 
-    use super::{DataHash, RecordId};
+    use super::{
+        DataHash, EntryMac, GroupId, HsmId, LogEntry, Partition, RecordId, TransferringOut,
+    };
     use crate::merkle::HashOutput;
     use crate::{CtBytes, LogIndex, OwnedRange};
     use bitvec::Bits;
@@ -1896,5 +1899,48 @@ mod tests {
                 end: b.end.prev().unwrap()
             })
             .is_none());
+    }
+
+    // The size of a log entry is an interesting number affecting the system
+    // design and cost. It doesn't need to stay constant over time, but it's
+    // interesting to know when it changes. The main purpose of this test is to
+    // make these numbers easy to reference.
+    #[test]
+    fn log_entry_serialized_size() {
+        assert_eq!(320, size_of::<LogEntry>(), "LogEntry struct size");
+
+        let full_entry = LogEntry {
+            index: LogIndex(u64::MAX),
+            partition: Some(Partition {
+                range: OwnedRange::full(),
+                root_hash: DataHash([0xff; 32]),
+            }),
+            transferring_out: Some(TransferringOut {
+                destination: GroupId([0xff; 16]),
+                partition: Partition {
+                    range: OwnedRange::full(),
+                    root_hash: DataHash([0xff; 32]),
+                },
+                at: LogIndex(u64::MAX),
+            }),
+            prev_mac: EntryMac::from([0xff; 32]),
+            entry_mac: EntryMac::from([0xff; 32]),
+            hsm: HsmId([0xff; 16]),
+        };
+        assert_eq!(
+            463,
+            marshalling::to_vec(&full_entry).unwrap().len(),
+            "full entry serialized size"
+        );
+
+        let typical_entry = LogEntry {
+            transferring_out: None,
+            ..full_entry
+        };
+        assert_eq!(
+            282,
+            marshalling::to_vec(&typical_entry).unwrap().len(),
+            "typical entry serialized size"
+        );
     }
 }

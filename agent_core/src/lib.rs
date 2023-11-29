@@ -1,7 +1,6 @@
 use anyhow::Context;
 use bytes::Bytes;
 use futures::channel::oneshot;
-use futures::Future;
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -11,6 +10,7 @@ use serde_json::json;
 use service_core::http::ReqwestClientMetrics;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
