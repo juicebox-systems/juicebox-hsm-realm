@@ -37,7 +37,7 @@ pub struct Tag(String);
 
 impl From<String> for Tag {
     fn from(s: String) -> Self {
-        Self(s)
+        Self(make_valid_tag(s))
     }
 }
 
@@ -314,6 +314,42 @@ pub fn make_valid_message(m: &str) -> String {
         .collect()
 }
 
+// https://docs.datadoghq.com/developers/guide/what-best-practices-are-recommended-for-naming-metrics-and-tags/
+// Returns the supplied tag with any uppercase characters converted to lowercase
+// and any invalid characters replaced with _.
+pub fn make_valid_tag(tag: String) -> String {
+    let mut chars = tag.char_indices();
+    let first_invalid: Option<(usize, char)> = match chars.next() {
+        None => return tag,
+        Some((_idx, 'a'..='z')) => chars.find(|(_, c)| !is_valid_tag_char(*c)),
+        Some((idx, c)) => Some((idx, c)),
+    };
+    match first_invalid {
+        None => tag,
+        Some((idx, c)) => {
+            let mut dest = String::with_capacity(tag.len());
+            dest.push_str(&tag[..idx]);
+            dest.push(make_valid_tag_char(c));
+            for (_, c) in chars {
+                dest.push(make_valid_tag_char(c));
+            }
+            dest
+        }
+    }
+}
+
+fn is_valid_tag_char(c: char) -> bool {
+    matches!(c, 'a'..='z' | '0'..='9' | '_' | '-' | ':' | '.' | '/' | '\\')
+}
+
+fn make_valid_tag_char(c: char) -> char {
+    match c {
+        c if is_valid_tag_char(c) => c,
+        'A'..='Z' => c.to_ascii_lowercase(),
+        _ => '_',
+    }
+}
+
 /// This trait allows numeric metric values to be recorded more ergonomically.
 pub trait Value<'a> {
     fn into_cow(self) -> Cow<'a, str>;
@@ -393,7 +429,7 @@ impl Warn for DogstatsdResult {
 
 #[cfg(test)]
 mod tests {
-    use crate::metrics::{is_valid_metic_name, make_valid_message};
+    use crate::metrics::{is_valid_metic_name, make_valid_message, make_valid_tag};
     use crate::metrics_tag as tag;
 
     #[derive(Debug)]
@@ -402,18 +438,18 @@ mod tests {
     #[test]
     fn test_tag() {
         let debug = Debuggable;
-        assert_eq!(tag!(?debug).0, "debug:Debuggable");
+        assert_eq!(tag!(?debug).0, "debug:debuggable");
 
         let display = "Displayable";
-        assert_eq!(tag!(display).0, "display:Displayable");
+        assert_eq!(tag!(display).0, "display:displayable");
 
-        assert_eq!(tag!(format: "Literal").0, "format:Literal");
+        assert_eq!(tag!(format: "Literal").0, "format:literal");
 
-        assert_eq!(tag!(format: "For{}ted", "mat").0, "format:Formatted");
+        assert_eq!(tag!(format: "for{}ted", "mat").0, "format:formatted");
 
-        assert_eq!(tag!("format": "Literal").0, "format:Literal");
+        assert_eq!(tag!("format": "literal").0, "format:literal");
 
-        assert_eq!(tag!("format": "For{}ted", "mat").0, "format:Formatted");
+        assert_eq!(tag!("format": "For{}ted", "mat").0, "format:formatted");
     }
 
     #[test]
@@ -448,5 +484,26 @@ mod tests {
             "hello from  127.0.0.1_8080",
             &make_valid_message("hello from  127.0.0.1:8080")
         );
+    }
+
+    #[test]
+    fn test_make_valid_tag() {
+        let strs = [
+            ("env:mmvp", "env:mmvp"),
+            (
+                "url:http://localhost:8080/foo",
+                "url:http://localhost:8080/foo",
+            ),
+            ("name:Bob", "name:bob"),
+            ("Name:BOB", "name:bob"),
+            ("msg:help!", "msg:help_"),
+            ("f:|#5000", "f:__5000"),
+            ("", ""),
+            ("state:🦀y", "state:_y"),
+        ];
+        for (input, exp) in strs {
+            let actual = make_valid_tag(String::from(input));
+            assert_eq!(exp, actual.as_str());
+        }
     }
 }
