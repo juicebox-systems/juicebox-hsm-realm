@@ -440,11 +440,9 @@ async fn get_auth_key(
     };
 
     let (version, secret) = secret_manager
-        .get_secrets(&tenant_secret_name(tenant))
+        .get_latest_secret_version(&tenant_secret_name(tenant))
         .await
         .context("could not get secrets for tenant")?
-        .into_iter()
-        .next()
         .ok_or_else(|| anyhow!("could not find any secret versions for tenant"))?;
     Ok((secret.into(), version.into()))
 }

@@ -206,12 +206,10 @@ pub async fn create_cluster(
 
     let tenant = "test-acme";
     let (auth_key_version, auth_key) = secret_manager
-        .get_secrets(&tenant_secret_name(tenant))
+        .get_latest_secret_version(&tenant_secret_name(tenant))
         .await
         .unwrap_or_else(|e| panic!("failed to get tenant {tenant:?} auth key: {e}"))
-        .into_iter()
         .map(|(version, key)| (version.into(), key.into()))
-        .next()
         .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 
     let (lb_urls, certificates) = create_load_balancers(&args, process_group, &ports);

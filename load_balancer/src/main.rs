@@ -204,7 +204,9 @@ async fn main() {
         idle_timeout: args.idle_timeout,
         shutdown_notice_period: args.shutdown_notice_period,
     };
-    let lb = LoadBalancer::new(name, store, secret_manager, metrics.clone(), svc_cfg);
+    let lb = LoadBalancer::new(name, store, secret_manager, metrics.clone(), svc_cfg)
+        .await
+        .expect("failed to start LoadBalancer");
     let lb_clone = lb.clone();
     shutdown_tasks.add(Box::pin(async move { lb_clone.shut_down().await }));
 

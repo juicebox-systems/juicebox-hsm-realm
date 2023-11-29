@@ -1,7 +1,7 @@
-use anyhow::Context;
-use blake2::Blake2s256;
+use anyhow::{anyhow, Context};
+use blake2::Blake2sMac256;
 use bytes::Bytes;
-use digest::Digest;
+use digest::{FixedOutput, KeyInit};
 use futures::future::join_all;
 use futures::{select_biased, FutureExt};
 use http::{HeaderValue, Method};
@@ -36,14 +36,14 @@ use juicebox_marshalling as marshalling;
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::{self, SendOptions};
 use juicebox_realm_api::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
-use juicebox_realm_api::types::{RealmId, JUICEBOX_VERSION_HEADER};
+use juicebox_realm_api::types::{RealmId, SecretBytesArray, JUICEBOX_VERSION_HEADER};
 use juicebox_realm_auth::validation::{Require, Validator as AuthTokenValidator};
 use juicebox_realm_auth::Scope;
 use observability::logging::TracingSource;
 use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
 use observability::tracing::TracingMiddleware;
-use secret_manager::{tenant_secret_name, SecretManager};
+use secret_manager::{record_id_randomization_key_name, tenant_secret_name, SecretManager};
 use service_core::http::ReqwestClientMetrics;
 use store::{ServiceKind, StoreClient};
 
@@ -59,26 +59,40 @@ struct State {
     metrics: metrics::Client,
     semver: Version,
     svc_mgr: ServiceManager,
+    record_id_randomization_key: SecretBytesArray<32>,
 }
 
 impl LoadBalancer {
-    pub fn new(
+    pub async fn new(
         name: String,
         store: StoreClient,
         secret_manager: Box<dyn SecretManager>,
         metrics: metrics::Client,
         svc_cfg: ManagerOptions,
-    ) -> Self {
-        Self(Arc::new(State {
+    ) -> Result<Self, anyhow::Error> {
+        let (_version, record_id_randomization_key) = secret_manager
+            .get_latest_secret_version(&record_id_randomization_key_name())
+            .await?
+            .ok_or_else(|| anyhow!("missing secret: {}", record_id_randomization_key_name().0))?;
+        let record_id_randomization_key = SecretBytesArray::try_from(record_id_randomization_key.0)
+            .map_err(|_| {
+                anyhow!(
+                    "secret {:?} has invalid length: need 32 bytes",
+                    record_id_randomization_key_name().0
+                )
+            })?;
+
+        Ok(Self(Arc::new(State {
             name,
             store,
             secret_manager,
+            record_id_randomization_key,
             agent_client: ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
             metrics: metrics.clone(),
             semver: Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
             svc_mgr: ServiceManager::new(svc_cfg, metrics),
-        }))
+        })))
     }
 
     pub async fn listen(
@@ -386,6 +400,7 @@ impl LoadBalancer {
                             &self.0.name,
                             &realms,
                             self.0.secret_manager.as_ref(),
+                            &self.0.record_id_randomization_key,
                             &self.0.agent_client,
                             &self.0.metrics,
                         )
@@ -404,6 +419,7 @@ impl LoadBalancer {
                                     &self.0.name,
                                     &refreshed_realms,
                                     self.0.secret_manager.as_ref(),
+                                    &self.0.record_id_randomization_key,
                                     &self.0.agent_client,
                                     &self.0.metrics,
                                 )
@@ -435,12 +451,23 @@ impl LoadBalancer {
     }
 }
 
-#[tracing::instrument(level = "trace", skip(request, realms, agent_client))]
+#[tracing::instrument(
+    level = "trace",
+    skip(
+        request,
+        realms,
+        secret_manager,
+        record_id_randomization_key,
+        agent_client,
+        metrics
+    )
+)]
 async fn handle_client_request(
     request: &ClientRequest,
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
+    record_id_randomization_key: &SecretBytesArray<32>,
     agent_client: &ReqwestClientMetrics,
     metrics: &metrics::Client,
 ) -> ClientResponse {
@@ -451,6 +478,7 @@ async fn handle_client_request(
         name,
         realms,
         secret_manager,
+        record_id_randomization_key,
         agent_client,
         &mut tags,
     )
@@ -477,12 +505,12 @@ fn add_client_response(tags: &mut Vec<Tag>, response: &ClientResponse) {
     tags.push(tag!(success));
 }
 
-#[tracing::instrument(level = "trace", skip(request, realms, agent_client, request_tags))]
 async fn handle_client_request_inner(
     request: &ClientRequest,
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
+    record_id_randomization_key: &SecretBytesArray<32>,
     agent_client: &ReqwestClientMetrics,
     request_tags: &mut Vec<Tag>,
 ) -> ClientResponse {
@@ -514,7 +542,7 @@ async fn handle_client_request_inner(
         tenant: &claims.issuer,
         user: &claims.subject,
     }
-    .build();
+    .build(record_id_randomization_key);
     request_tags.push(tag!(missing_scope: "{}", claims.scope.is_none()));
     request_tags.push(tag!(tenant: "{}", claims.issuer));
 
@@ -586,18 +614,17 @@ struct RecordIdBuilder<'a> {
     user: &'a str,
 }
 
-// TODO: maybe this should be a MAC with a per-realm key so that tenants
-// can't cause unbalanced Merkle trees (the same way hash tables are
-// randomized).
+// This uses a MAC with a per-realm key so that tenants/users can't cause
+// unbalanced Merkle trees (the same way hash tables are randomized).
 //
 // TODO: we may need a way to enumerate all the users for a given tenant if
 // that tenant wanted to delete all their data.
 impl<'a> RecordIdBuilder<'a> {
-    fn build(&self) -> RecordId {
-        let mut h = Blake2s256::default();
+    fn build(&self, randomization_key: &SecretBytesArray<32>) -> RecordId {
+        let mut h = Blake2sMac256::new(randomization_key.expose_secret().into());
         ciborium::ser::into_writer(self, DigestWriter(&mut h))
             .expect("failed to serialize RecordIdBuilder");
-        RecordId(h.finalize().into())
+        RecordId(h.finalize_fixed().into())
     }
 }
 
