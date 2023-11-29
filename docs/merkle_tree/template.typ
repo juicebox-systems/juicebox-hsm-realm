@@ -9,13 +9,18 @@
   body,
 ) = {
   // Set the document's basic properties.
-  set document(author: authors.map(a => a.name), title: title)
+  set document(
+    author: authors.map(a => a.name),
+    // Use `date: none` for a reproducible build in versions strictly greater
+    // than 0.9.0. Unfortunately, version 0.9.0 itself cannot do reproducible
+    // builds due to <https://github.com/typst/typst/issues/2536>.
+    title: title,
+  )
   set page(paper: "us-letter", numbering: "1", number-align: center)
   set text(font: "Linux Libertine", lang: "en")
   set heading(numbering: "1.1")
 
   // Configure citation and bibliography styles.
-  set cite(style: "numerical", brackets: true)
   set bibliography(style: "ieee", title: none)
 
   // Configure equations
@@ -36,7 +41,7 @@
           #it.supplement
           #it.counter.display(it.numbering):
         ]
-        #it.caption
+        #it.caption.body
       ])
     ])
     #v(20pt, weak: true)

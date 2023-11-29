@@ -124,6 +124,7 @@ above:
 - `codegen` generates bindings from Google's Protocol Buffers definitions.
 - `entrust_init` is used to set up Entrust HSMs before they can participate in
   a realm.
+- `entrust_ops` is used to manage Entrust HSMs more safely and conveniently.
 - `src/bin/demo_runner` runs a large realm on localhost and, by default, runs
   the demo against it.
 - `src/bin/hsm_bench` runs a small realm on localhost and, by default, runs a
@@ -179,7 +180,7 @@ Install pre-requisites:
 ```sh
 rustup target add powerpc-unknown-linux-gnu
 rustup component add rust-src
-sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
+sudo apt install qemu-user qemu-user-binfmt gcc-12-powerpc-linux-gnu
 ```
 
 The `build-ppc.sh` and `test-ppc.sh` scripts build and test the PowerPC version.

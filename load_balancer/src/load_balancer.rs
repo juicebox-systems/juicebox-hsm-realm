@@ -3,19 +3,19 @@ use blake2::Blake2sMac256;
 use bytes::Bytes;
 use digest::{FixedOutput, KeyInit};
 use futures::future::join_all;
-use futures::{select_biased, Future, FutureExt};
-use http::Method;
+use futures::{select_biased, FutureExt};
+use http::{HeaderValue, Method};
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
 use hyper::server::conn::{http1, http2};
 use hyper::service::Service;
 use hyper::StatusCode;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
-use observability::tracing::TracingMiddleware;
 use rustls::server::ResolvesServerCert;
 use semver::Version;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::error::Error;
+use std::future::Future;
 use std::iter::zip;
 use std::net::SocketAddr;
 use std::pin::{pin, Pin};
@@ -30,13 +30,11 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use super::server::{HealthCheckStatus, ManagerOptions, ServiceManager};
-use agent_api::{
-    AgentService, AppRequest, AppResponse, HashedUserId, StatusRequest, StatusResponse,
-};
+use agent_api::{AppRequest, AppResponse, HashedUserId, StatusRequest, StatusResponse};
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use juicebox_marshalling as marshalling;
-use juicebox_networking::reqwest::{Client, ClientOptions};
-use juicebox_networking::rpc;
+use juicebox_networking::reqwest::ClientOptions;
+use juicebox_networking::rpc::{self, SendOptions};
 use juicebox_realm_api::requests::{ClientRequest, ClientResponse, BODY_SIZE_LIMIT};
 use juicebox_realm_api::types::{RealmId, SecretBytesArray, JUICEBOX_VERSION_HEADER};
 use juicebox_realm_auth::validation::{Require, Validator as AuthTokenValidator};
@@ -44,7 +42,9 @@ use juicebox_realm_auth::Scope;
 use observability::logging::TracingSource;
 use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
+use observability::tracing::TracingMiddleware;
 use secret_manager::{record_id_randomization_key_name, tenant_secret_name, SecretManager};
+use service_core::http::ReqwestClientMetrics;
 use store::{ServiceKind, StoreClient};
 
 #[derive(Clone)]
@@ -54,7 +54,7 @@ struct State {
     name: String,
     store: StoreClient,
     secret_manager: Box<dyn SecretManager>,
-    agent_client: Client<AgentService>,
+    agent_client: ReqwestClientMetrics,
     realms: Mutex<Arc<HashMap<RealmId, Vec<Partition>>>>,
     metrics: metrics::Client,
     semver: Version,
@@ -87,7 +87,7 @@ impl LoadBalancer {
             store,
             secret_manager,
             record_id_randomization_key,
-            agent_client: Client::new(ClientOptions::default()),
+            agent_client: ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
             metrics: metrics.clone(),
             semver: Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
@@ -218,16 +218,19 @@ struct Partition {
 async fn refresh(
     name: &str,
     store: &StoreClient,
-    agent_client: &Client<AgentService>,
+    agent_client: &ReqwestClientMetrics,
 ) -> HashMap<RealmId, Vec<Partition>> {
     match store.get_addresses(Some(ServiceKind::Agent)).await {
         Err(err) => todo!("{err:?}"),
         Ok(addresses) => {
-            let responses = join_all(
-                addresses
-                    .iter()
-                    .map(|(address, _)| rpc::send(agent_client, address, StatusRequest {})),
-            )
+            let responses = join_all(addresses.iter().map(|(address, _)| {
+                rpc::send_with_options(
+                    agent_client,
+                    address,
+                    StatusRequest {},
+                    SendOptions::default().with_timeout(Duration::from_secs(5)),
+                )
+            }))
             .await;
 
             let mut realms: HashMap<RealmId, Vec<Partition>> = HashMap::new();
@@ -277,7 +280,8 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
 
         Box::pin(
             async move {
-                match (request.uri().path(), request.method()) {
+                let start = Instant::now();
+                let mut result = match (request.uri().path(), request.method()) {
                     ("/req", &Method::POST) => state.handle_req(request).await,
                     ("/livez", &Method::GET) => state.handle_livez(request).await,
                     ("/rttest", &Method::POST) => state.handle_rttest(request).await,
@@ -297,7 +301,15 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
                         .status(StatusCode::NOT_FOUND)
                         .body(Full::from(Bytes::from("Not Found")))
                         .unwrap()),
+                };
+                let e = start.elapsed();
+                if let Ok(ref mut r) = result {
+                    r.headers_mut().insert(
+                        "x-exec-time",
+                        HeaderValue::from_str(&e.as_nanos().to_string()).unwrap(),
+                    );
                 }
+                result
             }
             // This doesn't look like it should do anything, but it seems to be
             // critical to connecting these spans to the parent.
@@ -456,7 +468,7 @@ async fn handle_client_request(
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
     record_id_randomization_key: &SecretBytesArray<32>,
-    agent_client: &Client<AgentService>,
+    agent_client: &ReqwestClientMetrics,
     metrics: &metrics::Client,
 ) -> ClientResponse {
     let mut tags = Vec::with_capacity(5);
@@ -499,7 +511,7 @@ async fn handle_client_request_inner(
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
     record_id_randomization_key: &SecretBytesArray<32>,
-    agent_client: &Client<AgentService>,
+    agent_client: &ReqwestClientMetrics,
     request_tags: &mut Vec<Tag>,
 ) -> ClientResponse {
     type Response = ClientResponse;

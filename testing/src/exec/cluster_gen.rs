@@ -14,12 +14,12 @@ use super::bigtable::BigtableRunner;
 use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator};
 use super::{pubsub, PortIssuer};
-use agent_api::{AgentService, StatusRequest};
+use agent_api::StatusRequest;
 use cluster_core::{self, NewRealmError};
 use google::{auth, GrpcConnectionOptions};
 use hsm_api::{GroupId, OwnedRange, PublicKey};
 use juicebox_networking::reqwest;
-use juicebox_networking::rpc::{self, LoadBalancerService};
+use juicebox_networking::rpc::{self};
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_auth::creation::create_token;
 use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
@@ -93,8 +93,7 @@ impl ClusterResult {
     pub fn client_for_user(
         &self,
         user_id: String,
-    ) -> Client<TokioSleeper, reqwest::Client<LoadBalancerService>, HashMap<RealmId, AuthToken>>
-    {
+    ) -> Client<TokioSleeper, reqwest::Client, HashMap<RealmId, AuthToken>> {
         let auth_tokens: HashMap<RealmId, AuthToken> = self
             .realms
             .iter()
@@ -285,7 +284,7 @@ fn create_load_balancers(
                 .arg("--listen")
                 .arg(address.to_string())
                 .arg("--shutdown-timeout") // no point sitting around for graceful shutdowns in tests
-                .arg("10");
+                .arg("10ms");
             if let Some(secrets_file) = &args.secrets_file {
                 cmd.arg("--secrets-file").arg(secrets_file);
             }
@@ -344,7 +343,7 @@ async fn create_realm(
         )
         .await;
 
-    let agents_client = reqwest::Client::<AgentService>::new(reqwest::ClientOptions::default());
+    let agents_client = reqwest::Client::new(reqwest::ClientOptions::default());
 
     match cluster_core::new_realm(&agents_client, &agents[0]).await {
         Ok((realm, group_id)) => {

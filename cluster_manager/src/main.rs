@@ -26,9 +26,13 @@ struct Args {
     )]
     listen: SocketAddr,
 
-    /// Interval for checking the cluster state in milliseconds.
-    #[arg(short, long, default_value="2000", value_parser=parse_duration)]
+    /// Interval for checking the cluster state.
+    #[arg(short, long, default_value="2000ms", value_parser=parse_duration)]
     interval: Duration,
+
+    /// Interval for rebalancing the cluster.
+    #[arg(long, default_value="60s", value_parser=parse_duration)]
+    rebalance_interval: Duration,
 }
 
 #[tokio::main]
@@ -77,14 +81,20 @@ async fn main() {
         .connect_data(
             auth_manager,
             store::Options {
-                metrics,
+                metrics: metrics.clone(),
                 ..store::Options::default()
             },
         )
         .await
         .expect("Unable to connect to Bigtable data");
 
-    let manager = Manager::new(args.listen.to_string(), store, args.interval);
+    let manager = Manager::new(
+        args.listen.to_string(),
+        store,
+        args.interval,
+        args.rebalance_interval,
+        metrics,
+    );
     let (url, handle) = manager
         .listen(args.listen)
         .await

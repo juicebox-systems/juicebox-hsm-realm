@@ -6,7 +6,6 @@ use std::process::ExitCode;
 use std::time::{Duration, SystemTime};
 use tracing::{info, Level};
 
-use agent_api::AgentService;
 use google::{auth, GrpcConnectionOptions};
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use juicebox_networking::reqwest::{Client, ClientOptions};
@@ -140,6 +139,19 @@ enum Command {
 
         /// A full or an unambiguous prefix of an HSM or Group ID.
         id: String,
+    },
+
+    /// Rebalance the cluster workload by potentially moving group leadership.
+    Rebalance {
+        /// URL to a cluster manager, which will execute the request. By
+        /// default it will find a cluster manager using service discovery.
+        #[arg(short, long)]
+        cluster: Option<Url>,
+
+        /// Repeatedly rebalance until the cluster is fully balanced. This
+        /// may make multiple leadership moves.
+        #[arg(short, long, default_value_t = false)]
+        full: bool,
     },
 
     /// Transfer ownership of user records from one group to another.
@@ -308,7 +320,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .await
         .context("unable to connect to Bigtable")?;
 
-    let agents_client = Client::<AgentService>::new(ClientOptions::default());
+    let agents_client = Client::new(ClientOptions::default());
 
     match args.command {
         Command::Agents => commands::agents::list_agents(&agents_client, &store).await,
@@ -379,6 +391,10 @@ async fn run(args: Args) -> anyhow::Result<()> {
             id,
         } => {
             commands::stepdown::stepdown(&store, &agents_client, &cluster, stepdown_type, &id).await
+        }
+
+        Command::Rebalance { cluster, full } => {
+            commands::rebalance::rebalance(&store, &agents_client, cluster, full).await
         }
 
         Command::UserSummary {
@@ -492,6 +508,7 @@ mod tests {
             vec!["cluster", "join-realm", "--help"],
             vec!["cluster", "new-group", "--help"],
             vec!["cluster", "new-realm", "--help"],
+            vec!["cluster", "rebalance", "--help"],
             vec!["cluster", "stepdown", "--help"],
             vec!["cluster", "transfer", "--help"],
             vec!["cluster", "user-summary", "--help"],

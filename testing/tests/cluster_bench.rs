@@ -87,9 +87,9 @@ fn run_service_checker(cluster: &ClusterResult) {
         .arg("--tls-certificate")
         .arg(cluster.certs.cert_file_der.clone())
         .arg("--http-timeout")
-        .arg("20000")
+        .arg("20s")
         .arg("--timeout")
-        .arg("60000");
+        .arg("60s");
 
     assert!(cb.status().unwrap().success());
 }

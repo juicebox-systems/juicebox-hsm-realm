@@ -5,13 +5,14 @@ use reqwest::Url;
 use std::fmt;
 use std::time::Duration;
 
-use agent_api::{AgentService, StatusRequest, StatusResponse};
+use agent_api::{StatusRequest, StatusResponse};
+use cluster_core::workload::{GroupWorkload, HsmWorkload};
 use hsm_api::{GroupStatus, HsmId, OwnedRange};
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError};
 use store::{ServiceKind, StoreClient};
 
-pub async fn list_agents(c: &Client<AgentService>, store: &StoreClient) -> anyhow::Result<()> {
+pub async fn list_agents(c: &Client, store: &StoreClient) -> anyhow::Result<()> {
     let addresses: Vec<(Url, _)> = store
         .get_addresses(Some(ServiceKind::Agent))
         .await
@@ -48,7 +49,11 @@ fn print_agent_status(url: &Url, status: Result<StatusResponse, RpcError>) {
             println!("{TAB}uptime: {}", Uptime(uptime));
             match hsm {
                 Some(status) => {
-                    println!("{TAB}HSM ID:  {}", status.id);
+                    let hsm_work = HsmWorkload::new(&status);
+                    if let Some(wl) = hsm_work.as_ref() {
+                        println!("{TAB}workload: {}", wl.work());
+                    }
+                    println!("{TAB}HSM ID: {}", status.id);
                     println!("{TAB}public key: {:?}", status.public_key);
 
                     match status.realm {
@@ -57,7 +62,8 @@ fn print_agent_status(url: &Url, status: Result<StatusResponse, RpcError>) {
 
                             realm.groups.sort_unstable_by_key(|group| group.id);
                             for group in realm.groups {
-                                print_group_status(&status.id, &group);
+                                let group_workload = GroupWorkload::new(realm.id, &group);
+                                print_group_status(&status.id, &group, &group_workload);
                             }
                         }
 
@@ -80,10 +86,10 @@ fn print_agent_status(url: &Url, status: Result<StatusResponse, RpcError>) {
     println!();
 }
 
-fn print_group_status(hsm_id: &HsmId, group: &GroupStatus) {
+fn print_group_status(hsm_id: &HsmId, group: &GroupStatus, work: &GroupWorkload) {
     println!("{TAB}group: {:?}", group.id);
     println!("{TAB}{TAB}role: {}", group.role);
-
+    println!("{TAB}{TAB}workload: {}", work.work());
     if let Some(leader) = &group.leader {
         println!("{TAB}{TAB}leader:");
         match leader.committed {

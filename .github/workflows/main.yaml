@@ -23,7 +23,7 @@ env:
 jobs:
   rust_ppc:
     name: Build PPC
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
       uses: actions/checkout@v2
@@ -46,7 +46,7 @@ jobs:
         toolchain: ${{ env.INSTALL_RUST_VERSION }}
 
     - name: Install PowerPC cross-compile dependencies
-      run: sudo apt update && sudo apt install qemu qemu-user qemu-user-binfmt gcc-9-powerpc-linux-gnu
+      run: sudo apt update && sudo apt install qemu-user qemu-user-binfmt gcc-12-powerpc-linux-gnu
 
     - name: Cross Compile PowerPC
       run: ./build-ppc.sh
@@ -56,7 +56,7 @@ jobs:
 
   rust_x86:
     name: Build x86 + Demo
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
       uses: actions/checkout@v2
@@ -121,7 +121,19 @@ jobs:
 
   swift_demo:
     name: Swift Demo
-    runs-on: macOS-latest
+    # macos-12-large is an Intel x86_64-based runner with 12 vCPUs, 30 GB RAM,
+    # and 14 GB SSD running Mac OS 12.
+    #
+    # The default macos-12 runner (with 3 vCPUs) was overloaded during this
+    # test (experiencing lots of timeout issues), so we switched to a larger
+    # runner in 2023-11.
+    #
+    # Currently, the macos-13 runners (in beta) don't include Colima or Go, and
+    # installing Colima with brew takes a few minutes. Using an ARM-based
+    # runner (macos-13-xlarge) would be nice for coverage on that architecture,
+    # but even after installing Colima with brew, Colima fails to start (as of
+    # 2023-11).
+    runs-on: macos-12-large
     steps:
     - name: Check out sources
       uses: actions/checkout@v2
@@ -136,9 +148,11 @@ jobs:
       shell: bash
 
     - name: Pull GCP tools docker image
-      # colima is a container runtime. It's part of the base MacOS github runner image.
+      # Colima is a container runtime. It's part of the base MacOS 12 github
+      # runner image but not MacOS 13 (as of 2023-11).
       run: |
         brew install docker
+        colima version
         colima start
         docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
 
@@ -203,7 +217,11 @@ jobs:
 
   lint_and_test:
     name: Lint & Test
-    runs-on: ubuntu-20.04
+    # The tests are resource intensive and may benefit from a slightly larger
+    # runner. As of 2023-11, "ubuntu-latest-m" is a runner configured in our
+    # organization meaning Ubuntu 22.04 with 4 cores, 16 GB RAM, 150 GB SSD.
+    # For comparison, the standard runners are 2 cores, 7 GB RAM, 14 GB SSD.
+    runs-on: ubuntu-latest-m
     steps:
     - name: Check out sources
       uses: actions/checkout@v2
@@ -253,7 +271,7 @@ jobs:
     - name: Run cargo test
       uses: actions-rs/cargo@v1
       with:
-        args: --workspace --exclude 'entrust*'
+        args: --workspace --exclude 'entrust*' --package entrust_ops
         command: test
       env:
         RUST_BACKTRACE: '1'
@@ -267,19 +285,8 @@ jobs:
     - name: Run clippy
       uses: actions-rs/cargo@v1
       with:
-        args: --workspace --tests --exclude 'entrust*' -- -D warnings
+        args: --workspace --tests --exclude 'entrust*' --package entrust_ops -- -D warnings
         command: clippy
-
-    - name: Install cargo audit
-      uses: actions-rs/cargo@v1
-      with:
-        args: cargo-audit
-        command: install
-
-    - name: Run cargo audit
-      uses: actions-rs/cargo@v1
-      with:
-        command: audit
 
     - name: Install graphviz
       run: sudo apt install graphviz
@@ -313,7 +320,7 @@ jobs:
 
   wasm_demo:
     name: WASM Demo
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
       uses: actions/checkout@v2
@@ -387,7 +394,7 @@ jobs:
 
   entrust:
     name: Build Entrust
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
       uses: actions/checkout@v2

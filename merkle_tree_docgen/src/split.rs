@@ -28,8 +28,6 @@ pub fn doc_splits_intro(dir: &Path) {
     left_tree.write_dot(&dir, "intro_after_left.dot");
 
     right_tree.write_dot(&dir, "intro_after_right.dot");
-
-    super::dot_to_png(&dir);
 }
 
 pub(crate) fn make_split_tree() -> DocTree {
@@ -147,8 +145,6 @@ pub fn doc_splits_details(dir: &Path) {
 
     left.merge(right);
     left.write(&dir, "8_finished.dot").unwrap();
-
-    super::dot_to_png(&dir);
 }
 
 fn highlight_if_compressible(node_id: String, dot: &mut DotGraph) {

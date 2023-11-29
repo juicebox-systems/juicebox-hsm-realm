@@ -3,10 +3,12 @@ use http::Uri;
 use juicebox_sdk::RealmId;
 use serde_json::json;
 use std::env;
+use std::error::Error;
 use std::path::Path;
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
+use tracing::info;
 
 use juicebox_process_group::ProcessGroup;
 use observability::metrics;
@@ -28,8 +30,11 @@ pub async fn run(pg: &mut ProcessGroup, port: u16, project: String) -> Uri {
     }
     let uri = Uri::try_from(&format!("http://localhost:{port}")).unwrap();
 
-    for _tries in 0..500 {
-        match google_pubsub::Publisher::new(
+    let start = Instant::now();
+    let mut connect_attempts = 0u64;
+    loop {
+        connect_attempts += 1;
+        let last_err: Box<dyn Error> = match google_pubsub::Publisher::new(
             Some(uri.clone()),
             project.clone(),
             None,
@@ -39,20 +44,38 @@ pub async fn run(pg: &mut ProcessGroup, port: u16, project: String) -> Uri {
         .await
         {
             Ok(p) => match p.publish(RealmId([0; 16]), "bob", Message(json!(42))).await {
-                Ok(_) => return uri,
-                Err(_) => {
-                    sleep(Duration::from_millis(20)).await;
+                Ok(_) => {
+                    info!(
+                        %uri,
+                        elapsed_s = format!("{:.1}", start.elapsed().as_secs_f32()),
+                        connect_attempts,
+                        "pubsub emulator is up (published test message)"
+                    );
+                    return uri;
                 }
+                Err(err) => err,
             },
-            Err(_) => {
-                sleep(Duration::from_millis(20)).await;
-            }
+            Err(err) => Box::new(err),
+        };
+
+        // 20 seconds ought to be more than enough. As of 2023-11, macos-12
+        // runners in CI often took over 10 seconds to connect, but they were
+        // so overloaded that they went on to time out on other tests after
+        // that.
+        let elapsed = start.elapsed();
+        if elapsed > Duration::from_secs(20) {
+            panic!(
+                "failed to connect to pubsub emulator after {:.1} s and \
+                {connect_attempts} attempts. last error: {last_err}",
+                elapsed.as_secs_f32(),
+            );
         }
+
+        sleep(Duration::from_millis(10)).await;
     }
-    panic!("failed to connect to pubsub emulator after many attempts");
 }
 
-fn run_in_docker(pg: &mut ProcessGroup, port: u16) {
+fn run_in_docker(pg: &mut ProcessGroup, host_port: u16) {
     let image = "gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators";
 
     // Downloading and extracting the image can take longer than the timeout
@@ -65,6 +88,7 @@ fn run_in_docker(pg: &mut ProcessGroup, port: u16) {
         .output()
         .is_ok_and(|output| output.stdout.is_empty())
     {
+        info!(image, "pulling pubsub emulator Docker image");
         let status = Command::new("docker")
             .arg("pull")
             .arg(image)
@@ -75,11 +99,18 @@ fn run_in_docker(pg: &mut ProcessGroup, port: u16) {
         }
     }
 
+    let container_port: u16 = 8085;
+    info!(
+        %image,
+        %host_port,
+        %container_port,
+        "starting pubsub emulator in Docker",
+    );
     pg.spawn(
         Command::new("docker")
             .arg("run")
             .arg("-p")
-            .arg(format!("{port}:8085"))
+            .arg(format!("{host_port}:{container_port}"))
             .arg("-i")
             .arg("--init")
             .arg("--rm")
@@ -89,11 +120,12 @@ fn run_in_docker(pg: &mut ProcessGroup, port: u16) {
             .arg("emulators")
             .arg("pubsub")
             .arg("start")
-            .arg("--host-port=0.0.0.0:8085"),
+            .arg(format!("--host-port=0.0.0.0:{container_port}")),
     );
 }
 
 fn run_from_jar(pg: &mut ProcessGroup, port: u16, jar: String) {
+    info!(jar, port, "starting pubsub emulator in Java");
     if !Path::new(&jar).exists() {
         panic!("Jar file indicated by environment variable PUBSUB_JAR does not exist: {jar}");
     }

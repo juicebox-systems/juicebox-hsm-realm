@@ -17,6 +17,7 @@ members = [
     "entrust_hsm",
     "entrust_init",
     "entrust_nfast",
+    "entrust_ops",
     "google",
     "google_pubsub",
     "hsm_api",
@@ -47,6 +48,7 @@ default-members = [
     "cluster_manager",
     "codegen",
     "election",
+    "entrust_ops",
     "google",
     "google_pubsub",
     "hsm_api",
@@ -70,7 +72,7 @@ exclude = ["ciborium", "gcp_auth", "sdk"]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.72"
+rust-version = "1.73"
 version = "0.2.3"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -98,7 +100,8 @@ cluster_api = { path = "cluster_api" }
 cluster_core = { path = "cluster_core" }
 digest = "0.10.7"
 # Diego audited dogstatsd v0.10.0 in Aug 2023.
-dogstatsd = "=0.10.0"
+# Simon audited dogstatsd v0.11.1 in Nov 2023.
+dogstatsd = "=0.11.1"
 election = { path = "election" }
 entrust_api = { path = "entrust_api" }
 entrust_nfast = { path = "entrust_nfast" }
@@ -203,6 +206,7 @@ x25519-dalek = { version = "2.0", features = [
     "serde",
     "static_secrets",
 ] }
+x509-cert = { version = "0.2.4", default-features = false }
 
 # These local forks are checked out as Git submodules.
 #
@@ -216,6 +220,7 @@ x25519-dalek = { version = "2.0", features = [
 # want to need the full Git repo for offline builds. This also simplifies the
 # GitHub Actions workflows, which can easily check out submodules but require
 # more configuration to set up Cargo to access private repos.
+#
 [patch.crates-io]
 gcp_auth = { path = "gcp_auth" }
 ciborium = { path = "ciborium/ciborium" }

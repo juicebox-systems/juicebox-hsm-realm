@@ -15,6 +15,7 @@ Commands:
   new-group      Create a new group on a set of agents' HSMs
   new-realm      Create a new realm and group on a single agent's HSM
   stepdown       Ask an HSM to step down as leader
+  rebalance      Rebalance the cluster workload by potentially moving group leadership
   transfer       Transfer ownership of user records from one group to another
   user-summary   Report counts of active users by tenant for a month. These are users that have a secret stored at some point during the month (in the UTC timezone)
   help           Print this message or the help of the given subcommand(s)
@@ -34,28 +35,28 @@ Options:
           The url to the bigtable emulator [default uses GCP endpoints]
 
       --bigtable-timeout <TIMEOUT>
-          The bigtable gRPC request timeout setting, in ms
+          The bigtable gRPC request timeout setting
           
-          [default: 20000]
+          [default: 20s]
 
       --bigtable-connect-timeout <CONNECT_TIMEOUT>
-          The bigtable gRPC connection timeout setting, in ms
+          The bigtable gRPC connection timeout setting
           
-          [default: 20000]
+          [default: 20s]
 
       --bigtable-http-keepalive-interval <HTTP2_KEEPALIVE_INTERVAL>
-          The bigtable gRPC http2 Keep-alive interval setting, in ms.
+          The bigtable gRPC http2 Keep-alive interval setting.
           
           Interval between sending http2 keep-alive ping messages.
           
-          [default: 4000]
+          [default: 4s]
 
       --bigtable-http-keepalive-timeout <HTTP2_KEEPALIVE_TIMEOUT>
-          The bigtable gRPC http2 Keep-alive timeout setting, in ms.
+          The bigtable gRPC http2 Keep-alive timeout setting.
           
           The timeout duration waiting for a http2 keep-alive ping response.
           
-          [default: 3000]
+          [default: 3s]
 
       --bigtable-http-keepalive-while-idle
           The bigtable gRPC http2 Keep-alive while idle setting.
@@ -257,6 +258,20 @@ Arguments:
 Options:
   -h, --help
           Print help (see a summary with '-h')
+
+```
+
+## `cluster rebalance --help`
+
+```
+Rebalance the cluster workload by potentially moving group leadership
+
+Usage: cluster rebalance [OPTIONS]
+
+Options:
+  -c, --cluster <CLUSTER>  URL to a cluster manager, which will execute the request. By default it will find a cluster manager using service discovery
+  -f, --full               Repeatedly rebalance until the cluster is fully balanced. This may make multiple leadership moves
+  -h, --help               Print help
 
 ```
 

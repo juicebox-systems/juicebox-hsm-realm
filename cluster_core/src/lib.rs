@@ -6,15 +6,17 @@ use tokio::time::sleep;
 use tracing::{debug, info};
 use url::Url;
 
-use agent_api::{AgentService, StatusRequest};
+use agent_api::StatusRequest;
 use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex};
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
+use service_core::http::ReqwestClientMetrics;
 
 mod leader;
 mod realm;
 mod transfer;
+pub mod workload;
 
 pub use leader::{discover_hsm_ids, find_leaders};
 pub use realm::{join_realm, new_group, new_realm, JoinRealmError, NewGroupError, NewRealmError};
@@ -40,7 +42,7 @@ async fn wait_for_commit(
     leader: &Url,
     realm: RealmId,
     group_id: GroupId,
-    agent_client: &Client<AgentService>,
+    agent_client: &Client,
 ) -> Result<(), RpcError> {
     debug!(?realm, group = ?group_id, "waiting for first log entry to commit");
     loop {
@@ -76,7 +78,7 @@ async fn wait_for_commit(
 }
 
 pub async fn get_hsm_statuses(
-    agents: &Client<AgentService>,
+    agents: &ReqwestClientMetrics,
     agent_urls: impl Iterator<Item = &Url>,
 ) -> HashMap<HsmId, (hsm_api::StatusResponse, Url)> {
     join_all(

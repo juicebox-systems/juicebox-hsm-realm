@@ -1,9 +1,9 @@
-use futures::Future;
 use hyper::body::{Body, Incoming};
 use hyper::rt::bounds::Http2ConnExec;
 use hyper::server::conn::{http1, http2};
 use hyper::service::HttpService;
 use pin_project_lite::pin_project;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;

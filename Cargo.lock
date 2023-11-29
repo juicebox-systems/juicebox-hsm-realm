@@ -561,6 +561,7 @@ dependencies = [
  "juicebox_networking",
  "juicebox_sdk",
  "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -623,6 +624,7 @@ dependencies = [
  "hsm_api",
  "juicebox_networking",
  "juicebox_realm_api",
+ "service_core",
  "store",
  "thiserror",
  "tokio",
@@ -851,8 +853,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fffa369a668c8af7dbf8b5e56c9f744fbd399949ed171606040001947de40b1c"
 dependencies = [
  "const-oid",
+ "der_derive",
+ "flagset",
  "pem-rfc7468 0.7.0",
  "zeroize",
+]
+
+[[package]]
+name = "der_derive"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fe87ce4529967e0ba1dcf8450bab64d97dfd5010a6256187ffe2e43e6f0e049"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.38",
 ]
 
 [[package]]
@@ -875,9 +890,9 @@ checksum = "86e3bdc80eee6e16b2b6b0f87fbc98c04bee3455e35174c0de1a125d0688c632"
 
 [[package]]
 name = "dogstatsd"
-version = "0.10.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1de22296c3f60346ab18debb2a4da57b2406734916535ea00220743cb499e732"
+checksum = "10cb25c17d5e77ecf625128ddbdad4bec9972d4d82e222218b38da375f5d0cf7"
 dependencies = [
  "chrono",
  "retry",
@@ -1033,6 +1048,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "entrust_ops"
+version = "0.2.3"
+dependencies = [
+ "clap",
+ "expect-test",
+ "hex",
+ "sha2",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1085,6 +1110,12 @@ name = "fixedbitset"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
+
+[[package]]
+name = "flagset"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d52a7e408202050813e6f1d9addadcaafef3dca7530c7ddfb005d4081cce6779"
 
 [[package]]
 name = "fnv"
@@ -2993,12 +3024,14 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "x509-cert",
 ]
 
 [[package]]
 name = "service_core"
 version = "0.2.3"
 dependencies = [
+ "async-trait",
  "bytes",
  "futures",
  "http",
@@ -3007,6 +3040,7 @@ dependencies = [
  "juicebox_marshalling",
  "juicebox_networking",
  "observability",
+ "reqwest",
  "tokio",
  "tracing",
 ]
@@ -3176,7 +3210,6 @@ dependencies = [
  "bitvec",
  "chrono",
  "clap",
- "futures",
  "google",
  "hex",
  "hsm_api",
@@ -3990,6 +4023,17 @@ dependencies = [
  "rand_core",
  "serde",
  "zeroize",
+]
+
+[[package]]
+name = "x509-cert"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25eefca1d99701da3a57feb07e5079fc62abba059fc139e98c13bbb250f3ef29"
+dependencies = [
+ "const-oid",
+ "der 0.7.8",
+ "spki 0.7.2",
 ]
 
 [[package]]

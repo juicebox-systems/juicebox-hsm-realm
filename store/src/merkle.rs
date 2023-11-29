@@ -1,4 +1,6 @@
 use async_trait::async_trait;
+use google::bigtable::admin::v2::table::TimestampGranularity;
+use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
 use google::bigtable::v2::row_range::{EndKey::EndKeyOpen, StartKey::StartKeyClosed};
 use google::bigtable::v2::{
     mutate_rows_request, mutation, read_rows_request, row_filter, MutateRowsRequest, Mutation,
@@ -11,13 +13,11 @@ use std::time::{Duration, Instant};
 use tonic::Code;
 use tracing::{instrument, trace, warn, Span};
 
-use crate::base128;
-
-use super::StoreClient;
+use super::{base128, StoreClient};
 use agent_api::merkle::{TreeStoreError, TreeStoreReader};
 use bigtable::mutate::{mutate_rows, MutateRowsError};
 use bigtable::read::read_rows;
-use bigtable::Instance;
+use bigtable::{BigtableTableAdminClient, Instance};
 use bitvec::Bits;
 use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey};
 use hsm_api::{DataHash, GroupId, RecordId};
@@ -75,13 +75,43 @@ fn merkle_table(instance: &Instance, realm: &RealmId) -> String {
     buf
 }
 
-pub fn merkle_table_brief(realm: &RealmId) -> String {
+fn merkle_table_brief(realm: &RealmId) -> String {
     let mut buf = String::new();
     for byte in realm.0 {
         write!(buf, "{byte:02x}").unwrap();
     }
     write!(buf, "-merkle").unwrap();
     buf
+}
+
+/// Create table for Merkle trees.
+pub(super) async fn initialize(
+    bigtable: &mut BigtableTableAdminClient,
+    instance: &Instance,
+    realm: &RealmId,
+) -> Result<(), tonic::Status> {
+    bigtable
+        .create_table(CreateTableRequest {
+            parent: instance.path(),
+            table_id: merkle_table_brief(realm),
+            table: Some(Table {
+                name: String::from(""),
+                cluster_states: HashMap::new(),
+                column_families: HashMap::from([(
+                    String::from("f"),
+                    ColumnFamily {
+                        gc_rule: Some(GcRule { rule: None }),
+                    },
+                )]),
+                granularity: TimestampGranularity::Unspecified as i32,
+                restore_info: None,
+                change_stream_config: None,
+                deletion_protection: false,
+            }),
+            initial_splits: Vec::new(),
+        })
+        .await?;
+    Ok(())
 }
 
 impl StoreClient {
@@ -304,12 +334,12 @@ impl TreeStoreReader<DataHash> for StoreClient {
                 let mut locked_cache = self.merkle_cache.0.lock().unwrap();
                 cached_path_lookup(record_id, root_hash, &mut locked_cache)
             };
-            self.metrics.histogram(
+            self.metrics.distribution(
                 "store_client.path_lookup.cached_nodes_read",
                 result.nodes.len() as i64,
                 tags,
             );
-            self.metrics.histogram(
+            self.metrics.distribution(
                 "store_client.path_lookup.full_path_cache_hits",
                 result.next.is_none() as i64,
                 tags,
@@ -320,8 +350,11 @@ impl TreeStoreReader<DataHash> for StoreClient {
                     // This was a full path cache hit. For `bigtable_nodes_read`
                     // to be comparable with `cached_nodes_read`, it seems more
                     // fair to record a zero value here.
-                    self.metrics
-                        .histogram("store_client.path_lookup.bigtable_nodes_read", 0, tags);
+                    self.metrics.distribution(
+                        "store_client.path_lookup.bigtable_nodes_read",
+                        0,
+                        tags,
+                    );
                     return Ok(cached_nodes.collect());
                 }
                 Some(next) => (cached_nodes, next),
@@ -374,16 +407,16 @@ impl TreeStoreReader<DataHash> for StoreClient {
             })
             .collect();
 
-        self.metrics.histogram(
+        self.metrics.distribution(
             "store_client.path_lookup.bigtable_nodes_read",
-            read_values.len() as i64,
+            read_values.len(),
             tags,
         );
 
         // This is heavy-weight but useful for understanding how deep into the
         // tree extraneous reads are occurring.
         for (key, _) in &read_values {
-            self.metrics.histogram(
+            self.metrics.distribution(
                 "store_client.path_lookup.bigtable_node.key_len",
                 key.as_slice().len(),
                 tags,

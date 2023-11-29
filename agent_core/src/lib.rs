@@ -1,15 +1,16 @@
 use anyhow::Context;
 use bytes::Bytes;
 use futures::channel::oneshot;
-use futures::Future;
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use observability::tracing::TracingMiddleware;
 use serde_json::json;
+use service_core::http::ReqwestClientMetrics;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -30,23 +31,22 @@ mod tenants;
 
 use agent_api::merkle::TreeStoreError;
 use agent_api::{
-    AgentService, AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CompleteTransferRequest, CompleteTransferResponse, HashedUserId, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
-    NewRealmRequest, NewRealmResponse, ReadCapturedRequest, ReadCapturedResponse, StatusRequest,
-    StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse,
-    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
-    TransferStatementRequest, TransferStatementResponse,
+    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
+    CompleteTransferResponse, HashedUserId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
+    JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
+    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse, StepDownRequest,
+    StepDownResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
+    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
+    TransferStatementResponse,
 };
 use append::{Append, AppendingState};
-use cluster_api::ClusterService;
 use hsm::{HsmClient, Transport};
 use hsm_api::merkle::{Dir, StoreDelta};
 use hsm_api::{
     AppResultType, CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId,
     LogEntry, LogIndex, TransferInProofs,
 };
-use juicebox_networking::reqwest::{self, Client, ClientOptions};
+use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::{self, Rpc};
 use juicebox_realm_api::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use juicebox_realm_api::types::RealmId;
@@ -68,7 +68,7 @@ struct AgentInner<T> {
     hsm: HsmClient<T>,
     store: store::StoreClient,
     store_admin: store::StoreAdminClient,
-    peer_client: Client<AgentService>,
+    peer_client: ReqwestClientMetrics,
     state: Mutex<State>,
     metrics: metrics::Client,
     accountant: UserAccountingWriter,
@@ -143,7 +143,7 @@ impl<T: Transport + 'static> Agent<T> {
             hsm,
             store: store.clone(),
             store_admin,
-            peer_client: Client::new(ClientOptions::default()),
+            peer_client: ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default()),
             state: Mutex::new(State {
                 leader: HashMap::new(),
                 captures: Vec::new(),
@@ -356,7 +356,8 @@ impl<T: Transport + 'static> Agent<T> {
             .await
         {
             Ok(managers) if !managers.is_empty() => {
-                let mc = reqwest::Client::<ClusterService>::new(ClientOptions::default());
+                let mc =
+                    ReqwestClientMetrics::new(self.0.metrics.clone(), ClientOptions::default());
                 for manager in &managers {
                     let req = cluster_api::StepDownRequest::Hsm(id);
                     match rpc::send(&mc, &manager.0, req).await {

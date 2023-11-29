@@ -1,29 +1,33 @@
 use futures::future::join_all;
 use futures::FutureExt;
+use juicebox_networking::http;
 use std::collections::HashMap;
 use std::iter::zip;
+use std::time::Duration;
 use tracing::{trace, warn};
 use url::Url;
 
-use agent_api::{AgentService, StatusRequest, StatusResponse};
+use agent_api::{StatusRequest, StatusResponse};
 use hsm_api::{GroupId, HsmId};
-use juicebox_networking::reqwest::Client;
-use juicebox_networking::rpc::{self};
+use juicebox_networking::rpc::{self, SendOptions};
 use juicebox_realm_api::types::RealmId;
 use store::{ServiceKind, StoreClient};
 
 pub async fn find_leaders(
     store: &StoreClient,
-    agent_client: &Client<AgentService>,
+    agent_client: &impl http::Client,
 ) -> Result<HashMap<(RealmId, GroupId), (HsmId, Url)>, tonic::Status> {
     trace!("refreshing cluster information");
     let addresses: Vec<(Url, ServiceKind)> = store.get_addresses(Some(ServiceKind::Agent)).await?;
 
-    let responses = join_all(
-        addresses
-            .iter()
-            .map(|(address, _)| rpc::send(agent_client, address, StatusRequest {})),
-    )
+    let responses = join_all(addresses.iter().map(|(address, _)| {
+        rpc::send_with_options(
+            agent_client,
+            address,
+            StatusRequest {},
+            SendOptions::default().with_timeout(Duration::from_secs(5)),
+        )
+    }))
     .await;
 
     let mut leaders: HashMap<(RealmId, GroupId), (HsmId, Url)> = HashMap::new();
@@ -59,11 +63,17 @@ pub async fn find_leaders(
 // Using service discovery returns all the HSM ids + the URL of their Agent.
 pub async fn discover_hsm_ids(
     store: &StoreClient,
-    agents_client: &Client<AgentService>,
+    agents_client: &impl http::Client,
 ) -> Result<impl Iterator<Item = (HsmId, Url)>, tonic::Status> {
     let agents = store.get_addresses(Some(ServiceKind::Agent)).await?;
     Ok(join_all(agents.iter().map(|(url, _)| {
-        rpc::send(agents_client, url, StatusRequest {}).map(|status| (url.clone(), status))
+        rpc::send_with_options(
+            agents_client,
+            url,
+            StatusRequest {},
+            SendOptions::default().with_timeout(Duration::from_secs(2)),
+        )
+        .map(|status| (url.clone(), status))
     }))
     .await
     .into_iter()

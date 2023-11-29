@@ -47,17 +47,17 @@ struct Args {
     #[arg(long)]
     secrets_file: Option<PathBuf>,
 
-    /// Max length of time to wait for a graceful shutdown to complete. (milliseconds)
-    #[arg(long, default_value="60000", value_parser=parse_duration)]
+    /// Max length of time to wait for a graceful shutdown to complete.
+    #[arg(long, default_value="60s", value_parser=parse_duration)]
     shutdown_timeout: Duration,
 
     /// Length of time to signal that we're going to be shutting down before
-    /// starting the shutdown. (milliseconds)
-    #[arg(long, default_value = "30000", name = "TIME", value_parser=parse_duration)]
+    /// starting the shutdown.
+    #[arg(long, default_value = "30s", name = "TIME", value_parser=parse_duration)]
     shutdown_notice_period: Duration,
 
-    /// Connections that have been idle longer than this timeout will be closed. (milliseconds)
-    #[arg(long, default_value="60000", value_parser=parse_duration, name="TIMEOUT")]
+    /// Connections that have been idle longer than this timeout will be closed.
+    #[arg(long, default_value="60s", value_parser=parse_duration, name="TIMEOUT")]
     idle_timeout: Duration,
 
     /// Name of the file containing the private key for terminating TLS.
@@ -68,32 +68,32 @@ struct Args {
     #[arg(long)]
     tls_cert: PathBuf,
 
-    /// The secrets manager gRPC request timeout setting, in ms.
+    /// The secrets manager gRPC request timeout setting.
     #[arg(long="secrets-manager-timeout",
             value_parser=parse_duration,
-            default_value=GrpcConnectionOptions::default().timeout.as_millis().to_string())]
+            default_value=format!("{:?}", GrpcConnectionOptions::default().timeout))]
     secrets_manager_timeout: Duration,
 
-    /// The secrets manager gRPC connection timeout setting, in ms.
+    /// The secrets manager gRPC connection timeout setting.
     #[arg(long="secrets-manager-connect-timeout",
             value_parser=parse_duration,
-            default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
+            default_value=format!("{:?}", GrpcConnectionOptions::default().connect_timeout))]
     secrets_manager_connect_timeout: Duration,
 
-    /// The secrets manager gRPC http2 Keep-alive interval setting, in ms.
+    /// The secrets manager gRPC http2 Keep-alive interval setting.
     ///
     /// Interval between sending http2 keep-alive ping messages.
     #[arg(long = "secrets-manager-http-keepalive-interval",
             value_parser=parse_duration,
-            default_value=GrpcConnectionOptions::default().http2_keepalive_interval.as_millis().to_string())]
+            default_value=format!("{:?}", GrpcConnectionOptions::default().http2_keepalive_interval))]
     pub secrets_manager_http2_keepalive_interval: Duration,
 
-    /// The secrets manager gRPC http2 Keep-alive timeout setting, in ms.
+    /// The secrets manager gRPC http2 Keep-alive timeout setting.
     ///
     /// The timeout duration waiting for a http2 keep-alive ping response.
     #[arg(long = "secrets-manager-http-keepalive-timeout",
         value_parser=parse_duration,
-        default_value=GrpcConnectionOptions::default().http2_keepalive_timeout.as_millis().to_string())]
+        default_value=format!("{:?}", GrpcConnectionOptions::default().http2_keepalive_timeout))]
     pub secrets_manager_http2_keepalive_timeout: Duration,
 
     /// The secrets manager gRPC http2 Keep-alive while idle setting.

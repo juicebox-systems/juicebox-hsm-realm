@@ -4,9 +4,9 @@ digraph G {
 rankdir=LR
 
 Client [label="Client Requests" shape=none]
-Agent [label="Agents" image="stacked_box.png" shape=none];
+Agent [label="Agents" image="docs/merkle_tree/intro/stacked_box.png" shape=none];
 Storage [shape=box];
-HSM [label="HSMs", image="stacked_box.png" shape=none];
+HSM [label="HSMs", image="docs/merkle_tree/intro/stacked_box.png" shape=none];
 
 Agent -> Agent [tailport=s]
 Agent -> HSM

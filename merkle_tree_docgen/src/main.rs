@@ -1,9 +1,11 @@
 use clap::{Parser, ValueEnum};
 use std::collections::BTreeMap;
 use std::env::current_dir;
+use std::fmt;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use bitvec::{BitVec, Bits};
 use hsm_api::merkle::{Branch, Dir, HashOutput, KeyVec, Node, ReadProof};
@@ -23,12 +25,16 @@ mod split;
 
 /// Generates figures and the final PDF in `docs/merkle_tree`.
 ///
-/// Requires Graphviz and Docker (or a local Typst installation).
+/// Requires Docker (or a local Graphviz and Typst installation).
 #[derive(Parser)]
 struct Args {
     /// Typst installation.
-    #[arg(long, value_enum, default_value_t = Typst::Docker)]
-    typst: Typst,
+    #[arg(long, value_enum, default_value_t = Installation::Docker)]
+    graphviz: Installation,
+
+    /// Typst installation.
+    #[arg(long, value_enum, default_value_t = Installation::Docker)]
+    typst: Installation,
 }
 
 #[tokio::main]
@@ -36,6 +42,8 @@ async fn main() {
     let args = Args::parse();
 
     hsm_core::hash::set_global_rng(Box::new(rand_core::OsRng));
+
+    set_up_graphviz(args.graphviz);
 
     let o = PathBuf::from("docs/merkle_tree");
     doc_intro(&o);
@@ -45,9 +53,10 @@ async fn main() {
     split::doc_splits_details(&o);
     merge::doc_merge(&o);
     overlay::tree_overlay(&o);
-    dot_to_png(&o.join("storage"));
+    run_dot(args.graphviz);
     // generate the PDF.
-    args.typst.compile();
+    run_typst(args.typst);
+    println!("Built docs/merkle_tree/merkle.pdf");
 }
 
 fn doc_intro(dir: &Path) {
@@ -59,7 +68,6 @@ fn doc_intro(dir: &Path) {
     tree.insert(rec_id(&[0b00001011]), vec![3]);
     tree.insert(rec_id(&[0b11001000]), vec![4]);
     tree.write_dot(&dir, "first_example.dot");
-    dot_to_png(&dir);
 }
 
 fn doc_mutation(dir: &Path) {
@@ -79,8 +87,6 @@ fn doc_mutation(dir: &Path) {
 
     tree.insert(rec_id(&[0b00001010]), vec![4]);
     tree.write_dot(&dir, "4_leaves.dot");
-
-    dot_to_png(&dir);
 }
 
 fn doc_proofs(dir: &Path) {
@@ -94,8 +100,6 @@ fn doc_proofs(dir: &Path) {
     tree.highlight_record_id_to_dot(rec_id(&[8]), &dir, "inclusion_proof.dot");
 
     tree.highlight_record_id_to_dot(rec_id(&[1]), &dir, "noninclusion_proof.dot");
-
-    dot_to_png(&dir);
 }
 
 struct DocTree {
@@ -195,69 +199,137 @@ impl DocTree {
     }
 }
 
-fn dot_to_png(dir: &Path) {
-    let o = Command::new("bash")
-        .arg("-c")
-        .arg("dot -O -Tpng *.dot")
-        .current_dir(dir)
-        .output()
-        .unwrap();
-    if !o.status.success() {
-        panic!(
-            "failed to run dot program, ensure its installed and on the path. {}",
-            o.status
-        );
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-enum Typst {
-    /// Run typst in a Docker container with a specific version bundled with
+enum Installation {
+    /// Run in a Docker container with a specific version bundled with
     /// specific fonts. This is recommended for reproducible PDFs.
     Docker,
 
-    /// Run typst from the local $PATH.
+    /// Run from the local $PATH.
     Path,
 }
 
-impl Typst {
-    fn compile(self) {
-        let mut command = match self {
-            Self::Path => Command::new("typst"),
-            Self::Docker => {
-                let mut c = Command::new("docker");
-                c.arg("run");
-                c.arg("-i");
-                c.arg("-v").arg(format!(
-                    "{}:/root/docs",
-                    current_dir().unwrap().join("docs").to_str().unwrap(),
-                ));
-                c.arg("ghcr.io/typst/typst:v0.5.0");
-                c.arg("typst");
-                c
+impl fmt::Display for Installation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Installation::Path => "$PATH",
+            Installation::Docker => "a Docker container",
+        }
+        .fmt(f)
+    }
+}
+
+fn set_up_graphviz(installation: Installation) {
+    match installation {
+        Installation::Docker => {
+            println!("Building graphviz Docker image");
+            let mut child = Command::new("docker")
+                .arg("build")
+                .arg("-t")
+                .arg("juicebox-graphviz")
+                .arg("-")
+                .stdin(Stdio::piped())
+                .spawn()
+                .expect("failed to exec docker");
+
+            {
+                let mut stdin = child.stdin.take().expect("failed to open stdin");
+                stdin
+                    .write_all(
+                        "
+                        FROM debian:bookworm
+                        RUN apt-get update && apt-get install --yes graphviz
+                        "
+                        .as_bytes(),
+                    )
+                    .expect("failed to write to stdin");
             }
-        };
-        command.arg("compile").arg("docs/merkle_tree/merkle.typ");
 
-        match command.output() {
-            Err(err) => panic!(
-                "failed to run typst from {}: {}",
-                match self {
-                    Self::Path => "$PATH",
-                    Self::Docker => "a Docker image",
-                },
-                err
-            ),
+            if !child.wait().is_ok_and(|status| status.success()) {
+                panic!("failed to build graphviz Docker image");
+            }
+        }
 
-            Ok(output) => {
-                if !output.status.success() {
-                    panic!(
-                        "typst ran but returned a failure exit code: {}\nStdout: {}\nStderr: {}\n",
-                        output.status,
-                        String::from_utf8_lossy(&output.stdout),
-                        String::from_utf8_lossy(&output.stderr),
-                    );
-                }
+        Installation::Path => {}
+    }
+}
+
+fn run_dot(installation: Installation) {
+    println!("Running dot in {installation}");
+    let mut command = match installation {
+        Installation::Path => Command::new("find"),
+        Installation::Docker => {
+            let mut c = Command::new("docker");
+            c.arg("run");
+            c.arg("-i");
+            c.arg("--rm");
+            c.arg("-v").arg(format!(
+                "{}:/root/docs",
+                current_dir().unwrap().join("docs").to_str().unwrap(),
+            ));
+            c.arg("--workdir").arg("/root");
+            c.arg("juicebox-graphviz");
+            c.arg("find");
+            c
+        }
+    };
+    command.args([
+        "docs", "-name", "*.dot", "-exec", "dot", "-O", "-Tpng", "{}", ";",
+    ]);
+
+    match command.output() {
+        Err(err) => panic!("failed to run dot from {installation}: {err}"),
+
+        Ok(output) => {
+            if !output.status.success() {
+                panic!(
+                    "dot ran but returned a failure exit code: {}\nStdout: {}\nStderr: {}\n",
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                );
+            }
+        }
+    }
+}
+
+fn run_typst(installation: Installation) {
+    println!("Running typst in {installation}");
+    let mut command = match installation {
+        Installation::Path => Command::new("typst"),
+        Installation::Docker => {
+            let mut c = Command::new("docker");
+            c.arg("run");
+            c.arg("-i");
+            c.arg("--rm");
+            c.arg("-v").arg(format!(
+                "{}:/root/docs",
+                current_dir().unwrap().join("docs").to_str().unwrap(),
+            ));
+            c.arg("--workdir").arg("/root");
+            // The 0.9.0 release of typst produces PDF files with different
+            // "instance ID" metadata when given the same inputs. That issue
+            // was promptly reported and fixed in
+            // <https://github.com/typst/typst/issues/2536>, but the fix hasn't
+            // been released yet.
+            c.arg("ghcr.io/typst/typst:v0.8.0");
+            c.arg("typst");
+            c
+        }
+    };
+    command.arg("compile").arg("docs/merkle_tree/merkle.typ");
+
+    match command.output() {
+        Err(err) => panic!("failed to run typst from {installation}: {err}"),
+
+        Ok(output) => {
+            if !output.status.success() {
+                panic!(
+                    "typst ran but returned a failure exit code: {}\nStdout: {}\nStderr: {}\n",
+                    output.status,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                );
             }
         }
     }

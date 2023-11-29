@@ -21,10 +21,10 @@ use tokio::time::sleep;
 use url::Url;
 
 use super::PortIssuer;
-use agent_api::{AgentService, StatusRequest};
+use agent_api::StatusRequest;
 use hsm_api::PublicKey;
 
-type AgentClient = reqwest::Client<AgentService>;
+type AgentClient = reqwest::Client;
 
 #[derive(Debug)]
 pub struct Entrust(pub bool);

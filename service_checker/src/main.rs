@@ -1,10 +1,13 @@
-use ::reqwest::Certificate;
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use clap::Parser;
 use dogstatsd::{ServiceCheckOptions, ServiceStatus};
+use futures::future::join_all;
 use futures::StreamExt;
 use opentelemetry::sdk::trace::Sampler;
+use reqwest::tls::TlsInfo;
+use reqwest::Certificate;
+use service_core::http::ReqwestClientMetrics;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -12,12 +15,13 @@ use std::process::ExitCode;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::time::timeout;
 use tracing::{debug, error, info, instrument, warn};
+use x509_cert::der::{Decode, SliceReader};
 
-use juicebox_networking::rpc::LoadBalancerService;
-use juicebox_networking::{http, reqwest};
+use juicebox_networking::{http, reqwest as jb_reqwest};
 use juicebox_realm_auth::creation::create_token;
 use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
 use juicebox_sdk::{
@@ -69,15 +73,15 @@ struct Args {
     #[arg(long, default_value = "dev")]
     env: String,
 
-    /// Amount of time to allow for the entire service check operation to run before declaring a failure. in milliseconds.
-    #[arg(long, default_value="10000", value_parser=parse_duration)]
+    /// Amount of time to allow for the entire service check operation to run before declaring a failure.
+    #[arg(long, default_value="10s", value_parser=parse_duration)]
     timeout: Duration,
 
-    /// Timeout setting for http requests. in milliseconds
-    #[arg(long, default_value="5000", value_parser=parse_duration)]
+    /// Timeout setting for http requests.
+    #[arg(long, default_value="5s", value_parser=parse_duration)]
     http_timeout: Duration,
 
-    /// Continuously run the service check in a loop
+    /// Continuously run the service check in a loop.
     #[arg(long, default_value_t = false)]
     forever: bool,
 }
@@ -93,23 +97,25 @@ async fn main() -> ExitCode {
     });
 
     info!(?args.tenant, ?args.user, "Starting service checker");
-    let checker = match Checker::new(&args).await {
+    let mut checker = match Checker::new(&args).await {
         Ok(c) => c,
         Err(err) => {
             eprintln!("error: {err}");
             return ExitCode::FAILURE;
         }
     };
+    let mc = metrics::Client::new_with_tags("service_checker", [tag!("env":"{}",args.env)]);
 
     let mut res;
     loop {
-        res = match timeout(args.timeout, checker.run(&args)).await {
+        res = match timeout(args.timeout, checker.run(mc.clone(), &args)).await {
             Ok(res) => res,
-            Err(_) => Err(anyhow!(
-                "timed out waiting for register/recover to complete"
-            )),
+            Err(_) => Err(anyhow!("timed out waiting for service check to complete")),
         };
-        report_service_check(&res, &args.env);
+        report_service_check(&mc, &res);
+        if let Err(err) = &res {
+            error!(?err, "service check error");
+        }
         if !args.forever {
             break;
         }
@@ -121,7 +127,7 @@ async fn main() -> ExitCode {
     match res {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("error: {err}");
+            eprintln!("error: {err:?}");
             ExitCode::FAILURE
         }
     }
@@ -132,6 +138,10 @@ struct Checker {
     auth_key: AuthKey,
     auth_key_version: AuthKeyVersion,
     certs: Vec<Certificate>,
+    /// When the next TLS certificate expiration check should occur . This is
+    /// used to limit how frequently to check when running in `--forever` mode,
+    /// primarily to avoid log spew.
+    next_cert_check: Instant,
 }
 
 impl Checker {
@@ -166,21 +176,26 @@ impl Checker {
             auth_key,
             auth_key_version,
             certs,
+            next_cert_check: Instant::now(),
         })
     }
 
-    #[instrument(level = "trace", skip(self))]
-    async fn run(&self, args: &Args) -> anyhow::Result<()> {
-        let http_client = HttpReporter::new(reqwest::Client::<LoadBalancerService>::new(
-            reqwest::ClientOptions {
-                additional_root_certs: self.certs.clone(),
-                timeout: args.http_timeout,
-                default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
-            },
-        ));
+    #[instrument(level = "trace", skip(self, mc))]
+    async fn run(&mut self, mc: metrics::Client, args: &Args) -> anyhow::Result<()> {
+        let http_client = HttpReporter::new(
+            ReqwestClientMetrics::new(
+                mc.clone(),
+                jb_reqwest::ClientOptions {
+                    additional_root_certs: self.certs.clone(),
+                    timeout: args.http_timeout,
+                    default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
+                },
+            ),
+            mc.clone(),
+        );
 
         let client_builder = Arc::new(ClientBuilder {
-            shared_http_client: http_client,
+            shared_http_client: http_client.clone(),
             configuration: self.configuration.clone(),
             tenant: args.tenant.clone(),
             auth_key: self.auth_key.clone(),
@@ -192,20 +207,41 @@ impl Checker {
             futures::stream::iter((1..=args.count).map(|i| run_op(i, client_builder.clone())))
                 .buffer_unordered(args.concurrency);
 
-        let mut last_error: Option<OpError> = None;
+        let mut first_op_error: Option<OpError> = None;
         while let Some(result) = stream.next().await {
             match result {
                 Ok(_) => {}
                 Err(err) => {
                     warn!(%err, "error during register/recover operation");
-                    last_error = Some(err);
+                    first_op_error.get_or_insert(err);
                 }
             }
         }
-        match last_error {
-            Some(err) => Err(err.into()),
+
+        let now = Instant::now();
+        let tls_cert_checks = if now >= self.next_cert_check {
+            self.next_cert_check = now + Duration::from_secs(60 * 5);
+            // Check all the certificates without short-circuiting.
+            join_all(self.configuration.realms.iter().map(|realm| {
+                check_tls_cert_expiration(
+                    realm.address.as_str(),
+                    http_client.client.client.clone(),
+                    mc.clone(),
+                    args,
+                )
+            }))
+            .await
+            .into_iter()
+            .collect::<anyhow::Result<()>>()
+        } else {
+            Ok(())
+        };
+
+        match first_op_error {
             None => Ok(()),
+            Some(err) => Err(err.into()),
         }
+        .and(tls_cert_checks)
     }
 }
 
@@ -237,13 +273,16 @@ async fn run_op(user_num: u64, client_builder: Arc<ClientBuilder>) -> Result<(),
 
 #[derive(Debug, Error)]
 enum OpError {
-    #[error("register failed: {0:?}")]
+    // These are formatted with - rather than the typical : because the strings
+    // will end up in a service check message and having : in the message causes
+    // issues with the parsing of the resulting payloads in the datadog agent.
+    #[error("register failed - {0:?}")]
     Register(#[from] RegisterError),
-    #[error("recover failed: {0:?}")]
+    #[error("recover failed - {0:?}")]
     Recover(#[from] RecoverError),
     #[error("recover returned a different secret to the one registered")]
     RecoveredIncorrectSecret,
-    #[error("delete failed: {0:?}")]
+    #[error("delete failed - {0:?}")]
     Delete(#[from] DeleteError),
 }
 
@@ -319,21 +358,19 @@ async fn get_auth_key(
     Ok((secret.into(), version.into()))
 }
 
-fn report_service_check(r: &anyhow::Result<()>, env: &str) {
-    let c = metrics::Client::new("service_checker");
+fn report_service_check(mc: &metrics::Client, r: &anyhow::Result<()>) {
     const STAT: &str = "healthcheck.register_recover";
 
     match r {
-        Ok(()) => c.service_check(STAT, ServiceStatus::OK, [tag!(env)], None),
+        Ok(()) => mc.service_check(STAT, ServiceStatus::OK, metrics::NO_TAGS, None),
         Err(err) => {
-            // this is dumb, thanks dogstatsd
-            let msg: &'static str = Box::leak(format!("{:?}", err).into_boxed_str());
-            c.service_check(
+            let msg = format!("{:?}", err);
+            mc.service_check(
                 STAT,
                 ServiceStatus::Critical,
-                [tag!(env)],
+                metrics::NO_TAGS,
                 Some(ServiceCheckOptions {
-                    message: Some(msg),
+                    message: Some(&msg),
                     ..ServiceCheckOptions::default()
                 }),
             )
@@ -342,24 +379,28 @@ fn report_service_check(r: &anyhow::Result<()>, env: &str) {
 }
 
 struct HttpReporter {
-    client: reqwest::Client<LoadBalancerService>,
+    client: ReqwestClientMetrics,
     // count of requests made by this specific instance
     count: AtomicUsize,
+    metrics: metrics::Client,
 }
 
 impl HttpReporter {
-    fn new(client: reqwest::Client<LoadBalancerService>) -> Self {
+    fn new(client: ReqwestClientMetrics, mc: metrics::Client) -> Self {
         Self {
             client,
             count: AtomicUsize::new(0),
+            metrics: mc,
         }
     }
 }
+
 impl Clone for HttpReporter {
     fn clone(&self) -> Self {
         Self {
             client: self.client.clone(),
             count: AtomicUsize::new(0),
+            metrics: self.metrics.clone(),
         }
     }
 }
@@ -375,6 +416,7 @@ impl http::Client for HttpReporter {
         request
             .headers
             .insert(String::from("pragma"), String::from("server-timing"));
+        let tag_url = tag!("url":"{}",request.url);
         let result = self.client.send(request).await;
         let elapsed = start.elapsed();
         let mut cdn: Option<CdnInfo> = None;
@@ -391,6 +433,22 @@ impl http::Client for HttpReporter {
                 cdn = parse_cloudfront_server_timings(timings);
             } else if let Some(ray) = r.headers.get("cf-ray") {
                 cdn = Some(CdnInfo::CloudFlare { ray: ray.clone() })
+            }
+            let tag_status = tag!("status_code":"{}",r.status_code);
+            if let Some(exec) = r.headers.get("x-exec-time") {
+                if let Ok(nanos) = exec.parse() {
+                    let nanos = Duration::from_nanos(nanos);
+                    self.metrics.timing(
+                        "service_checker.http_send.network_latency",
+                        elapsed - nanos,
+                        [&tag_url, &tag_status],
+                    );
+                    self.metrics.timing(
+                        "service_checker.http_send.server_exec_time",
+                        nanos,
+                        [&tag_url, &tag_status],
+                    );
+                }
             }
         }
         if elapsed > Duration::from_secs(1) {
@@ -468,6 +526,65 @@ struct CloudFrontServerTimings {
     // The time between when the edge location finished receiving the request
     // and when it sent the first byte of the response to the viewer.
     downstream_first_byte: Option<Duration>,
+}
+
+async fn check_tls_cert_expiration(
+    url: &str,
+    http_client: jb_reqwest::Client,
+    metrics: metrics::Client,
+    args: &Args,
+) -> anyhow::Result<()> {
+    let request = http_client.to_reqwest(http::Request {
+        method: http::Method::Get,
+        url: url.to_owned(),
+        headers: HashMap::default(),
+        body: None,
+        timeout: Some(args.http_timeout),
+    });
+
+    let response = request
+        .send()
+        .await
+        .with_context(|| format!("failed to issue HTTP request to get {url:?} TLS certificate"))?;
+
+    let tls_info = response.extensions().get::<TlsInfo>().with_context(|| {
+        format!("HTTP request to check {url:?} TLS certificate did not return TLS info")
+    })?;
+    let der = tls_info.peer_certificate().ok_or_else(|| {
+        anyhow!("HTTP request to check {url:?} TLS certificate did not return certificate")
+    })?;
+    let cert = SliceReader::new(der)
+        .and_then(|mut reader| x509_cert::Certificate::decode(&mut reader))
+        .with_context(|| format!("failed to decode {url:?} TLS certificate"))?;
+
+    let not_after = cert.tbs_certificate.validity.not_after;
+    let remaining_duration = (UNIX_EPOCH + not_after.to_unix_duration())
+        .duration_since(SystemTime::now())
+        .unwrap_or(Duration::ZERO);
+    let remaining_days = remaining_duration.as_secs_f64() / 60.0 / 60.0 / 24.0;
+    let remaining = format!("{:.1} days", remaining_days);
+
+    if remaining_days > 30.0 {
+        info!(url, remaining, %not_after, "server TLS certificate expiration OK");
+    } else if remaining_days > 20.0 {
+        warn!(url, remaining, %not_after, "server TLS certificate expires soon");
+    } else {
+        error!(url, remaining, %not_after, "server TLS certificate expires soon");
+    }
+
+    metrics.gauge(
+        "service_checker.tls_cert.remaining_days",
+        remaining_days,
+        [tag!(url)],
+    );
+
+    if remaining_days > 5.0 {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "server TLS certificate for {url:?} expires in {remaining} (not_after={not_after})"
+        ))
+    }
 }
 
 #[cfg(test)]

@@ -56,9 +56,9 @@ pub async fn read<R: TreeStoreReader<HO>, HO: HashOutput>(
         }
     }
 
-    metrics.histogram("agent.merkle_read.proof_nodes", res.path.len(), tags);
-    metrics.histogram("agent.merkle_read.extraneous_nodes", nodes.len(), tags);
-    metrics.histogram(
+    metrics.distribution("agent.merkle_read.proof_nodes", res.path.len(), tags);
+    metrics.distribution("agent.merkle_read.extraneous_nodes", nodes.len(), tags);
+    metrics.distribution(
         "agent.merkle_read.has_leaf",
         res.leaf.is_some() as i64,
         tags,
