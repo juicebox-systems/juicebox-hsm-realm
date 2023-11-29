@@ -220,6 +220,7 @@ x509-cert = { version = "0.2.4", default-features = false }
 # want to need the full Git repo for offline builds. This also simplifies the
 # GitHub Actions workflows, which can easily check out submodules but require
 # more configuration to set up Cargo to access private repos.
+#
 [patch.crates-io]
 gcp_auth = { path = "gcp_auth" }
 ciborium = { path = "ciborium/ciborium" }

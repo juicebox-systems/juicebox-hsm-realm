@@ -11,8 +11,8 @@ Options:
       --user <USER>                  Prefix of the user name to generate auth tokens for [default: Mario]
       --tls-certificate <PATH>       DER file containing self-signed certificate for connecting to the load balancers over TLS. May be given more than once
       --env <ENV>                    Name of the environment to include in the service check report to Datadog [default: dev]
-      --timeout <TIMEOUT>            Amount of time to allow for the entire service check operation to run before declaring a failure. in milliseconds [default: 10000]
-      --http-timeout <HTTP_TIMEOUT>  Timeout setting for http requests. in milliseconds [default: 5000]
+      --timeout <TIMEOUT>            Amount of time to allow for the entire service check operation to run before declaring a failure [default: 10s]
+      --http-timeout <HTTP_TIMEOUT>  Timeout setting for http requests [default: 5s]
       --forever                      Continuously run the service check in a loop
   -h, --help                         Print help
   -V, --version                      Print version

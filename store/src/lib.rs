@@ -57,32 +57,32 @@ pub struct BigtableArgs {
     #[arg(long = "bigtable-url")]
     pub url: Option<Uri>,
 
-    /// The bigtable gRPC request timeout setting, in ms.
+    /// The bigtable gRPC request timeout setting.
     #[arg(long = "bigtable-timeout",
             value_parser=parse_duration,
-            default_value=GrpcConnectionOptions::default().timeout.as_millis().to_string())]
+            default_value=format!("{:?}", GrpcConnectionOptions::default().timeout))]
     pub timeout: Duration,
 
-    /// The bigtable gRPC connection timeout setting, in ms.
+    /// The bigtable gRPC connection timeout setting.
     #[arg(long ="bigtable-connect-timeout",
             value_parser=parse_duration,
-            default_value=GrpcConnectionOptions::default().connect_timeout.as_millis().to_string())]
+            default_value=format!("{:?}", GrpcConnectionOptions::default().connect_timeout))]
     pub connect_timeout: Duration,
 
-    /// The bigtable gRPC http2 Keep-alive interval setting, in ms.
+    /// The bigtable gRPC http2 Keep-alive interval setting.
     ///
     /// Interval between sending http2 keep-alive ping messages.
     #[arg(long = "bigtable-http-keepalive-interval",
             value_parser=parse_duration,
-            default_value=GrpcConnectionOptions::default().http2_keepalive_interval.as_millis().to_string())]
+            default_value=format!("{:?}", GrpcConnectionOptions::default().http2_keepalive_interval))]
     pub http2_keepalive_interval: Duration,
 
-    /// The bigtable gRPC http2 Keep-alive timeout setting, in ms.
+    /// The bigtable gRPC http2 Keep-alive timeout setting.
     ///
     /// The timeout duration waiting for a http2 keep-alive ping response.
     #[arg(long = "bigtable-http-keepalive-timeout",
         value_parser=parse_duration,
-        default_value=GrpcConnectionOptions::default().http2_keepalive_timeout.as_millis().to_string())]
+        default_value=format!("{:?}", GrpcConnectionOptions::default().http2_keepalive_timeout))]
     pub http2_keepalive_timeout: Duration,
 
     /// The bigtable gRPC http2 Keep-alive while idle setting.
