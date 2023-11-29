@@ -1,7 +1,7 @@
-use futures::Future;
 use google::GrpcConnectionOptions;
 use http::Uri;
 use std::fmt;
+use std::future::Future;
 use std::ops::Deref;
 use std::process::Command;
 use std::sync::Mutex;
