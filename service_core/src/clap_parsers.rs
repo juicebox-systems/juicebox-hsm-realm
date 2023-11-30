@@ -25,24 +25,17 @@ impl fmt::Display for ParseDurationError {
 }
 
 /// Accepts input like "1ns" or "10.3 s".
-///
-/// Currently, a bare number without units is interpreted as milliseconds. This
-/// behavior should not be relied on and may become an error in the future.
 pub fn parse_duration(input: &str) -> Result<Duration, ParseDurationError> {
     let (number, unit) = match input.find(|c: char| !c.is_ascii_digit() && c != '.') {
         Some(unit_start) => input.split_at(unit_start),
         None => (input, ""),
     };
     let number = f64::from_str(number).map_err(|_| ParseDurationError::Number)?;
-    let unit = match unit.strip_prefix(' ') {
-        Some(unit) if unit.trim().is_empty() => return Err(ParseDurationError::Number),
-        Some(unit) => unit,
-        None => unit,
-    };
+    let unit = unit.strip_prefix(' ').unwrap_or(unit);
     let ns = match unit {
         "ns" => number,
         "µs" | "us" => number * 1e3,
-        "" | "ms" => number * 1e6,
+        "ms" => number * 1e6,
         "s" => number * 1e9,
         "m" | "min" => number * 1e9 * 60.0,
         "h" | "hr" => number * 1e9 * 60.0 * 60.0,
@@ -65,7 +58,6 @@ mod tests {
 
     #[test]
     fn test_parse_duration() {
-        assert_eq!(Ok(Duration::from_secs(1)), parse_duration("1000"));
         assert_eq!(Ok(Duration::from_secs(1)), parse_duration("1.00 s"));
         assert_eq!(Ok(Duration::from_millis(100)), parse_duration(".1 s"));
         assert_eq!(Ok(Duration::from_millis(1100)), parse_duration("1.1 s"));
@@ -95,12 +87,13 @@ mod tests {
             (Number, "1.1.1 s"),
             (Number, "-3"),
             (Number, " 3"),
-            (Number, "3 "),
-            (Number, "3  "),
             (Number, "NaN"),
             (Unit, "1 eon"),
             (Unit, "1e9s"),
             (Unit, "3 s "),
+            (Unit, "3 "),
+            (Unit, "3  "),
+            (Unit, "1000"),
         ] {
             assert_eq!(Err(err), parse_duration(input), "{:?}", input);
         }
