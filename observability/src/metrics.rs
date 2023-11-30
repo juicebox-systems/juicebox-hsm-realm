@@ -331,8 +331,12 @@ pub fn make_valid_tag(tag: String) -> String {
     match first_invalid {
         None => tag,
         Some((idx, c)) => {
-            let mut dest = String::with_capacity(tag.len());
-            dest.push_str(&tag[..idx]);
+            let mut dest = String::with_capacity(tag.len() + 1);
+            if idx == 0 && !c.is_ascii_uppercase() {
+                dest.push_str("Z")
+            } else {
+                dest.push_str(&tag[..idx]);
+            }
             dest.push(make_valid_tag_char(c));
             for (_, c) in chars {
                 dest.push(make_valid_tag_char(c));
@@ -502,8 +506,11 @@ mod tests {
             ("Name:BOB", "name:bob"),
             ("msg:help!", "msg:help_"),
             ("f:|#5000", "f:__5000"),
-            ("", ""),
+            ("", "empty_tag"),
             ("state:🦀y", "state:_y"),
+            ("#size:10", "Z_size:10"),
+            ("#:42", "Z_:42"),
+            (":42", "Z:42"),
         ];
         for (input, exp) in strs {
             let actual = make_valid_tag(String::from(input));
