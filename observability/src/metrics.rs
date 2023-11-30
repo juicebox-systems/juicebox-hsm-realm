@@ -269,7 +269,13 @@ impl Client {
         T: AsRef<str>,
     {
         if let Some(client) = &self.inner {
-            client.event(title, text, tags).warn_err();
+            client
+                .event(
+                    make_valid_event_text(title.into()),
+                    make_valid_event_text(text.into()),
+                    tags,
+                )
+                .warn_err();
         }
     }
 }
@@ -379,6 +385,16 @@ fn make_valid_string<'a>(
     }
 }
 
+fn make_valid_event_text<'a>(mut input: Cow<'a, str>) -> Cow<'a, str> {
+    // need to escape newlines.
+    if input.contains('\n') {
+        let text = input.to_mut();
+        Cow::Owned(text.replace('\n', "\\\\n"))
+    } else {
+        input
+    }
+}
+
 /// This trait allows numeric metric values to be recorded more ergonomically.
 pub trait Value<'a> {
     fn into_cow(self) -> Cow<'a, str>;
@@ -454,7 +470,9 @@ impl Warn for DogstatsdResult {
 mod tests {
     use std::borrow::Cow;
 
-    use super::{make_valid_message, make_valid_metric_name, make_valid_tag};
+    use super::{
+        make_valid_event_text, make_valid_message, make_valid_metric_name, make_valid_tag,
+    };
     use crate::metrics_tag as tag;
 
     #[derive(Debug)]
@@ -539,6 +557,15 @@ mod tests {
         for (input, exp) in strs {
             let actual = make_valid_tag(String::from(input));
             assert_eq!(exp, actual.as_str());
+        }
+    }
+
+    #[test]
+    fn test_event_test() {
+        let strs = [("test", "test"), ("hello\nworld", r"hello\\nworld")];
+        for (input, expected) in strs {
+            let actual = make_valid_event_text(Cow::Borrowed(input));
+            assert_eq!(expected, actual, "with input '{input}'");
         }
     }
 }
