@@ -366,7 +366,7 @@ fn make_valid_string<'a>(
                 // first char must be alpha
                 let r = replacement(dest[0]);
                 if !r.is_ascii_alphabetic() {
-                    dest.insert(0, b'Z');
+                    dest.insert(0, b'z');
                     // leave idx at 0 so that the filler loop checks
                     // what was the first char but isn't any more.
                 } else {
@@ -502,14 +502,14 @@ mod tests {
             ("BoB", "BoB"),
             ("B.1", "B.1"),
             ("B_2", "B_2"),
-            (".", "Z."),
-            ("_", "Z_"),
-            ("9", "Z9"),
+            (".", "z."),
+            ("_", "z_"),
+            ("9", "z9"),
             ("app:hello", "app_hello"),
             ("store.write.ns", "store.write.ns"),
             ("store#", "store_"),
             ("store.p99", "store.p99"),
-            ("#p99", "Z_p99"),
+            ("#p99", "z_p99"),
             ("", "empty_metric"),
             ("STORE_P99.9", "STORE_P99.9"),
             ("S!Help", "S_Help"),
@@ -550,9 +550,9 @@ mod tests {
             ("f:|#5000", "f:__5000"),
             ("", "empty_tag"),
             ("state:🦀y", "state:____y"),
-            ("#size:10", "Z_size:10"),
-            ("#:42", "Z_:42"),
-            (":42", "Z:42"),
+            ("#size:10", "z_size:10"),
+            ("#:42", "z_:42"),
+            (":42", "z:42"),
         ];
         for (input, exp) in strs {
             let actual = make_valid_tag(String::from(input));
