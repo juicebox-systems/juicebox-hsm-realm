@@ -276,7 +276,7 @@ impl Client {
 
 fn metric_name<'a>(name: impl Into<Cow<'a, str>>) -> Cow<'a, str> {
     let n = name.into();
-    debug_assert!(is_valid_metic_name(&n), "metric name '{n}' is invalid");
+    debug_assert!(is_valid_metric_name(&n), "metric name '{n}' is invalid");
     n
 }
 
@@ -286,7 +286,7 @@ fn metric_name<'a>(name: impl Into<Cow<'a, str>>) -> Cow<'a, str> {
 // Should not exceed 200 characters (though less than 100 is generally preferred from a UI perspective)
 // Unicode is not supported.
 // It is recommended to avoid spaces.
-fn is_valid_metic_name(n: &str) -> bool {
+fn is_valid_metric_name(n: &str) -> bool {
     let mut bytes = n.bytes();
     match bytes.next() {
         None => return false,
@@ -433,7 +433,7 @@ impl Warn for DogstatsdResult {
 
 #[cfg(test)]
 mod tests {
-    use crate::metrics::{is_valid_metic_name, make_valid_message, make_valid_tag};
+    use crate::metrics::{is_valid_metric_name, make_valid_message, make_valid_tag};
     use crate::metrics_tag as tag;
 
     #[derive(Debug)]
@@ -458,24 +458,24 @@ mod tests {
 
     #[test]
     fn test_valid_name() {
-        assert!(is_valid_metic_name("b"));
-        assert!(is_valid_metic_name("bob"));
-        assert!(is_valid_metic_name("BoB"));
-        assert!(is_valid_metic_name("B1"));
-        assert!(is_valid_metic_name("B.0"));
-        assert!(is_valid_metic_name("B_b"));
-        assert!(is_valid_metic_name("app.request_time.ns"));
-        assert!(is_valid_metic_name("bobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbob"));
-        assert!(!is_valid_metic_name(""));
-        assert!(!is_valid_metic_name("."));
-        assert!(!is_valid_metic_name("9"));
-        assert!(!is_valid_metic_name("99"));
-        assert!(!is_valid_metic_name("_hello"));
-        assert!(!is_valid_metic_name("::hello"));
-        assert!(!is_valid_metic_name("app::hello"));
-        assert!(!is_valid_metic_name("num bobs"));
-        assert!(!is_valid_metic_name("num.bobs.🦀"));
-        assert!(!is_valid_metic_name("bobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobA"));
+        assert!(is_valid_metric_name("b"));
+        assert!(is_valid_metric_name("bob"));
+        assert!(is_valid_metric_name("BoB"));
+        assert!(is_valid_metric_name("B1"));
+        assert!(is_valid_metric_name("B.0"));
+        assert!(is_valid_metric_name("B_b"));
+        assert!(is_valid_metric_name("app.request_time.ns"));
+        assert!(is_valid_metric_name("bobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbob"));
+        assert!(!is_valid_metric_name(""));
+        assert!(!is_valid_metric_name("."));
+        assert!(!is_valid_metric_name("9"));
+        assert!(!is_valid_metric_name("99"));
+        assert!(!is_valid_metric_name("_hello"));
+        assert!(!is_valid_metric_name("::hello"));
+        assert!(!is_valid_metric_name("app::hello"));
+        assert!(!is_valid_metric_name("num bobs"));
+        assert!(!is_valid_metric_name("num.bobs.🦀"));
+        assert!(!is_valid_metric_name("bobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobA"));
     }
 
     #[test]
