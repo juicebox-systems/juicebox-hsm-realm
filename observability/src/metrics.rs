@@ -385,7 +385,7 @@ fn make_valid_string<'a>(
     }
 }
 
-fn make_valid_event_text<'a>(mut input: Cow<'a, str>) -> Cow<'a, str> {
+fn make_valid_event_text(mut input: Cow<'_, str>) -> Cow<'_, str> {
     // need to escape newlines.
     if input.contains('\n') {
         let text = input.to_mut();
