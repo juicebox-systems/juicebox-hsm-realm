@@ -343,7 +343,7 @@ pub fn make_valid_tag(tag: String) -> String {
 }
 
 fn is_valid_tag_char(c: char) -> bool {
-    matches!(c, 'a'..='z' | '0'..='9' | '_' | '-' | ':' | '.' | '/' | '\\')
+    matches!(c, 'a'..='z' | '0'..='9' | '_' | '-' | ':' | '.' | '/')
 }
 
 fn make_valid_tag_char(c: char) -> char {
