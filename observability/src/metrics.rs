@@ -173,7 +173,7 @@ impl Client {
         if self.inner.is_some() {
             self.distribution(
                 metric_name(format!("{}.ns", stat.into())),
-                duration.as_nanos().to_string(),
+                duration.as_nanos(),
                 tags,
             );
         }
@@ -396,6 +396,12 @@ impl<'a> Value<'a> for i64 {
     }
 }
 
+impl<'a> Value<'a> for i128 {
+    fn into_cow(self) -> Cow<'a, str> {
+        self.to_string().into()
+    }
+}
+
 impl<'a> Value<'a> for u32 {
     fn into_cow(self) -> Cow<'a, str> {
         self.to_string().into()
@@ -403,6 +409,12 @@ impl<'a> Value<'a> for u32 {
 }
 
 impl<'a> Value<'a> for u64 {
+    fn into_cow(self) -> Cow<'a, str> {
+        self.to_string().into()
+    }
+}
+
+impl<'a> Value<'a> for u128 {
     fn into_cow(self) -> Cow<'a, str> {
         self.to_string().into()
     }
@@ -423,24 +435,6 @@ impl<'a> Value<'a> for f64 {
 impl<'a> Value<'a> for usize {
     fn into_cow(self) -> Cow<'a, str> {
         self.to_string().into()
-    }
-}
-
-impl<'a> Value<'a> for Cow<'a, str> {
-    fn into_cow(self) -> Cow<'a, str> {
-        self
-    }
-}
-
-impl<'a> Value<'a> for &'a str {
-    fn into_cow(self) -> Cow<'a, str> {
-        Cow::Borrowed(self)
-    }
-}
-
-impl<'a> Value<'a> for String {
-    fn into_cow(self) -> Cow<'a, str> {
-        Cow::Owned(self)
     }
 }
 
