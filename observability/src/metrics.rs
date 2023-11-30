@@ -242,10 +242,10 @@ impl Client {
             let mut timestamp = None;
             if let Some(o) = &options {
                 if let Some(m) = o.message {
-                    msg = Some(make_valid_message(m));
+                    msg = Some(make_valid_message(Cow::Borrowed(m)));
                 }
                 if let Some(h) = o.hostname {
-                    hostname = Some(make_valid_message(h));
+                    hostname = Some(make_valid_message(Cow::Borrowed(h)));
                 }
                 timestamp = o.timestamp;
             }
@@ -275,9 +275,12 @@ impl Client {
 }
 
 fn metric_name<'a>(name: impl Into<Cow<'a, str>>) -> Cow<'a, str> {
-    let n = name.into();
-    debug_assert!(is_valid_metric_name(&n), "metric name '{n}' is invalid");
-    n
+    let output = make_valid_metric_name(name.into());
+    debug_assert!(
+        output.len() < 100,
+        "metric name '{output}' is longer than recommended"
+    );
+    output
 }
 
 // https://docs.datadoghq.com/developers/guide/what-best-practices-are-recommended-for-naming-metrics-and-tags/
@@ -286,19 +289,14 @@ fn metric_name<'a>(name: impl Into<Cow<'a, str>>) -> Cow<'a, str> {
 // Should not exceed 200 characters (though less than 100 is generally preferred from a UI perspective)
 // Unicode is not supported.
 // It is recommended to avoid spaces.
-fn is_valid_metric_name(n: &str) -> bool {
-    let mut bytes = n.bytes();
-    match bytes.next() {
-        None => return false,
-        Some(c) if !c.is_ascii_alphabetic() => return false,
-        Some(_) => {}
-    }
-    for c in bytes {
-        if !matches!(c, b'a'..=b'z' | b'.' | b'_' | b'0'..=b'9' | b'A'..=b'Z') {
-            return false;
-        }
-    }
-    n.len() < 100
+fn make_valid_metric_name(input: Cow<'_, str>) -> Cow<'_, str> {
+    make_valid_string(
+        input,
+        "empty_metric",
+        |c| c.is_ascii_alphabetic(),
+        |c| matches!(c, b'a'..=b'z' | b'.' | b'_' | b'0'..=b'9' | b'A'..=b'Z'),
+        |_c| b'_',
+    )
 }
 
 /// The Message field of service check should be serialized at the end of the
@@ -306,55 +304,78 @@ fn is_valid_metric_name(n: &str) -> bool {
 /// message can break the parsing of the remaining payload, such as the tags.
 /// This function will replace characters that are not valid in a message with a
 /// '_'.
-pub fn make_valid_message(m: &str) -> String {
-    m.chars()
-        .map(|c| {
-            if matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '_' | '-' | ' ') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
+fn make_valid_message(msg: Cow<'_, str>) -> Cow<'_, str> {
+    fn valid(c: u8) -> bool {
+        matches!(c, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'_' | b'-' | b' ')
+    }
+    make_valid_string(msg, "", valid, valid, |_c| b'_')
 }
 
 // https://docs.datadoghq.com/developers/guide/what-best-practices-are-recommended-for-naming-metrics-and-tags/
 // Returns the supplied tag with any uppercase characters converted to lowercase
 // and any invalid characters replaced with _.
-pub fn make_valid_tag(tag: String) -> String {
-    let mut chars = tag.char_indices();
-    let first_invalid: Option<(usize, char)> = match chars.next() {
-        None => return String::from("empty_tag"),
-        Some((_idx, 'a'..='z')) => chars.find(|(_, c)| !is_valid_tag_char(*c)),
-        Some((idx, c)) => Some((idx, c)),
+fn make_valid_tag(tag: String) -> String {
+    make_valid_string(
+        Cow::Owned(tag),
+        "empty_tag",
+        |c| c.is_ascii_lowercase(),
+        |c| matches!(c, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b':' |b'.' | b'/'),
+        |c| {
+            if c.is_ascii_alphabetic() {
+                c.to_ascii_lowercase()
+            } else {
+                b'_'
+            }
+        },
+    )
+    .into_owned()
+}
+
+// Returns a version of the input that only contains the allowed characters by
+// replacing them with a different character. If the input does not start with
+// an alpha character one will be added to the start of the string. Does not
+// support unicode.
+fn make_valid_string<'a>(
+    input: Cow<'a, str>,
+    // If input is empty, this will be returned.
+    empty_value: &'a str,
+    // return true if the supplied char is valid for the first position in the string.
+    first_char_valid_fn: fn(u8) -> bool,
+    // return true if the supplied char is valid for any position after the first character.
+    char_valid_fn: fn(u8) -> bool,
+    // return the character that should replace the provided invalid character.
+    replacement: fn(u8) -> u8,
+) -> Cow<'a, str> {
+    let mut bytes = input.bytes();
+    let first_invalid = match bytes.next() {
+        None => return Cow::Borrowed(empty_value),
+        Some(c) if first_char_valid_fn(c) => bytes.position(|b| !char_valid_fn(b)).map(|p| p + 1),
+        Some(_) => Some(0),
     };
     match first_invalid {
-        None => tag,
-        Some((idx, c)) => {
-            let mut dest = String::with_capacity(tag.len() + 1);
-            if idx == 0 && !c.is_ascii_uppercase() {
-                dest.push_str("Z")
+        None => input,
+        Some(idx) => {
+            let mut dest = input.into_owned().into_bytes();
+            if idx == 0 {
+                // first char must be alpha
+                let r = replacement(dest[0]);
+                if !r.is_ascii_alphabetic() {
+                    dest.insert(0, b'Z');
+                    // leave idx at 0 so that the filler loop checks
+                    // what was the first char but isn't any more.
+                } else {
+                    dest[idx] = r;
+                }
             } else {
-                dest.push_str(&tag[..idx]);
+                dest[idx] = replacement(dest[idx]);
             }
-            dest.push(make_valid_tag_char(c));
-            for (_, c) in chars {
-                dest.push(make_valid_tag_char(c));
+            for c in &mut dest[idx + 1..] {
+                if !char_valid_fn(*c) {
+                    *c = replacement(*c);
+                }
             }
-            dest
+            Cow::Owned(String::from_utf8(dest).unwrap())
         }
-    }
-}
-
-fn is_valid_tag_char(c: char) -> bool {
-    matches!(c, 'a'..='z' | '0'..='9' | '_' | '-' | ':' | '.' | '/')
-}
-
-fn make_valid_tag_char(c: char) -> char {
-    match c {
-        c if is_valid_tag_char(c) => c,
-        'A'..='Z' => c.to_ascii_lowercase(),
-        _ => '_',
     }
 }
 
@@ -437,7 +458,9 @@ impl Warn for DogstatsdResult {
 
 #[cfg(test)]
 mod tests {
-    use crate::metrics::{is_valid_metric_name, make_valid_message, make_valid_tag};
+    use std::borrow::Cow;
+
+    use super::{make_valid_message, make_valid_metric_name, make_valid_tag};
     use crate::metrics_tag as tag;
 
     #[derive(Debug)]
@@ -461,37 +484,44 @@ mod tests {
     }
 
     #[test]
-    fn test_valid_name() {
-        assert!(is_valid_metric_name("b"));
-        assert!(is_valid_metric_name("bob"));
-        assert!(is_valid_metric_name("BoB"));
-        assert!(is_valid_metric_name("B1"));
-        assert!(is_valid_metric_name("B.0"));
-        assert!(is_valid_metric_name("B_b"));
-        assert!(is_valid_metric_name("app.request_time.ns"));
-        assert!(is_valid_metric_name("bobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbob"));
-        assert!(!is_valid_metric_name(""));
-        assert!(!is_valid_metric_name("."));
-        assert!(!is_valid_metric_name("9"));
-        assert!(!is_valid_metric_name("99"));
-        assert!(!is_valid_metric_name("_hello"));
-        assert!(!is_valid_metric_name("::hello"));
-        assert!(!is_valid_metric_name("app::hello"));
-        assert!(!is_valid_metric_name("num bobs"));
-        assert!(!is_valid_metric_name("num.bobs.🦀"));
-        assert!(!is_valid_metric_name("bobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobAbobbobbobA"));
+    fn test_make_valid_metric_name() {
+        let strs = [
+            ("b", "b"),
+            ("BoB", "BoB"),
+            ("B.1", "B.1"),
+            ("B_2", "B_2"),
+            (".", "Z."),
+            ("_", "Z_"),
+            ("9", "Z9"),
+            ("app:hello", "app_hello"),
+            ("store.write.ns", "store.write.ns"),
+            ("store#", "store_"),
+            ("store.p99", "store.p99"),
+            ("#p99", "Z_p99"),
+            ("", "empty_metric"),
+            ("STORE_P99.9", "STORE_P99.9"),
+            ("S!Help", "S_Help"),
+            ("num.bobs.🦀", "num.bobs.____"),
+        ];
+        for (input, expected) in strs {
+            let actual = make_valid_metric_name(Cow::Borrowed(input));
+            assert_eq!(expected, actual, "with input '{input}'")
+        }
     }
-
     #[test]
     fn test_make_valid_message() {
-        assert_eq!("bobbins", &make_valid_message("bobbins"));
-        assert_eq!("hello_world", &make_valid_message("hello_world"));
-        assert_eq!("hello_world", &make_valid_message("hello\nworld"));
-        assert_eq!("hello_world", &make_valid_message("hello!world"));
-        assert_eq!(
-            "hello from  127.0.0.1_8080",
-            &make_valid_message("hello from  127.0.0.1:8080")
-        );
+        let strs = [
+            ("", ""),
+            ("bobbins", "bobbins"),
+            ("hello_world", "hello_world"),
+            ("hello\nworld", "hello_world"),
+            ("Hello!world", "Hello_world"),
+            ("hello from  127.0.0.1:8080", "hello from  127.0.0.1_8080"),
+        ];
+        for (input, expected) in strs {
+            let actual = make_valid_message(Cow::Borrowed(input));
+            assert_eq!(expected, actual, "with input '{input}");
+        }
     }
 
     #[test]
@@ -507,7 +537,7 @@ mod tests {
             ("msg:help!", "msg:help_"),
             ("f:|#5000", "f:__5000"),
             ("", "empty_tag"),
-            ("state:🦀y", "state:_y"),
+            ("state:🦀y", "state:____y"),
             ("#size:10", "Z_size:10"),
             ("#:42", "Z_:42"),
             (":42", "Z:42"),
