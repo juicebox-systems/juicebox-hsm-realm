@@ -628,22 +628,23 @@ impl<T: Transport + 'static> Agent<T> {
         config: Vec<HsmId>,
         starting_index: LogIndex,
     ) {
-        // The HSM will return Ok to become_leader if its already leader.
+        // The HSM will return Ok to become_leader if it's already leader.
         // When we get here we might already be leading.
-        let start = if let Entry::Vacant(entry) =
-            self.0.state.lock().unwrap().leader.entry((realm, group))
-        {
-            entry.insert(LeaderState {
-                append_queue: HashMap::new(),
-                appending: AppendingState::NotAppending {
-                    next: starting_index.next(),
-                },
-                last_appended: None,
-                response_channels: HashMap::new(),
-            });
-            true
-        } else {
-            false
+        let start = {
+            let mut locked = self.0.state.lock().unwrap();
+            if let Entry::Vacant(entry) = locked.leader.entry((realm, group)) {
+                entry.insert(LeaderState {
+                    append_queue: HashMap::new(),
+                    appending: AppendingState::NotAppending {
+                        next: starting_index.next(),
+                    },
+                    last_appended: None,
+                    response_channels: HashMap::new(),
+                });
+                true
+            } else {
+                false
+            }
         };
         if start {
             self.start_group_committer(realm, group, config);
