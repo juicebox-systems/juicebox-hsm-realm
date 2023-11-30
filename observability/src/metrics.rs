@@ -324,7 +324,7 @@ pub fn make_valid_message(m: &str) -> String {
 pub fn make_valid_tag(tag: String) -> String {
     let mut chars = tag.char_indices();
     let first_invalid: Option<(usize, char)> = match chars.next() {
-        None => return tag,
+        None => return String::from("empty_tag"),
         Some((_idx, 'a'..='z')) => chars.find(|(_, c)| !is_valid_tag_char(*c)),
         Some((idx, c)) => Some((idx, c)),
     };
