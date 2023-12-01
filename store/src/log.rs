@@ -1,6 +1,7 @@
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
 use google::bigtable::v2::column_range::{EndQualifier, StartQualifier};
+use google::bigtable::v2::row_filter::Chain;
 use google::bigtable::v2::row_range::{EndKey::EndKeyClosed, StartKey::StartKeyClosed};
 use google::bigtable::v2::{
     mutation, read_rows_request, row_filter::Filter, CheckAndMutateRowRequest, ColumnRange,
@@ -9,6 +10,7 @@ use google::bigtable::v2::{
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::time::Instant;
+use thiserror::Error;
 use tonic::Code;
 use tracing::{info, instrument, trace, warn, Span};
 
@@ -75,6 +77,7 @@ pub(super) async fn initialize(
     Ok(())
 }
 
+#[derive(Debug, Eq, PartialEq)]
 struct DownwardLogIndex(LogIndex);
 
 impl DownwardLogIndex {
@@ -82,6 +85,30 @@ impl DownwardLogIndex {
         let index: LogIndex = self.0;
         let index: u64 = index.0;
         (u64::MAX - index).to_be_bytes()
+    }
+}
+
+impl From<[u8; 8]> for DownwardLogIndex {
+    fn from(value: [u8; 8]) -> Self {
+        let i = u64::from_be_bytes(value);
+        DownwardLogIndex(LogIndex(u64::MAX - i))
+    }
+}
+
+#[derive(Debug, Eq, Error, PartialEq)]
+#[error("Invalid number of bytes provided, should be 8")]
+struct DownwardLogIndexInvalidLength;
+
+impl TryFrom<&[u8]> for DownwardLogIndex {
+    type Error = DownwardLogIndexInvalidLength;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.len() != 8 {
+            Err(DownwardLogIndexInvalidLength)
+        } else {
+            let v: [u8; 8] = value.try_into().unwrap();
+            Ok(Self::from(v))
+        }
     }
 }
 
@@ -214,14 +241,21 @@ impl StoreClient {
                     }],
                 }),
                 filter: Some(RowFilter {
-                    filter: Some(Filter::ColumnRangeFilter(ColumnRange {
-                        family_name: String::from("f"),
-                        start_qualifier: Some(StartQualifier::StartQualifierClosed(
-                            DownwardLogIndex(index).bytes().to_vec(),
-                        )),
-                        end_qualifier: Some(EndQualifier::EndQualifierClosed(
-                            DownwardLogIndex(index).bytes().to_vec(),
-                        )),
+                    filter: Some(Filter::Chain(Chain {
+                        filters: vec![
+                            RowFilter {
+                                filter: Some(Filter::ColumnRangeFilter(ColumnRange {
+                                    family_name: String::from("f"),
+                                    start_qualifier: Some(StartQualifier::StartQualifierClosed(
+                                        DownwardLogIndex(index).bytes().to_vec(),
+                                    )),
+                                    end_qualifier: None,
+                                })),
+                            },
+                            RowFilter {
+                                filter: Some(Filter::CellsPerRowLimitFilter(1)),
+                            },
+                        ],
                     })),
                 }),
                 rows_limit: 1,
@@ -234,7 +268,11 @@ impl StoreClient {
         let entry: Option<LogEntry> = rows.into_iter().next().and_then(|(_key, cells)| {
             cells
                 .into_iter()
-                .find(|cell| cell.family == "f")
+                .find(|cell| {
+                    cell.family == "f"
+                        && DownwardLogIndex::try_from(cell.qualifier.as_slice())
+                            .is_ok_and(|i| i.0 == index)
+                })
                 .map(|cell| marshalling::from_slice(&cell.value).expect("TODO"))
         });
         if let Some(e) = &entry {
@@ -491,6 +529,21 @@ mod tests {
             [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd],
             DownwardLogIndex(LogIndex(2)).bytes()
         );
+        assert_eq!(
+            DownwardLogIndex(LogIndex(2)),
+            DownwardLogIndex::from([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd])
+        );
+        for i in [1, 2, 100, 42200032, u64::MAX / 2, u64::MAX - 1] {
+            let a = DownwardLogIndex(LogIndex(i));
+            let parsed = DownwardLogIndex::from(a.bytes());
+            let bytes_vec = a.bytes().to_vec();
+            let parsed_from_vec = DownwardLogIndex::try_from(bytes_vec.as_slice()).unwrap();
+            assert_eq!(a, parsed);
+            assert_eq!(a, parsed_from_vec);
+        }
+        let bytes: Vec<u8> = vec![1, 2, 3];
+        assert!(DownwardLogIndex::try_from(bytes.as_slice())
+            .is_err_and(|e| e == DownwardLogIndexInvalidLength));
     }
 
     #[test]

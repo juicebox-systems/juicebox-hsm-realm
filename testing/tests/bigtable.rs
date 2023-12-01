@@ -235,7 +235,13 @@ async fn read_log_entry() {
             .unwrap(),
         entry
     );
-
+    assert_eq!(
+        data.read_log_entry(&REALM, &GROUP_2, entry.index)
+            .await
+            .unwrap()
+            .unwrap(),
+        entry
+    );
     // insert a batch of log entries, the last one in the batch should then be the last_log_entry
     let mut entries = create_log_batch(entry.index.next(), entry.entry_mac.clone(), 10);
     data.append(&REALM, &GROUP_2, &entries, StoreDelta::default())
