@@ -93,6 +93,7 @@ mod tests {
             (Unit, "3 s "),
             (Unit, "3 "),
             (Unit, "3  "),
+            (Unit, "10    s"),
             (Unit, "1000"),
         ] {
             assert_eq!(Err(err), parse_duration(input), "{:?}", input);
