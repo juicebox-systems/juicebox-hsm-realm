@@ -182,7 +182,11 @@ impl Service<Request<IncomingBody>> for HttpHsm {
             };
             let request_bytes = request.collect().await?.to_bytes();
 
-            match hsm.0.lock().unwrap().handle_request(request_bytes.as_ref()) {
+            let result = {
+                let mut locked = hsm.0.lock().unwrap();
+                locked.handle_request(request_bytes.as_ref())
+            };
+            match result {
                 Err(HsmError::Deserialization(_)) => Ok(Response::builder()
                     .status(http::StatusCode::BAD_REQUEST)
                     .body(Full::from(Bytes::new()))
