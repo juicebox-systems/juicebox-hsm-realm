@@ -1,5 +1,5 @@
 name: 'Setup'
-description: 'Common environment setup, includes, rust, go, gcloud emulators'
+description: 'Common build/run environment setup, includes rust, go, gcloud emulators'
 inputs:
   rust_version:
     description: "The version of the rust toolchain to install"
@@ -8,14 +8,6 @@ inputs:
     description: "The list of components to include in the rust install"
     required: true
     default: "rustfmt, clippy"
-#  who-to-greet:  # id of input
-#    description: 'Who to greet'
-#    required: true
-#    default: 'World'
-#outputs:
-#  random-number:
-#    description: "Random number"
-#    value: ${{ steps.random-number-generator.outputs.random-number }}
 runs:
   using: "composite"
   steps:
@@ -45,16 +37,16 @@ runs:
     - name: Use Go path
       # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
       run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+      shell: bash
 
     - name: Pull GCP tools docker image
       run: docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+      shell: bash
 
     - name: Install Bigtable tools
       run: |
         command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
-
-#    - name: Install Protobuf Compiler
- #     run: sudo apt update && sudo apt install protobuf-compiler
+      shell: bash
 
     - name: Use Rust Cache
       uses: Swatinem/rust-cache@v2
@@ -62,3 +54,4 @@ runs:
         workspaces: |
           .
           sdk
+          sdk_client

@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
@@ -54,13 +54,27 @@ jobs:
     - name: Run unit tests on PowerPC
       run: ./test-ppc.sh
 
-  rust_x86:
-    name: Build x86 + Demo
+  xversion_sdk:
+    # runs the latest realm code built with its particular sdk version
+    # with a client built from a specific sdk release.
+    name: SDK Cross version test
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        sdk_version: ["0.2.0", "0.2.1", "main"]
     steps:
-    - name: Check out sources
-      uses: actions/checkout@v2
+    - name: Check out hsm sources
+      uses: actions/checkout@v4
       with:
+        submodules: recursive
+        token: ${{ secrets.ACCESS_TOKEN }}
+
+    - name: Check out sdk client sources
+      uses: actions/checkout@v4
+      with:
+        repository: "juicebox-systems/juicebox-sdk"
+        ref: ${{ matrix.sdk_version }}
+        path: "sdk_client"
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
 
@@ -68,21 +82,21 @@ jobs:
       uses: ./.github/actions/setup
       with:
         rust_version: ${{ env.INSTALL_RUST_VERSION }}
-  
-    - name: Build demo
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --manifest-path sdk/rust/cli/demo/Cargo.toml
 
-    - name: Run cargo build
+    - name: build realm
       uses: actions-rs/cargo@v1
       with:
         command: build
+
+    - name: Build client
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --manifest-path sdk_client/rust/cli/demo/Cargo.toml
 
     - name: Run demo
       run: |
-        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/target/debug/demo
+        RUST_BACKTRACE=1 target/debug/demo_runner --demo sdk_client/target/debug/demo
       shell: bash
 
   swift_demo:
@@ -178,7 +192,7 @@ jobs:
 
     - name: Run demo
       run: |
-        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/swift/demo/.build/debug/demo
+        RUST_BACKTRACE=1 target/debug/demo_runner --demo sdk/swift/demo/.build/debug/demo
       shell: bash
 
   lint_and_test:
@@ -190,7 +204,7 @@ jobs:
     runs-on: ubuntu-latest-m
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
@@ -260,7 +274,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
@@ -269,7 +283,7 @@ jobs:
       uses: ./.github/actions/setup
       with:
         rust_version: ${{ env.INSTALL_RUST_VERSION }}
- 
+
     - uses: actions/setup-node@v3
       with:
         # it's not possible to pin certs yet with the experimental fetch in node 18,
@@ -294,7 +308,7 @@ jobs:
 
     - name: Run demo
       run: |
-        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/javascript/demo/demo.ts
+        RUST_BACKTRACE=1 target/debug/demo_runner --demo sdk/javascript/demo/demo.ts
       shell: bash
 
   entrust:
@@ -302,7 +316,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
