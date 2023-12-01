@@ -104,7 +104,7 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let mc = metrics::Client::new_with_tags("service_checker", [tag!("env":"{}",args.env)]);
+    let mc = metrics::Client::new_with_tags("service_checker", [tag!("env": args.env)]);
 
     let mut res;
     loop {
@@ -416,7 +416,7 @@ impl http::Client for HttpReporter {
         request
             .headers
             .insert(String::from("pragma"), String::from("server-timing"));
-        let tag_url = tag!("url":"{}",request.url);
+        let tag_url = tag!("url": request.url);
         let result = self.client.send(request).await;
         let elapsed = start.elapsed();
         let mut cdn: Option<CdnInfo> = None;
@@ -434,7 +434,7 @@ impl http::Client for HttpReporter {
             } else if let Some(ray) = r.headers.get("cf-ray") {
                 cdn = Some(CdnInfo::CloudFlare { ray: ray.clone() })
             }
-            let tag_status = tag!("status_code":"{}",r.status_code);
+            let tag_status = tag!("status_code": r.status_code);
             if let Some(exec) = r.headers.get("x-exec-time") {
                 if let Ok(nanos) = exec.parse() {
                     let nanos = Duration::from_nanos(nanos);

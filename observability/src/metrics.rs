@@ -11,35 +11,65 @@ use tracing::warn;
 ///
 /// ```ignore
 /// use crate::metrics_tag as tag;
-/// tag!(?debugged);
 /// tag!(displayed);
-/// tag!(format: "for{}ted", "mat");
-/// tag!("format": "literal");
+/// tag!(?debugged);
+/// tag!("name": displayed);
+/// tag!("name": ?debugged);
+/// tag!("name": format_args!("for{}ted", "mat"));
+/// tag!(variable_containing_name: 3));
 /// ```
 #[macro_export]
 macro_rules! metrics_tag {
-    ($k:ident) => {{
-        $crate::metrics::Tag::from(format!("{}:{}", stringify!($k), $k))
+    // displayed
+    ($var:ident) => {{
+        $crate::internal_metrics_tag_from_parts!(
+            (format_args!("{}", stringify!($var))) : (format_args!("{}", $var))
+        )
     }};
-    (?$k:ident) => {{
-        $crate::metrics::Tag::from(format!("{}:{:?}", stringify!($k), $k))
+    // ?debugged
+    (?$var:ident) => {{
+        $crate::internal_metrics_tag_from_parts!(
+            (format_args!("{}", stringify!($var))) : (format_args!("{:?}", $var))
+        )
     }};
-    ($k:ident : $($arg:tt)*) => {{
-        $crate::metrics::Tag::from(format!("{}:{}", stringify!($k), format_args!($($arg)*)))
+    // "name": displayed
+    ($name:tt : $value:expr) => {{
+        $crate::internal_metrics_tag_from_parts!(
+            (format_args!("{}", $name)) : (format_args!("{}", $value))
+        )
     }};
-    ($k:tt : $($arg:tt)*) => {{
-        $crate::metrics::Tag::from(format!("{}:{}", $k, format_args!($($arg)*)))
+    // "name": ?debugged
+    ($name:tt : ?$value:expr) => {{
+        $crate::internal_metrics_tag_from_parts!(
+            (format_args!("{}", $name)) : (format_args!("{:?}", $value))
+        )
+    }};
+}
+
+/// Helper for [`metrics_tag!`].
+///
+/// This would ideally be a normal function taking `fmt::Arguments`, but that
+/// interacts poorly with async/async_trait.
+///
+/// `$name` and `$value` should be of type `fmt::Arguments`.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! internal_metrics_tag_from_parts {
+    ($name:tt : $value:tt) => {{
+        use ::std::borrow::Cow;
+        let mut name_str = match $name.as_str() {
+            Some(static_str) => Cow::Borrowed(static_str),
+            None => Cow::Owned($name.to_string()),
+        };
+        if name_str.contains(':') {
+            name_str = Cow::Owned(name_str.replace(':', "_"))
+        }
+        $crate::metrics::internal::make_valid_tag(format!("{}:{}", name_str, $value))
     }};
 }
 
 #[derive(Debug)]
 pub struct Tag(String);
-
-impl From<String> for Tag {
-    fn from(s: String) -> Self {
-        Self(make_valid_tag(s))
-    }
-}
 
 impl AsRef<str> for Tag {
     fn as_ref(&self) -> &str {
@@ -77,7 +107,7 @@ impl Client {
         I: IntoIterator<Item = Tag>,
     {
         let mut options = dogstatsd::OptionsBuilder::new();
-        options.default_tag(metrics_tag!(service: "{service_name}").0);
+        options.default_tag(metrics_tag!("service": service_name).0);
         for tag in tags {
             options.default_tag(tag.0);
         }
@@ -317,24 +347,30 @@ fn make_valid_message(msg: Cow<'_, str>) -> Cow<'_, str> {
     make_valid_string(msg, "", valid, valid, |_c| b'_')
 }
 
-// https://docs.datadoghq.com/developers/guide/what-best-practices-are-recommended-for-naming-metrics-and-tags/
-// Returns the supplied tag with any uppercase characters converted to lowercase
-// and any invalid characters replaced with _.
-fn make_valid_tag(tag: String) -> String {
-    make_valid_string(
-        Cow::Owned(tag),
-        "empty_tag",
-        |c| c.is_ascii_lowercase(),
-        |c| matches!(c, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b':' |b'.' | b'/'),
-        |c| {
-            if c.is_ascii_alphabetic() {
-                c.to_ascii_lowercase()
-            } else {
-                b'_'
-            }
-        },
-    )
-    .into_owned()
+#[doc(hidden)]
+pub mod internal {
+    use super::{make_valid_string, Tag};
+    use std::borrow::Cow;
+
+    // https://docs.datadoghq.com/developers/guide/what-best-practices-are-recommended-for-naming-metrics-and-tags/
+    // Returns the supplied tag with any uppercase characters converted to lowercase
+    // and any invalid characters replaced with _.
+    pub fn make_valid_tag(tag: String) -> Tag {
+        Tag(make_valid_string(
+            Cow::Owned(tag),
+            "empty_tag",
+            |c| c.is_ascii_lowercase(),
+            |c| matches!(c, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-' | b':' |b'.' | b'/'),
+            |c| {
+                if c.is_ascii_alphabetic() {
+                    c.to_ascii_lowercase()
+                } else {
+                    b'_'
+                }
+            },
+        )
+        .into_owned())
+    }
 }
 
 // Returns a version of the input that only contains the allowed characters by
@@ -471,7 +507,7 @@ mod tests {
     use std::borrow::Cow;
 
     use super::{
-        make_valid_event_text, make_valid_message, make_valid_metric_name, make_valid_tag,
+        internal::make_valid_tag, make_valid_event_text, make_valid_message, make_valid_metric_name,
     };
     use crate::metrics_tag as tag;
 
@@ -480,19 +516,31 @@ mod tests {
 
     #[test]
     fn test_tag() {
-        let debug = Debuggable;
-        assert_eq!(tag!(?debug).0, "debug:debuggable");
-
         let display = "Displayable";
+        let debug = Debuggable;
+        struct Struct {
+            display: &'static str,
+            debug: Debuggable,
+        }
+        let nested = Struct {
+            display: "Displayable",
+            debug: Debuggable,
+        };
+
         assert_eq!(tag!(display).0, "display:displayable");
-
-        assert_eq!(tag!(format: "Literal").0, "format:literal");
-
-        assert_eq!(tag!(format: "for{}ted", "mat").0, "format:formatted");
-
-        assert_eq!(tag!("format": "literal").0, "format:literal");
-
-        assert_eq!(tag!("format": "For{}ted", "mat").0, "format:formatted");
+        assert_eq!(tag!(?debug).0, "debug:debuggable");
+        assert_eq!(tag!("name": display).0, "name:displayable");
+        assert_eq!(tag!("name": nested.display).0, "name:displayable");
+        assert_eq!(tag!("name": ?nested.debug).0, "name:debuggable");
+        assert_eq!(tag!("name": "literal").0, "name:literal");
+        assert_eq!(tag!("na:me": "lit:eral").0, "na_me:lit:eral");
+        assert_eq!(tag!("na\nme": "lit\neral").0, "na_me:lit_eral");
+        assert_eq!(
+            tag!("name": format_args!("for{}ted", "mat")).0,
+            "name:formatted"
+        );
+        assert_eq!(tag!(display: 3).0, "displayable:3");
+        assert_eq!(tag!((format_args!("for{}ted", "mat")): 3).0, "formatted:3");
     }
 
     #[test]
@@ -556,7 +604,7 @@ mod tests {
         ];
         for (input, exp) in strs {
             let actual = make_valid_tag(String::from(input));
-            assert_eq!(exp, actual.as_str());
+            assert_eq!(exp, actual.0.as_str());
         }
     }
 
