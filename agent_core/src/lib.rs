@@ -997,7 +997,7 @@ impl<T: Transport + 'static> Agent<T> {
                     &partition.root_hash,
                     &rec_id,
                     &self.0.metrics,
-                    &[tag!(?realm), tag!(group: "{source:?}")],
+                    &[tag!(?realm), tag!("group": ?source)],
                 )
                 .await
                 {
@@ -1114,8 +1114,8 @@ impl<T: Transport + 'static> Agent<T> {
         let hsm = &self.0.hsm;
         let store = &self.0.store;
         let tags = [
-            tag!(realm: "{:?}", request.realm),
-            tag!(group: "{:?}", request.destination),
+            tag!("realm": ?request.realm),
+            tag!("group": ?request.destination),
         ];
 
         // This loop handles retries if the read from the store is stale. It's
@@ -1303,7 +1303,7 @@ impl<T: Transport + 'static> Agent<T> {
         let realm = request.realm;
         let group = request.group;
         let tags = [tag!(?realm), tag!(?group)];
-        let tenant_tag = tag!(tenant: "{}",request.tenant);
+        let tenant_tag = tag!("tenant": request.tenant);
         let tenant = request.tenant.clone();
         let user = request.user.clone();
         let record_id = request.record_id.clone();
@@ -1352,7 +1352,7 @@ impl<T: Transport + 'static> Agent<T> {
                     };
                     self.0.metrics.incr(
                         "realm.request.count",
-                        [tag!(?realm), tenant_tag, tag!(type: "{}", req_type_name)],
+                        [tag!(?realm), tenant_tag, tag!("type": req_type_name)],
                     );
                     if has_delta {
                         match request_type {

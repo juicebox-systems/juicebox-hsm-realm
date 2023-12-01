@@ -56,23 +56,25 @@ impl jb_http::Client for ReqwestClientMetrics {
 }
 
 fn error_tag(e: &Error) -> Tag {
-    if e.is_body() {
-        tag!("err": "body")
-    } else if e.is_builder() {
-        tag!("err": "builder")
-    } else if e.is_connect() {
-        tag!("err": "connect")
-    } else if e.is_decode() {
-        tag!("err": "decode")
-    } else if e.is_redirect() {
-        tag!("err": "redirect")
-    } else if e.is_request() {
-        tag!("err": "request")
-    } else if e.is_status() {
-        tag!("err": "status")
-    } else if e.is_timeout() {
-        tag!("err": "timeout")
-    } else {
-        tag!("err": "unknown")
-    }
+    tag!("err": (
+        if e.is_body() {
+            "body"
+        } else if e.is_builder() {
+            "builder"
+        } else if e.is_connect() {
+            "connect"
+        } else if e.is_decode() {
+            "decode"
+        } else if e.is_redirect() {
+            "redirect"
+        } else if e.is_request() {
+            "request"
+        } else if e.is_status() {
+            "status"
+        } else if e.is_timeout() {
+            "timeout"
+        } else {
+            "unknown"
+        }
+    ))
 }
