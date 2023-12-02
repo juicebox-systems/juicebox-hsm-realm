@@ -116,60 +116,29 @@ jobs:
     runs-on: macos-12-large
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
 
-    - name: Free up some space on image
-      # see https://github.com/actions/runner-images/issues/2840
-      run: |
-        sudo rm -rf /usr/share/dotnet
-      shell: bash
-
-    - name: Pull GCP tools docker image
+    - name: Setup docker
       # Colima is a container runtime. It's part of the base MacOS 12 github
       # runner image but not MacOS 13 (as of 2023-11).
+      shell: bash
       run: |
         brew install docker
         colima version
         colima start
-        docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        default: true
-        profile: minimal
-        toolchain: ${{ env.INSTALL_RUST_VERSION }}
-
-    - name: Use Go cache
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/go/bin
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-
-    - name: Use Go path
-      # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
-      run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-    - name: Install Bigtable tools
+    - name: Remove android emulator
+      shell: bash
       run: |
         rm /Users/runner/Library/Android/sdk/tools/emulator || true
-        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
-    - name: Install Protobuf Compiler
-      run: brew install protobuf
-
-    - name: Use Rust Cache
-      uses: Swatinem/rust-cache@v2
+    - name: Setup environment
+      uses: ./.github/actions/setup
       with:
-        workspaces: |
-          .
-          sdk
+        rust_version: ${{ env.INSTALL_RUST_VERSION }}
 
     - name: Run cargo build
       uses: actions-rs/cargo@v1
