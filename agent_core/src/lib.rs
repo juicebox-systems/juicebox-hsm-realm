@@ -628,22 +628,23 @@ impl<T: Transport + 'static> Agent<T> {
         config: Vec<HsmId>,
         starting_index: LogIndex,
     ) {
-        // The HSM will return Ok to become_leader if its already leader.
+        // The HSM will return Ok to become_leader if it's already leader.
         // When we get here we might already be leading.
-        let start = if let Entry::Vacant(entry) =
-            self.0.state.lock().unwrap().leader.entry((realm, group))
-        {
-            entry.insert(LeaderState {
-                append_queue: HashMap::new(),
-                appending: AppendingState::NotAppending {
-                    next: starting_index.next(),
-                },
-                last_appended: None,
-                response_channels: HashMap::new(),
-            });
-            true
-        } else {
-            false
+        let start = {
+            let mut locked = self.0.state.lock().unwrap();
+            if let Entry::Vacant(entry) = locked.leader.entry((realm, group)) {
+                entry.insert(LeaderState {
+                    append_queue: HashMap::new(),
+                    appending: AppendingState::NotAppending {
+                        next: starting_index.next(),
+                    },
+                    last_appended: None,
+                    response_channels: HashMap::new(),
+                });
+                true
+            } else {
+                false
+            }
         };
         if start {
             self.start_group_committer(realm, group, config);
@@ -996,7 +997,7 @@ impl<T: Transport + 'static> Agent<T> {
                     &partition.root_hash,
                     &rec_id,
                     &self.0.metrics,
-                    &[tag!(?realm), tag!(group: "{source:?}")],
+                    &[tag!(?realm), tag!("group": ?source)],
                 )
                 .await
                 {
@@ -1113,8 +1114,8 @@ impl<T: Transport + 'static> Agent<T> {
         let hsm = &self.0.hsm;
         let store = &self.0.store;
         let tags = [
-            tag!(realm: "{:?}", request.realm),
-            tag!(group: "{:?}", request.destination),
+            tag!("realm": ?request.realm),
+            tag!("group": ?request.destination),
         ];
 
         // This loop handles retries if the read from the store is stale. It's
@@ -1302,7 +1303,7 @@ impl<T: Transport + 'static> Agent<T> {
         let realm = request.realm;
         let group = request.group;
         let tags = [tag!(?realm), tag!(?group)];
-        let tenant_tag = tag!(tenant: "{}",request.tenant);
+        let tenant_tag = tag!("tenant": request.tenant);
         let tenant = request.tenant.clone();
         let user = request.user.clone();
         let record_id = request.record_id.clone();
@@ -1351,7 +1352,7 @@ impl<T: Transport + 'static> Agent<T> {
                     };
                     self.0.metrics.incr(
                         "realm.request.count",
-                        [tag!(?realm), tenant_tag, tag!(type: "{}", req_type_name)],
+                        [tag!(?realm), tenant_tag, tag!("type": req_type_name)],
                     );
                     if has_delta {
                         match request_type {

@@ -485,7 +485,7 @@ async fn handle_client_request(
     .await;
 
     add_client_response(&mut tags, &result);
-    tags.push(tag!(realm: "{:?}", request.realm));
+    tags.push(tag!("realm": ?request.realm));
 
     metrics.timing("load_balancer.request.time", start.elapsed(), tags);
     result
@@ -543,14 +543,14 @@ async fn handle_client_request_inner(
         user: &claims.subject,
     }
     .build(record_id_randomization_key);
-    request_tags.push(tag!(missing_scope: "{}", claims.scope.is_none()));
-    request_tags.push(tag!(tenant: "{}", claims.issuer));
+    request_tags.push(tag!("missing_scope": claims.scope.is_none()));
+    request_tags.push(tag!("tenant": claims.issuer));
 
     for partition in partitions {
         if !partition.owned_range.contains(&record_id) {
             continue;
         }
-        request_tags.push(tag!(group: "{:?}", partition.group));
+        request_tags.push(tag!("group": partition.group));
 
         match rpc::send(
             agent_client,
