@@ -7,10 +7,10 @@ use google::bigtable::v2::{
     mutation, read_rows_request, row_filter::Filter, CheckAndMutateRowRequest, ColumnRange,
     Mutation, ReadRowsRequest, RowFilter, RowRange, RowSet,
 };
+use std::array::TryFromSliceError;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::time::Instant;
-use thiserror::Error;
 use tonic::Code;
 use tracing::{info, instrument, trace, warn, Span};
 
@@ -95,20 +95,12 @@ impl From<[u8; 8]> for DownwardLogIndex {
     }
 }
 
-#[derive(Debug, Eq, Error, PartialEq)]
-#[error("Invalid number of bytes provided, should be 8")]
-struct DownwardLogIndexInvalidLength;
-
 impl TryFrom<&[u8]> for DownwardLogIndex {
-    type Error = DownwardLogIndexInvalidLength;
+    type Error = TryFromSliceError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() != 8 {
-            Err(DownwardLogIndexInvalidLength)
-        } else {
-            let v: [u8; 8] = value.try_into().unwrap();
-            Ok(Self::from(v))
-        }
+        let v: [u8; 8] = value.try_into()?;
+        Ok(Self::from(v))
     }
 }
 
@@ -542,8 +534,7 @@ mod tests {
             assert_eq!(a, parsed_from_vec);
         }
         let bytes: Vec<u8> = vec![1, 2, 3];
-        assert!(DownwardLogIndex::try_from(bytes.as_slice())
-            .is_err_and(|e| e == DownwardLogIndexInvalidLength));
+        assert!(DownwardLogIndex::try_from(bytes.as_slice()).is_err());
     }
 
     #[test]
