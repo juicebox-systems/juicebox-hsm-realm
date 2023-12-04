@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
@@ -54,69 +54,49 @@ jobs:
     - name: Run unit tests on PowerPC
       run: ./test-ppc.sh
 
-  rust_x86:
-    name: Build x86 + Demo
+  cross_version_sdk:
+    # runs the latest realm code built with its particular sdk version
+    # with a client built from a specific sdk release.
+    name: SDK Cross version test
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        sdk_version: ["0.2.0", "0.2.1", "main"]
     steps:
-    - name: Check out sources
-      uses: actions/checkout@v2
+    - name: Check out hsm sources
+      uses: actions/checkout@v4
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
 
-    - name: Free up some space on image
-      # see https://github.com/actions/runner-images/issues/2840
-      run: |
-        sudo rm -rf /usr/share/dotnet
-      shell: bash
-
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
+    - name: Check out sdk client sources
+      uses: actions/checkout@v4
       with:
-        default: true
-        profile: minimal
-        toolchain: ${{ env.INSTALL_RUST_VERSION }}
+        repository: "juicebox-systems/juicebox-sdk"
+        ref: ${{ matrix.sdk_version }}
+        path: "sdk_client"
+        submodules: recursive
+        token: ${{ secrets.ACCESS_TOKEN }}
 
-    - name: Use Go cache
-      uses: actions/cache@v3
+    - name: setup environment
+      uses: ./.github/actions/setup
       with:
-        path: |
-          ~/go/bin
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
+        rust_version: ${{ env.INSTALL_RUST_VERSION }}
 
-    - name: Use Go path
-      # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
-      run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-    - name: Pull GCP tools docker image
-      run: docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
-
-    - name: Install Bigtable tools
-      run: |
-        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
-
-    - name: Install Protobuf Compiler
-      run: sudo apt update && sudo apt install protobuf-compiler
-
-    - name: Use Rust Cache
-      uses: Swatinem/rust-cache@v2
-
-    - name: Build demo
+    - name: build realm
       uses: actions-rs/cargo@v1
       with:
         command: build
-        args: --manifest-path sdk/rust/cli/demo/Cargo.toml
 
-    - name: Run cargo build
+    - name: Build client
       uses: actions-rs/cargo@v1
       with:
         command: build
+        args: --manifest-path sdk_client/rust/cli/demo/Cargo.toml
 
     - name: Run demo
       run: |
-        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/target/debug/demo
+        RUST_BACKTRACE=1 target/debug/demo_runner --demo sdk_client/target/debug/demo
       shell: bash
 
   swift_demo:
@@ -136,60 +116,31 @@ jobs:
     runs-on: macos-12-large
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
 
-    - name: Free up some space on image
-      # see https://github.com/actions/runner-images/issues/2840
-      run: |
-        sudo rm -rf /usr/share/dotnet
-      shell: bash
-
-    - name: Pull GCP tools docker image
+    - name: Setup docker
       # Colima is a container runtime. It's part of the base MacOS 12 github
       # runner image but not MacOS 13 (as of 2023-11).
+      shell: bash
       run: |
         brew install docker
         colima version
         colima start
-        docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        default: true
-        profile: minimal
-        toolchain: ${{ env.INSTALL_RUST_VERSION }}
-
-    - name: Use Go cache
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/go/bin
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-
-    - name: Use Go path
-      # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
-      run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-    - name: Install Bigtable tools
+    - name: Remove android emulator
+      # This is on the path and clashes with the bigtable emulator which is also
+      # called emulator.
+      shell: bash
       run: |
         rm /Users/runner/Library/Android/sdk/tools/emulator || true
-        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
 
-    - name: Install Protobuf Compiler
-      run: brew install protobuf
-
-    - name: Use Rust Cache
-      uses: Swatinem/rust-cache@v2
+    - name: Setup environment
+      uses: ./.github/actions/setup
       with:
-        workspaces: |
-          .
-          sdk
+        rust_version: ${{ env.INSTALL_RUST_VERSION }}
 
     - name: Run cargo build
       uses: actions-rs/cargo@v1
@@ -212,7 +163,7 @@ jobs:
 
     - name: Run demo
       run: |
-        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/swift/demo/.build/debug/demo
+        RUST_BACKTRACE=1 target/debug/demo_runner --demo sdk/swift/demo/.build/debug/demo
       shell: bash
 
   lint_and_test:
@@ -224,44 +175,15 @@ jobs:
     runs-on: ubuntu-latest-m
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
+    - name: setup environment
+      uses: ./.github/actions/setup
       with:
-        components: rustfmt, clippy
-        default: true
-        profile: minimal
-        toolchain: ${{ env.INSTALL_RUST_VERSION }}
-
-    - name: Use Go cache
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/go/bin
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-
-    - name: Use Go path
-      # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
-      run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-    - name: Pull GCP tools docker image
-      run: docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
-
-    - name: Install Bigtable tools
-      run: |
-        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
-
-    - name: Install Protobuf Compiler
-      run: sudo apt update && sudo apt install protobuf-compiler
-
-    - name: Use Rust Cache
-      uses: Swatinem/rust-cache@v2
+        rust_version: ${{ env.INSTALL_RUST_VERSION }}
 
     - name: Run cargo build
       uses: actions-rs/cargo@v1
@@ -323,47 +245,15 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
+    - name: setup environment
+      uses: ./.github/actions/setup
       with:
-        default: true
-        profile: minimal
-        toolchain: ${{ env.INSTALL_RUST_VERSION }}
-
-    - name: Use Go cache
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/go/bin
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-
-    - name: Use Go path
-      # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
-      run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-    - name: Pull GCP tools docker image
-      run: docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
-
-    - name: Install Bigtable tools
-      run: |
-        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
-
-    - name: Install Protobuf Compiler
-      run: sudo apt update && sudo apt install protobuf-compiler
-
-    - name: Use Rust Cache
-      uses: Swatinem/rust-cache@v2
-      with:
-        workspaces: |
-          .
-          sdk
+        rust_version: ${{ env.INSTALL_RUST_VERSION }}
 
     - uses: actions/setup-node@v3
       with:
@@ -389,7 +279,7 @@ jobs:
 
     - name: Run demo
       run: |
-        RUST_BACKTRACE=1 cargo run --bin demo_runner -- --demo sdk/javascript/demo/demo.ts
+        RUST_BACKTRACE=1 target/debug/demo_runner --demo sdk/javascript/demo/demo.ts
       shell: bash
 
   entrust:
@@ -397,7 +287,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Check out sources
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
         token: ${{ secrets.ACCESS_TOKEN }}

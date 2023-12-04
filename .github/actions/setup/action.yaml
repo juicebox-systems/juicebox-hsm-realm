@@ -1,0 +1,57 @@
+name: 'Setup'
+description: 'Common build/run environment setup, includes rust, go, gcloud emulators'
+inputs:
+  rust_version:
+    description: "The version of the rust toolchain to install"
+    required: true
+  rust_components:
+    description: "The list of components to include in the rust install"
+    required: true
+    default: "rustfmt, clippy"
+runs:
+  using: "composite"
+  steps:
+    - name: Free up some space on image
+      # see https://github.com/actions/runner-images/issues/2840
+      run: |
+        sudo rm -rf /usr/share/dotnet
+      shell: bash
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        components: ${{ inputs.rust_components }}
+        default: true
+        profile: minimal
+        toolchain: ${{ inputs.rust_version }}
+
+    - name: Use Go cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/go/bin
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Use Go path
+      # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#adding-a-system-path
+      run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+      shell: bash
+
+    - name: Pull GCP tools docker image
+      run: docker pull gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+      shell: bash
+
+    - name: Install Bigtable tools
+      run: |
+        command -V emulator || go install cloud.google.com/go/bigtable/cmd/emulator@latest
+      shell: bash
+
+    - name: Use Rust Cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: |
+          .
+          sdk
+          sdk_client
