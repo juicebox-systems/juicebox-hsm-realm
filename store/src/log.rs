@@ -532,6 +532,10 @@ mod tests {
     #[test]
     fn test_downward_logindex() {
         assert_eq!(
+            [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+            DownwardLogIndex(LogIndex(0)).bytes()
+        );
+        assert_eq!(
             [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe],
             DownwardLogIndex(LogIndex(1)).bytes()
         );
@@ -540,10 +544,14 @@ mod tests {
             DownwardLogIndex(LogIndex(2)).bytes()
         );
         assert_eq!(
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            DownwardLogIndex(LogIndex(u64::MAX)).bytes()
+        );
+        assert_eq!(
             DownwardLogIndex(LogIndex(2)),
             DownwardLogIndex::from([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd])
         );
-        for i in [1, 2, 100, 42200032, u64::MAX / 2, u64::MAX - 1] {
+        for i in [0, 1, 2, 100, 42200032, u64::MAX / 2, u64::MAX - 1, u64::MAX] {
             let a = DownwardLogIndex(LogIndex(i));
             let parsed = DownwardLogIndex::from(a.bytes());
             let bytes_vec = a.bytes().to_vec();
