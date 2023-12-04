@@ -236,6 +236,12 @@ impl StoreClient {
                     filter: Some(Filter::Chain(Chain {
                         filters: vec![
                             RowFilter {
+                                // Read the requested log entry, or if that
+                                // doesn't exist the highest log entry with an
+                                // index < requested index. This ensures the
+                                // rows_limit:1 kicks in an stops the query.
+                                // rows_limit is a results rows limit not a scan
+                                // limit.
                                 filter: Some(Filter::ColumnRangeFilter(ColumnRange {
                                     family_name: String::from("f"),
                                     start_qualifier: Some(StartQualifier::StartQualifierClosed(
