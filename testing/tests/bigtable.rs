@@ -418,7 +418,7 @@ async fn read_log_entries() {
     assert_eq!(
         &entries[10..],
         &r,
-        "should have returned entire 2nd log row"
+        "should have returned entire 3rd log row"
     );
     assert!(it.next().await.unwrap().is_empty());
 

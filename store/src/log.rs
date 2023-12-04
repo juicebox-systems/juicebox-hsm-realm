@@ -423,7 +423,7 @@ impl LogEntriesIter {
         &self,
         index: LogIndex,
     ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
-        read_rows(
+        let mut rows = read_rows(
             &mut self.client.bigtable.clone(),
             ReadRowsRequest {
                 table_name: self.table_name.clone(),
@@ -438,10 +438,16 @@ impl LogEntriesIter {
                 filter: Some(RowFilter {
                     filter: Some(Filter::ColumnRangeFilter(ColumnRange {
                         family_name: String::from("f"),
+                        // We don't filter on index here because if the entry
+                        // for the index doesn't yet exist, we need the
+                        // row_limits:1 to kick in and prevent the query from
+                        // scanning the entire log.
+
+                        // Its not worth trying to optimize this filter as
+                        // read_for_log_index is only used at the startup of the
+                        // log watcher.
                         start_qualifier: None,
-                        end_qualifier: Some(EndQualifier::EndQualifierClosed(
-                            DownwardLogIndex(index).bytes().to_vec(),
-                        )),
+                        end_qualifier: None,
                     })),
                 }),
                 rows_limit: 1,
@@ -449,7 +455,13 @@ impl LogEntriesIter {
                 reversed: false,
             },
         )
-        .await
+        .await?;
+        for row in &mut rows {
+            row.1.retain(|cell| {
+                DownwardLogIndex::try_from(cell.qualifier.as_slice()).is_ok_and(|i| i.0 >= index)
+            });
+        }
+        Ok(rows)
     }
 
     async fn read_for_row_boundary(
