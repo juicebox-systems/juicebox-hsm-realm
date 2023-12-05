@@ -8,30 +8,14 @@ rust-version = { workspace = true }
 
 [dependencies]
 agent_core = { workspace = true }
-anyhow = { workspace = true }
 async-trait = { workspace = true }
-blake2 = { workspace = true }
-bytes = { workspace = true }
 clap = { workspace = true }
-futures = { workspace = true }
-hex = { workspace = true }
-hkdf = { workspace = true }
-hmac = { workspace = true }
-hsm_api = { workspace = true }
-hsm_core = { workspace = true }
-http = { workspace = true }
-http-body-util = { workspace = true }
-hyper = { workspace = true }
-juicebox_marshalling = { workspace = true }
 observability = { workspace = true }
-opentelemetry = { workspace = true }
-rand = { workspace = true }
-reqwest = { workspace = true }
+service_core = { workspace = true }
+software_hsm_client = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-opentelemetry = { workspace = true }
 url = { workspace = true }
-x25519-dalek = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }

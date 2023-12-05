@@ -28,7 +28,6 @@ juicebox_networking = { workspace = true }
 juicebox_realm_api = { workspace = true }
 observability = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry-http = { workspace = true }
 pubsub_api = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }

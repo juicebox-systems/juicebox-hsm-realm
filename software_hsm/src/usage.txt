@@ -1,0 +1,11 @@
+Software HSM
+
+Usage: software_hsm [OPTIONS] --key <KEY>
+
+Options:
+  -k, --key <KEY>              Derive realm keys from this input (insecure)
+  -s, --state-dir <STATE_DIR>  Directory to store the persistent state file in [default: a random temp dir]
+  -l, --listen <LISTEN>        The IP/port to listen on [default: 127.0.0.1:8078]
+  -n, --name <NAME>            Name of the hsm in logging [default: hsm{listen}]
+  -h, --help                   Print help
+  -V, --version                Print version

@@ -27,7 +27,6 @@ juicebox_realm_api = { workspace = true }
 juicebox_realm_auth = { workspace = true }
 observability = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry-http = { workspace = true }
 pin-project-lite = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }

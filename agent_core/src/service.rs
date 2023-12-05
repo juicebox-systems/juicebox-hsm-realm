@@ -12,6 +12,7 @@ use crate::Agent;
 use google::{auth, GrpcConnectionOptions};
 use observability::{logging, metrics};
 use service_core::clap_parsers::{parse_duration, parse_listen};
+use service_core::future_task::FutureTask;
 use service_core::panic;
 use service_core::term::install_termination_handler;
 
@@ -81,11 +82,11 @@ pub struct AgentArgs<SA: Args + Debug> {
         default_value_t = SocketAddr::from(([127,0,0,1], 8082)),
         value_parser=parse_listen,
     )]
-    listen: SocketAddr,
+    pub listen: SocketAddr,
 
     /// Name of the agent in logging [default: agent{listen}].
     #[arg(short, long)]
-    name: Option<String>,
+    pub name: Option<String>,
 
     // Args for a specific type of agent service.
     #[command(flatten)]
@@ -107,7 +108,12 @@ where
     SA: Args + Debug,
     T: Transport,
 {
-    async fn construct(&mut self, args: &AgentArgs<SA>, metrics: &metrics::Client) -> T;
+    async fn construct(
+        &mut self,
+        args: &AgentArgs<SA>,
+        metrics: &metrics::Client,
+        // returns the transport and a shutdown task
+    ) -> (T, Option<FutureTask<()>>);
 }
 
 pub async fn main<SA, T>(
@@ -155,7 +161,11 @@ where
         .await
         .expect("Unable to connect to Bigtable admin");
 
-    let transport = transport_constructor.construct(&args, &metrics).await;
+    let (transport, transport_shutdown) = transport_constructor.construct(&args, &metrics).await;
+    if let Some(shutdown_task) = transport_shutdown {
+        shutdown_tasks.add(shutdown_task);
+    }
+
     let name = args.name();
     let hsm_client = HsmClient::new(transport, name.clone(), metrics.clone());
 
