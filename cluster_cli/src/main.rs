@@ -300,6 +300,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
                 auth_manager.clone().unwrap(),
                 Duration::MAX,
                 GrpcConnectionOptions::default(),
+                metrics.clone(),
             )
             .await
             .context("failed to load Google SecretManager secrets")?,

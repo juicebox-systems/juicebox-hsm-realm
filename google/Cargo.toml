@@ -9,6 +9,7 @@ rust-version = { workspace = true }
 [dependencies]
 gcp_auth = { workspace = true }
 http = { workspace = true }
+observability = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 tonic = { workspace = true }

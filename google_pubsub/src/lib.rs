@@ -46,8 +46,12 @@ impl Publisher {
     ) -> Result<Self, tonic::transport::Error> {
         let url = service_url.unwrap_or(Uri::from_static("https://pubsub.googleapis.com"));
         let endpoint = options.apply(Endpoint::from(url.clone())).connect().await?;
-        let channel =
-            AuthMiddleware::new(endpoint, auth, &["https://www.googleapis.com/auth/pubsub"]);
+        let channel = AuthMiddleware::new(
+            endpoint,
+            auth,
+            &["https://www.googleapis.com/auth/pubsub"],
+            metrics.clone(),
+        );
 
         let pub_client = PublisherClient::new(channel.clone());
         let sub_client = SubscriberClient::new(channel);

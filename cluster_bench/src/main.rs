@@ -20,7 +20,7 @@ use juicebox_sdk::{
     AuthToken, Configuration, Pin, PinHashingMode, Policy, RealmId, RecoverError, TokioSleeper,
     UserInfo, UserSecret, JUICEBOX_VERSION_HEADER, VERSION,
 };
-use observability::logging;
+use observability::{logging, metrics};
 use secret_manager::{
     new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
 };
@@ -432,6 +432,7 @@ async fn get_auth_key(
                     auth_manager,
                     Duration::MAX,
                     GrpcConnectionOptions::default(),
+                    metrics::Client::NONE,
                 )
                 .await
                 .context("failed to load secrets from Google Secret Manager")?,

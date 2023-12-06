@@ -333,7 +333,7 @@ mod tests {
         BigtableRunner::run(&mut pg, &bt_args).await;
 
         let store_admin = bt_args
-            .connect_admin(None)
+            .connect_admin(None, metrics::Client::NONE)
             .await
             .expect("failed to connect to bigtable admin service");
         store_admin

@@ -9,6 +9,8 @@ use tonic::transport::{Body, Channel};
 use tower_service::Service;
 use tracing::info;
 
+use observability::metrics;
+
 /// Initializes Google Cloud authentication from Application Default
 /// Credentials.
 ///
@@ -35,6 +37,7 @@ pub struct AuthMiddleware {
     channel: Channel,
     auth_manager: Option<Arc<AuthenticationManager>>,
     scopes: &'static [&'static str],
+    metrics: metrics::Client,
 }
 
 impl AuthMiddleware {
@@ -48,11 +51,13 @@ impl AuthMiddleware {
         channel: Channel,
         auth_manager: Option<Arc<AuthenticationManager>>,
         scopes: &'static [&'static str],
+        metrics: metrics::Client,
     ) -> Self {
         Self {
             channel,
             auth_manager,
             scopes,
+            metrics,
         }
     }
 }
@@ -80,11 +85,14 @@ impl Service<http::Request<BoxBody>> for AuthMiddleware {
 
         let auth_manager = self.auth_manager.clone();
         let scopes = self.scopes;
+        let metrics = self.metrics.clone();
 
         Box::pin(async move {
             if let Some(auth_manager) = auth_manager {
-                let token = auth_manager
-                    .get_token(scopes)
+                let token = metrics
+                    .async_time("gcp.get_token.ns", metrics::NO_TAGS, || {
+                        auth_manager.get_token(scopes)
+                    })
                     .await
                     .map_err(Self::Error::Auth)?;
 

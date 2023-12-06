@@ -12,6 +12,7 @@ use bigtable::{new_data_client, BigtableClient, Instance};
 use hsm_api::RecordId;
 use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::{Pin, Policy, RealmId, UserInfo, UserSecret};
+use observability::metrics;
 use store::tenants::tenant_user_table;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
@@ -61,9 +62,14 @@ async fn user_accounting() {
         project: bt_args.project,
         instance: bt_args.instance,
     };
-    let bt_client = new_data_client(bt_args.url.unwrap(), None, GrpcConnectionOptions::default())
-        .await
-        .unwrap();
+    let bt_client = new_data_client(
+        bt_args.url.unwrap(),
+        None,
+        GrpcConnectionOptions::default(),
+        metrics::Client::NONE,
+    )
+    .await
+    .unwrap();
 
     // The writing to the users table is done by a background task, so we might get to trying to read it before its been written.
     let mut users = Vec::new();

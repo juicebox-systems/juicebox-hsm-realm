@@ -78,7 +78,7 @@ async fn main() {
     let pubsub_url = pubsub::run(&mut process_group, 9091, bt_args.project.clone()).await;
 
     let store_admin = bt_args
-        .connect_admin(None)
+        .connect_admin(None, metrics::Client::NONE)
         .await
         .expect("failed to connect to bigtable admin service");
 

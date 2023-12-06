@@ -193,6 +193,7 @@ async fn main() {
                     auth_manager.unwrap(),
                     Duration::from_secs(5),
                     options,
+                    metrics.clone(),
                 )
                 .await
                 .expect("failed to load Google SecretManager secrets"),

@@ -36,7 +36,7 @@ async fn init_bt(
     BigtableRunner::run(pg, &args).await;
 
     let store_admin = args
-        .connect_admin(None)
+        .connect_admin(None, metrics::Client::NONE)
         .await
         .expect("failed to connect to bigtable admin service");
 

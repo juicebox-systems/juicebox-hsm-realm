@@ -9,6 +9,7 @@ version.workspace = true
 [dependencies]
 gcp_auth = { workspace = true }
 google = { workspace = true }
+observability = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }

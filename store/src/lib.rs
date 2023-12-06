@@ -133,6 +133,7 @@ impl BigtableArgs {
     pub async fn connect_admin(
         &self,
         auth_manager: AuthManager,
+        metrics: metrics::Client,
     ) -> Result<StoreAdminClient, tonic::transport::Error> {
         let admin_url = match &self.url {
             Some(u) => u.clone(),
@@ -155,7 +156,7 @@ impl BigtableArgs {
             http2_keepalive_timeout: self.http2_keepalive_timeout,
             http2_keepalive_while_idle: self.http2_keepalive_while_idle,
         };
-        StoreAdminClient::new(admin_url.clone(), instance, auth_manager, options).await
+        StoreAdminClient::new(admin_url.clone(), instance, auth_manager, options, metrics).await
     }
 
     pub fn add_to_cmd(&self, cmd: &mut Command) {
@@ -189,8 +190,9 @@ impl StoreAdminClient {
         instance: Instance,
         auth_manager: AuthManager,
         options: GrpcConnectionOptions,
+        metrics: metrics::Client,
     ) -> Result<Self, tonic::transport::Error> {
-        let bigtable = new_admin_client(url, auth_manager, options).await?;
+        let bigtable = new_admin_client(url, auth_manager, options, metrics).await?;
         Ok(Self { bigtable, instance })
     }
 
@@ -291,7 +293,8 @@ impl StoreClient {
         options: Options,
         conn_options: GrpcConnectionOptions,
     ) -> Result<Self, tonic::transport::Error> {
-        let bigtable = new_data_client(url, auth_manager, conn_options).await?;
+        let bigtable =
+            new_data_client(url, auth_manager, conn_options, options.metrics.clone()).await?;
         Ok(Self {
             bigtable,
             instance,

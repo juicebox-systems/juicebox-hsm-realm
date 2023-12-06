@@ -1,12 +1,7 @@
-use google::cloud::secretmanager::v1 as secretmanager;
-use google::GrpcConnectionOptions;
-
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use gcp_auth::AuthenticationManager;
 use http::Uri;
-use secretmanager::secret_manager_service_client::SecretManagerServiceClient;
-use secretmanager::{AccessSecretVersionRequest, ListSecretVersionsRequest, ListSecretsRequest};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
@@ -14,6 +9,11 @@ use tonic::transport::Endpoint;
 
 use super::{periodic::BulkLoad, Error, Secret, SecretName, SecretVersion};
 use google::auth::AuthMiddleware;
+use google::cloud::secretmanager::v1 as secretmanager;
+use google::GrpcConnectionOptions;
+use observability::metrics;
+use secretmanager::secret_manager_service_client::SecretManagerServiceClient;
+use secretmanager::{AccessSecretVersionRequest, ListSecretVersionsRequest, ListSecretsRequest};
 
 /// Like `projects/myproject`.
 #[derive(Debug, Clone)]
@@ -78,6 +78,7 @@ impl Client {
         auth_manager: Arc<AuthenticationManager>,
         list_secrets_filter: Option<String>,
         options: GrpcConnectionOptions,
+        metrics: metrics::Client,
     ) -> Result<Self, Error> {
         let channel = options
             .apply(Endpoint::from(Uri::from_static(
@@ -89,6 +90,7 @@ impl Client {
             channel,
             Some(auth_manager),
             &["https://www.googleapis.com/auth/cloud-platform.read-only"],
+            metrics,
         );
         Ok(Self {
             inner: SecretManagerServiceClient::new(channel),
