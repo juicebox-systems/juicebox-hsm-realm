@@ -293,6 +293,7 @@ version = "0.2.3"
 dependencies = [
  "gcp_auth",
  "google",
+ "observability",
  "tokio",
  "tonic 0.10.2",
  "tracing",
@@ -1283,6 +1284,7 @@ version = "0.2.3"
 dependencies = [
  "gcp_auth",
  "http",
+ "observability",
  "prost 0.12.1",
  "prost-types",
  "tonic 0.10.2",
@@ -2940,6 +2942,7 @@ dependencies = [
  "http",
  "juicebox_realm_api",
  "juicebox_realm_auth",
+ "observability",
  "serde",
  "serde_json",
  "tempfile",

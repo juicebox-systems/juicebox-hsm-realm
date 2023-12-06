@@ -1,8 +1,5 @@
 //! General-purpose mechanisms to access databases of secrets at runtime.
 use async_trait::async_trait;
-use google::GrpcConnectionOptions;
-use juicebox_realm_api::types::SecretBytesVec;
-use juicebox_realm_auth::{AuthKey, AuthKeyVersion};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -12,6 +9,11 @@ use std::time::Duration;
 mod google_secret_manager;
 mod periodic;
 mod secrets_file;
+
+use google::GrpcConnectionOptions;
+use juicebox_realm_api::types::SecretBytesVec;
+use juicebox_realm_auth::{AuthKey, AuthKeyVersion};
+use observability::metrics;
 
 pub use anyhow::Error;
 pub use google_secret_manager::Client as GoogleSecretManagerClient;
@@ -114,6 +116,7 @@ pub async fn new_google_secret_manager(
     auth_manager: Arc<gcp_auth::AuthenticationManager>,
     refresh_interval: Duration,
     options: GrpcConnectionOptions,
+    metrics: metrics::Client,
 ) -> Result<impl SecretManager, Error> {
     let client = GoogleSecretManagerClient::new(
         project,
@@ -127,6 +130,7 @@ pub async fn new_google_secret_manager(
             "name:tenant- AND labels.kind=tenant_auth_key",
         )),
         options,
+        metrics,
     )
     .await?;
     let manager = Periodic::new(client, refresh_interval).await?;

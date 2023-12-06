@@ -61,7 +61,7 @@ async fn main() {
 
     let store_admin = args
         .bigtable
-        .connect_admin(auth_manager.clone())
+        .connect_admin(auth_manager.clone(), metrics.clone())
         .await
         .expect("Unable to connect to Bigtable admin");
 

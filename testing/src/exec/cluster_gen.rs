@@ -26,6 +26,7 @@ use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
 use juicebox_sdk::{
     AuthToken, Client, ClientBuilder, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper,
 };
+use observability::metrics;
 use secret_manager::{
     new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
 };
@@ -162,7 +163,7 @@ pub async fn create_cluster(
     }
     let store_admin = args
         .bigtable
-        .connect_admin(auth_manager.clone())
+        .connect_admin(auth_manager.clone(), metrics::Client::NONE)
         .await
         .expect("failed to connect to bigtable admin service");
 
@@ -197,6 +198,7 @@ pub async fn create_cluster(
                     auth_manager.unwrap(),
                     Duration::MAX,
                     GrpcConnectionOptions::default(),
+                    metrics::Client::NONE,
                 )
                 .await
                 .expect("failed to load secrets from Google Secret Manager"),

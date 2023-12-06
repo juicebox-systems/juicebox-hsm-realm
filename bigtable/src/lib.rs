@@ -1,10 +1,11 @@
-use google::GrpcConnectionOptions;
 use std::sync::Arc;
 use tonic::transport::{Endpoint, Uri};
 
 use google::auth::AuthMiddleware;
 use google::bigtable::admin::v2::bigtable_table_admin_client::BigtableTableAdminClient as BtAdminClient;
 use google::bigtable::v2::bigtable_client::BigtableClient as BtClient;
+use google::GrpcConnectionOptions;
+use observability::metrics;
 
 pub mod mutate;
 pub mod read;
@@ -19,12 +20,14 @@ pub async fn new_admin_client(
     url: Uri,
     auth_manager: AuthManager,
     options: GrpcConnectionOptions,
+    metrics: metrics::Client,
 ) -> Result<BigtableTableAdminClient, tonic::transport::Error> {
     let channel = options.apply(Endpoint::from(url)).connect().await?;
     let channel = AuthMiddleware::new(
         channel,
         auth_manager,
         &["https://www.googleapis.com/auth/bigtable.admin.table"],
+        metrics,
     );
     Ok(BtAdminClient::new(channel))
 }
@@ -33,12 +36,14 @@ pub async fn new_data_client(
     url: Uri,
     auth_manager: AuthManager,
     options: GrpcConnectionOptions,
+    metrics: metrics::Client,
 ) -> Result<BigtableClient, tonic::transport::Error> {
     let channel = options.apply(Endpoint::from(url)).connect().await?;
     let channel = AuthMiddleware::new(
         channel,
         auth_manager,
         &["https://www.googleapis.com/auth/bigtable.data"],
+        metrics,
     );
     let bigtable = BtClient::new(channel)
         // These are based on the 1 << 28 = 256 MiB limits from
