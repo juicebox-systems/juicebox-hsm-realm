@@ -67,7 +67,6 @@ dependencies = [
  "juicebox_realm_api",
  "observability",
  "opentelemetry",
- "opentelemetry-http",
  "pubsub_api",
  "reqwest",
  "serde_json",
@@ -656,7 +655,6 @@ dependencies = [
  "observability",
  "once_cell",
  "opentelemetry",
- "opentelemetry-http",
  "service_core",
  "store",
  "testing",
@@ -999,6 +997,7 @@ dependencies = [
  "expect-test",
  "juicebox_marshalling",
  "observability",
+ "service_core",
  "tokio",
  "tracing",
 ]
@@ -1970,7 +1969,6 @@ dependencies = [
  "juicebox_realm_auth",
  "observability",
  "opentelemetry",
- "opentelemetry-http",
  "pin-project-lite",
  "reqwest",
  "rustls",
@@ -3143,31 +3141,56 @@ name = "software_agent"
 version = "0.2.3"
 dependencies = [
  "agent_core",
- "anyhow",
  "async-trait",
+ "clap",
+ "expect-test",
+ "nix",
+ "observability",
+ "service_core",
+ "software_hsm_client",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "software_hsm"
+version = "0.2.3"
+dependencies = [
+ "anyhow",
  "blake2",
  "bytes",
  "clap",
  "expect-test",
- "futures",
  "hex",
  "hkdf",
- "hmac",
  "hsm_api",
  "hsm_core",
  "http",
  "http-body-util",
  "hyper 1.0.0-rc.3",
- "juicebox_marshalling",
  "observability",
- "opentelemetry",
  "rand",
- "reqwest",
+ "service_core",
  "tokio",
+ "tracing",
+ "url",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "software_hsm_client"
+version = "0.2.3"
+dependencies = [
+ "agent_core",
+ "async-trait",
+ "http",
+ "juicebox_marshalling",
+ "opentelemetry",
+ "reqwest",
  "tracing",
  "tracing-opentelemetry",
  "url",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -3371,6 +3394,7 @@ dependencies = [
  "serde_json",
  "service_core",
  "sha2",
+ "software_hsm_client",
  "store",
  "sysinfo",
  "tokio",

@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use http::{HeaderMap, HeaderName, HeaderValue};
-use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use opentelemetry::propagation::Injector;
 use std::fmt::Debug;
 use std::str::FromStr;
@@ -9,6 +8,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
 use agent_core::hsm::Transport;
+use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
 
 #[derive(Clone)]
 pub struct HsmHttpClient {

@@ -32,6 +32,7 @@ use entrust_nfast::{
 };
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use observability::{metrics, metrics_tag as tag};
+use service_core::future_task::FutureTask;
 
 /// A host agent for use with an Entrust nCipherXC HSM.
 #[derive(Debug, Args)]
@@ -79,14 +80,17 @@ impl HsmTransportConstructor<EntrustArgs, EntrustSeeTransport> for EntrustConstr
         &mut self,
         args: &AgentArgs<EntrustArgs>,
         metrics: &metrics::Client,
-    ) -> EntrustSeeTransport {
-        EntrustSeeTransport::new(
-            args.service.module,
-            args.service.trace,
-            args.service.image.clone(),
-            args.service.userdata.clone(),
-            args.service.reinitialize,
-            metrics.clone(),
+    ) -> (EntrustSeeTransport, Option<FutureTask<()>>) {
+        (
+            EntrustSeeTransport::new(
+                args.service.module,
+                args.service.trace,
+                args.service.image.clone(),
+                args.service.userdata.clone(),
+                args.service.reinitialize,
+                metrics.clone(),
+            ),
+            None,
         )
     }
 }

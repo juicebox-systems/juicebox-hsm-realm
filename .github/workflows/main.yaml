@@ -99,6 +99,55 @@ jobs:
         RUST_BACKTRACE=1 target/debug/demo_runner --demo sdk_client/target/debug/demo
       shell: bash
 
+  cross_version_hsm:
+        # Runs the latest realm code against an older version of the software HSM
+        # This helps ensure we move the agent code forward without breaking compatability
+        # with the deployed and un-updatable hsm code.
+        name: HSM Cross version test
+        runs-on: ubuntu-22.04
+        strategy:
+          matrix:
+            # 094499... is the first commit with the separated out software_hsm process.
+            hsm_version: ["094499f4f3e1f30de767f6bfea8422627cba6726"]
+        steps:
+        - name: Check out sources
+          uses: actions/checkout@v4
+          with:
+            submodules: recursive
+            token: ${{ secrets.ACCESS_TOKEN }}
+
+        - name: Check out versioned hsm
+          uses: actions/checkout@v4
+          with:
+            ref: ${{ matrix.hsm_version }}
+            path: "versioned_hsm"
+            submodules: recursive
+            token: ${{ secrets.ACCESS_TOKEN }}
+
+        - name: Setup environment
+          uses: ./.github/actions/setup
+          with:
+            rust_version: ${{ env.INSTALL_RUST_VERSION }}
+
+        - name: Build versioned software HSM
+          uses: actions-rs/cargo@v1
+          with:
+            command: build
+            args: --manifest-path versioned_hsm/Cargo.toml -p software_hsm
+
+        - name: Build realm
+          uses: actions-rs/cargo@v1
+          with:
+            command: build
+
+        - name: Run realm tests with versioned software HSM
+          uses: actions-rs/cargo@v1
+          with:
+            command: test
+          env:
+            RUST_BACKTRACE: '1'
+            SOFTWARE_HSM_DIR: ${{ github.workspace }}/versioned_hsm/target/debug
+
   swift_demo:
     name: Swift Demo
     # macos-12-large is an Intel x86_64-based runner with 12 vCPUs, 30 GB RAM,

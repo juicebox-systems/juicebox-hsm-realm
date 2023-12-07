@@ -1,5 +1,5 @@
 [package]
-name = "software_agent"
+name = "software_hsm"
 edition = "2021"
 version  = { workspace = true }
 rust-version = { workspace = true }
@@ -7,15 +7,23 @@ rust-version = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-agent_core = { workspace = true }
-async-trait = { workspace = true }
+anyhow = { workspace = true }
+blake2 = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true }
-nix = { workspace = true }
+hex = { workspace = true }
+hkdf = { workspace = true }
+hsm_api = { workspace = true }
+hsm_core = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
 observability = { workspace = true }
+rand = { workspace = true }
 service_core = { workspace = true }
-software_hsm_client = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+x25519-dalek = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]

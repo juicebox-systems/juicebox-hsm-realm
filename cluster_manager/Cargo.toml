@@ -22,7 +22,6 @@ juicebox_networking = { workspace = true }
 juicebox_realm_api = { workspace = true }
 observability = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry-http = { workspace = true }
 service_core = { workspace = true }
 store = { workspace = true }
 tokio = { workspace = true }

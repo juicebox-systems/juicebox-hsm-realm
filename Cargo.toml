@@ -31,6 +31,8 @@ members = [
     "service_core",
     "service_checker",
     "software_agent",
+    "software_hsm",
+    "software_hsm_client",
     "store",
     "table",
     "testing",
@@ -61,6 +63,8 @@ default-members = [
     "service_core",
     "service_checker",
     "software_agent",
+    "software_hsm",
+    "software_hsm_client",
     "store",
     "table",
     "testing",
@@ -169,6 +173,7 @@ serde = { version = "1.0.189", default-features = false, features = [
 serde_json = "1.0.107"
 service_core = { path = "service_core" }
 sha2 = "0.10.8"
+software_hsm_client = { path = "software_hsm_client" }
 # Diego audited only the spin mutex in spin 0.9.8 (502c9dc) in Aug 2023.
 spin = { version = "=0.9.8", default-features = false, features = [
     "mutex",
