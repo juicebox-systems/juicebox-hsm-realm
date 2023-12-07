@@ -75,15 +75,15 @@ impl HsmTransportConstructor<SoftwareAgentArgs, HsmHttpClient> for TransportCons
         let shutdown_in_progress = Arc::new(AtomicBool::new(false));
         let shutdown_in_progress2 = shutdown_in_progress.clone();
         spawn_blocking(move || {
-            let exit_code = match child.wait() {
-                Ok(status) => status.code(),
+            let exit_status = match child.wait() {
+                Ok(status) => status.to_string(),
                 Err(err) => {
                     warn!(?err, "error waiting on the software_hsm process");
-                    None
+                    String::new()
                 }
             };
             if !shutdown_in_progress2.load(Ordering::Relaxed) {
-                panic!("child software_hsm process unexpectedly exited (exit code:{exit_code:?})");
+                panic!("child software_hsm process unexpectedly exited (exit code:{exit_status})");
             }
         });
         (
