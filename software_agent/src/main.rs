@@ -1,13 +1,19 @@
 use async_trait::async_trait;
 use clap::Args;
-use service_core::future_task::FutureTask;
+use nix::libc::pid_t;
+use nix::sys::signal::{kill, Signal};
+use nix::unistd::Pid;
 use std::path::PathBuf;
 use std::process::Command;
-use tracing::info;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tokio::task::spawn_blocking;
+use tracing::{info, warn};
 use url::Url;
 
 use agent_core::service::{AgentArgs, HsmTransportConstructor};
 use observability::metrics;
+use service_core::future_task::FutureTask;
 use software_hsm_client::HsmHttpClient;
 
 /// A host agent that embeds an insecure software HSM.
@@ -64,10 +70,24 @@ impl HsmTransportConstructor<SoftwareAgentArgs, HsmHttpClient> for TransportCons
         let mut child = cmd.spawn().unwrap();
         let hsm_url: Url = format!("http://{}", l).parse().unwrap();
         info!(url = %hsm_url, dir=?args.service.state_dir, "HSM started");
+
+        let child_pid = Pid::from_raw(child.id() as pid_t);
+        let shutdown_in_progress = Arc::new(AtomicBool::new(false));
+        let shutdown_in_progress2 = shutdown_in_progress.clone();
+        spawn_blocking(move || {
+            if let Err(err) = child.wait() {
+                warn!(?err, "error waiting on the software_hsm process");
+            }
+            if !shutdown_in_progress2.load(Ordering::Relaxed) {
+                panic!("child software_hsm process unexpectedly exited");
+            }
+        });
         (
             HsmHttpClient::new(hsm_url),
             Some(Box::pin(async move {
-                let _ = child.kill();
+                shutdown_in_progress.store(true, Ordering::Relaxed);
+                info!(pid=?child_pid, "termination handler: stopping software_hsm process");
+                _ = kill(child_pid, Signal::SIGTERM);
             })),
         )
     }

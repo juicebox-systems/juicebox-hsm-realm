@@ -3141,6 +3141,7 @@ dependencies = [
  "async-trait",
  "clap",
  "expect-test",
+ "nix",
  "observability",
  "service_core",
  "software_hsm_client",

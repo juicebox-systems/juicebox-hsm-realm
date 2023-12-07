@@ -10,6 +10,7 @@ rust-version = { workspace = true }
 agent_core = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
+nix = { workspace = true }
 observability = { workspace = true }
 service_core = { workspace = true }
 software_hsm_client = { workspace = true }
