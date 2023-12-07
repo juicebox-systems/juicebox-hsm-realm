@@ -282,14 +282,20 @@ mod tests {
         let server2 = server.clone();
         // Use a oneshot channel as a test shutting down timer.
         let (tx, rx) = oneshot::channel();
+        let (at_sleep_tx, at_sleep_rx) = oneshot::channel();
         let shutdown_handle = tokio::spawn(async move {
             server2
                 .0
                 .server
                 .mgr
-                .shut_down_inner(async { rx.await.unwrap() })
+                .shut_down_inner(async {
+                    at_sleep_tx.send(()).unwrap();
+                    rx.await.unwrap()
+                })
                 .await;
         });
+        // wait for the spawned shutdown to get to the point where its flagged we're shutting down.
+        at_sleep_rx.await.unwrap();
 
         let hc = client.get("http://localhost:4444/livez").send().await;
         assert_eq!(
