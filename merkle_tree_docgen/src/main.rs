@@ -27,6 +27,7 @@ mod split;
 ///
 /// Requires Docker (or a local Graphviz and Typst installation).
 #[derive(Parser)]
+#[command(version = build_info::clap!())]
 struct Args {
     /// Typst installation.
     #[arg(long, value_enum, default_value_t = Installation::Docker)]

@@ -1,4 +1,4 @@
-Software HSM
+Software HSM, used for testing the HSM realm code without an HSM
 
 Usage: software_hsm [OPTIONS] --key <KEY>
 

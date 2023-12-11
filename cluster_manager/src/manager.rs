@@ -292,14 +292,18 @@ impl Manager {
         if self.0.registered.load(Ordering::Relaxed) {
             Response::builder()
                 .status(http::StatusCode::OK)
-                .body(Full::from(Bytes::from("ok")))
+                .body(Full::from(Bytes::from(format!(
+                    "ok\n{}",
+                    build_info::get!().livez()
+                ))))
                 .unwrap()
         } else {
             Response::builder()
                 .status(http::StatusCode::SERVICE_UNAVAILABLE)
-                .body(Full::from(Bytes::from(
-                    "not yet registered with service discovery",
-                )))
+                .body(Full::from(Bytes::from(format!(
+                    "not yet registered with service discovery\n{}",
+                    build_info::get!().livez()
+                ))))
                 .unwrap()
         }
     }

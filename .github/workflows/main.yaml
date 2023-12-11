@@ -239,6 +239,9 @@ jobs:
       with:
         command: build
 
+    - name: Print build info
+      run: target/debug/load_balancer --version
+
     - name: Run cargo test
       uses: actions-rs/cargo@v1
       with:

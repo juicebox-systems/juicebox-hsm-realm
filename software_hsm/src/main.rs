@@ -23,8 +23,9 @@ use crate::host::HttpHsm;
 
 mod host;
 
+/// Software HSM, used for testing the HSM realm code without an HSM.
 #[derive(Debug, Parser)]
-#[command(version, about = "Software HSM")]
+#[command(version = build_info::clap!())]
 struct Args {
     /// Derive realm keys from this input (insecure).
     #[arg(short, long)]

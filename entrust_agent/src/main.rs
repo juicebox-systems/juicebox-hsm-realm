@@ -68,7 +68,9 @@ struct EntrustArgs {
 
 #[tokio::main]
 async fn main() {
-    let handle = agent_core::service::main("entrust_agent", &mut EntrustConstructor).await;
+    let handle =
+        agent_core::service::main("entrust_agent", build_info::get!(), &mut EntrustConstructor)
+            .await;
     handle.await.unwrap();
 }
 

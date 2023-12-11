@@ -1,14 +1,16 @@
 [package]
 name = "software_hsm"
 edition = "2021"
-version  = { workspace = true }
+version = { workspace = true }
 rust-version = { workspace = true }
+build = "../build_info/build_script.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = { workspace = true }
 blake2 = { workspace = true }
+build_info = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }

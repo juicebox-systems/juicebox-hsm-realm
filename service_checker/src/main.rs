@@ -38,7 +38,7 @@ type Client = juicebox_sdk::Client<TokioSleeper, HttpReporter, HashMap<RealmId, 
 /// Runs a number of register/recover/delete requests and reports
 /// success/failure via a Datadog health check.
 #[derive(Debug, Parser)]
-#[command(version)]
+#[command(version = build_info::clap!())]
 struct Args {
     /// Number of clients to run at a time.
     #[arg(long, value_name = "N", default_value_t = 1)]

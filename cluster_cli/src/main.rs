@@ -21,7 +21,7 @@ use statuses::get_hsm_statuses;
 
 /// A CLI tool for interacting with the cluster.
 #[derive(Parser)]
-#[command(version)]
+#[command(version = build_info::clap!())]
 struct Args {
     #[command(flatten)]
     bigtable: store::BigtableArgs,

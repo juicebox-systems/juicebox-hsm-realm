@@ -1,4 +1,4 @@
-A tool for initializing an Entrust nCipher XC HSM ready for use with Juicebox.
+A tool for initializing an Entrust nCipher XC HSM ready for use with Juicebox
 
 Usage: entrust_init [OPTIONS] <COMMAND>
 

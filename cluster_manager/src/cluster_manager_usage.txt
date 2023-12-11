@@ -1,4 +1,4 @@
-Management controller for Juicebox Clusters
+Management controller for Juicebox HSM realm clusters
 
 Usage: cluster_manager [OPTIONS]
 

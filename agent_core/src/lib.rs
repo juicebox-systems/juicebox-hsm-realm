@@ -10,6 +10,7 @@ use serde_json::json;
 use service_core::http::ReqwestClientMetrics;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::fmt::Arguments;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -40,6 +41,7 @@ use agent_api::{
     TransferStatementResponse,
 };
 use append::{Append, AppendingState};
+use build_info::BuildInfo;
 use hsm::{HsmClient, Transport};
 use hsm_api::merkle::{Dir, StoreDelta};
 use hsm_api::{
@@ -64,6 +66,7 @@ pub struct Agent<T>(Arc<AgentInner<T>>);
 #[derive(Debug)]
 struct AgentInner<T> {
     name: String,
+    build_info: BuildInfo,
     boot_time: Instant,
     hsm: HsmClient<T>,
     store: store::StoreClient,
@@ -131,6 +134,7 @@ impl<T> Clone for Agent<T> {
 impl<T: Transport + 'static> Agent<T> {
     pub fn new(
         name: String,
+        build_info: BuildInfo,
         hsm: HsmClient<T>,
         store: store::StoreClient,
         store_admin: store::StoreAdminClient,
@@ -139,6 +143,7 @@ impl<T: Transport + 'static> Agent<T> {
     ) -> Self {
         Self(Arc::new(AgentInner {
             name,
+            build_info,
             boot_time: Instant::now(),
             hsm,
             store: store.clone(),
@@ -520,13 +525,19 @@ impl<T: Transport + 'static> Agent<T> {
     }
 
     async fn handle_livez(&self, _request: Request<IncomingBody>) -> Response<Full<Bytes>> {
-        if !self.0.state.lock().unwrap().registered {
-            return Response::builder()
+        let unavailable_response = |message: Arguments| -> Response<Full<Bytes>> {
+            Response::builder()
                 .status(http::StatusCode::SERVICE_UNAVAILABLE)
-                .body(Full::from(Bytes::from(
-                    "not yet registered with service discovery",
-                )))
-                .unwrap();
+                .body(Full::from(Bytes::from(format!(
+                    "{}\n{}",
+                    message,
+                    self.0.build_info.livez()
+                ))))
+                .unwrap()
+        };
+
+        if !self.0.state.lock().unwrap().registered {
+            return unavailable_response(format_args!("not yet registered with service discovery"));
         }
         match tokio::time::timeout(
             Duration::from_secs(1),
@@ -536,20 +547,18 @@ impl<T: Transport + 'static> Agent<T> {
         {
             Ok(Ok(status)) => Response::builder()
                 .status(http::StatusCode::OK)
-                .body(Full::from(Bytes::from(format!("hsm id: {:?}", status.id))))
-                .unwrap(),
-
-            Ok(Err(transport_error)) => Response::builder()
-                .status(http::StatusCode::SERVICE_UNAVAILABLE)
                 .body(Full::from(Bytes::from(format!(
-                    "error: {transport_error:?}"
+                    "hsm id: {:?}\n{}",
+                    status.id,
+                    self.0.build_info.livez()
                 ))))
                 .unwrap(),
 
-            Err(elapsed) => Response::builder()
-                .status(http::StatusCode::SERVICE_UNAVAILABLE)
-                .body(Full::from(Bytes::from(format!("timeout: {elapsed:?}"))))
-                .unwrap(),
+            Ok(Err(transport_error)) => {
+                unavailable_response(format_args!("error: {transport_error:?}"))
+            }
+
+            Err(elapsed) => unavailable_response(format_args!("timeout: {elapsed:?}")),
         }
     }
 

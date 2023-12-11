@@ -26,10 +26,10 @@ use testing::exec::bigtable::BigtableRunner;
 use testing::exec::certs::create_localhost_key_and_cert;
 use testing::exec::hsm_gen::{Entrust, HsmGenerator};
 
+/// A tool to launch all the Juicebox HSM realm services and execute a demo
+/// binary configured to access them.
 #[derive(Parser)]
-#[command(
-    about = "A tool to launch all the juicebox services and execute a demo binary configured to access them"
-)]
+#[command(version = build_info::clap!())]
 struct Args {
     /// Path to the demo binary to execute
     #[arg(long)]

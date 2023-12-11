@@ -5,6 +5,7 @@ members = [
     "agent_core",
     "bigtable",
     "bitvec",
+    "build_info",
     "cluster_api",
     "cluster_bench",
     "cluster_cli",
@@ -89,6 +90,7 @@ bigtable = { path = "bigtable" }
 bindgen = "0.68.1"
 bitvec = { path = "bitvec" }
 blake2 = { version = "0.10.6", default-features = false }
+build_info = { path = "build_info" }
 bytes = { version = "1.5.0", default-features = false }
 cbor-diag = { version = "0.1.12" }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = [

@@ -49,6 +49,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bitvec",
+ "build_info",
  "bytes",
  "clap",
  "cluster_api",
@@ -375,6 +376,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "build_info"
+version = "0.2.3"
+
+[[package]]
 name = "bumpalo"
 version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -569,6 +574,7 @@ name = "cluster_bench"
 version = "0.2.3"
 dependencies = [
  "anyhow",
+ "build_info",
  "clap",
  "futures",
  "google",
@@ -589,6 +595,7 @@ version = "0.2.3"
 dependencies = [
  "agent_api",
  "anyhow",
+ "build_info",
  "chrono",
  "clap",
  "cluster_api",
@@ -639,6 +646,7 @@ version = "0.2.3"
 dependencies = [
  "agent_api",
  "anyhow",
+ "build_info",
  "bytes",
  "clap",
  "cluster_api",
@@ -991,6 +999,7 @@ version = "0.2.3"
 dependencies = [
  "agent_core",
  "async-trait",
+ "build_info",
  "clap",
  "entrust_api",
  "entrust_nfast",
@@ -1030,6 +1039,7 @@ name = "entrust_init"
 version = "0.2.3"
 dependencies = [
  "anyhow",
+ "build_info",
  "clap",
  "entrust_nfast",
  "expect-test",
@@ -1051,6 +1061,7 @@ dependencies = [
 name = "entrust_ops"
 version = "0.2.3"
 dependencies = [
+ "build_info",
  "clap",
  "expect-test",
  "hex",
@@ -1951,6 +1962,7 @@ dependencies = [
  "agent_api",
  "anyhow",
  "blake2",
+ "build_info",
  "bytes",
  "ciborium",
  "ciborium-io",
@@ -2024,6 +2036,7 @@ name = "merkle_tree_docgen"
 version = "0.2.3"
 dependencies = [
  "bitvec",
+ "build_info",
  "clap",
  "hsm_api",
  "hsm_core",
@@ -3010,6 +3023,7 @@ version = "0.2.3"
 dependencies = [
  "anyhow",
  "async-trait",
+ "build_info",
  "clap",
  "dogstatsd",
  "expect-test",
@@ -3142,6 +3156,7 @@ version = "0.2.3"
 dependencies = [
  "agent_core",
  "async-trait",
+ "build_info",
  "clap",
  "expect-test",
  "nix",
@@ -3159,6 +3174,7 @@ version = "0.2.3"
 dependencies = [
  "anyhow",
  "blake2",
+ "build_info",
  "bytes",
  "clap",
  "expect-test",
@@ -3363,6 +3379,7 @@ dependencies = [
  "anyhow",
  "bigtable",
  "bitvec",
+ "build_info",
  "chrono",
  "clap",
  "cluster_api",
