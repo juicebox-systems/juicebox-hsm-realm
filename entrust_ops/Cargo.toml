@@ -3,10 +3,12 @@ name = "entrust_ops"
 edition = "2021"
 version = { workspace = true }
 rust-version = { workspace = true }
+build = "../build_info/build_script.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+build_info = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
 sha2 = { workspace = true }

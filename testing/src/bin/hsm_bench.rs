@@ -19,6 +19,7 @@ use testing::exec::hsm_gen::Entrust;
 
 /// An end-to-end benchmark to stress an HSM.
 #[derive(Debug, Parser)]
+#[command(version = build_info::clap!())]
 struct Args {
     #[command(flatten)]
     bigtable: store::BigtableArgs,

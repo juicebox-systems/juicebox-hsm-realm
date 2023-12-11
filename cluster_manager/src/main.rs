@@ -11,8 +11,9 @@ use service_core::term::install_termination_handler;
 
 mod manager;
 
+/// Management controller for Juicebox HSM realm clusters.
 #[derive(Debug, Parser)]
-#[command(version, about = "Management controller for Juicebox Clusters")]
+#[command(version = build_info::clap!())]
 struct Args {
     #[command(flatten)]
     bigtable: store::BigtableArgs,

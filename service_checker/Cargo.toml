@@ -1,14 +1,16 @@
 [package]
 name = "service_checker"
 edition = "2021"
-rust-version.workspace = true
-version.workspace = true
+version = { workspace = true }
+rust-version = { workspace = true }
+build = "../build_info/build_script.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+build_info = { workspace = true }
 clap = { workspace = true }
 dogstatsd = { workspace = true }
 futures = { workspace = true }

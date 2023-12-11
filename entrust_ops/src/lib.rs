@@ -12,9 +12,10 @@ use paths::join_path;
 pub use paths::Paths;
 use system::Process;
 
-/// Command-line arguments.
+/// Tool to manage Entrust HSMs with safer and more convenient command
+/// wrappers.
 #[derive(Debug, Parser)]
-#[clap(about = "This tool is used during HSM key ceremonies to run pre-determined commands.")]
+#[clap(version = build_info::clap!())]
 pub struct Args {
     #[clap(flatten)]
     pub common: CommonArgs,

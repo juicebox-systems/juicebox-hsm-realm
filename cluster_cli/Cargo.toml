@@ -1,8 +1,9 @@
 [package]
 name = "cluster_cli"
 edition = "2021"
-version  = { workspace = true }
+version = { workspace = true }
 rust-version = { workspace = true }
+build = "../build_info/build_script.rs"
 
 [[bin]]
 name = "cluster"
@@ -13,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 agent_api = { workspace = true }
 anyhow = { workspace = true }
+build_info = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 cluster_api = { workspace = true }

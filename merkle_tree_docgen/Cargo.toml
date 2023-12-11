@@ -1,13 +1,15 @@
 [package]
 name = "merkle_tree_docgen"
 edition = "2021"
-version  = { workspace = true }
+version = { workspace = true }
 rust-version = { workspace = true }
+build = "../build_info/build_script.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 bitvec = { workspace = true }
+build_info = { workspace = true }
 clap = { workspace = true }
 hsm_api = { workspace = true }
 hsm_core = { workspace = true, features = ["dot"] }

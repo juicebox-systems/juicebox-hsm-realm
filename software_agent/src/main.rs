@@ -31,7 +31,7 @@ struct SoftwareAgentArgs {
 #[tokio::main]
 async fn main() {
     let mut tf = TransportConstructor;
-    let h = agent_core::service::main("software-agent", &mut tf).await;
+    let h = agent_core::service::main("software-agent", build_info::get!(), &mut tf).await;
     h.await.unwrap();
 }
 

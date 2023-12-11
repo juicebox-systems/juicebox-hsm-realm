@@ -1,13 +1,15 @@
 [package]
 name = "testing"
 edition = "2021"
-version  = { workspace = true }
+version = { workspace = true }
 rust-version = { workspace = true }
+build = "../build_info/build_script.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 agent_api = { workspace = true }
+build_info = { workspace = true }
 clap = { workspace = true }
 cluster_core = { workspace = true }
 futures = { workspace = true }

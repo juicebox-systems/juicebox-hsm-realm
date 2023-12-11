@@ -239,6 +239,12 @@ jobs:
       with:
         command: build
 
+    - name: Print build info
+      uses: actions-rs/cargo@v1
+      with:
+        args: --bin load_balancer -- --version
+        command: run
+
     - name: Run cargo test
       uses: actions-rs/cargo@v1
       with:

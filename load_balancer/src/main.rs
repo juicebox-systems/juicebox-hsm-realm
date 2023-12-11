@@ -23,8 +23,9 @@ mod server;
 use cert::CertificateResolver;
 use load_balancer::LoadBalancer;
 
+/// An HTTP load balancer for one or more realms.
 #[derive(Debug, Parser)]
-#[command(version, about = "An HTTP load balancer for one or more realms")]
+#[command(version = build_info::clap!())]
 struct Args {
     #[command(flatten)]
     bigtable: store::BigtableArgs,

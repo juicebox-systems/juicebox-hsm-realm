@@ -3,12 +3,14 @@ name = "software_agent"
 edition = "2021"
 version  = { workspace = true }
 rust-version = { workspace = true }
+build = "../build_info/build_script.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 agent_core = { workspace = true }
 async-trait = { workspace = true }
+build_info = { workspace = true }
 clap = { workspace = true }
 nix = { workspace = true }
 observability = { workspace = true }

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use clap::{Args, Parser};
+use clap::{Args, CommandFactory, FromArgMatches, Parser};
 use http::Uri;
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -9,6 +9,7 @@ use tracing::info;
 
 use crate::hsm::{HsmClient, Transport};
 use crate::Agent;
+use build_info::BuildInfo;
 use google::{auth, GrpcConnectionOptions};
 use observability::{logging, metrics};
 use service_core::clap_parsers::{parse_duration, parse_listen};
@@ -118,6 +119,7 @@ where
 
 pub async fn main<SA, T>(
     service_name: &str,
+    build_info: BuildInfo,
     transport_constructor: &mut impl HsmTransportConstructor<SA, T>,
 ) -> JoinHandle<()>
 where
@@ -128,7 +130,16 @@ where
     panic::set_abort_on_panic();
     let mut shutdown_tasks = install_termination_handler(Duration::from_secs(10));
 
-    let args = AgentArgs::<SA>::parse();
+    // This is the same logic as `AgentArgs::<SA>::parse()`, except this
+    // injects the build info into the version string.
+    let args = {
+        let command = AgentArgs::<SA>::command().version(build_info.clap());
+        match AgentArgs::<SA>::from_arg_matches_mut(&mut command.get_matches()) {
+            Err(err) => err.format(&mut AgentArgs::<SA>::command()).exit(),
+            Ok(args) => args,
+        }
+    };
+
     info!(?args, "Parsed command-line args");
 
     let metrics = metrics::Client::new(service_name);
@@ -189,7 +200,15 @@ where
         .unwrap(),
     );
 
-    let agent = Agent::new(name, hsm_client, store, store_admin, pubsub, metrics);
+    let agent = Agent::new(
+        name,
+        build_info,
+        hsm_client,
+        store,
+        store_admin,
+        pubsub,
+        metrics,
+    );
     let agent_clone = agent.clone();
     shutdown_tasks.add(Box::pin(async move {
         agent_clone.shutdown().await;

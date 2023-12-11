@@ -32,7 +32,7 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 /// Run many concurrent clients in a single process to benchmark the
 /// performance of a Juicebox cluster.
 #[derive(Parser)]
-#[command(version)]
+#[command(version = build_info::clap!())]
 struct Args {
     /// Number of clients to run at a time.
     #[arg(long, value_name = "N", default_value_t = 3)]
