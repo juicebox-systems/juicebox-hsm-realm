@@ -1,4 +1,4 @@
-FROM rust:1.73.0-bookworm
+FROM rust:1.74.1-bookworm
 
 # bindgen needs libclang-dev and rustfmt
 RUN apt-get update && apt-get install --yes libclang-dev p7zip-full protobuf-compiler
