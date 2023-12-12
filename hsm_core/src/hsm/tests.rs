@@ -507,11 +507,12 @@ fn commit_captures_verified() {
                 group: cluster.group,
                 captures: captures
                     .iter()
-                    .cloned()
                     .filter(|c| c.group == cluster.group)
-                    .map(|mut c| {
-                        c.index = c.index.next();
-                        c
+                    .map(|c| {
+                        Captured {
+                            index: c.index.next(),
+                            ..c.clone()
+                        }
                     })
                     .collect(),
             },
