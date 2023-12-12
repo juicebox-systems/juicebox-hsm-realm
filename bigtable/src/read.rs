@@ -1,12 +1,12 @@
+use google::bigtable::v2::bigtable_client::BigtableClient;
 use google::bigtable::v2::read_rows_response::cell_chunk::RowStatus;
 use google::bigtable::v2::read_rows_response::CellChunk;
 use google::bigtable::v2::ReadRowsRequest;
 use std::fmt;
 use std::time::Duration;
+use tonic::codegen::{Body, Bytes, StdError};
 use tonic::Code;
 use tracing::{instrument, trace, warn, Span};
-
-use super::BigtableClient;
 
 #[derive(Clone, Hash, Eq, PartialEq)]
 pub struct RowKey(pub Vec<u8>);
@@ -48,10 +48,16 @@ impl<'a> fmt::Debug for Hex<'a> {
     }
 }
 
-pub async fn read_rows(
-    bigtable: &mut BigtableClient,
+pub async fn read_rows<T>(
+    bigtable: &mut BigtableClient<T>,
     request: ReadRowsRequest,
-) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
+) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status>
+where
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
+{
     let mut rows = Vec::new();
     read_rows_stream(bigtable, request, |key, cells| rows.push((key, cells)))
         .await
@@ -69,13 +75,17 @@ pub async fn read_rows(
         retry_count,
     )
 )]
-pub async fn read_rows_stream<F>(
-    bigtable: &mut BigtableClient,
+pub async fn read_rows_stream<F, T>(
+    bigtable: &mut BigtableClient<T>,
     request: ReadRowsRequest,
     mut row_fn: F,
 ) -> Result<(), tonic::Status>
 where
     F: FnMut(RowKey, Vec<Cell>),
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
 {
     Span::current().record(
         "num_request_items",

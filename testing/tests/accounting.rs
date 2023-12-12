@@ -63,6 +63,7 @@ async fn user_accounting() {
         instance: bt_args.instance,
     };
     let bt_client = new_data_client(
+        inst.clone(),
         bt_args.url.unwrap(),
         None,
         GrpcConnectionOptions::default(),

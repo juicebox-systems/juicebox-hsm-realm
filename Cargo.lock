@@ -1292,11 +1292,14 @@ checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 name = "google"
 version = "0.2.3"
 dependencies = [
+ "futures",
  "gcp_auth",
  "http",
  "observability",
  "prost 0.12.1",
  "prost-types",
+ "thiserror",
+ "tokio",
  "tonic 0.10.2",
  "tower-service",
  "tracing",

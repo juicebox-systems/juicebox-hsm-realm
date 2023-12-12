@@ -293,8 +293,14 @@ impl StoreClient {
         options: Options,
         conn_options: GrpcConnectionOptions,
     ) -> Result<Self, tonic::transport::Error> {
-        let bigtable =
-            new_data_client(url, auth_manager, conn_options, options.metrics.clone()).await?;
+        let bigtable = new_data_client(
+            instance.clone(),
+            url,
+            auth_manager,
+            conn_options,
+            options.metrics.clone(),
+        )
+        .await?;
         Ok(Self {
             bigtable,
             instance,
