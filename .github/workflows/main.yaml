@@ -104,7 +104,8 @@ jobs:
         # This helps ensure we move the agent code forward without breaking compatability
         # with the deployed and un-updatable hsm code.
         name: HSM Cross version test
-        runs-on: ubuntu-22.04
+        # Use same runner as Lint & Test. See comment there.
+        runs-on: ubuntu-latest-m
         strategy:
           matrix:
             # 094499... is the first commit with the separated out software_hsm process.
