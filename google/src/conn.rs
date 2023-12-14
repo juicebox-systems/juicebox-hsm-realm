@@ -7,6 +7,8 @@ use tower_service::Service;
 use tracing::{info, warn};
 
 pub struct MaxConnectionLifetime<C> {
+    // The 'C' instance that was driven to ready by the poll() needs to be the
+    // one that has call() executed on it.
     current: C,
     next: watch::Receiver<C>,
 }
