@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
 
-use bigtable::read::{read_rows, Cell};
+use bigtable::read::{Cell, Reader};
 use bigtable::{new_data_client, BigtableClient, Instance};
 use hsm_api::RecordId;
 use juicebox_process_group::ProcessGroup;
@@ -136,7 +136,7 @@ async fn read_realm_users(
         reversed: false,
     };
     let mut bigtable = bigtable.clone();
-    let rows = read_rows(&mut bigtable, read_req).await.unwrap();
+    let rows = Reader::read_rows(&mut bigtable, read_req).await.unwrap();
     rows.into_iter()
         .map(|(key, cells)| {
             let p = key.0.len() - RecordId::NUM_BYTES * 2;

@@ -13,7 +13,7 @@ use url::Url;
 
 use super::{to_micros, BigtableClient, BigtableTableAdminClient, Instance, RowKey, ServiceKind};
 use bigtable::mutate::mutate_rows;
-use bigtable::read::read_rows;
+use bigtable::read::Reader;
 
 /// Agents should register themselves with service discovery this often.
 pub const REGISTER_INTERVAL: Duration = Duration::from_secs(60 * 10);
@@ -86,7 +86,7 @@ pub(super) async fn get_addresses(
                 .unwrap()])),
         }],
     });
-    let rows = match read_rows(
+    let rows = match Reader::read_rows(
         &mut bigtable,
         ReadRowsRequest {
             table_name: discovery_table(instance),

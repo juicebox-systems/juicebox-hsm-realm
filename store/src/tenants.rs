@@ -19,7 +19,7 @@ use tracing::warn;
 
 use super::{BigtableTableAdminClient, Instance, StoreClient};
 use bigtable::mutate::{mutate_rows, MutateRowsError};
-use bigtable::read::read_rows_stream;
+use bigtable::read::Reader;
 use hsm_api::RecordId;
 use juicebox_realm_api::types::RealmId;
 
@@ -266,7 +266,7 @@ impl StoreClient {
         };
         let mut bigtable = self.bigtable.clone();
         let mut results = Vec::new();
-        match read_rows_stream(&mut bigtable, read_req, |key, _cells| {
+        match Reader::read_rows_stream(&mut bigtable, read_req, |key, _cells| {
             if let Some(t) = parse_tenant(&key.0) {
                 match results.last_mut() {
                     Some((last_tenant, count)) if last_tenant == t => *count += 1,

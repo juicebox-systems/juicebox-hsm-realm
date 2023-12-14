@@ -11,6 +11,8 @@ use google::conn::MaxConnectionLifetime;
 use google::GrpcConnectionOptions;
 use observability::metrics;
 
+use crate::read::Reader;
+
 pub mod mutate;
 pub mod read;
 
@@ -86,7 +88,7 @@ pub async fn new_data_client(
             debug!(?r, "ping_and_warm result");
             // Just ping_and_warm doesn't seem to particularly warm the connection, do some more work on it.
             for _ in 0..3 {
-                if let Err(err) = read::read_rows(
+                if let Err(err) = Reader::read_rows(
                     &mut c,
                     ReadRowsRequest {
                         table_name: format!("{}/tables/discovery", inst.path()),

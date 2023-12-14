@@ -15,7 +15,7 @@ use tonic::Code;
 use tracing::{info, instrument, trace, warn, Span};
 
 use super::{AppendError, StoreClient};
-use bigtable::read::{read_rows, Cell, RowKey};
+use bigtable::read::{Cell, Reader, RowKey};
 use bigtable::{BigtableClient, BigtableTableAdminClient, Instance};
 use hsm_api::{GroupId, LogEntry, LogIndex};
 use juicebox_marshalling as marshalling;
@@ -220,7 +220,7 @@ impl StoreClient {
         group: &GroupId,
         index: LogIndex,
     ) -> Result<Option<LogEntry>, tonic::Status> {
-        let rows = read_rows(
+        let rows = Reader::read_rows(
             &mut self.bigtable.clone(),
             ReadRowsRequest {
                 table_name: log_table(&self.instance, realm),
@@ -295,7 +295,7 @@ impl StoreClient {
         trace!(?realm, ?group, "read_last_log_entry starting");
         let start = Instant::now();
 
-        let rows = read_rows(
+        let rows = Reader::read_rows(
             &mut self.bigtable.clone(),
             ReadRowsRequest {
                 table_name: log_table(&self.instance, realm),
@@ -423,7 +423,7 @@ impl LogEntriesIter {
         &self,
         index: LogIndex,
     ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
-        let mut rows = read_rows(
+        let mut rows = Reader::read_rows(
             &mut self.client.bigtable.clone(),
             ReadRowsRequest {
                 table_name: self.table_name.clone(),
@@ -468,7 +468,7 @@ impl LogEntriesIter {
         &self,
         index: LogIndex,
     ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
-        read_rows(
+        Reader::read_rows(
             &mut self.client.bigtable.clone(),
             ReadRowsRequest {
                 table_name: self.table_name.clone(),
