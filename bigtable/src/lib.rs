@@ -21,7 +21,9 @@ pub type BigtableTableAdminClient = BtAdminClient<MaxConnectionLifetime<AuthMidd
 pub type BigtableClient = BtClient<MaxConnectionLifetime<AuthMiddleware>>;
 
 // Bigtable will close connections after one hour, we'll cycle onto a new one
-// before then.
+// before then. see https://cloud.google.com/bigtable/docs/connection-pools and
+// also the example go code for rotating connections
+// https://github.com/GoogleCloudPlatform/cloud-bigtable-examples/blob/main/go/connection-refresh/btrefresh/bigtable_rotator.go
 const MAX_CONN_LIFETIME: Duration = Duration::from_secs(55 * 60);
 
 pub async fn new_admin_client(

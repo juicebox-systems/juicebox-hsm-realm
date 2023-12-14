@@ -1,14 +1,14 @@
 use std::cmp::min;
 use std::future::Future;
 use std::time::Duration;
-use tokio::sync::watch::{channel, Receiver};
+use tokio::sync::watch;
 use tonic::body::BoxBody;
 use tower_service::Service;
 use tracing::{info, warn};
 
 pub struct MaxConnectionLifetime<C> {
     current: C,
-    next: Receiver<C>,
+    next: watch::Receiver<C>,
 }
 
 impl<C: Clone> Clone for MaxConnectionLifetime<C> {
@@ -36,7 +36,7 @@ impl<C: Service<http::Request<BoxBody>> + Send + Sync + Clone + 'static> MaxConn
         const INIT_BACKOFF: Duration = Duration::from_secs(1);
 
         let init_conn = conn_factory().await?;
-        let (tx_conn, rx_conn) = channel(init_conn.clone());
+        let (tx_conn, rx_conn) = watch::channel(init_conn.clone());
         tokio::spawn(async move {
             tokio::time::sleep(max_age).await;
             let mut backoff = INIT_BACKOFF;
@@ -94,7 +94,7 @@ impl<C: Service<http::Request<BoxBody>> + Clone + Send + Sync + 'static>
         // See https://github.com/tower-rs/tower/issues/547#issuecomment-767629149
         // for details on swapping channel out of self.
 
-        let clone = { self.next.borrow().clone() };
+        let clone = self.next.borrow().clone();
         let mut channel = std::mem::replace(&mut self.current, clone);
         channel.call(request)
     }
