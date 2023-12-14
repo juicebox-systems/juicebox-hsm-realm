@@ -1,3 +1,8 @@
+use async_trait::async_trait;
+use google::auth::AuthMiddleware;
+use google::bigtable::admin::v2::ListTablesRequest;
+use google::bigtable::v2::bigtable_client::BigtableClient as BtClient;
+use google::bigtable::v2::{read_rows_request, PingAndWarmRequest, ReadRowsRequest};
 use google::GrpcConnectionOptions;
 use http::Uri;
 use std::fmt;
@@ -8,14 +13,14 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{info, instrument, trace};
+use tracing::{debug, info, instrument, trace, warn};
 use url::Url;
 
 use bigtable::mutate::MutateRowsError;
-use bigtable::read::RowKey;
+use bigtable::read::{Reader, RowKey};
 use bigtable::{
     new_admin_client, new_data_client, AuthManager, BigtableClient, BigtableTableAdminClient,
-    Instance,
+    ConnWarmer, Instance,
 };
 use hsm_api::merkle::StoreDelta;
 use hsm_api::{DataHash, EntryMac, GroupId, LogEntry, LogIndex};
@@ -120,12 +125,14 @@ impl BigtableArgs {
             http2_keepalive_timeout: self.http2_keepalive_timeout,
             http2_keepalive_while_idle: self.http2_keepalive_while_idle,
         };
+        let metrics = options.metrics.clone();
         StoreClient::new(
             data_url.clone(),
             instance,
-            auth_manager,
+            auth_manager.clone(),
             options,
             conn_options,
+            self.connect_admin(auth_manager, metrics).await?,
         )
         .await
     }
@@ -292,6 +299,7 @@ impl StoreClient {
         auth_manager: AuthManager,
         options: Options,
         conn_options: GrpcConnectionOptions,
+        admin: StoreAdminClient,
     ) -> Result<Self, tonic::transport::Error> {
         let bigtable = new_data_client(
             instance.clone(),
@@ -299,6 +307,7 @@ impl StoreClient {
             auth_manager,
             conn_options,
             options.metrics.clone(),
+            TablesReadWarmer(admin),
         )
         .await?;
         Ok(Self {
@@ -454,6 +463,56 @@ impl StoreClient {
             "append succeeded"
         );
         Ok(delete_handle)
+    }
+}
+
+#[derive(Clone)]
+struct TablesReadWarmer(StoreAdminClient);
+
+#[async_trait]
+impl ConnWarmer for TablesReadWarmer {
+    async fn warm(&self, inst: Instance, mut conn: BtClient<AuthMiddleware>) {
+        let r = conn
+            .ping_and_warm(PingAndWarmRequest {
+                name: inst.path(),
+                app_profile_id: String::from(""),
+            })
+            .await;
+        debug!(?r, "ping_and_warm result");
+
+        let mut admin = self.0.bigtable.clone();
+        if let Ok(tables) = admin
+            .list_tables(ListTablesRequest {
+                parent: inst.path(),
+                page_size: 10,
+                ..ListTablesRequest::default()
+            })
+            .await
+        {
+            for table in tables.into_inner().tables {
+                if let Err(err) = Reader::read_rows(
+                    &mut conn,
+                    ReadRowsRequest {
+                        table_name: table.name.clone(),
+                        app_profile_id: "".into(),
+                        rows: None,
+                        filter: None,
+                        rows_limit: 1,
+                        request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone
+                            .into(),
+                        reversed: false,
+                    },
+                )
+                .await
+                {
+                    warn!(
+                        ?err,
+                        table = table.name,
+                        "warmup read request failed for table"
+                    );
+                }
+            }
+        }
     }
 }
 

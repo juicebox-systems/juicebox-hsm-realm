@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 use bigtable::read::{Cell, Reader};
-use bigtable::{new_data_client, BigtableClient, Instance};
+use bigtable::{new_data_client, BigtableClient, Instance, NoWarmup};
 use hsm_api::RecordId;
 use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::{Pin, Policy, RealmId, UserInfo, UserSecret};
@@ -68,6 +68,7 @@ async fn user_accounting() {
         None,
         GrpcConnectionOptions::default(),
         metrics::Client::NONE,
+        NoWarmup,
     )
     .await
     .unwrap();

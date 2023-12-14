@@ -1,17 +1,15 @@
+use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
 use tonic::transport::{Endpoint, Uri};
-use tracing::{debug, info, warn};
+use tracing::info;
 
 use google::auth::AuthMiddleware;
 use google::bigtable::admin::v2::bigtable_table_admin_client::BigtableTableAdminClient as BtAdminClient;
 use google::bigtable::v2::bigtable_client::BigtableClient as BtClient;
-use google::bigtable::v2::{read_rows_request, PingAndWarmRequest, ReadRowsRequest};
 use google::conn::MaxConnectionLifetime;
 use google::GrpcConnectionOptions;
 use observability::metrics;
-
-use crate::read::Reader;
 
 pub mod mutate;
 pub mod read;
@@ -56,12 +54,13 @@ pub async fn new_admin_client(
     Ok(BtAdminClient::new(channel))
 }
 
-pub async fn new_data_client(
+pub async fn new_data_client<W: ConnWarmer>(
     inst: Instance,
     url: Uri,
     auth_manager: AuthManager,
     options: GrpcConnectionOptions,
     metrics: metrics::Client,
+    warmer: W,
 ) -> Result<BigtableClient, tonic::transport::Error> {
     let channel = MaxConnectionLifetime::new(MAX_CONN_LIFETIME, move || {
         let url = url.clone();
@@ -69,6 +68,7 @@ pub async fn new_data_client(
         let options = options.clone();
         let metrics = metrics.clone();
         let inst = inst.clone();
+        let warmer = warmer.clone();
 
         async move {
             let channel = options.apply(Endpoint::from(url)).connect().await?;
@@ -78,34 +78,8 @@ pub async fn new_data_client(
                 &["https://www.googleapis.com/auth/bigtable.data"],
                 metrics,
             );
-            let mut c = BtClient::new(channel.clone());
-            let r = c
-                .ping_and_warm(PingAndWarmRequest {
-                    name: inst.path(),
-                    app_profile_id: String::from(""),
-                })
-                .await;
-            debug!(?r, "ping_and_warm result");
-            // Just ping_and_warm doesn't seem to particularly warm the connection, do some more work on it.
-            for _ in 0..3 {
-                if let Err(err) = Reader::read_rows(
-                    &mut c,
-                    ReadRowsRequest {
-                        table_name: format!("{}/tables/discovery", inst.path()),
-                        app_profile_id: "".into(),
-                        rows: None,
-                        filter: None,
-                        rows_limit: 0,
-                        request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone
-                            .into(),
-                        reversed: false,
-                    },
-                )
-                .await
-                {
-                    warn!(?err, "warmup read request failed");
-                }
-            }
+            let c = BtClient::new(channel.clone());
+            warmer.warm(inst, c).await;
             info!("returning new bigdata data connection {channel:?}");
             Ok(channel)
         }
@@ -121,6 +95,19 @@ pub async fn new_data_client(
         .max_decoding_message_size(256 * 1024 * 1024)
         .max_encoding_message_size(256 * 1024 * 1024);
     Ok(bigtable)
+}
+
+#[async_trait]
+pub trait ConnWarmer: Send + Clone + 'static {
+    async fn warm(&self, inst: Instance, conn: BtClient<AuthMiddleware>);
+}
+
+#[derive(Clone)]
+pub struct NoWarmup;
+
+#[async_trait]
+impl ConnWarmer for NoWarmup {
+    async fn warm(&self, _inst: Instance, _conn: BtClient<AuthMiddleware>) {}
 }
 
 #[derive(Clone, Debug)]
