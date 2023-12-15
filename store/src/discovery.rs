@@ -13,7 +13,7 @@ use url::Url;
 
 use super::{to_micros, BigtableClient, BigtableTableAdminClient, Instance, RowKey, ServiceKind};
 use bigtable::mutate::mutate_rows;
-use bigtable::read::read_rows;
+use bigtable::read::Reader;
 
 /// Agents should register themselves with service discovery this often.
 pub const REGISTER_INTERVAL: Duration = Duration::from_secs(60 * 10);
@@ -25,7 +25,7 @@ pub const REGISTER_FAILURE_DELAY: Duration = Duration::from_secs(10);
 /// Discovery records that haven't been updated in at least this log will be expired and deleted.
 pub const EXPIRY_AGE: Duration = Duration::from_secs(60 * 21);
 
-fn discovery_table(instance: &Instance) -> String {
+pub(crate) fn discovery_table(instance: &Instance) -> String {
     format!(
         "projects/{project}/instances/{instance}/tables/discovery",
         project = instance.project,
@@ -86,7 +86,7 @@ pub(super) async fn get_addresses(
                 .unwrap()])),
         }],
     });
-    let rows = match read_rows(
+    let rows = match Reader::read_rows(
         &mut bigtable,
         ReadRowsRequest {
             table_name: discovery_table(instance),

@@ -1,21 +1,26 @@
+use async_trait::async_trait;
+use google::auth::AuthMiddleware;
+use google::bigtable::v2::bigtable_client::BigtableClient as BtClient;
+use google::bigtable::v2::{read_rows_request, PingAndWarmRequest, ReadRowsRequest};
 use google::GrpcConnectionOptions;
 use http::Uri;
+use std::collections::HashSet;
 use std::fmt;
 use std::future::Future;
 use std::ops::Deref;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{info, instrument, trace};
+use tracing::{debug, info, instrument, trace, warn};
 use url::Url;
 
 use bigtable::mutate::MutateRowsError;
-use bigtable::read::RowKey;
+use bigtable::read::{Reader, RowKey};
 use bigtable::{
     new_admin_client, new_data_client, AuthManager, BigtableClient, BigtableTableAdminClient,
-    Instance,
+    ConnWarmer, Instance,
 };
 use hsm_api::merkle::StoreDelta;
 use hsm_api::{DataHash, EntryMac, GroupId, LogEntry, LogIndex};
@@ -123,7 +128,7 @@ impl BigtableArgs {
         StoreClient::new(
             data_url.clone(),
             instance,
-            auth_manager,
+            auth_manager.clone(),
             options,
             conn_options,
         )
@@ -221,6 +226,7 @@ pub struct StoreClient {
     last_write: Mutex<Option<(RealmId, GroupId, LogIndex, EntryMac)>>,
     metrics: metrics::Client,
     merkle_cache: merkle::Cache,
+    warmer: TablesReadWarmer,
 }
 
 impl Clone for StoreClient {
@@ -232,6 +238,7 @@ impl Clone for StoreClient {
             last_write: Mutex::new(None),
             metrics: self.metrics.clone(),
             merkle_cache: self.merkle_cache.clone(),
+            warmer: self.warmer.clone(),
         }
     }
 }
@@ -293,14 +300,23 @@ impl StoreClient {
         options: Options,
         conn_options: GrpcConnectionOptions,
     ) -> Result<Self, tonic::transport::Error> {
-        let bigtable =
-            new_data_client(url, auth_manager, conn_options, options.metrics.clone()).await?;
+        let warmer = TablesReadWarmer::new();
+        let bigtable = new_data_client(
+            instance.clone(),
+            url,
+            auth_manager,
+            conn_options,
+            options.metrics.clone(),
+            warmer.clone(),
+        )
+        .await?;
         Ok(Self {
             bigtable,
             instance,
             last_write: Mutex::new(None),
             metrics: options.metrics,
             merkle_cache: merkle::Cache::new(options.merkle_cache_nodes_limit.unwrap_or(1)),
+            warmer,
         })
     }
 
@@ -448,6 +464,67 @@ impl StoreClient {
             "append succeeded"
         );
         Ok(delete_handle)
+    }
+}
+
+#[derive(Clone)]
+struct TablesReadWarmer(Arc<Mutex<HashSet<RealmId>>>);
+
+impl TablesReadWarmer {
+    fn new() -> Self {
+        Self(Arc::new(Mutex::new(HashSet::new())))
+    }
+
+    fn add(&self, realm: RealmId) {
+        self.0.lock().unwrap().insert(realm);
+    }
+}
+
+#[async_trait]
+impl ConnWarmer for TablesReadWarmer {
+    async fn warm(&self, inst: Instance, mut conn: BtClient<AuthMiddleware>) {
+        let r = conn
+            .ping_and_warm(PingAndWarmRequest {
+                name: inst.path(),
+                app_profile_id: String::from(""),
+            })
+            .await;
+        debug!(?r, "ping_and_warm result");
+
+        let mut tables: Vec<String> = {
+            let locked = self.0.lock().unwrap();
+            locked
+                .iter()
+                .flat_map(|realm| {
+                    [
+                        log::log_table(&inst, realm),
+                        merkle::merkle_table(&inst, realm),
+                        tenants::tenant_user_table(&inst, realm),
+                    ]
+                })
+                .collect()
+        };
+        tables.push(discovery::discovery_table(&inst));
+        tables.push(lease::lease_table(&inst));
+        for table in tables {
+            if let Err(err) = Reader::read_rows(
+                &mut conn,
+                ReadRowsRequest {
+                    table_name: table.clone(),
+                    app_profile_id: String::from(""),
+                    rows: None,
+                    filter: None,
+                    rows_limit: 1,
+                    request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone
+                        .into(),
+                    reversed: false,
+                },
+            )
+            .await
+            {
+                warn!(?err, ?table, "warmup read request failed for table");
+            }
+        }
     }
 }
 

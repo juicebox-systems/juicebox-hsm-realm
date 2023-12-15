@@ -18,7 +18,7 @@ const FAMILY: &str = "f";
 const OWNER_COL: &[u8] = b"o";
 const ID_COL: &[u8] = b"id";
 
-fn lease_table(instance: &Instance) -> String {
+pub(crate) fn lease_table(instance: &Instance) -> String {
     format!(
         "projects/{project}/instances/{instance}/tables/lease",
         project = instance.project,

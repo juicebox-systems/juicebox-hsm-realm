@@ -291,6 +291,7 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 name = "bigtable"
 version = "0.2.3"
 dependencies = [
+ "async-trait",
  "gcp_auth",
  "google",
  "observability",
@@ -1292,11 +1293,14 @@ checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 name = "google"
 version = "0.2.3"
 dependencies = [
+ "futures",
  "gcp_auth",
  "http",
  "observability",
  "prost 0.12.1",
  "prost-types",
+ "thiserror",
+ "tokio",
  "tonic 0.10.2",
  "tower-service",
  "tracing",

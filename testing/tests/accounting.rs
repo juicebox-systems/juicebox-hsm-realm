@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
 
-use bigtable::read::{read_rows, Cell};
-use bigtable::{new_data_client, BigtableClient, Instance};
+use bigtable::read::{Cell, Reader};
+use bigtable::{new_data_client, BigtableClient, Instance, NoWarmup};
 use hsm_api::RecordId;
 use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::{Pin, Policy, RealmId, UserInfo, UserSecret};
@@ -63,10 +63,12 @@ async fn user_accounting() {
         instance: bt_args.instance,
     };
     let bt_client = new_data_client(
+        inst.clone(),
         bt_args.url.unwrap(),
         None,
         GrpcConnectionOptions::default(),
         metrics::Client::NONE,
+        NoWarmup,
     )
     .await
     .unwrap();
@@ -135,7 +137,7 @@ async fn read_realm_users(
         reversed: false,
     };
     let mut bigtable = bigtable.clone();
-    let rows = read_rows(&mut bigtable, read_req).await.unwrap();
+    let rows = Reader::read_rows(&mut bigtable, read_req).await.unwrap();
     rows.into_iter()
         .map(|(key, cells)| {
             let p = key.0.len() - RecordId::NUM_BYTES * 2;

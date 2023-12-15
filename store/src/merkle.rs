@@ -16,7 +16,7 @@ use tracing::{instrument, trace, warn, Span};
 use super::{base128, StoreClient};
 use agent_api::merkle::{TreeStoreError, TreeStoreReader};
 use bigtable::mutate::{mutate_rows, MutateRowsError};
-use bigtable::read::read_rows;
+use bigtable::read::Reader;
 use bigtable::{BigtableTableAdminClient, Instance};
 use bitvec::Bits;
 use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey};
@@ -59,7 +59,7 @@ impl Cache {
     }
 }
 
-fn merkle_table(instance: &Instance, realm: &RealmId) -> String {
+pub(crate) fn merkle_table(instance: &Instance, realm: &RealmId) -> String {
     let mut buf = String::new();
     write!(
         buf,
@@ -362,7 +362,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
         };
 
         // Read the rest from Bigtable.
-        let rows = read_rows(
+        let rows = Reader::read_rows(
             &mut self.bigtable.clone(),
             ReadRowsRequest {
                 table_name: merkle_table(&self.instance, realm),
@@ -470,7 +470,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
         }
 
         // Read from Bigtable.
-        let rows = read_rows(
+        let rows = Reader::read_rows(
             &mut self.bigtable.clone(),
             ReadRowsRequest {
                 table_name: merkle_table(&self.instance, realm),

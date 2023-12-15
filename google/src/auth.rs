@@ -39,6 +39,15 @@ pub struct AuthMiddleware {
     metrics: metrics::Client,
 }
 
+impl std::fmt::Debug for AuthMiddleware {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthMiddleware")
+            .field("channel", &self.channel)
+            .field("scopes", &self.scopes)
+            .finish_non_exhaustive()
+    }
+}
+
 impl AuthMiddleware {
     /// Constructor.
     ///
@@ -89,7 +98,7 @@ impl Service<http::Request<BoxBody>> for AuthMiddleware {
         Box::pin(async move {
             if let Some(auth_manager) = auth_manager {
                 let token = metrics
-                    .async_time("gcp.get_token.ns", metrics::NO_TAGS, || {
+                    .async_time("gcp.get_token", metrics::NO_TAGS, || {
                         auth_manager.get_token(scopes)
                     })
                     .await

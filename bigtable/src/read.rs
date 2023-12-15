@@ -1,12 +1,13 @@
+use google::bigtable::v2::bigtable_client::BigtableClient;
 use google::bigtable::v2::read_rows_response::cell_chunk::RowStatus;
 use google::bigtable::v2::read_rows_response::CellChunk;
 use google::bigtable::v2::ReadRowsRequest;
 use std::fmt;
+use std::marker::PhantomData;
 use std::time::Duration;
+use tonic::codegen::{Body, Bytes, StdError};
 use tonic::Code;
 use tracing::{instrument, trace, warn, Span};
-
-use super::BigtableClient;
 
 #[derive(Clone, Hash, Eq, PartialEq)]
 pub struct RowKey(pub Vec<u8>);
@@ -48,89 +49,99 @@ impl<'a> fmt::Debug for Hex<'a> {
     }
 }
 
-pub async fn read_rows(
-    bigtable: &mut BigtableClient,
-    request: ReadRowsRequest,
-) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
-    let mut rows = Vec::new();
-    read_rows_stream(bigtable, request, |key, cells| rows.push((key, cells)))
-        .await
-        .map(|_| rows)
-}
+pub struct Reader<T>(PhantomData<T>);
 
-#[instrument(
-    level = "trace",
-    skip(bigtable, request, row_fn),
-    fields(
-        num_request_items,
-        num_response_chunks,
-        num_response_messages,
-        num_response_rows,
-        retry_count,
-    )
-)]
-pub async fn read_rows_stream<F>(
-    bigtable: &mut BigtableClient,
-    request: ReadRowsRequest,
-    mut row_fn: F,
-) -> Result<(), tonic::Status>
+impl<T> Reader<T>
 where
-    F: FnMut(RowKey, Vec<Cell>),
+    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T::Error: Into<StdError>,
+    T::ResponseBody: Body<Data = Bytes> + Send + 'static,
+    <T::ResponseBody as Body>::Error: Into<StdError> + Send,
 {
-    Span::current().record(
-        "num_request_items",
-        match &request.rows {
-            Some(rows) => rows.row_keys.len() + rows.row_ranges.len(),
-            None => 0,
-        },
-    );
+    pub async fn read_rows(
+        bigtable: &mut BigtableClient<T>,
+        request: ReadRowsRequest,
+    ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
+        let mut rows = Vec::new();
+        Self::read_rows_stream(bigtable, request, |key, cells| rows.push((key, cells)))
+            .await
+            .map(|_| rows)
+    }
 
-    let mut retry_count = 0;
-    'outer: loop {
-        let mut stream = bigtable.read_rows(request.clone()).await?.into_inner();
-        let mut active_row: Option<RowBuffer> = None;
-        let mut num_rows: usize = 0;
-        let mut num_response_chunks: usize = 0;
-        let mut num_response_messages: usize = 0;
-        loop {
-            match stream.message().await {
-                Err(e) => {
-                    // TODO, this seems to be a bug in hyper, in that it doesn't handle RST properly
-                    // https://github.com/hyperium/hyper/issues/2872
-                    warn!(?e, code=?e.code(), "stream.message error during read_rows");
-                    if e.code() == Code::Internal {
-                        tokio::time::sleep(Duration::from_millis(1)).await;
-                        trace!("retrying read_rows");
-                        retry_count += 1;
-                        continue 'outer;
-                    } else {
-                        return Err(e);
-                    }
-                }
-                Ok(None) => break,
-                Ok(Some(message)) => {
-                    num_response_messages += 1;
-                    num_response_chunks += message.chunks.len();
-                    for chunk in message.chunks {
-                        let complete_row;
-                        (active_row, complete_row) = process_read_chunk(chunk, active_row);
-                        if let Some((key, row)) = complete_row {
-                            num_rows += 1;
-                            row_fn(key, row);
+    #[instrument(
+        level = "trace",
+        skip(bigtable, request, row_fn),
+        fields(
+            num_request_items,
+            num_response_chunks,
+            num_response_messages,
+            num_response_rows,
+            retry_count,
+        )
+    )]
+    pub async fn read_rows_stream<F>(
+        bigtable: &mut BigtableClient<T>,
+        request: ReadRowsRequest,
+        mut row_fn: F,
+    ) -> Result<(), tonic::Status>
+    where
+        F: FnMut(RowKey, Vec<Cell>),
+    {
+        Span::current().record(
+            "num_request_items",
+            match &request.rows {
+                Some(rows) => rows.row_keys.len() + rows.row_ranges.len(),
+                None => 0,
+            },
+        );
+
+        let mut retry_count = 0;
+        'outer: loop {
+            let mut stream = bigtable.read_rows(request.clone()).await?.into_inner();
+            let mut active_row: Option<RowBuffer> = None;
+            let mut num_rows: usize = 0;
+            let mut num_response_chunks: usize = 0;
+            let mut num_response_messages: usize = 0;
+            loop {
+                match stream.message().await {
+                    Err(e) => {
+                        // TODO, this seems to be a bug in hyper, in that it doesn't handle RST properly
+                        // https://github.com/hyperium/hyper/issues/2872
+                        warn!(?e, code=?e.code(), "stream.message error during read_rows");
+                        if e.code() == Code::Internal {
+                            tokio::time::sleep(Duration::from_millis(1)).await;
+                            trace!("retrying read_rows");
+                            retry_count += 1;
+                            continue 'outer;
+                        } else {
+                            return Err(e);
                         }
                     }
-                }
-            };
+                    Ok(None) => break,
+                    Ok(Some(message)) => {
+                        num_response_messages += 1;
+                        num_response_chunks += message.chunks.len();
+                        for chunk in message.chunks {
+                            let complete_row;
+                            (active_row, complete_row) = process_read_chunk(chunk, active_row);
+                            if let Some((key, row)) = complete_row {
+                                num_rows += 1;
+                                row_fn(key, row);
+                            }
+                        }
+                    }
+                };
+            }
+            assert!(
+                active_row.is_none(),
+                "ReadRowsResponse missing chunks: last row didn't complete",
+            );
+            Span::current().record("num_response_chunks", num_response_chunks);
+            Span::current().record("num_response_messages", num_response_messages);
+            Span::current().record("num_response_rows", num_rows);
+            Span::current().record("retry_count", retry_count);
+            return Ok(());
         }
-        assert!(
-            active_row.is_none(),
-            "ReadRowsResponse missing chunks: last row didn't complete",
-        );
-        Span::current().record("num_response_chunks", num_response_chunks);
-        Span::current().record("num_response_messages", num_response_messages);
-        Span::current().record("num_response_rows", num_rows);
-        Span::current().record("retry_count", retry_count);
-        return Ok(());
     }
 }
 
