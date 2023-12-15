@@ -4,7 +4,6 @@ use gcp_auth::AuthenticationManager;
 use http::Uri;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 use tonic::transport::Endpoint;
 
 use super::{periodic::BulkLoad, Error, Secret, SecretName, SecretVersion};
@@ -75,7 +74,7 @@ impl fmt::Debug for Client {
 impl Client {
     pub async fn new(
         project: &str,
-        auth_manager: Arc<AuthenticationManager>,
+        auth_manager: AuthenticationManager,
         list_secrets_filter: Option<String>,
         options: GrpcConnectionOptions,
         metrics: metrics::Client,

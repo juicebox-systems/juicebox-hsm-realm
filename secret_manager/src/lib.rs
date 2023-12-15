@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::Arc;
 use std::time::Duration;
 
 mod google_secret_manager;
@@ -113,7 +112,7 @@ impl SecretManager for HashMap<SecretName, HashMap<SecretVersion, Secret>> {
 /// accessing tenant auth keys.
 pub async fn new_google_secret_manager(
     project: &str,
-    auth_manager: Arc<gcp_auth::AuthenticationManager>,
+    auth_manager: gcp_auth::AuthenticationManager,
     refresh_interval: Duration,
     options: GrpcConnectionOptions,
     metrics: metrics::Client,
