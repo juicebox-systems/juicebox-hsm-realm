@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
-use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
+use tracing::{debug, info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
@@ -45,8 +45,8 @@ use build_info::BuildInfo;
 use hsm::{HsmClient, Transport};
 use hsm_api::merkle::{Dir, StoreDelta};
 use hsm_api::{
-    AppResultType, CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId, HsmId,
-    LogEntry, LogIndex, TransferInProofs,
+    AppResultType, CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId,
+    GroupMemberRole, HsmId, LogEntry, LogIndex, TransferInProofs,
 };
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::{self, Rpc};
@@ -261,6 +261,62 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
+    // Routinely looks for the agent/hsm being out of sync WRT to leadership and
+    // panics if so.
+    async fn watchdog(&self) {
+        let mut suspect_counts: HashMap<GroupId, isize> = HashMap::new();
+        loop {
+            match self.0.hsm.send(hsm_api::StatusRequest {}).await {
+                Err(err) => {
+                    warn!(?err, "failed to get status from HSM");
+                }
+                Ok(hsm_status) => {
+                    if let Some(hsm_realm_status) = hsm_status.realm {
+                        let realm = hsm_realm_status.id;
+                        let agent_state = self.0.state.lock().unwrap();
+                        for hsm_group_status in hsm_realm_status.groups {
+                            let group = hsm_group_status.id;
+                            // During new_realm & new_group we can be in this
+                            // state for a while as the agent leader state isn't
+                            // set until its finished creating the bigtable
+                            // tables and has appended the first log entry &
+                            // merkle tree nodes. The check on the captured
+                            // index stops us from treating that as a bad state.
+                            let is_suspect = hsm_group_status.role == GroupMemberRole::Leader
+                                && hsm_group_status
+                                    .captured
+                                    .is_some_and(|(index, _)| index > LogIndex::FIRST)
+                                && !agent_state.leader.contains_key(&(realm, group));
+                            if is_suspect {
+                                let count = suspect_counts.entry(group).or_default();
+                                *count += 1;
+                                warn!(
+                                    ?group,
+                                    check_count = count,
+                                    "group in suspect state (hsm is leader, agent is not)"
+                                );
+                                if *count >= 5 {
+                                    self.0.metrics.event(
+                                        "Agent watchdog triggered",
+                                        "group in suspect state (hsm is leader, agent is not)",
+                                        [tag!(?realm), tag!(?group)],
+                                    );
+                                    panic!(
+                                        "group {group:?} in suspect state (hsm is leader, agent is not)"
+                                    )
+                                }
+                            } else {
+                                suspect_counts.remove(&hsm_group_status.id);
+                            }
+                        }
+                    };
+                }
+            }
+            debug!(?suspect_counts, "agent/hsm leadership state suspects");
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
     pub async fn listen(self, address: SocketAddr) -> Result<(Url, JoinHandle<()>), anyhow::Error> {
         let listener = TcpListener::bind(address)
             .await
@@ -270,6 +326,8 @@ impl<T: Transport + 'static> Agent<T> {
         self.start_service_registration(url.clone());
         self.restart_watching().await;
         self.start_nvram_writer();
+        let wd = self.clone();
+        tokio::spawn(async move { wd.watchdog().await });
 
         Ok((
             url,
