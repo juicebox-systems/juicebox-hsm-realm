@@ -22,7 +22,7 @@ use juicebox_marshalling as marshalling;
 use juicebox_realm_api::types::RealmId;
 use observability::metrics_tag as tag;
 
-fn log_table(instance: &Instance, realm: &RealmId) -> String {
+pub(crate) fn log_table(instance: &Instance, realm: &RealmId) -> String {
     let mut buf = String::new();
     write!(
         buf,
@@ -345,6 +345,7 @@ impl StoreClient {
         max_entries: u16,
     ) -> LogEntriesIter {
         assert!(max_entries > 0);
+        self.warmer.add(realm);
         let table_name = log_table(&self.instance, &realm);
         LogEntriesIter {
             realm,
