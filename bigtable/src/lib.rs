@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use tonic::transport::{Endpoint, Uri};
 
 use google::auth::AuthMiddleware;
@@ -10,7 +9,7 @@ use observability::metrics;
 pub mod mutate;
 pub mod read;
 
-pub type AuthManager = Option<Arc<gcp_auth::AuthenticationManager>>;
+pub type AuthManager = Option<gcp_auth::AuthenticationManager>;
 
 pub type BigtableTableAdminClient = BtAdminClient<AuthMiddleware>;
 

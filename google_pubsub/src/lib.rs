@@ -10,7 +10,6 @@ use google::GrpcConnectionOptions;
 use std::collections::HashMap;
 use std::error::Error;
 use std::future::Future;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 use tonic::transport::{Endpoint, Uri};
@@ -40,7 +39,7 @@ impl Publisher {
     pub async fn new(
         service_url: Option<Uri>,
         project: String,
-        auth: Option<Arc<AuthenticationManager>>,
+        auth: Option<AuthenticationManager>,
         metrics: metrics::Client,
         options: GrpcConnectionOptions,
     ) -> Result<Self, tonic::transport::Error> {
