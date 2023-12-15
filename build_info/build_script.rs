@@ -1,7 +1,21 @@
+use std::env;
 use std::process::{Command, Stdio};
 
 fn main() {
-    println!("cargo:rustc-env=BUILD_USERNAME={}", env!("USER"));
+    let rustc = env::var("RUSTC").unwrap_or_else(|_| String::from("rustc"));
+    println!(
+        "cargo:rustc-env=BUILD_RUSTC_VERSION={}",
+        match env::var("RUSTC_WRAPPER") {
+            Ok(wrapper) => run_output(Command::new(wrapper).arg(rustc).arg("--version")),
+            Err(_) => run_output(Command::new(rustc).arg("--version")),
+        }
+        .unwrap()
+    );
+
+    println!(
+        "cargo:rustc-env=BUILD_USERNAME={}",
+        env::var("USER").expect("failed to read $USER")
+    );
 
     let hostname =
         run_output(&mut Command::new("hostname")).unwrap_or_else(|| String::from("localhost"));

@@ -3,7 +3,6 @@ use http::HeaderValue;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use tonic::body::BoxBody;
 use tonic::transport::{Body, Channel};
 use tower_service::Service;
@@ -19,9 +18,9 @@ use observability::metrics;
 /// See
 /// <https://cloud.google.com/docs/authentication/application-default-credentials>
 /// and the [`gcp_auth`] library for details.
-pub async fn from_adc() -> Result<Arc<AuthenticationManager>, gcp_auth::Error> {
+pub async fn from_adc() -> Result<AuthenticationManager, gcp_auth::Error> {
     info!("initializing Google Cloud authentication with Application Default Credentials");
-    AuthenticationManager::new().await.map(Arc::new)
+    AuthenticationManager::new().await
 }
 
 /// Tower middleware used for authenticating with Google Cloud services over
@@ -35,7 +34,7 @@ pub async fn from_adc() -> Result<Arc<AuthenticationManager>, gcp_auth::Error> {
 #[derive(Clone)]
 pub struct AuthMiddleware {
     channel: Channel,
-    auth_manager: Option<Arc<AuthenticationManager>>,
+    auth_manager: Option<AuthenticationManager>,
     scopes: &'static [&'static str],
     metrics: metrics::Client,
 }
@@ -58,7 +57,7 @@ impl AuthMiddleware {
     /// for a list of possible scopes.
     pub fn new(
         channel: Channel,
-        auth_manager: Option<Arc<AuthenticationManager>>,
+        auth_manager: Option<AuthenticationManager>,
         scopes: &'static [&'static str],
         metrics: metrics::Client,
     ) -> Self {

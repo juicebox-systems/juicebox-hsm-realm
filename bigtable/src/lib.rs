@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use std::sync::Arc;
 use std::time::Duration;
 use tonic::transport::{Endpoint, Uri};
 use tracing::info;
@@ -14,7 +13,7 @@ use observability::metrics;
 pub mod mutate;
 pub mod read;
 
-pub type AuthManager = Option<Arc<gcp_auth::AuthenticationManager>>;
+pub type AuthManager = Option<gcp_auth::AuthenticationManager>;
 
 pub type BigtableTableAdminClient = BtAdminClient<MaxConnectionLifetime<AuthMiddleware>>;
 

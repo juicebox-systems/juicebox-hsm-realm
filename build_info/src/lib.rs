@@ -23,6 +23,7 @@ macro_rules! get {
             git_hash: option_env!("BUILD_GIT_HASH"),
             git_tag: option_env!("BUILD_GIT_TAG"),
             hostname: env!("BUILD_HOSTNAME"),
+            rustc_version: env!("BUILD_RUSTC_VERSION"),
             username: env!("BUILD_USERNAME"),
             version: env!("CARGO_PKG_VERSION"),
         }
@@ -80,6 +81,9 @@ pub struct BuildInfo {
     /// Short hostname (section before the dot).
     pub hostname: &'static str,
 
+    /// Compiler version, like `rustc 1.74.1 (a28077b28 2023-12-04)`.
+    pub rustc_version: &'static str,
+
     /// Username.
     pub username: &'static str,
 
@@ -100,6 +104,7 @@ impl BuildInfo {
             git_hash,
             git_tag,
             hostname,
+            rustc_version,
             username,
             version,
         } = self;
@@ -119,7 +124,8 @@ impl BuildInfo {
             writeln!(w, "git branch: {git_branch}")?;
         }
         writeln!(w, "build host: {hostname}")?;
-        write!(w, "build user: {username}")?;
+        writeln!(w, "build user: {username}")?;
+        write!(w, "compiler: {rustc_version}")?;
         // clap will add a newline.
 
         Ok(w)
@@ -136,6 +142,7 @@ impl BuildInfo {
             git_hash,
             git_tag,
             hostname,
+            rustc_version,
             username,
             version,
         } = self;
@@ -150,6 +157,7 @@ impl BuildInfo {
         writeln!(w, "git branch: {}", git_branch.unwrap_or("(none)"))?;
         writeln!(w, "build host: {hostname}")?;
         writeln!(w, "build user: {username}")?;
+        writeln!(w, "compiler: {rustc_version}")?;
         Ok(w)
     }
 }
@@ -176,6 +184,7 @@ mod tests {
                 // would also show this.
                 git_tag: Some("0.1.3"),
                 hostname: "dl3",
+                rustc_version: "rustc 1.76.0-nightly (21cce21d8 2023-12-11)",
                 username: "teyla",
                 version: "0.1.2",
             },
@@ -185,7 +194,8 @@ git tag: 0.1.3
 git ancestor tag: 0.1.2-49
 git branch: main
 build host: dl3
-build user: teyla",
+build user: teyla
+compiler: rustc 1.76.0-nightly (21cce21d8 2023-12-11)",
             livez: "version: 0.1.2
 git hash: 9c1748107712146689e44da2302882fda307d26b
 git tag: 0.1.3
@@ -193,6 +203,7 @@ git ancestor tag: 0.1.2-49
 git branch: main
 build host: dl3
 build user: teyla
+compiler: rustc 1.76.0-nightly (21cce21d8 2023-12-11)
 ",
         },
         TestCase {
@@ -203,6 +214,7 @@ build user: teyla
                 git_hash: Some("9c1748107712146689e44da2302882fda307d26b"),
                 git_tag: None,
                 hostname: "dl3",
+                rustc_version: "rustc 1.74.1 (a28077b28 2023-12-04)",
                 username: "teyla",
                 version: "0.1.2",
             },
@@ -210,7 +222,8 @@ build user: teyla
 git hash: 9c1748107712146689e44da2302882fda307d26b
 git ancestor tag: 0.1.2-49
 build host: dl3
-build user: teyla",
+build user: teyla
+compiler: rustc 1.74.1 (a28077b28 2023-12-04)",
             livez: "version: 0.1.2
 git hash: 9c1748107712146689e44da2302882fda307d26b
 git tag: (none)
@@ -218,6 +231,7 @@ git ancestor tag: 0.1.2-49
 git branch: (none)
 build host: dl3
 build user: teyla
+compiler: rustc 1.74.1 (a28077b28 2023-12-04)
 ",
         },
         TestCase {
@@ -228,12 +242,14 @@ build user: teyla
                 git_hash: None,
                 git_tag: None,
                 hostname: "dl3",
+                rustc_version: "rustc 1.74.1 (a28077b28 2023-12-04)",
                 username: "teyla",
                 version: "0.1.2",
             },
             clap: "0.1.2
 build host: dl3
-build user: teyla",
+build user: teyla
+compiler: rustc 1.74.1 (a28077b28 2023-12-04)",
             livez: "version: 0.1.2
 git hash: (none)
 git tag: (none)
@@ -241,6 +257,7 @@ git ancestor tag: (none)
 git branch: (none)
 build host: dl3
 build user: teyla
+compiler: rustc 1.74.1 (a28077b28 2023-12-04)
 ",
         },
     ];
