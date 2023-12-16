@@ -50,6 +50,8 @@ gcloud storage cp \
   "target/$MODE/cluster_manager" \
   "target/$MODE/load_balancer" \
   "target/$MODE/software_agent" \
+  "target/$MODE/software_hsm" \
+  "target/$MODE/service_checker" \
   "gs://$GSPATH/"
 
 if [ "$ENTRUST" -eq "1" ]; then
