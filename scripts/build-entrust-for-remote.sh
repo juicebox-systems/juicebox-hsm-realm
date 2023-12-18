@@ -49,6 +49,8 @@ rsync --archive --compress --mkpath --progress --relative \
     target/release/hsm_bench \
     target/release/load_balancer \
     target/release/software_agent \
+    target/release/software_hsm \
+    target/release/service_checker \
     "$REMOTE_HOST":juicebox-hsm-realm/
 
 ssh "$REMOTE_HOST" \
