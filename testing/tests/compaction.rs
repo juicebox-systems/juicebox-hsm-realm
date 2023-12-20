@@ -108,11 +108,11 @@ fn signal_agent(agent: &Url, kind: Signal) {
     info!(signal = %kind, %agent, "signaling agent");
     let host = agent.host().expect("need agent host");
     let port = agent.port().expect("need agent port");
+    // Try to keep this compatible with both OS X and Linux procps.
     let status = Command::new("pkill")
-        .arg("--full")
-        .arg("--newest")
-        .arg("--signal")
-        .arg(kind.as_str())
+        .arg(format!("-{kind}")) // must come first on OS X
+        .arg("-f") // full
+        .arg("-n") // newest
         .arg(format!(
             "./target/.*/software_agent .* --listen {host}:{port} "
         ))
