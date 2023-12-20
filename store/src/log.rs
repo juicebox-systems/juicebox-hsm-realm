@@ -48,7 +48,7 @@
 use google::bigtable::admin::v2::gc_rule::Rule::MaxAge;
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
-use google::bigtable::v2::column_range::{EndQualifier, StartQualifier};
+use google::bigtable::v2::column_range::StartQualifier;
 use google::bigtable::v2::row_filter::{Chain, Interleave};
 use google::bigtable::v2::row_range::{
     EndKey::EndKeyClosed, StartKey::StartKeyClosed, StartKey::StartKeyOpen,
@@ -1003,6 +1003,9 @@ impl LogEntriesIter {
 
     /// Reads multiple rows down to and including the row with the key exactly
     /// determined by the index.
+    ///
+    /// The caller must ensure that `index` is at a row boundary. If it's not,
+    /// this won't return the row that includes `index`.
     async fn read_for_row_boundary(
         &self,
         index: LogIndex,
@@ -1020,30 +1023,7 @@ impl LogEntriesIter {
                     end_key: Some(EndKeyClosed(log_key(&self.group, index))),
                 }],
             }),
-            filter: Some(RowFilter {
-                filter: Some(Filter::Interleave(Interleave {
-                    filters: vec![
-                        // Return log entries only through index.
-                        RowFilter {
-                            filter: Some(Filter::ColumnRangeFilter(ColumnRange {
-                                family_name: LogFamily::EntryBatch.name_string(),
-                                start_qualifier: None,
-                                end_qualifier: Some(EndQualifier::EndQualifierClosed(
-                                    DownwardLogIndex(index).bytes().to_vec(),
-                                )),
-                            })),
-                        },
-                        // Return tombstones too.
-                        RowFilter {
-                            filter: Some(Filter::ColumnRangeFilter(ColumnRange {
-                                family_name: LogFamily::Tombstone.name_string(),
-                                start_qualifier: None,
-                                end_qualifier: None,
-                            })),
-                        },
-                    ],
-                })),
-            }),
+            filter: None, // get both log entries and tombstones
             rows_limit: 0,
             request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
             reversed: false,
