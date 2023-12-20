@@ -86,9 +86,9 @@ impl<T: Transport + 'static> Agent<T> {
         )
         .await;
 
-        // Spawn the log compactor task. The channel tracks the latest
-        // compact index. The JoinSet's Drop impl aborts the task when the
-        // committer task exits.
+        // Spawn the log compactor task. The channel tracks the latest compact
+        // index (defined below). The JoinSet's Drop impl aborts the task when
+        // the committer task exits.
         let (compaction_tx, compaction_rx) = watch::channel(None);
         let mut compaction_task = JoinSet::new();
         compaction_task.spawn(self.clone().compactor(
@@ -117,18 +117,17 @@ impl<T: Transport + 'static> Agent<T> {
                     return;
                 }
                 CommitterStatus::Committing { committed: c } => {
-                    if last_committed < c {
-                        last_committed = c;
-                    }
+                    assert!(last_committed <= c, "commit index shouldn't go backwards");
+                    last_committed = c;
                 }
             };
 
-            // Notify the compaction task of updates. The compaction task
-            // may compact up to the commit index (exclusive) and the
-            // leader HSM's captured state (inclusive), whichever is
-            // lowest. The first constraint keeps the critically useful
-            // entries in the log, and the second prevents the leader HSM
-            // from needing a CaptureJump RPC due to its own compactions.
+            // Notify the compaction task of updates. The compaction task may
+            // compact up through the compact index, defined as the lower of:
+            // the index preceding the commit index, or the leader HSM's
+            // captured index. The first constraint keeps the critically useful
+            // entries in the log, and the second prevents the leader HSM from
+            // needing a CaptureJump RPC due to its own compactions.
             //
             // When PersistState updates the captured info, `compaction_tx`
             // won't be notified until this loop gets back here. This loops
