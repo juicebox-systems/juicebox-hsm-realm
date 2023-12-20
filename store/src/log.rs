@@ -86,7 +86,7 @@ use observability::metrics_tag as tag;
 /// # Warning
 ///
 /// It would be hard to change this safely for an existing cluster.
-const TOMBSTONE_WINDOW_SIZE: usize = 20;
+const TOMBSTONE_WINDOW_SIZE: usize = 100;
 
 pub(crate) fn log_table(instance: &Instance, realm: &RealmId) -> String {
     let mut buf = String::new();
