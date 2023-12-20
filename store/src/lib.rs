@@ -457,14 +457,14 @@ impl StoreClient {
         // Check `last_write` cache.
         {
             let locked = self.last_write.lock().unwrap();
-            if let Some((_, last_mac)) = locked
-                .get(&(*realm, *group))
-                .filter(|(last_index, _)| *last_index == prev_index)
-            {
-                if last_mac == prev_mac {
-                    return Ok(());
-                } else {
-                    return Err(AppendError::LogPrecondition);
+            if let Some((last_index, last_mac)) = locked.get(&(*realm, *group)) {
+                if *last_index == prev_index {
+                    // Cache hit.
+                    if last_mac == prev_mac {
+                        return Ok(());
+                    } else {
+                        return Err(AppendError::LogPrecondition);
+                    }
                 }
             }
         }

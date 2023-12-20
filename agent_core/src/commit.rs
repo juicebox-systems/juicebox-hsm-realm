@@ -399,7 +399,7 @@ impl<T: Transport + 'static> Agent<T> {
     }
 
     /// Sets up to begin log compaction.
-    #[instrument(level = "trace", skip(self, agent_discovery), fields(rows))]
+    #[instrument(level = "trace", skip(self, agent_discovery))]
     async fn compact_init(
         &self,
         realm: &RealmId,
@@ -424,6 +424,8 @@ impl<T: Transport + 'static> Agent<T> {
         })
         .await;
         info!(
+            ?realm,
+            ?group,
             elapsed = ?start.elapsed(),
             LOG_COMPACTION_ENABLED,
             reason = match result {
@@ -445,6 +447,8 @@ impl<T: Transport + 'static> Agent<T> {
                 .expect("failed to read log rows to compact"),
         );
         info!(
+            ?realm,
+            ?group,
             count = rows_read.len(),
             lowest = ?rows_read.front().map(|row| row.index),
             highest = ?rows_read.back().map(|row| row.index),
@@ -520,7 +524,7 @@ impl<T: Transport + 'static> Agent<T> {
         let urls: Vec<Url> = config
             .iter()
             .filter(|id| **id != local_hsm_id)
-            .flat_map(|id| agent_discovery.url(id))
+            .filter_map(|id| agent_discovery.url(id))
             .collect();
 
         if urls.len() + 1 < config.len() {
@@ -589,7 +593,7 @@ impl UncompactedRowsStats {
     }
 
     pub(crate) fn publish(&self, metrics: &metrics::Client, tags: &[Tag]) {
-        metrics.gauge("agent.compaction.uncompacted_rows.count", self.count, tags);
+        metrics.distribution("agent.compaction.uncompacted_rows.count", self.count, tags);
         if let Some(first_index) = self.first_index {
             metrics.gauge(
                 "agent.compaction.uncompacted_rows.first_index",
@@ -748,6 +752,16 @@ mod tests {
                 expected: &[1, 2, 3],
                 input: &[1, 2, 3, 4],
                 compact_index: 5,
+            },
+            TestCase {
+                expected: &[1],
+                input: &[1, 3, 10],
+                compact_index: 6,
+            },
+            TestCase {
+                expected: &[1, 3],
+                input: &[1, 3, 10],
+                compact_index: 9,
             },
         ] {
             let expected: Vec<LogRow> = case

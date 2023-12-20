@@ -120,7 +120,7 @@ struct LeaderState {
     /// Any time this is modified, use [`commit::UncompactedRowStats`] to
     /// report metrics.
     ///
-    /// The rows sorted are in increasing index order and unique.
+    /// The rows are sorted in increasing index order and unique.
     ///
     /// As the leader appends new rows of entries to the log, it pushes to the
     /// back of this. After the leader commits entries, the compactor task pops

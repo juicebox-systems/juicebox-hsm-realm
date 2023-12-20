@@ -31,7 +31,7 @@
 //! is that Bigtable's built-in garbage collection policies are used to delete
 //! the tombstones (but must never delete real log entries).
 //!
-//! Each log has a few useful invariants related to tombtones. The last log
+//! Each log has a few useful invariants related to tombstones. The last log
 //! entry/row (highest upward index or lowest downward index) is never a
 //! tombstone. From lowest to highest upward indexes (highest to lowest
 //! downward indexes), the possibly-empty ranges of a log are:
@@ -265,12 +265,11 @@ fn parse_log_key(key: &RowKey) -> Result<(GroupId, LogIndex), &'static str> {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub struct LogRow {
-    // The index of the first log entry written to the row (the lowest upward
-    // index).
+    /// The smallest index of the log entries written to the row.
     pub index: LogIndex,
-    // If true, the row was last known to contain a tombstone (but might be
-    // deleted by now). If false, it was last known to contain a batch of log
-    // entries (but might be a tombstone or deleted by now).
+    /// If true, the row was last known to contain a tombstone (but might be
+    /// deleted by now). If false, it was last known to contain a batch of log
+    /// entries (but might be a tombstone or deleted by now).
     pub is_tombstone: bool,
 }
 
@@ -862,7 +861,10 @@ impl LogEntriesIter {
     pub async fn next(&mut self) -> Result<Vec<LogEntry>, LogEntriesIterError> {
         let start = Instant::now();
         let rows = match self.next {
-            Position::LogIndex(i) => Vec::from_iter(self.read_for_log_index(i).await?),
+            Position::LogIndex(i) => match self.read_for_log_index(i).await? {
+                Some(row) => vec![row],
+                None => Vec::new(),
+            },
             Position::RowBoundary(i) => self.read_for_row_boundary(i).await?,
         };
 
