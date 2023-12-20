@@ -12,7 +12,7 @@ use hsm_api::{GroupId, OwnedRange};
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_networking::rpc;
 use juicebox_realm_api::types::RealmId;
-use store::StoreClient;
+use store::{ReadLastLogEntryError, StoreClient};
 
 #[derive(Debug, Error)]
 pub enum TransferError {
@@ -159,15 +159,14 @@ pub async fn transfer(
     // to be resolved with the overall transfer review/update.
     let wait_for_entry = |group, index| async move {
         loop {
-            if let Some(e) = store
-                .read_last_log_entry(&realm, &group)
-                .await
-                .expect("TODO")
-            {
-                if e.index >= index {
+            match store.read_last_log_entry(&realm, &group).await {
+                Ok(e) if e.index >= index => {
                     return;
                 }
-                sleep(Duration::from_millis(1)).await;
+                Ok(_) | Err(ReadLastLogEntryError::EmptyLog) => {
+                    sleep(Duration::from_millis(1)).await;
+                }
+                Err(ReadLastLogEntryError::Grpc(err)) => todo!("{err}"),
             }
         }
     };

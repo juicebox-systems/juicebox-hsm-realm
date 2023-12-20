@@ -1259,8 +1259,14 @@ impl<'a> TestHsm<'a> {
     }
 
     fn stepdown_as_leader(&mut self, realm: RealmId, group: GroupId) -> StepDownResponse {
-        self.hsm
-            .handle_stepdown_as_leader(&mut self.metrics, StepDownRequest { realm, group })
+        self.hsm.handle_stepdown_as_leader(
+            &mut self.metrics,
+            StepDownRequest {
+                realm,
+                group,
+                force: false,
+            },
+        )
     }
 
     // Makes a CaptureNext request to the HSM if there are any new log

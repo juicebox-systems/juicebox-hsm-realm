@@ -9,6 +9,7 @@
         "chacha",
         "ciphertext",
         "codegen",
+        "compactible",
         "dalek",
         "Deque",
         "Diffie",
@@ -52,6 +53,7 @@
         "teyla",
         "threadsafe",
         "unblind",
+        "uncompacted",
         "voprf",
         "zeroize"
     ],

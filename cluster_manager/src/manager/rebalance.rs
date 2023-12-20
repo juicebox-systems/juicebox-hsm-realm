@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Duration;
 use tracing::{info, warn};
 use url::Url;
 
@@ -35,8 +36,12 @@ impl Manager {
             .await
             .map_err(|_| RebalanceError::NoStore)?;
 
-        let hsm_status =
-            get_hsm_statuses(&self.0.agents, addresses.iter().map(|(url, _)| url)).await;
+        let hsm_status = get_hsm_statuses(
+            &self.0.agents,
+            addresses.iter().map(|(url, _)| url),
+            Some(Duration::from_secs(5)),
+        )
+        .await;
 
         let hsm_urls: HashMap<HsmId, Url> = hsm_status
             .iter()

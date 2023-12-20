@@ -9,6 +9,7 @@ use juicebox_realm_api::types::RealmId;
 use observability::metrics::Tag;
 use observability::metrics_tag as tag;
 
+use super::commit::UncompactedRowsStats;
 use super::Agent;
 use AppendingState::*;
 
@@ -110,20 +111,23 @@ impl<T: Transport + 'static> Agent<T> {
 
                 Err(err) => todo!("{err:?}"),
 
-                Ok(()) => {
+                Ok(row) => {
+                    let elapsed = start.elapsed();
                     let batch_size = batch.len();
-                    {
+                    let stats = {
                         let mut locked = self.0.state.lock().unwrap();
                         if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
+                            leader.uncompacted_rows.push_back(row);
                             leader.last_appended = batch.pop();
+                            Some(UncompactedRowsStats::new(leader))
+                        } else {
+                            None
                         }
+                    };
+                    if let Some(stats) = stats {
+                        stats.publish(&self.0.metrics, &metric_tags);
                     }
-                    self.record_append_metrics(
-                        start.elapsed(),
-                        batch_size,
-                        queue_depth,
-                        &metric_tags,
-                    );
+                    self.record_append_metrics(elapsed, batch_size, queue_depth, &metric_tags);
                 }
             }
         }

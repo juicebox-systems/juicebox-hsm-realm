@@ -9,7 +9,7 @@ use url::Url;
 use agent_api::StatusRequest;
 use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex};
 use juicebox_networking::reqwest::Client;
-use juicebox_networking::rpc::{self, RpcError};
+use juicebox_networking::rpc::{self, RpcError, SendOptions};
 use juicebox_realm_api::types::RealmId;
 use service_core::http::ReqwestClientMetrics;
 
@@ -80,10 +80,20 @@ async fn wait_for_commit(
 pub async fn get_hsm_statuses(
     agents: &ReqwestClientMetrics,
     agent_urls: impl Iterator<Item = &Url>,
+    timeout: Option<Duration>,
 ) -> HashMap<HsmId, (hsm_api::StatusResponse, Url)> {
-    join_all(
-        agent_urls.map(|url| rpc::send(agents, url, StatusRequest {}).map(|r| (r, url.clone()))),
-    )
+    join_all(agent_urls.map(|url| {
+        rpc::send_with_options(
+            agents,
+            url,
+            StatusRequest {},
+            SendOptions {
+                timeout,
+                ..SendOptions::default()
+            },
+        )
+        .map(|r| (r, url.clone()))
+    }))
     .await
     .into_iter()
     .filter_map(|(r, url)| r.ok().and_then(|s| s.hsm).map(|s| (s.id, (s, url))))

@@ -58,14 +58,68 @@ where
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
 {
+    /// Runs a query and returns the resulting rows.
+    ///
+    /// See [`Self::read_column`] to return only the first cell for each row,
+    /// [`Self::read_row`] to return only the first row, and
+    /// [`Self::read_cell`] to return only the first cell of the first row.
     pub async fn read_rows(
         bigtable: &mut BigtableClient<T>,
         request: ReadRowsRequest,
     ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
         let mut rows = Vec::new();
-        Self::read_rows_stream(bigtable, request, |key, cells| rows.push((key, cells)))
-            .await
-            .map(|_| rows)
+        Self::read_rows_stream(bigtable, request, |key, cells| rows.push((key, cells))).await?;
+        Ok(rows)
+    }
+
+    /// Runs a query and returns the first cell of each of the resulting rows.
+    ///
+    /// To prevent wasted work, the caller should restrict the query to return
+    /// only one cell per row.
+    pub async fn read_column(
+        bigtable: &mut BigtableClient<T>,
+        request: ReadRowsRequest,
+    ) -> Result<Vec<(RowKey, Cell)>, tonic::Status> {
+        let mut rows = Vec::new();
+        Self::read_rows_stream(bigtable, request, |key, cells| {
+            let cell = cells.into_iter().next().unwrap();
+            rows.push((key, cell))
+        })
+        .await?;
+        Ok(rows)
+    }
+
+    /// Runs a query and returns the first resulting row.
+    ///
+    /// To prevent wasted work, the caller should restrict the query to return
+    /// only one row.
+    pub async fn read_row(
+        bigtable: &mut BigtableClient<T>,
+        request: ReadRowsRequest,
+    ) -> Result<Option<(RowKey, Vec<Cell>)>, tonic::Status> {
+        let mut row = None;
+        Self::read_rows_stream(bigtable, request, |key, cells| {
+            row.get_or_insert((key, cells));
+        })
+        .await?;
+        Ok(row)
+    }
+
+    /// Runs a query and returns the first cell of the first resulting row.
+    ///
+    /// To prevent wasted work, the caller should restrict the query to return
+    /// only one row and one cell.
+    pub async fn read_cell(
+        bigtable: &mut BigtableClient<T>,
+        request: ReadRowsRequest,
+    ) -> Result<Option<(RowKey, Cell)>, tonic::Status> {
+        let mut row = None;
+        Self::read_rows_stream(bigtable, request, |key, cells| {
+            let cell = cells.into_iter().next().unwrap();
+            row.get_or_insert((key, cell));
+        })
+        .await?;
+        Ok(row)
     }
 
     #[instrument(
@@ -109,6 +163,12 @@ where
                         // https://github.com/hyperium/hyper/issues/2872
                         warn!(?e, code=?e.code(), "stream.message error during read_rows");
                         if e.code() == Code::Internal {
+                            if num_rows > 0 {
+                                // We've already streamed out some rows, so we
+                                // can't just start back at the beginning and
+                                // stream out duplicates out-of-order.
+                                todo!("read_rows_stream needs to safely restart");
+                            }
                             tokio::time::sleep(Duration::from_millis(1)).await;
                             trace!("retrying read_rows");
                             retry_count += 1;

@@ -4,10 +4,9 @@ use google::bigtable::v2::bigtable_client::BigtableClient as BtClient;
 use google::bigtable::v2::{read_rows_request, PingAndWarmRequest, ReadRowsRequest};
 use google::GrpcConnectionOptions;
 use http::Uri;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
-use std::ops::Deref;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -32,11 +31,11 @@ use service_core::clap_parsers::parse_duration;
 mod base128;
 pub mod discovery;
 mod lease;
-mod log;
+pub mod log;
 mod merkle;
 pub mod tenants;
 
-pub use log::LogEntriesIter;
+pub use log::{LogEntriesIter, LogEntriesIterError, LogRow, ReadLastLogEntryError};
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct BigtableArgs {
@@ -219,29 +218,19 @@ impl StoreAdminClient {
     }
 }
 
+#[derive(Clone)]
 pub struct StoreClient {
     // https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2
     bigtable: BigtableClient,
     instance: Instance,
-    last_write: Mutex<Option<(RealmId, GroupId, LogIndex, EntryMac)>>,
+    last_write: Arc<Mutex<LastWriteCache>>,
     metrics: metrics::Client,
     merkle_cache: merkle::Cache,
     warmer: TablesReadWarmer,
 }
 
-impl Clone for StoreClient {
-    fn clone(&self) -> Self {
-        // StoreClient is cloned during append to handle the delayed merkle node delete.
-        Self {
-            bigtable: self.bigtable.clone(),
-            instance: self.instance.clone(),
-            last_write: Mutex::new(None),
-            metrics: self.metrics.clone(),
-            merkle_cache: self.merkle_cache.clone(),
-            warmer: self.warmer.clone(),
-        }
-    }
-}
+// Invariant: the log entry has been written at the end of a log row.
+type LastWriteCache = HashMap<(RealmId, GroupId), (LogIndex, EntryMac)>;
 
 impl fmt::Debug for StoreClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -313,7 +302,7 @@ impl StoreClient {
         Ok(Self {
             bigtable,
             instance,
-            last_write: Mutex::new(None),
+            last_write: Arc::new(Mutex::new(HashMap::new())),
             metrics: options.metrics,
             merkle_cache: merkle::Cache::new(options.merkle_cache_nodes_limit.unwrap_or(1)),
             warmer,
@@ -331,10 +320,11 @@ impl StoreClient {
         group: &GroupId,
         entries: &[LogEntry],
         delta: StoreDelta<DataHash>,
-    ) -> Result<(), AppendError> {
-        self.append_inner(realm, group, entries, delta, sleep(Duration::from_secs(5)))
+    ) -> Result<LogRow, AppendError> {
+        let (row, _handle) = self
+            .append_inner(realm, group, entries, delta, sleep(Duration::from_secs(5)))
             .await?;
-        Ok(())
+        Ok(row)
     }
 
     // Helper for `append` that's broken out for testing. Returns the join
@@ -346,7 +336,7 @@ impl StoreClient {
         entries: &[LogEntry],
         delta: StoreDelta<DataHash>,
         delete_waiter: F,
-    ) -> Result<Option<JoinHandle<()>>, AppendError> {
+    ) -> Result<(LogRow, Option<JoinHandle<()>>), AppendError> {
         assert!(
             !entries.is_empty(),
             "append passed empty list of things to append."
@@ -362,41 +352,25 @@ impl StoreClient {
         );
         let start = Instant::now();
 
-        // Make sure the previous log entry exists and matches the expected value.
-        if entries[0].index != LogIndex::FIRST {
-            let prev_index = entries[0].index.prev().unwrap();
-            let read_log_entry = {
-                let last_write = self.last_write.lock().unwrap();
-                match last_write.deref() {
-                    Some((last_realm, last_group, last_index, last_mac))
-                        if last_realm == realm
-                            && last_group == group
-                            && *last_index == prev_index =>
-                    {
-                        if *last_mac != entries[0].prev_mac {
-                            return Err(AppendError::LogPrecondition);
-                        }
-                        false
-                    }
-                    _ => true,
-                }
-            };
-            if read_log_entry {
-                if let Some(prev) = self
-                    .read_log_entry(realm, group, prev_index)
-                    .await
-                    .expect("TODO")
-                {
-                    if prev.entry_mac != entries[0].prev_mac {
-                        return Err(AppendError::LogPrecondition);
-                    }
-                } else {
-                    return Err(AppendError::LogPrecondition);
-                };
+        // The first entry in the log (index 1) must have a previous MAC of
+        // zero. For subsequent entries, make sure the previous log entry
+        // exists at the end of a log row and matches the expected value.
+        match entries[0].index.prev() {
+            None => {
+                assert_eq!(
+                    entries[0].prev_mac,
+                    EntryMac::zero(),
+                    "previous entry MAC for the first log entry must be zero"
+                );
+            }
+            Some(prev_index) => {
+                self.check_previous_entry(realm, group, prev_index, &entries[0].prev_mac)
+                    .await?;
             }
         }
 
-        // Make sure the batch of entries have the expected indexes & macs
+        // Make sure the batch of entries internally have the expected indexes
+        // and MACs.
         let mut prev = &entries[0];
         for e in &entries[1..] {
             assert_eq!(e.index, prev.index.next());
@@ -415,7 +389,8 @@ impl StoreClient {
         // Append the new entries but only if no other writer has appended.
         let append_start = Instant::now();
         let mut bigtable = self.bigtable.clone();
-        self.log_append(&mut bigtable, realm, group, entries)
+        let appended_row = self
+            .log_append(&mut bigtable, realm, group, entries)
             .await?;
         self.metrics.timing(
             "store_client.append_log.time",
@@ -424,14 +399,16 @@ impl StoreClient {
         );
 
         // append is supposed to be called sequentially, so this isn't racy.
-        // Even if its not called sequentially last_write is purely a
-        // performance improvement (it can save a log read), its not a
+        // Even if it's not called sequentially, last_write is purely a
+        // performance improvement (it can save a log read); it's not a
         // correctness thing. The code above that uses last_write to check the
-        // mac chain will fallback to reading the log entry from the store if
+        // MAC chain will fall back to reading the log entry from the store if
         // the last_write info doesn't apply to that append.
-        let last = entries.last().unwrap();
-        *self.last_write.lock().unwrap() =
-            Some((*realm, *group, last.index, last.entry_mac.clone()));
+        {
+            let last = entries.last().unwrap();
+            let mut locked = self.last_write.lock().unwrap();
+            locked.insert((*realm, *group), (last.index, last.entry_mac.clone()));
+        }
 
         // Delete obsolete Merkle nodes. These deletes are deferred a bit so
         // that slow concurrent readers can still access them.
@@ -463,7 +440,52 @@ impl StoreClient {
             entries = entries.len(),
             "append succeeded"
         );
-        Ok(delete_handle)
+        Ok((appended_row, delete_handle))
+    }
+
+    /// Used in [`append_inner`]. Makes sure the previous log entry exists at
+    /// the end of a log row and matches the expected value.
+    async fn check_previous_entry(
+        &self,
+        realm: &RealmId,
+        group: &GroupId,
+        prev_index: LogIndex,
+        prev_mac: &EntryMac,
+    ) -> Result<(), AppendError> {
+        assert!(prev_index >= LogIndex::FIRST);
+
+        // Check `last_write` cache.
+        {
+            let locked = self.last_write.lock().unwrap();
+            if let Some((_, last_mac)) = locked
+                .get(&(*realm, *group))
+                .filter(|(last_index, _)| *last_index == prev_index)
+            {
+                if last_mac == prev_mac {
+                    return Ok(());
+                } else {
+                    return Err(AppendError::LogPrecondition);
+                }
+            }
+        }
+
+        // Cache miss, so fetch the last log entry from Bigtable. Later, when
+        // this log append succeeds, it'll update the `last_write` cache for
+        // next time.
+        match self.read_last_log_entry(realm, group).await {
+            Ok(prev) => {
+                if prev.index == prev_index && prev.entry_mac == *prev_mac {
+                    Ok(())
+                } else {
+                    Err(AppendError::LogPrecondition)
+                }
+            }
+            Err(ReadLastLogEntryError::EmptyLog) => {
+                // prev_index >= 1, so the log shouldn't be empty.
+                Err(AppendError::LogPrecondition)
+            }
+            Err(ReadLastLogEntryError::Grpc(err)) => Err(err.into()),
+        }
     }
 }
 

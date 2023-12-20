@@ -148,7 +148,7 @@ impl fmt::Debug for RecordId {
 }
 
 /// A sequential number for an entry in a log (see [`LogEntry`]).
-#[derive(Copy, Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct LogIndex(pub u64);
 
 impl LogIndex {
@@ -224,9 +224,6 @@ pub struct LogEntry {
     /// entry. This can happen if a log entry is generated but the tree did not
     /// change.
     pub hsm: HsmId,
-    // TODO: these may be needed for log compaction:
-    // pub committed: LogIndex,
-    // pub committed_statement: CommittedStatement,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -928,6 +925,40 @@ pub enum JoinGroupResponse {
     TooManyGroups,
 }
 
+/// Request type for the HSM CaptureJump RPC (see [`CaptureJumpResponse`]). The
+/// HSM checks the authenticity of the given captured information (from a group
+/// peer) and stores the information.
+///
+/// This RPC is used to update the HSM quickly when it falls behind on
+/// CaptureNext (for replication purposes).
+///
+/// The HSM queues up the index and MAC to be persisted in the next
+/// PersistState RPC.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CaptureJumpRequest {
+    /// Capture information from another HSM in the same group.
+    pub jump: Captured,
+}
+
+/// Response type for the HSM CaptureJump RPC (see [`CaptureJumpRequest`]).
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum CaptureJumpResponse {
+    /// This HSM updated its volatile state to `jump`.
+    Ok,
+    /// This HSM is not a member of the `jump.realm`.
+    InvalidRealm,
+    /// This HSM is not a member of `jump.group`.
+    InvalidGroup,
+    /// This HSM was the leader of the group or stepping down. It doesn't
+    /// handle these cases to avoid complexity.
+    NotWitness(GroupMemberRole),
+    /// The `jump.statement` was invalid.
+    InvalidStatement,
+    /// The HSM has already captured (to volatile memory) an index `>=
+    /// jump.index`, so this request isn't productive.
+    StaleIndex,
+}
+
 /// Request type for the HSM CaptureNext RPC (see [`CaptureNextResponse`]). The
 /// HSM checks the authenticity of the given sequence of log entries and stores
 /// information about the last entry.
@@ -1056,6 +1087,9 @@ pub struct StepDownRequest {
     pub realm: RealmId,
     /// The group that this HSM should no longer lead.
     pub group: GroupId,
+    /// If true, bypass the stepping down role and immediately become a
+    /// witness, even if that means dropping client responses.
+    pub force: bool,
 }
 
 /// Response type for the HSM StepDown RPC (see [`StepDownRequest`]).
@@ -1075,8 +1109,8 @@ pub enum StepDownResponse {
     /// The HSM transitioned directly into the witness-only role. It is done
     /// stepping down.
     Complete {
-        /// The last log index generated (or inherited) and committed as
-        /// leader.
+        /// The last log index generated (or inherited) as leader. If `force`
+        /// was false, this entry has now also been committed.
         last: LogIndex,
     },
     /// This HSM is not a member of this realm.

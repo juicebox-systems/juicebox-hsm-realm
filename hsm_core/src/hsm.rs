@@ -561,6 +561,9 @@ impl<P: Platform> Hsm<P> {
             HsmRequest::StepDown(r) => {
                 self.dispatch_request(metrics, r, Self::handle_stepdown_as_leader)
             }
+            HsmRequest::CaptureJump(r) => {
+                self.dispatch_request(metrics, r, Self::handle_capture_jump)
+            }
             HsmRequest::CaptureNext(r) => {
                 self.dispatch_request(metrics, r, Self::handle_capture_next)
             }
@@ -987,7 +990,23 @@ impl<P: Platform> Hsm<P> {
         type Response = StepDownResponse;
 
         match is_group_member(&self.persistent, request.realm, request.group) {
-            Ok(_) => self.stepdown_at(request.group, StepDownPoint::LastLogIndex),
+            Ok(_) => {
+                if request.force {
+                    if let Some(leader) = self.volatile.leader.remove(&request.group) {
+                        Response::Complete {
+                            last: leader.log.last_index(),
+                        }
+                    } else if let Some(sd) = self.volatile.stepping_down.remove(&request.group) {
+                        Response::Complete {
+                            last: sd.stepdown_at,
+                        }
+                    } else {
+                        Response::NotLeader(GroupMemberRole::Witness)
+                    }
+                } else {
+                    self.stepdown_at(request.group, StepDownPoint::LastLogIndex)
+                }
+            }
             Err(GroupMemberError::InvalidRealm) => Response::InvalidRealm,
             Err(GroupMemberError::InvalidGroup) => Response::InvalidGroup,
         }

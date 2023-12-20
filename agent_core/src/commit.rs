@@ -1,15 +1,17 @@
 use futures::future::join_all;
 use reqwest::Url;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::mem;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
+use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
 use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::hsm::Transport;
-use super::Agent;
+use super::{Agent, LeaderState};
 use agent_api::{ReadCapturedRequest, ReadCapturedResponse};
 use cluster_core::discover_hsm_ids;
 use election::HsmElection;
@@ -21,9 +23,14 @@ use juicebox_networking::rpc::{self, SendOptions};
 use juicebox_realm_api::requests::NoiseResponse;
 use juicebox_realm_api::types::RealmId;
 use observability::logging::TracingSource;
+use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
 use service_core::http::ReqwestClientMetrics;
-use store::StoreClient;
+use store::{LogRow, StoreClient};
+
+// This is a feature flag to toggle whether the leader actually writes out
+// tombstones.
+const LOG_COMPACTION_ENABLED: bool = true;
 
 #[derive(Debug, Eq, PartialEq)]
 enum CommitterStatus {
@@ -63,41 +70,102 @@ impl<T: Transport + 'static> Agent<T> {
         });
     }
 
-    pub(super) fn start_group_committer(&self, realm: RealmId, group: GroupId, config: Vec<HsmId>) {
-        info!(name=?self.0.name, ?realm, ?group, "Starting group committer");
+    /// Main function for leader commit task.
+    pub(super) async fn group_committer(
+        self,
+        realm: RealmId,
+        group: GroupId,
+        config: Vec<HsmId>,
+        starting_index: LogIndex,
+    ) {
+        let tags = [tag!(?realm), tag!(?group)];
+        let agent_discovery = AgentDiscoveryCache::new(
+            self.0.store.clone(),
+            self.0.peer_client.clone(),
+            Duration::from_secs(10),
+        )
+        .await;
 
-        let agent = self.clone();
+        // Spawn the log compactor task. The channel tracks the latest
+        // compact index. The JoinSet's Drop impl aborts the task when the
+        // committer task exits.
+        let (compaction_tx, compaction_rx) = watch::channel(None);
+        let mut compaction_task = JoinSet::new();
+        compaction_task.spawn(self.clone().compactor(
+            realm,
+            group,
+            compaction_rx,
+            starting_index,
+            config.clone(),
+            agent_discovery.clone(),
+        ));
 
-        tokio::spawn(async move {
-            let interval = Duration::from_millis(2);
-            let mut last_committed: Option<LogIndex> = None;
-            let peers = PeerCache::new(
-                agent.0.store.clone(),
-                agent.0.peer_client.clone(),
-                Duration::from_secs(10),
-            )
-            .await;
+        let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
 
-            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+        let mut last_committed: Option<LogIndex> = None;
+        loop {
+            let span = span!(Level::TRACE, "committer_loop");
+            span.set_parent(cx.clone());
 
-            loop {
-                let span = span!(Level::TRACE, "committer_loop");
-                span.set_parent(cx.clone());
-
-                match agent
-                    .commit_maybe(realm, group, &config, &peers, last_committed)
-                    .instrument(span)
-                    .await
-                {
-                    CommitterStatus::NoLongerLeader => {
-                        info!(name=?agent.0.name, ?realm, ?group, "No longer leader, stopping committer");
-                        return;
+            match self
+                .commit_maybe(realm, group, &config, &agent_discovery, last_committed)
+                .instrument(span)
+                .await
+            {
+                CommitterStatus::NoLongerLeader => {
+                    info!(name=?self.0.name, ?realm, ?group, "No longer leader, stopping committer");
+                    return;
+                }
+                CommitterStatus::Committing { committed: c } => {
+                    if last_committed < c {
+                        last_committed = c;
                     }
-                    CommitterStatus::Committing { committed: c } => last_committed = c,
-                };
-                sleep(interval).await;
+                }
+            };
+
+            // Notify the compaction task of updates. The compaction task
+            // may compact up to the commit index (exclusive) and the
+            // leader HSM's captured state (inclusive), whichever is
+            // lowest. The first constraint keeps the critically useful
+            // entries in the log, and the second prevents the leader HSM
+            // from needing a CaptureJump RPC due to its own compactions.
+            //
+            // When PersistState updates the captured info, `compaction_tx`
+            // won't be notified until this loop gets back here. This loops
+            // frequently so that's OK for now.
+            let local_captured = {
+                let locked = self.0.state.lock().unwrap();
+                locked
+                    .captures
+                    .iter()
+                    .find(|captured| captured.realm == realm && captured.group == group)
+                    .map(|captured| captured.index)
+            };
+            let compact_index = Option::<LogIndex>::min(
+                last_committed.and_then(|index| index.prev()),
+                local_captured,
+            );
+            let modified = compaction_tx.send_if_modified(|state| {
+                if *state == compact_index {
+                    false
+                } else {
+                    *state = compact_index;
+                    true
+                }
+            });
+            if modified {
+                self.0.metrics.gauge(
+                    "agent.compaction.compact_index",
+                    match compact_index {
+                        Some(compact_index) => compact_index.0,
+                        None => 0,
+                    },
+                    &tags,
+                );
             }
-        });
+
+            sleep(Duration::from_millis(2)).await;
+        }
     }
 
     #[instrument(level = "trace", skip(self, config, peers), fields(quorum))]
@@ -106,7 +174,7 @@ impl<T: Transport + 'static> Agent<T> {
         realm: RealmId,
         group: GroupId,
         config: &[HsmId],
-        peers: &PeerCache,
+        peers: &AgentDiscoveryCache,
         last_committed: Option<LogIndex>,
     ) -> CommitterStatus {
         if self
@@ -155,16 +223,17 @@ impl<T: Transport + 'static> Agent<T> {
         .await
     }
 
-    // Go get the captures from all the group members for this realm/group.
-    #[instrument(level = "trace", skip(self, config, peers))]
+    /// Issues [`ReadCapturedRequest`] to a set of agents, and returns only the
+    /// successful results.
+    #[instrument(level = "trace", skip(self, hsms, peers))]
     async fn get_captures(
         &self,
         realm: RealmId,
         group: GroupId,
-        config: &[HsmId],
-        peers: &PeerCache,
+        hsms: &[HsmId],
+        peers: &AgentDiscoveryCache,
     ) -> Vec<Captured> {
-        let urls: Vec<Url> = config.iter().filter_map(|hsm| peers.url(hsm)).collect();
+        let urls: Vec<Url> = hsms.iter().filter_map(|hsm| peers.url(hsm)).collect();
         join_all(urls.iter().map(|url| {
             rpc::send_with_options(
                 &self.0.peer_client,
@@ -277,15 +346,273 @@ impl<T: Transport + 'static> Agent<T> {
         }
         released_count
     }
+
+    /// Main function for the leader's log compaction task.
+    async fn compactor(
+        self,
+        realm: RealmId,
+        group: GroupId,
+        mut compaction_rx: watch::Receiver<Option<LogIndex>>,
+        leader_start_index: LogIndex,
+        config: Vec<HsmId>,
+        agent_discovery: AgentDiscoveryCache,
+    ) {
+        let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+
+        {
+            let span = span!(Level::TRACE, "compact_init");
+            span.set_parent(cx.clone());
+            self.compact_init(
+                &realm,
+                &group,
+                leader_start_index,
+                &config,
+                &agent_discovery,
+            )
+            .instrument(span)
+            .await;
+        }
+
+        if !LOG_COMPACTION_ENABLED {
+            // We want to run compact_init even when log compaction is disabled
+            // because we want to see it scan the log and eat up RAM.
+            return;
+        }
+
+        // When the compaction index advances, replace more log entry rows with
+        // tombstones.
+        let mut last_compacted: Option<LogIndex> = None;
+        loop {
+            let compact_index = match compaction_rx.wait_for(|c| c > &last_compacted).await {
+                Ok(c) => c.unwrap(),
+                Err(_) => return, // no longer leader
+            };
+
+            let span = span!(Level::TRACE, "compact_once");
+            span.set_parent(cx.clone());
+            self.compact_once(realm, group, compact_index)
+                .instrument(span)
+                .await;
+
+            last_compacted = Some(compact_index);
+        }
+    }
+
+    /// Sets up to begin log compaction.
+    #[instrument(level = "trace", skip(self, agent_discovery), fields(rows))]
+    async fn compact_init(
+        &self,
+        realm: &RealmId,
+        group: &GroupId,
+        leader_start_index: LogIndex,
+        config: &[HsmId],
+        agent_discovery: &AgentDiscoveryCache,
+    ) {
+        // Give the prior leader(s) a chance to step down, before we start
+        // overwriting log entries they might need in order to release
+        // responses to clients.
+        let start = Instant::now();
+        let result = tokio::time::timeout(Duration::from_secs(60), async {
+            while !self
+                .all_peers_witnesses(realm, group, config, agent_discovery)
+                .await
+            {
+                // Wait to discover peers in service discovery or for peers to
+                // step down.
+                sleep(Duration::from_millis(500)).await;
+            }
+        })
+        .await;
+        info!(
+            elapsed = ?start.elapsed(),
+            LOG_COMPACTION_ENABLED,
+            reason = match result {
+                Err(_) => "timed out confirming all peers are witnesses",
+                Ok(()) => "confirmed all peers are witnesses",
+            },
+            "starting log compaction"
+        );
+
+        // Read existing rows from the store to learn what entries were written
+        // by previous leaders. This will stop before any entries written by
+        // this current leader.
+        let start = Instant::now();
+        let mut rows_read = VecDeque::from(
+            self.0
+                .store
+                .list_log_rows(realm, group, leader_start_index)
+                .await
+                .expect("failed to read log rows to compact"),
+        );
+        info!(
+            count = rows_read.len(),
+            lowest = ?rows_read.front().map(|row| row.index),
+            highest = ?rows_read.back().map(|row| row.index),
+            elapsed = ?start.elapsed(),
+            "log compactor finished reading existing log rows"
+        );
+
+        // Concatenate the rows read (`< leader_start_index`) with any rows the
+        // leader already appended (`>= leader_start_index`).
+        let stats = {
+            let mut locked = self.0.state.lock().unwrap();
+            let Some(leader) = locked.leader.get_mut(&(*realm, *group)) else {
+                return; // no longer leader
+            };
+            if let Some(row) = rows_read.back() {
+                assert!(row.index < leader_start_index);
+            }
+            if let Some(row) = leader.uncompacted_rows.front() {
+                assert_eq!(row.index, leader_start_index);
+            }
+            rows_read.append(&mut leader.uncompacted_rows);
+            leader.uncompacted_rows = rows_read;
+            UncompactedRowsStats::new(leader)
+        };
+        stats.publish(&self.0.metrics, &[tag!(?realm), tag!(?group)]);
+    }
+
+    /// Compacts the log a single time.
+    #[instrument(level = "trace", skip(self), fields(rows))]
+    async fn compact_once(&self, realm: RealmId, group: GroupId, compact_index: LogIndex) {
+        let (to_compact, stats): (Vec<LogRow>, UncompactedRowsStats) = {
+            let mut locked = self.0.state.lock().unwrap();
+            let Some(leader) = locked.leader.get_mut(&(realm, group)) else {
+                return; // no longer leader
+            };
+            (
+                split_off_compactible_prefix(&mut leader.uncompacted_rows, compact_index),
+                UncompactedRowsStats::new(leader),
+            )
+        };
+
+        stats.publish(&self.0.metrics, &[tag!(?realm), tag!(group)]);
+        Span::current().record("rows", to_compact.len());
+
+        if !to_compact.is_empty() {
+            self.0
+                .store
+                .replace_oldest_rows_with_tombstones(&realm, &group, &to_compact)
+                .await
+                .expect("failed to compact log rows");
+        }
+    }
+
+    /// Returns true if all the other HSMs in the group (excluding the local
+    /// one) are in the witness role, and false if they couldn't be reached or
+    /// aren't witnesses.
+    async fn all_peers_witnesses(
+        &self,
+        realm: &RealmId,
+        group: &GroupId,
+        config: &[HsmId],
+        agent_discovery: &AgentDiscoveryCache,
+    ) -> bool {
+        let local_hsm_id = self
+            .0
+            .state
+            .lock()
+            .unwrap()
+            .hsm_id
+            .expect("local HSM always known for leaders");
+        assert!(config.contains(&local_hsm_id));
+
+        let urls: Vec<Url> = config
+            .iter()
+            .filter(|id| **id != local_hsm_id)
+            .flat_map(|id| agent_discovery.url(id))
+            .collect();
+
+        if urls.len() + 1 < config.len() {
+            return false;
+        }
+
+        let witnesses = cluster_core::get_hsm_statuses(
+            &self.0.peer_client,
+            urls.iter(),
+            Some(Duration::from_secs(2)),
+        )
+        .await
+        .into_values()
+        .filter(|(sr, _)| {
+            sr.realm.as_ref().is_some_and(|rs| {
+                rs.id == *realm
+                    && rs
+                        .groups
+                        .iter()
+                        .any(|gs| gs.id == *group && gs.role == GroupMemberRole::Witness)
+            })
+        })
+        .count();
+
+        witnesses + 1 == config.len()
+    }
 }
 
-struct PeerCache {
-    peers: Arc<Mutex<HashMap<HsmId, Url>>>,
+/// Removes the rows that should be replaced with tombstones from the front of
+/// `rows` and returns those.
+fn split_off_compactible_prefix(
+    rows: &mut VecDeque<LogRow>,
+    compact_index: LogIndex,
+) -> Vec<LogRow> {
+    // Multiple log entries are written in each row, and we only track the row
+    // start indexes. Any entries after `compact_index` in the same row must
+    // not be compacted, so only compact that row if the next row starts with
+    // `compact_index + 1`. See the unit tests for examples.
+    //
+    // `past` is the offset of the first row with `index > compact_index`.
+    let past = rows.partition_point(|row| row.index <= compact_index);
+    if past == 0 {
+        return Vec::new();
+    }
+    let keep = if past < rows.len() && rows[past].index == compact_index.next() {
+        rows.split_off(past)
+    } else {
+        rows.split_off(past - 1)
+    };
+    Vec::from(mem::replace(rows, keep))
+}
+
+/// Used to report metrics whenever [`LeaderState::uncompacted_rows`] changes.
+#[derive(Debug)]
+pub(crate) struct UncompactedRowsStats {
+    count: usize,
+    first_index: Option<LogIndex>,
+}
+
+impl UncompactedRowsStats {
+    pub(crate) fn new(leader: &LeaderState) -> Self {
+        Self {
+            count: leader.uncompacted_rows.len(),
+            first_index: leader.uncompacted_rows.front().map(|row| row.index),
+        }
+    }
+
+    pub(crate) fn publish(&self, metrics: &metrics::Client, tags: &[Tag]) {
+        metrics.gauge("agent.compaction.uncompacted_rows.count", self.count, tags);
+        if let Some(first_index) = self.first_index {
+            metrics.gauge(
+                "agent.compaction.uncompacted_rows.first_index",
+                first_index.0,
+                tags,
+            );
+        }
+    }
+}
+
+#[derive(Clone)]
+struct AgentDiscoveryCache {
+    inner: Arc<Mutex<AgentDiscoveryCacheInner>>,
+}
+
+struct AgentDiscoveryCacheInner {
+    peers: HashMap<HsmId, Url>,
     // This is included for its `Drop` implementation, which aborts the
     // background task(s).
     tasks: JoinSet<()>,
 }
-impl PeerCache {
+
+impl AgentDiscoveryCache {
     async fn new(
         store: StoreClient,
         agent_client: ReqwestClientMetrics,
@@ -296,20 +623,22 @@ impl PeerCache {
             Err(_) => HashMap::new(),
         };
 
-        let mut c = Self {
-            peers: Arc::new(Mutex::new(init_peers)),
-            tasks: JoinSet::new(),
+        let c = Self {
+            inner: Arc::new(Mutex::new(AgentDiscoveryCacheInner {
+                peers: init_peers,
+                tasks: JoinSet::new(),
+            })),
         };
-        let peers = c.peers.clone();
-        c.tasks.spawn(async move {
+        let clone = c.clone();
+        c.inner.lock().unwrap().tasks.spawn(async move {
             let mut next_interval = interval;
             loop {
                 sleep(next_interval).await;
                 match discover_hsm_ids(&store, &agent_client).await {
                     Ok(it) => {
                         let new_peers: HashMap<HsmId, Url> = it.collect();
-                        let mut locked = peers.lock().unwrap();
-                        *locked = new_peers;
+                        let mut locked = clone.inner.lock().unwrap();
+                        locked.peers = new_peers;
                         next_interval = interval;
                     }
                     Err(err) => {
@@ -321,8 +650,10 @@ impl PeerCache {
         });
         c
     }
+
     fn url(&self, id: &HsmId) -> Option<Url> {
-        self.peers.lock().unwrap().get(id).cloned()
+        let locked = self.inner.lock().unwrap();
+        locked.peers.get(id).cloned()
     }
 }
 
@@ -345,11 +676,113 @@ fn how_long_to_wait(time: SystemTime, interval_millis: u64) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use super::how_long_to_wait;
-    use std::time::{Duration, SystemTime};
+    use super::*;
+    use store::log::testing::new_log_row;
 
     #[test]
-    fn wait_calc() {
+    fn test_split_off_compactible_prefix() {
+        #[derive(Debug)]
+        struct TestCase {
+            expected: &'static [u64],
+            input: &'static [u64],
+            compact_index: u64,
+        }
+
+        for case in [
+            TestCase {
+                expected: &[],
+                input: &[],
+                compact_index: 0,
+            },
+            TestCase {
+                expected: &[],
+                input: &[1],
+                compact_index: 0,
+            },
+            TestCase {
+                expected: &[],
+                input: &[1],
+                compact_index: 1,
+            },
+            TestCase {
+                expected: &[],
+                input: &[1],
+                compact_index: 2,
+            },
+            TestCase {
+                expected: &[1],
+                input: &[1, 3],
+                compact_index: 2,
+            },
+            TestCase {
+                expected: &[1],
+                input: &[1, 3, 5],
+                compact_index: 3,
+            },
+            TestCase {
+                expected: &[1, 3],
+                input: &[1, 3, 5],
+                compact_index: 4,
+            },
+            TestCase {
+                expected: &[1, 3],
+                input: &[1, 3, 5],
+                compact_index: 5,
+            },
+            TestCase {
+                expected: &[1, 2],
+                input: &[1, 2, 3, 4],
+                compact_index: 2,
+            },
+            TestCase {
+                expected: &[1, 2, 3],
+                input: &[1, 2, 3, 4],
+                compact_index: 3,
+            },
+            TestCase {
+                expected: &[1, 2, 3],
+                input: &[1, 2, 3, 4],
+                compact_index: 4,
+            },
+            TestCase {
+                expected: &[1, 2, 3],
+                input: &[1, 2, 3, 4],
+                compact_index: 5,
+            },
+        ] {
+            let expected: Vec<LogRow> = case
+                .expected
+                .iter()
+                .map(|i| new_log_row(LogIndex(*i), false))
+                .collect();
+
+            let full_input: VecDeque<LogRow> = case
+                .input
+                .iter()
+                .map(|i| new_log_row(LogIndex(*i), false))
+                .collect();
+
+            let mut input = full_input.clone();
+            let compactible =
+                split_off_compactible_prefix(&mut input, LogIndex(case.compact_index));
+            assert_eq!(
+                compactible, expected,
+                "compactible rows did not match expected. {case:?}"
+            );
+
+            assert_eq!(
+                compactible
+                    .into_iter()
+                    .chain(input)
+                    .collect::<VecDeque<LogRow>>(),
+                full_input,
+                "did not split fully. {case:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_how_long_to_wait() {
         assert_eq!(
             Duration::from_millis(2),
             how_long_to_wait(

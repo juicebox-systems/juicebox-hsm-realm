@@ -2,6 +2,7 @@ use futures::future::join_all;
 use futures::FutureExt;
 use std::collections::HashMap;
 use std::iter::zip;
+use std::time::Duration;
 use tracing::{info, warn};
 use url::Url;
 
@@ -96,6 +97,7 @@ impl Manager {
         let hsm_status = get_hsm_statuses(
             &self.0.agents,
             stepdown.config.iter().filter_map(|hsm| addresses.get(hsm)),
+            Some(Duration::from_secs(1)),
         )
         .await;
 

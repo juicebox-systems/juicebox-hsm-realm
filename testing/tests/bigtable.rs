@@ -12,11 +12,12 @@ use hsm_core::merkle::Tree;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::types::RealmId;
 use observability::metrics;
+use store::log::testing::{new_log_row, read_log_entry, ReadLogEntryError};
 use store::tenants::UserAccounting;
 use store::AppendError::LogPrecondition;
 use store::{
-    self, discovery, tenants, ExtendLeaseError, LeaseKey, LeaseType, ServiceKind, StoreAdminClient,
-    StoreClient,
+    self, discovery, tenants, ExtendLeaseError, LeaseKey, LeaseType, LogEntriesIterError,
+    ReadLastLogEntryError, ServiceKind, StoreAdminClient, StoreClient,
 };
 use testing::exec::bigtable::emulator;
 use testing::exec::{bigtable::BigtableRunner, PortIssuer};
@@ -200,21 +201,19 @@ async fn test_tenant() {
 }
 
 #[tokio::test]
-async fn read_log_entry() {
+async fn test_read_log_entry() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
 
     // Log should start empty.
-    assert!(data
-        .read_last_log_entry(&REALM, &GROUP_2)
-        .await
-        .unwrap()
-        .is_none());
-    assert!(data
-        .read_log_entry(&REALM, &GROUP_2, LogIndex::FIRST)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(matches!(
+        data.read_last_log_entry(&REALM, &GROUP_2).await,
+        Err(ReadLastLogEntryError::EmptyLog)
+    ));
+    assert!(matches!(
+        read_log_entry(&data, &REALM, &GROUP_2, LogIndex::FIRST).await,
+        Err(ReadLogEntryError::NotFound)
+    ));
 
     // Insert a row with a single log entry, that should then be the last entry.
     let entry = LogEntry {
@@ -229,16 +228,12 @@ async fn read_log_entry() {
         .await
         .unwrap();
     assert_eq!(
-        data.read_last_log_entry(&REALM, &GROUP_2)
-            .await
-            .unwrap()
-            .unwrap(),
+        data.read_last_log_entry(&REALM, &GROUP_2).await.unwrap(),
         entry
     );
     assert_eq!(
-        data.read_log_entry(&REALM, &GROUP_2, entry.index)
+        read_log_entry(&data, &REALM, &GROUP_2, entry.index)
             .await
-            .unwrap()
             .unwrap(),
         entry
     );
@@ -248,55 +243,47 @@ async fn read_log_entry() {
         .await
         .unwrap();
     assert_eq!(
-        data.read_last_log_entry(&REALM, &GROUP_2)
-            .await
-            .unwrap()
-            .as_ref(),
-        entries.last()
+        &data.read_last_log_entry(&REALM, &GROUP_2).await.unwrap(),
+        entries.last().unwrap()
     );
     // and we should be able to read all the rows
     entries.insert(0, entry);
     for e in &entries {
         assert_eq!(
-            data.read_log_entry(&REALM, &GROUP_2, e.index)
+            read_log_entry(&data, &REALM, &GROUP_2, e.index)
                 .await
-                .unwrap()
-                .as_ref()
                 .unwrap(),
-            e
+            *e
         );
     }
     // but not the one after the last
-    assert!(data
-        .read_log_entry(
+    assert!(matches!(
+        read_log_entry(
+            &data,
             &REALM,
             &GROUP_2,
             entries.last().as_ref().unwrap().index.next()
         )
-        .await
-        .unwrap()
-        .is_none());
+        .await,
+        Err(ReadLogEntryError::NotFound)
+    ));
     // reads from adjacent groups shouldn't pick up any of these rows
-    assert!(data
-        .read_log_entry(&REALM, &GROUP_1, LogIndex(1))
-        .await
-        .unwrap()
-        .is_none());
-    assert!(data
-        .read_last_log_entry(&REALM, &GROUP_1)
-        .await
-        .unwrap()
-        .is_none());
-    assert!(data
-        .read_log_entry(&REALM, &GROUP_3, LogIndex(1))
-        .await
-        .unwrap()
-        .is_none());
-    assert!(data
-        .read_last_log_entry(&REALM, &GROUP_3)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(matches!(
+        read_log_entry(&data, &REALM, &GROUP_1, LogIndex(1)).await,
+        Err(ReadLogEntryError::NotFound)
+    ));
+    assert!(matches!(
+        data.read_last_log_entry(&REALM, &GROUP_1).await,
+        Err(ReadLastLogEntryError::EmptyLog)
+    ));
+    assert!(matches!(
+        read_log_entry(&data, &REALM, &GROUP_3, LogIndex(1)).await,
+        Err(ReadLogEntryError::NotFound)
+    ));
+    assert!(matches!(
+        data.read_last_log_entry(&REALM, &GROUP_3).await,
+        Err(ReadLastLogEntryError::EmptyLog)
+    ));
 }
 
 #[tokio::test]
@@ -306,7 +293,10 @@ async fn last_log_entry_does_not_cross_groups() {
     let (_, delta) = Tree::<MerkleHasher>::new_tree(&OwnedRange::full());
 
     for g in &[GROUP_1, GROUP_2, GROUP_3] {
-        assert!(data.read_last_log_entry(&REALM, g).await.unwrap().is_none());
+        assert!(matches!(
+            data.read_last_log_entry(&REALM, g).await,
+            Err(ReadLastLogEntryError::EmptyLog)
+        ));
     }
     let entry1 = LogEntry {
         index: LogIndex(1),
@@ -322,18 +312,14 @@ async fn last_log_entry_does_not_cross_groups() {
         .await
         .expect("should have appended log entry");
     assert_eq!(
-        data.read_last_log_entry(&REALM, &GROUP_1)
-            .await
-            .unwrap()
-            .unwrap(),
+        data.read_last_log_entry(&REALM, &GROUP_1).await.unwrap(),
         entry1
     );
     for g in [GROUP_2, GROUP_3] {
-        assert!(data
-            .read_last_log_entry(&REALM, &g)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(matches!(
+            data.read_last_log_entry(&REALM, &g).await,
+            Err(ReadLastLogEntryError::EmptyLog)
+        ));
     }
 
     // with a row in group 1 & 3, group 2 should still see an empty log
@@ -341,30 +327,23 @@ async fn last_log_entry_does_not_cross_groups() {
         index: LogIndex(1),
         partition: None,
         transferring_out: None,
-        prev_mac: EntryMac::from([2; 32]),
+        prev_mac: EntryMac::from([0; 32]),
         entry_mac: EntryMac::from([3; 32]),
         hsm: HsmId([2; 16]),
     };
     data.append(&REALM, &GROUP_3, &[entry3.clone()], StoreDelta::default())
         .await
         .expect("should have appended log entry");
-    assert!(data
-        .read_last_log_entry(&REALM, &GROUP_2)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(matches!(
+        data.read_last_log_entry(&REALM, &GROUP_2).await,
+        Err(ReadLastLogEntryError::EmptyLog)
+    ));
     assert_eq!(
-        data.read_last_log_entry(&REALM, &GROUP_1)
-            .await
-            .unwrap()
-            .unwrap(),
+        data.read_last_log_entry(&REALM, &GROUP_1).await.unwrap(),
         entry1
     );
     assert_eq!(
-        data.read_last_log_entry(&REALM, &GROUP_3)
-            .await
-            .unwrap()
-            .unwrap(),
+        data.read_last_log_entry(&REALM, &GROUP_3).await.unwrap(),
         entry3
     );
 }
@@ -456,6 +435,94 @@ async fn read_log_entries() {
         .unwrap();
     let r = it.next().await.unwrap();
     assert_eq!(more_entries, r);
+}
+
+#[tokio::test]
+async fn read_log_entries_compacted() {
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
+
+    let entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 18);
+    let batches = [
+        &entries[0..4],
+        &entries[4..10],
+        &entries[10..15],
+        &entries[15..18],
+    ];
+    for batch in batches {
+        println!(
+            "appending entries {:?} through {:?}",
+            batch.first().unwrap().index,
+            batch.last().unwrap().index,
+        );
+        data.append(&REALM, &GROUP_1, batch, StoreDelta::default())
+            .await
+            .unwrap();
+    }
+
+    println!("writing tombstone at index 11");
+    data.replace_oldest_rows_with_tombstones(&REALM, &GROUP_1, &[new_log_row(LogIndex(11), false)])
+        .await
+        .unwrap();
+    read_log_entries_compacted_assertions(&data, &batches).await;
+
+    println!("deleting row at index 11");
+    store::log::testing::delete_row(&data, &REALM, &GROUP_1, LogIndex(11))
+        .await
+        .unwrap();
+    read_log_entries_compacted_assertions(&data, &batches).await;
+}
+
+async fn read_log_entries_compacted_assertions(data: &StoreClient, batches: &[&[LogEntry]; 4]) {
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 20);
+    assert_eq!(
+        batches[0],
+        it.next().await.unwrap(),
+        "should have returned 1st log row"
+    );
+
+    let r = it.next().await;
+    assert!(
+        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(11)))),
+        "should have returned that index 11 is compacted, got {r:?}",
+    );
+    // same error if we retry
+    let r = it.next().await;
+    assert!(
+        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(11)))),
+        "should have returned that index 11 is compacted, got {r:?}",
+    );
+
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(16), 20);
+    assert_eq!(
+        batches[3],
+        it.next().await.unwrap(),
+        "should have returned 4th log row"
+    );
+
+    // read exactly compacted row index
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(11), 20);
+    let r = it.next().await;
+    assert!(
+        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(11)))),
+        "should have returned that index 11 is compacted, got {r:?}",
+    );
+
+    // read 1 past compacted row index
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(12), 20);
+    let r = it.next().await;
+    assert!(
+        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(12)))),
+        "should have returned that index 12 is compacted, got {r:?}",
+    );
+
+    // read last index in compacted row
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(15), 20);
+    let r = it.next().await;
+    assert!(
+        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(15)))),
+        "should have returned that index 15 is compacted, got {r:?}",
+    );
 }
 
 #[tokio::test]
@@ -570,7 +637,7 @@ async fn append_store_delta() {
     // readable until the deferred delete kicks in.
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
-    let delete_handle = data
+    let (_row, delete_handle) = data
         .append_inner(&REALM, &GROUP_3, &entries, delta, rx)
         .await
         .unwrap();
