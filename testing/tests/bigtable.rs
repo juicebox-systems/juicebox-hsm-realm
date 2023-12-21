@@ -438,7 +438,7 @@ async fn read_log_entries() {
 }
 
 #[tokio::test]
-async fn read_log_entries_compacted() {
+async fn test_read_log_entries_compacted() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
 
@@ -471,6 +471,17 @@ async fn read_log_entries_compacted() {
         .await
         .unwrap();
     read_log_entries_compacted_assertions(&data, &batches).await;
+
+    assert_eq!(
+        vec![
+            store::log::testing::new_log_row(LogIndex(1), false),
+            store::log::testing::new_log_row(LogIndex(5), false),
+            store::log::testing::new_log_row(LogIndex(16), false),
+        ],
+        data.list_log_rows(&REALM, &GROUP_1, LogIndex(17))
+            .await
+            .unwrap()
+    );
 }
 
 async fn read_log_entries_compacted_assertions(data: &StoreClient, batches: &[&[LogEntry]; 4]) {
@@ -523,6 +534,44 @@ async fn read_log_entries_compacted_assertions(data: &StoreClient, batches: &[&[
         matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(15)))),
         "should have returned that index 15 is compacted, got {r:?}",
     );
+}
+
+#[tokio::test]
+async fn test_list_log_rows() {
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
+
+    assert_eq!(
+        Vec::<store::LogRow>::new(),
+        data.list_log_rows(&REALM, &GROUP_1, LogIndex(u64::MAX))
+            .await
+            .unwrap()
+    );
+
+    let entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 100);
+    let batches = entries.windows(1);
+    for batch in batches.clone() {
+        println!(
+            "appending entries {:?} through {:?}",
+            batch.first().unwrap().index,
+            batch.last().unwrap().index,
+        );
+        data.append(&REALM, &GROUP_1, batch, StoreDelta::default())
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(
+        batches
+            .clone()
+            .map(|batch| store::log::testing::new_log_row(batch.first().unwrap().index, false))
+            .collect::<Vec<_>>(),
+        data.list_log_rows(&REALM, &GROUP_1, LogIndex(u64::MAX))
+            .await
+            .unwrap()
+    );
+
+    // TODO: more testing
 }
 
 #[tokio::test]

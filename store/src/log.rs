@@ -564,24 +564,18 @@ impl StoreClient {
         &self,
         realm: &RealmId,
         group: &GroupId,
-        up_to: LogIndex,
+        mut up_to: LogIndex,
     ) -> Result<Vec<LogRow>, tonic::Status> {
         let start = Instant::now();
         let mut rows: Vec<LogRow> = Vec::new();
         let mut pages = 0;
-        loop {
-            let (page, More(more)) = self
-                .list_log_rows_page(
-                    realm,
-                    group,
-                    match rows.last() {
-                        None => up_to,
-                        Some(row) => row.index,
-                    },
-                )
-                .await?;
-            rows.extend_from_slice(&page);
+        while up_to > LogIndex::FIRST {
+            let (page, More(more)) = self.list_log_rows_page(realm, group, up_to).await?;
             pages += 1;
+            rows.extend_from_slice(&page);
+            if let Some(row) = rows.last() {
+                up_to = row.index;
+            }
             if !more {
                 break;
             }
@@ -625,6 +619,15 @@ impl StoreClient {
         group: &GroupId,
         up_to: LogIndex,
     ) -> Result<(Vec<LogRow>, More), tonic::Status> {
+        // TODO: Reader should assert that ranges are not trivially empty,
+        // since cloud bigtable can return:
+        // ```
+        // Status { code: InvalidArgument, message: "Error in field
+        // 'row_ranges' : Error in element #0 : start_key must be less than
+        // end_key", ...
+        // ```
+        assert!(up_to > LogIndex::FIRST);
+
         let request = ReadRowsRequest {
             table_name: log_table(&self.instance, realm),
             app_profile_id: String::new(),
