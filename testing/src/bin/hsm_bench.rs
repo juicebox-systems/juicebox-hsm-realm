@@ -123,19 +123,21 @@ async fn main() {
     let start = Instant::now();
 
     let mut stream = futures::stream::iter((0..args.count).map(|i| {
-        let client = clients[i % args.concurrency].clone();
-        async move {
-            client
-                .lock()
-                .await
-                .register(
-                    &Pin::from(format!("pin{i}").into_bytes()),
-                    &UserSecret::from(format!("secret{i}").into_bytes()),
-                    &UserInfo::from(format!("info{i}").into_bytes()),
-                    Policy { num_guesses: 2 },
-                )
-                .await
-        }
+        tokio::spawn({
+            let client = clients[i % args.concurrency].clone();
+            async move {
+                client
+                    .lock()
+                    .await
+                    .register(
+                        &Pin::from(format!("pin{i}").into_bytes()),
+                        &UserSecret::from(format!("secret{i}").into_bytes()),
+                        &UserInfo::from(format!("info{i}").into_bytes()),
+                        Policy { num_guesses: 2 },
+                    )
+                    .await
+            }
+        })
     }))
     .buffer_unordered(args.concurrency);
 
@@ -143,12 +145,16 @@ async fn main() {
     let mut errors = 0;
     while let Some(result) = stream.next().await {
         match result {
-            Ok(_) => {
+            Ok(Ok(_)) => {
                 debug!(completed, "ok");
                 completed += 1;
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 warn!(?err, "client got error");
+                errors += 1;
+            }
+            Err(err) => {
+                warn!(?err, "tokio::spawn got error");
                 errors += 1;
             }
         }
