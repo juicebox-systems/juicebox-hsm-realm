@@ -1034,6 +1034,8 @@ impl LogEntriesIter {
 pub mod testing {
     use super::*;
 
+    pub const TOMBSTONE_WINDOW_SIZE: usize = super::TOMBSTONE_WINDOW_SIZE;
+
     pub fn log_table(instance: &Instance, realm: &RealmId) -> String {
         super::log_table(instance, realm)
     }
