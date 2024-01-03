@@ -875,7 +875,7 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(Response::Ok { realm, group })
             }
             Err(store::AppendError::Grpc(_)) => Ok(Response::NoStore),
-            Err(store::AppendError::MerkleWrites(_)) => todo!(),
+            Err(err @ store::AppendError::MerkleWrites(_)) => todo!("{err:?}"),
             Err(store::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
             Err(store::AppendError::MerkleDeletes(_)) => {
                 unreachable!("no merkle nodes to delete")
@@ -1330,7 +1330,7 @@ impl<T: Transport + 'static> Agent<T> {
                 .await
                 {
                     Ok(proof) => Some(proof),
-                    Err(TreeStoreError::MissingNode) => todo!(),
+                    Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
                     Err(TreeStoreError::Network(e)) => {
                         warn!(error = ?e, "handle_transfer_out: error reading proof");
                         return Ok(Response::NoStore);
@@ -1354,8 +1354,8 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
                 Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
                 Ok(HsmResponse::NotOwner) => Ok(Response::NotOwner),
-                Ok(HsmResponse::StaleIndex) => todo!(),
-                Ok(HsmResponse::MissingProof) => todo!(),
+                Ok(r @ HsmResponse::StaleIndex) => todo!("{r:?}"),
+                Ok(r @ HsmResponse::MissingProof) => todo!("{r:?}"),
                 Ok(HsmResponse::InvalidProof) => Ok(Response::InvalidProof),
                 Ok(HsmResponse::StaleProof) => {
                     trace!("hsm said stale proof, will retry");
@@ -1490,12 +1490,12 @@ impl<T: Transport + 'static> Agent<T> {
                     );
                     let transferring_in_proof = match transferring_in_proof_req.await {
                         Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
-                        Err(TreeStoreError::MissingNode) => todo!(),
+                        Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
                         Ok(proof) => proof,
                     };
                     let owned_range_proof = match owned_range_proof_req.await {
                         Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
-                        Err(TreeStoreError::MissingNode) => todo!(),
+                        Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
                         Ok(proof) => proof,
                     };
                     Some(TransferInProofs {
@@ -1523,8 +1523,8 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(HsmResponse::UnacceptableRange) => Ok(Response::UnacceptableRange),
                 Ok(HsmResponse::InvalidNonce) => Ok(Response::InvalidNonce),
                 Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
-                Ok(HsmResponse::InvalidProof) => todo!(),
-                Ok(HsmResponse::MissingProofs) => todo!(),
+                Ok(r @ HsmResponse::InvalidProof) => todo!("{r:?}"),
+                Ok(r @ HsmResponse::MissingProofs) => todo!("{r:?}"),
                 Ok(HsmResponse::StaleProof) => {
                     trace!(?hsm, "hsm said stale proof, will retry");
                     // TODO: slow down and/or limit attempts
