@@ -1068,8 +1068,8 @@ pub mod testing {
     /// Reads a particular entry from the log.
     ///
     /// This used to be production code, but it's typically safer with respect
-    /// to gaps and compaction to use [`read_last_log_entry`]. Now, this only
-    /// exists to be tested, which is silly.
+    /// to gaps and compaction to use [`StoreClient::read_last_log_entry`].
+    /// Now, this only exists to be tested, which is silly.
     #[instrument(level = "trace", skip(store))]
     pub async fn read_log_entry(
         store: &StoreClient,
