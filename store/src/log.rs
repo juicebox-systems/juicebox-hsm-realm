@@ -1028,10 +1028,19 @@ impl LogEntriesIter {
     }
 }
 
-/// This module should be used in unit and integration tests only.
+/// This module should be used in unit/integration tests and non-critical
+/// tooling only.
 #[allow(dead_code)]
 pub mod testing {
     use super::*;
+
+    pub fn log_table(instance: &Instance, realm: &RealmId) -> String {
+        super::log_table(instance, realm)
+    }
+
+    pub fn parse_log_key(key: &RowKey) -> Result<(GroupId, LogIndex), &'static str> {
+        super::parse_log_key(key)
+    }
 
     pub fn new_log_row(index: LogIndex, is_tombstone: bool) -> LogRow {
         LogRow {

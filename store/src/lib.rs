@@ -670,6 +670,21 @@ pub(crate) fn to_micros(d: Duration) -> i64 {
     (d.as_millis() * 1000).try_into().unwrap()
 }
 
+/// This module should be used in unit/integration tests and non-critical
+/// tooling only.
+#[allow(dead_code)]
+pub mod testing {
+    use super::*;
+
+    pub fn get_connection(client: &StoreClient) -> BigtableClient {
+        client.bigtable.clone()
+    }
+
+    pub fn get_instance(client: &StoreClient) -> Instance {
+        client.instance.clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
