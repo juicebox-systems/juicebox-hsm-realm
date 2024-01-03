@@ -28,9 +28,9 @@ pub async fn from_adc() -> Result<AuthenticationManager, gcp_auth::Error> {
 ///
 /// # Note
 ///
-/// This should technically wrap a [`tower::Service`] generically. The current
-/// implementation is specialized for a [`tonic::transport::Channel`], since
-/// that's how it's currently used.
+/// This should technically wrap a [`tower_service::Service`] generically. The
+/// current implementation is specialized for a [`tonic::transport::Channel`],
+/// since that's how it's currently used.
 #[derive(Clone)]
 pub struct AuthMiddleware {
     channel: Channel,

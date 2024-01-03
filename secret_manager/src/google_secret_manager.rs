@@ -50,8 +50,8 @@ impl VersionResource {
 
 /// A client to access Google Cloud Secret Manager.
 ///
-/// This can be used with [`Periodic`] to provide an implementation of
-/// [`SecretManager`].
+/// This can be used with [`super::Periodic`] to provide an implementation of
+/// [`super::SecretManager`].
 ///
 /// This client uses the Secret Manager GRPC API.
 #[derive(Clone)]
