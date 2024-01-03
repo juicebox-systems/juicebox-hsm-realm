@@ -14,6 +14,7 @@ use election::HsmElection;
 use hsm_api::{
     CaptureJumpRequest, CaptureJumpResponse, CaptureNextRequest, CaptureNextResponse, Captured,
     CommitRequest, CommitResponse, CommitState, EntryMac, GroupMemberRole, LogEntry, LogIndex,
+    RoleStatus,
 };
 
 impl<P: Platform> Hsm<P> {
@@ -34,7 +35,7 @@ impl<P: Platform> Hsm<P> {
         let role = self
             .current_role(&request.jump.group)
             .expect("group member must have role");
-        if role != GroupMemberRole::Witness {
+        if role.role != GroupMemberRole::Witness {
             // Agents try to avoid compacting log entries needed for leaders
             // and stepping down, so we don't expect to get here. It's easier
             // to bail than to deal with the jump entry not agreeing with the
@@ -212,7 +213,12 @@ impl<P: Platform> Hsm<P> {
             Some(leader) => (&mut leader.log, &mut leader.committed),
             None => match self.volatile.stepping_down.get_mut(&request.group) {
                 Some(steppingdown) => (&mut steppingdown.log, &mut steppingdown.committed),
-                None => return Response::NotLeader(GroupMemberRole::Witness),
+                None => {
+                    return Response::NotLeader(RoleStatus {
+                        role: GroupMemberRole::Witness,
+                        at: self.role_clock(&request.group),
+                    })
+                }
             },
         };
 
@@ -300,12 +306,21 @@ impl<P: Platform> Hsm<P> {
             if commit_index >= sd.stepdown_at {
                 info!(group=?request.group, hsm=self.options.name, "Completed leader stepdown");
                 self.volatile.stepping_down.remove(&request.group);
-                GroupMemberRole::Witness
+                RoleStatus {
+                    role: GroupMemberRole::Witness,
+                    at: self.tick_role_clock(request.group),
+                }
             } else {
-                GroupMemberRole::SteppingDown
+                RoleStatus {
+                    role: GroupMemberRole::SteppingDown,
+                    at: self.role_clock(&request.group),
+                }
             }
         } else {
-            GroupMemberRole::Leader
+            RoleStatus {
+                role: GroupMemberRole::Leader,
+                at: self.role_clock(&request.group),
+            }
         };
 
         Response::Ok(CommitState {

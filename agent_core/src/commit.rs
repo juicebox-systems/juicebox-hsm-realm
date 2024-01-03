@@ -295,15 +295,16 @@ impl<T: Transport + 'static> Agent<T> {
         Span::current().record("released_count", released_count);
 
         // See if we're done stepping down
-        self.0.maybe_role_changed(realm, group, role);
-        if role == GroupMemberRole::Witness {
-            info!(?group, "Leader stepped down");
+        let result = if role.role == GroupMemberRole::Witness {
+            info!(?group, "Leader completed step down as part of commit");
             CommitterStatus::NoLongerLeader
         } else {
             CommitterStatus::Committing {
                 committed: Some(committed),
             }
-        }
+        };
+        self.0.maybe_role_changed(realm, group, role);
+        result
     }
 
     // Returns the number of released responses.
@@ -531,7 +532,7 @@ impl<T: Transport + 'static> Agent<T> {
                     && rs
                         .groups
                         .iter()
-                        .any(|gs| gs.id == *group && gs.role == GroupMemberRole::Witness)
+                        .any(|gs| gs.id == *group && gs.role.role == GroupMemberRole::Witness)
             })
         })
         .count();

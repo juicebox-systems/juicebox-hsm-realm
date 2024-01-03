@@ -46,9 +46,9 @@ use hsm_api::{
     HsmId, HsmRealmStatement, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
     JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupRequest, NewGroupResponse,
     NewRealmRequest, NewRealmResponse, OwnedRange, Partition, PersistStateRequest,
-    PersistStateResponse, PublicKey, RealmStatus, RecordId, StatusRequest, StatusResponse,
-    StepDownRequest, StepDownResponse, TransferNonce, TransferringOut, CONFIGURATION_LIMIT,
-    GROUPS_LIMIT,
+    PersistStateResponse, PublicKey, RealmStatus, RecordId, RoleLogicalClock, RoleStatus,
+    StatusRequest, StatusResponse, StepDownRequest, StepDownResponse, TransferNonce,
+    TransferringOut, CONFIGURATION_LIMIT, GROUPS_LIMIT,
 };
 use juicebox_marshalling::{self as marshalling, bytes, DeserializationError};
 use juicebox_noise::server as noise;
@@ -223,6 +223,7 @@ struct VolatileState {
     captured: HashMap<GroupId, (LogIndex, EntryMac)>,
     // A Group can be in leader, stepping_down or neither. Its never in both leader & stepping_down.
     stepping_down: HashMap<GroupId, SteppingDownVolatileGroupState>,
+    role_clocks: HashMap<GroupId, RoleLogicalClock>,
 }
 
 struct LeaderVolatileGroupState {
@@ -520,6 +521,13 @@ impl<P: Platform> Hsm<P> {
             })
             .collect();
 
+        let role_clocks: HashMap<GroupId, RoleLogicalClock> = persistent
+            .realm
+            .iter()
+            .flat_map(|r| r.groups.iter())
+            .map(|g| (*g.0, RoleLogicalClock(1)))
+            .collect();
+
         Ok(Hsm {
             options,
             platform,
@@ -528,6 +536,7 @@ impl<P: Platform> Hsm<P> {
                 leader: HashMap::new(),
                 captured,
                 stepping_down: HashMap::new(),
+                role_clocks,
             },
             realm_keys,
         })
@@ -664,10 +673,19 @@ impl<P: Platform> Hsm<P> {
                                     .map(|p| p.range.clone()),
                             }),
                         role: match self.volatile.leader.get(group_id) {
-                            Some(_) => GroupMemberRole::Leader,
+                            Some(_) => RoleStatus {
+                                role: GroupMemberRole::Leader,
+                                at: self.role_clock(group_id),
+                            },
                             None => match self.volatile.stepping_down.get(group_id) {
-                                Some(_) => GroupMemberRole::SteppingDown,
-                                None => GroupMemberRole::Witness,
+                                Some(_) => RoleStatus {
+                                    role: GroupMemberRole::SteppingDown,
+                                    at: self.role_clock(group_id),
+                                },
+                                None => RoleStatus {
+                                    role: GroupMemberRole::Witness,
+                                    at: self.role_clock(group_id),
+                                },
                             },
                         },
                     })
@@ -733,6 +751,7 @@ impl<P: Platform> Hsm<P> {
             group,
             entry,
             delta,
+            at: self.tick_role_clock(group),
         }
     }
 
@@ -866,11 +885,11 @@ impl<P: Platform> Hsm<P> {
             group,
             LeaderVolatileGroupState::new(entry.clone(), &self.options),
         );
-
         Response::Ok {
             group,
             statement,
             entry,
+            at: self.tick_role_clock(group),
         }
     }
 
@@ -921,6 +940,8 @@ impl<P: Platform> Hsm<P> {
                 configuration,
                 captured: None,
             });
+
+        self.tick_role_clock(request.group);
         Response::Ok
     }
 
@@ -978,7 +999,10 @@ impl<P: Platform> Hsm<P> {
             .entry(request.group)
             .or_insert_with(|| LeaderVolatileGroupState::new(request.last_entry, &self.options));
 
-        Response::Ok { configuration }
+        Response::Ok {
+            configuration,
+            at: self.tick_role_clock(request.group),
+        }
     }
 
     #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
@@ -993,15 +1017,26 @@ impl<P: Platform> Hsm<P> {
             Ok(_) => {
                 if request.force {
                     if let Some(leader) = self.volatile.leader.remove(&request.group) {
-                        Response::Complete {
+                        Response::Ok {
+                            role: RoleStatus {
+                                role: GroupMemberRole::Witness,
+                                at: self.tick_role_clock(request.group),
+                            },
                             last: leader.log.last_index(),
                         }
                     } else if let Some(sd) = self.volatile.stepping_down.remove(&request.group) {
-                        Response::Complete {
+                        Response::Ok {
+                            role: RoleStatus {
+                                role: GroupMemberRole::Witness,
+                                at: self.tick_role_clock(request.group),
+                            },
                             last: sd.stepdown_at,
                         }
                     } else {
-                        Response::NotLeader(GroupMemberRole::Witness)
+                        Response::NotLeader(RoleStatus {
+                            role: GroupMemberRole::Witness,
+                            at: self.role_clock(&request.group),
+                        })
                     }
                 } else {
                     self.stepdown_at(request.group, StepDownPoint::LastLogIndex)
@@ -1031,7 +1066,11 @@ impl<P: Platform> Hsm<P> {
         // that get abandoned we can go straight to the Witness state.
         if let Some(committed) = leader.committed {
             if committed == stepdown_index && leader.log.last_index() == stepdown_index {
-                return StepDownResponse::Complete {
+                return StepDownResponse::Ok {
+                    role: RoleStatus {
+                        role: GroupMemberRole::Witness,
+                        at: self.tick_role_clock(group),
+                    },
                     last: stepdown_index,
                 };
             }
@@ -1055,7 +1094,11 @@ impl<P: Platform> Hsm<P> {
                 abandoned,
             },
         );
-        StepDownResponse::InProgress {
+        StepDownResponse::Ok {
+            role: RoleStatus {
+                role: GroupMemberRole::SteppingDown,
+                at: self.tick_role_clock(group),
+            },
             last: stepdown_index,
         }
     }
@@ -1211,18 +1254,45 @@ impl<P: Platform> Hsm<P> {
         response
     }
 
-    fn current_role(&self, group: &GroupId) -> Option<GroupMemberRole> {
+    fn role_clock(&self, group: &GroupId) -> RoleLogicalClock {
+        self.volatile
+            .role_clocks
+            .get(group)
+            .copied()
+            .unwrap_or(RoleLogicalClock(1))
+    }
+
+    fn tick_role_clock(&mut self, group: GroupId) -> RoleLogicalClock {
+        let c = self
+            .volatile
+            .role_clocks
+            .entry(group)
+            .or_insert(RoleLogicalClock(1));
+        c.tick();
+        *c
+    }
+
+    fn current_role(&self, group: &GroupId) -> Option<RoleStatus> {
         if self.volatile.leader.contains_key(group) {
-            Some(GroupMemberRole::Leader)
+            Some(RoleStatus {
+                role: GroupMemberRole::Leader,
+                at: self.role_clock(group),
+            })
         } else if self.volatile.stepping_down.contains_key(group) {
-            Some(GroupMemberRole::SteppingDown)
+            Some(RoleStatus {
+                role: GroupMemberRole::SteppingDown,
+                at: self.role_clock(group),
+            })
         } else if self
             .persistent
             .realm
             .as_ref()
             .is_some_and(|r| r.groups.contains_key(group))
         {
-            Some(GroupMemberRole::Witness)
+            Some(RoleStatus {
+                role: GroupMemberRole::Witness,
+                at: self.role_clock(group),
+            })
         } else {
             None
         }
