@@ -16,7 +16,7 @@ use tracing::warn;
 /// tag!("name": displayed);
 /// tag!("name": ?debugged);
 /// tag!("name": format_args!("for{}ted", "mat"));
-/// tag!(variable_containing_name: 3));
+/// tag!(variable_containing_name: 3);
 /// ```
 #[macro_export]
 macro_rules! metrics_tag {

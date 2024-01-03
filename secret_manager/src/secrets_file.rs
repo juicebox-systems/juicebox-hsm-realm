@@ -20,8 +20,8 @@ impl std::error::Error for StringError {}
 
 /// Loads secrets from a JSON file.
 ///
-/// This can be used with [`Periodic`] to provide an implementation of
-/// [`SecretManager`].
+/// This can be used with [`super::Periodic`] to provide an implementation of
+/// [`super::SecretManager`].
 ///
 ///
 /// The file should look like this:
