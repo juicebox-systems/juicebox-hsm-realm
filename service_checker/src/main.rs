@@ -203,17 +203,21 @@ impl Checker {
             user_prefix: args.user.clone(),
         });
 
-        let mut stream =
-            futures::stream::iter((1..=args.count).map(|i| run_op(i, client_builder.clone())))
-                .buffer_unordered(args.concurrency);
+        let mut stream = futures::stream::iter(
+            (1..=args.count).map(|i| tokio::spawn(run_op(i, client_builder.clone()))),
+        )
+        .buffer_unordered(args.concurrency);
 
         let mut first_op_error: Option<OpError> = None;
         while let Some(result) = stream.next().await {
             match result {
-                Ok(_) => {}
-                Err(err) => {
+                Ok(Ok(_)) => {}
+                Ok(Err(err)) => {
                     warn!(%err, "error during register/recover operation");
                     first_op_error.get_or_insert(err);
+                }
+                Err(err) => {
+                    warn!(%err, "tokio::spawn error during register/recover operation");
                 }
             }
         }

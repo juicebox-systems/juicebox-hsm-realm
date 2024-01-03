@@ -216,20 +216,22 @@ async fn benchmark(
     info!(?op, concurrency, ?ids, "benchmarking concurrent clients");
     let start = Instant::now();
 
-    let mut stream =
-        futures::stream::iter(ids.clone().map(|i| run_op(op, i, client_builder.clone())))
-            .buffer_unordered(concurrency);
+    let mut stream = futures::stream::iter(
+        ids.clone()
+            .map(|i| tokio::spawn(run_op(op, i, client_builder.clone()))),
+    )
+    .buffer_unordered(concurrency);
 
     let mut durations_ns: Histogram<u64> = Histogram::new(1).unwrap();
     let mut errors: usize = 0;
     while let Some(result) = stream.next().await {
         match result {
-            Ok(duration) => {
+            Ok(Ok(duration)) => {
                 durations_ns
                     .record(duration.as_nanos().try_into().unwrap())
                     .unwrap();
             }
-            Err(()) => {
+            Ok(Err(_)) | Err(_) => {
                 errors += 1;
             }
         }
