@@ -619,13 +619,6 @@ impl StoreClient {
         group: &GroupId,
         up_to: LogIndex,
     ) -> Result<(Vec<LogRow>, More), tonic::Status> {
-        // TODO: Reader should assert that ranges are not trivially empty,
-        // since cloud bigtable can return:
-        // ```
-        // Status { code: InvalidArgument, message: "Error in field
-        // 'row_ranges' : Error in element #0 : start_key must be less than
-        // end_key", ...
-        // ```
         assert!(up_to > LogIndex::FIRST);
 
         let request = ReadRowsRequest {
