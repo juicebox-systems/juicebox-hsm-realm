@@ -21,7 +21,7 @@ impl BigtableRunner {
                     .arg("-port")
                     .arg(emulator_url.port().unwrap().as_str()),
             );
-            for _ in 0..100 {
+            for _ in 0..200 {
                 match args.connect_data(None, Options::default()).await {
                     Ok(_) => return,
                     Err(_e) => {
