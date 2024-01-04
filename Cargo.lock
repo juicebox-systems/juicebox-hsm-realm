@@ -596,6 +596,7 @@ version = "0.2.3"
 dependencies = [
  "agent_api",
  "anyhow",
+ "bigtable",
  "build_info",
  "chrono",
  "clap",

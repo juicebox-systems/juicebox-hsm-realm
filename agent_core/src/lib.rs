@@ -1,6 +1,7 @@
 use anyhow::Context;
 use bytes::Bytes;
 use futures::channel::oneshot;
+use futures::future::join_all;
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -8,8 +9,9 @@ use hyper::{body::Incoming as IncomingBody, Request, Response};
 use observability::tracing::TracingMiddleware;
 use serde_json::json;
 use service_core::http::ReqwestClientMetrics;
+use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Arguments;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -42,14 +44,16 @@ use agent_api::{
 };
 use append::{Append, AppendingState};
 use build_info::BuildInfo;
+use cluster_core::discover_hsm_ids;
 use hsm::{HsmClient, Transport};
 use hsm_api::merkle::{Dir, StoreDelta};
 use hsm_api::{
-    AppResultType, CaptureNextRequest, CaptureNextResponse, Captured, EntryMac, GroupId,
-    GroupMemberRole, HsmId, LogEntry, LogIndex, TransferInProofs,
+    AppResultType, CaptureJumpRequest, CaptureJumpResponse, CaptureNextRequest,
+    CaptureNextResponse, Captured, EntryMac, GroupId, GroupMemberRole, HsmId, LogEntry, LogIndex,
+    TransferInProofs,
 };
 use juicebox_networking::reqwest::ClientOptions;
-use juicebox_networking::rpc::{self, Rpc};
+use juicebox_networking::rpc::{self, Rpc, SendOptions};
 use juicebox_realm_api::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use juicebox_realm_api::types::RealmId;
 use observability::logging::TracingSource;
@@ -57,7 +61,10 @@ use observability::metrics::{self};
 use observability::metrics_tag as tag;
 use pubsub_api::{Message, Publisher};
 use service_core::rpc::{handle_rpc, HandlerError};
-use store::{self, discovery, LogEntriesIter, ServiceKind};
+use store::{
+    self, discovery, LogEntriesIter, LogEntriesIterError, LogRow, ReadLastLogEntryError,
+    ServiceKind,
+};
 use tenants::UserAccountingWriter;
 
 #[derive(Debug)]
@@ -82,14 +89,17 @@ struct AgentInner<T> {
 struct State {
     /// State about a group that's needed while the HSM is Leader or SteppingDown.
     leader: HashMap<(RealmId, GroupId), LeaderState>,
-    // Captures that have been persisted to NVRAM in the HSM.
+    /// Captures that have been persisted to NVRAM in the HSM.
     captures: Vec<Captured>,
-    // Set after being successfully registered with service discovery.
+    /// Set after being successfully registered with service discovery.
     registered: bool,
+    /// The local HSM's ID is available before the agent is registered with
+    /// service discovery. It's always available for leaders. It will never go
+    /// from `Some` to `None`.
+    hsm_id: Option<HsmId>,
 }
 
 // State about a group that is used in the Leader or SteppingDown state.
-#[derive(Debug)]
 struct LeaderState {
     /// Log entries may be received out of order from the HSM. They are buffered
     /// here until they can be appended to the log in order.
@@ -105,9 +115,39 @@ struct LeaderState {
     /// the common case.
     last_appended: Option<LogEntry>,
 
+    /// The rows that eventually need to be compacted in the log.
+    ///
+    /// Any time this is modified, use [`commit::UncompactedRowStats`] to
+    /// report metrics.
+    ///
+    /// The rows are sorted in increasing index order and unique.
+    ///
+    /// As the leader appends new rows of entries to the log, it pushes to the
+    /// back of this. After the leader commits entries, the compactor task pops
+    /// from the front of this and overwrites rows with tombstones.
+    ///
+    /// Upon becoming leader, this will be empty. Before it compacts anything,
+    /// the compactor task reads from the log and prepends all previously
+    /// existing log entry rows and possibly some tombstone rows. (Those
+    /// tombstone rows are tracked here to maintain a store invariant that only
+    /// a fixed window of the log may mix tombstones and log entries.)
+    uncompacted_rows: VecDeque<LogRow>,
+
     /// Used to route responses back to the right client after the HSM commits
     /// a batch of log entries and releases the responses.
     response_channels: HashMap<HashableEntryMac, oneshot::Sender<(NoiseResponse, AppResultType)>>,
+}
+
+impl std::fmt::Debug for LeaderState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LeaderState")
+            .field("append_queue", &self.append_queue.len())
+            .field("appending", &self.appending)
+            .field("last_appended", &self.last_appended)
+            .field("uncompacted_rows", &self.uncompacted_rows.len())
+            .field("response_channels", &self.response_channels.len())
+            .finish()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -123,6 +163,12 @@ impl std::hash::Hash for HashableEntryMac {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.as_bytes().hash(state);
     }
+}
+
+/// Error type returned by [`Agent::watch_log_one`].
+#[derive(Debug)]
+enum WatchingError {
+    Compacted(LogIndex),
 }
 
 impl<T> Clone for Agent<T> {
@@ -153,6 +199,7 @@ impl<T: Transport + 'static> Agent<T> {
                 leader: HashMap::new(),
                 captures: Vec::new(),
                 registered: false,
+                hsm_id: None,
             }),
             metrics: metrics.clone(),
             accountant: UserAccountingWriter::new(store, metrics),
@@ -170,12 +217,12 @@ impl<T: Transport + 'static> Agent<T> {
                 }
                 Ok(sr) => {
                     if let Some(realm) = sr.realm {
-                        for g in &realm.groups {
+                        for g in realm.groups {
                             let idx = match g.captured {
                                 Some((index, _)) => index.next(),
                                 None => LogIndex::FIRST,
                             };
-                            self.start_watching(realm.id, g.id, idx);
+                            self.start_watching(realm.id, g.id, g.configuration, idx);
                         }
                     }
                     return;
@@ -184,56 +231,90 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
-    fn start_watching(&self, realm: RealmId, group: GroupId, next_index: LogIndex) {
-        let state = self.0.clone();
-
-        info!(
-            agent = state.name,
-            ?realm,
-            ?group,
-            ?next_index,
-            "start watching log"
+    fn start_watching(
+        &self,
+        realm: RealmId,
+        group: GroupId,
+        configuration: Vec<HsmId>,
+        next_index: LogIndex,
+    ) {
+        tokio::spawn(
+            self.clone()
+                .watching_main(realm, group, configuration, next_index),
         );
+    }
 
-        tokio::spawn(async move {
-            let mut it = state.store.read_log_entries_iter(
+    async fn watching_main(
+        self,
+        realm: RealmId,
+        group: GroupId,
+        configuration: Vec<HsmId>,
+        mut next_index: LogIndex,
+    ) {
+        let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+        loop {
+            info!(
+                agent = self.0.name,
+                ?realm,
+                ?group,
+                ?next_index,
+                "start watching log"
+            );
+            let mut it = self.0.store.read_log_entries_iter(
                 realm,
                 group,
                 next_index,
                 (Self::MAX_APPEND_BATCH_SIZE * 2).try_into().unwrap(),
             );
-            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
 
-            loop {
+            next_index = loop {
                 let span = span!(Level::TRACE, "log_watcher_loop");
                 span.set_parent(cx.clone());
 
-                Self::watch_log_one(state.clone(), &mut it, realm, group)
-                    .instrument(span)
-                    .await;
-            }
-        });
+                match self
+                    .watch_log_one(&mut it, realm, group)
+                    .instrument(span.clone())
+                    .await
+                {
+                    Ok(()) => {}
+                    Err(WatchingError::Compacted(index)) => {
+                        break self
+                            .catchup(realm, group, &configuration, index)
+                            .instrument(span)
+                            .await
+                            .next();
+                    }
+                }
+            };
+        }
     }
 
+    /// Reads the next batch of log entries from the store and sends them to
+    /// the HSM.
     #[instrument(
         level = "trace",
-        skip(state, it),
+        skip(self, it),
         fields(num_log_entries_read, num_captured, index)
     )]
     async fn watch_log_one(
-        state: Arc<AgentInner<T>>,
+        &self,
         it: &mut LogEntriesIter,
         realm: RealmId,
         group: GroupId,
-    ) {
+    ) -> Result<(), WatchingError> {
         match it.next().await {
-            Err(e) => {
-                warn!(err=?e, "error reading log");
+            Err(LogEntriesIterError::Grpc(err)) => {
+                warn!(?err, "error reading log");
                 sleep(Duration::from_millis(25)).await;
+                Ok(())
+            }
+            Err(ref err @ LogEntriesIterError::Compacted(index)) => {
+                warn!(?err, ?index, "fell behind on watching log");
+                Err(WatchingError::Compacted(index))
             }
             Ok(entries) if entries.is_empty() => {
-                // TODO: how would we tell if the log was truncated?
                 sleep(Duration::from_millis(1)).await;
+                Ok(())
             }
             Ok(entries) => {
                 let span = Span::current();
@@ -241,7 +322,8 @@ impl<T: Transport + 'static> Agent<T> {
                 span.record("num_log_entries_read", num_entries);
                 span.record("index", entries[0].index.0);
 
-                match state
+                match self
+                    .0
                     .hsm
                     .send(CaptureNextRequest {
                         realm,
@@ -253,11 +335,113 @@ impl<T: Transport + 'static> Agent<T> {
                     Err(err) => todo!("{err:?}"),
                     Ok(CaptureNextResponse::Ok(role)) => {
                         Span::current().record("num_captured", num_entries);
-                        state.maybe_role_changed(realm, group, role);
+                        self.0.maybe_role_changed(realm, group, role);
+                        Ok(())
                     }
                     Ok(r) => todo!("{r:#?}"),
                 }
             }
+        }
+    }
+
+    /// Called when the log watcher task encounters a tombstone or gap in the
+    /// log. It queries peers for updated `CapturedStatements` and adopts them.
+    async fn catchup(
+        &self,
+        realm: RealmId,
+        group: GroupId,
+        configuration: &[HsmId],
+        past: LogIndex,
+    ) -> LogIndex {
+        let local_hsm_id: Option<HsmId> = self.0.state.lock().unwrap().hsm_id;
+
+        loop {
+            // TODO: There's some code duplication between this and the commit
+            // path.
+            let urls: Vec<Url> = match discover_hsm_ids(&self.0.store, &self.0.peer_client).await {
+                Ok(it) => it
+                    .filter(|(hsm, _)| Some(hsm) != local_hsm_id.as_ref())
+                    .filter(|(hsm, _)| configuration.contains(hsm))
+                    .map(|(_, url)| url)
+                    .collect(),
+                Err(err) => {
+                    warn!(?err, "failed to discover peer agents to catch up from");
+                    sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
+
+            let captures = join_all(urls.iter().map(|url| {
+                rpc::send_with_options(
+                    &self.0.peer_client,
+                    url,
+                    ReadCapturedRequest { realm, group },
+                    SendOptions::default().with_timeout(Duration::from_millis(500)),
+                )
+            }))
+            .await
+            .into_iter()
+            // skip network failures
+            .filter_map(|r| r.ok())
+            .filter_map(|r| match r {
+                ReadCapturedResponse::Ok(captured) => captured,
+            })
+            .filter(|captured| captured.index > past);
+
+            let Some(jump) = captures.max_by_key(|captured| captured.index) else {
+                warn!("no peer agent returned usable capture to jump forward to");
+                sleep(Duration::from_millis(500)).await;
+                continue;
+            };
+
+            let jump_index = jump.index;
+            match self.0.hsm.send(CaptureJumpRequest { jump }).await {
+                Err(err) => todo!("{err:?}"),
+                Ok(CaptureJumpResponse::Ok) => return jump_index,
+                Ok(CaptureJumpResponse::NotWitness(role)) => {
+                    // We don't expect to get here because:
+                    // - As a leader, we don't compact entries that beyond our
+                    //   own captured index.
+                    // - A new leader will wait until all its peers are
+                    //   reporting a Witness role or enough time has passed
+                    //   before starting to compact entries.
+                    //
+                    // If the stepdown succeeds, the next iteration should be
+                    // able to do the CaptureJump. If it somehow fails, we'll
+                    // end up back here and retry.
+                    warn!(
+                        ?role,
+                        "CaptureJump got NotWitness response, which shouldn't \
+                        normally happen. Forcing HSM to step down."
+                    );
+                    self.force_stepdown(realm, group).await;
+                    continue;
+                }
+                Ok(r) => todo!("{r:#?}"),
+            };
+        }
+    }
+
+    async fn force_stepdown(&self, realm: RealmId, group: GroupId) {
+        match self
+            .0
+            .hsm
+            .send(hsm_api::StepDownRequest {
+                realm,
+                group,
+                force: true,
+            })
+            .await
+        {
+            Err(err) => todo!("{err:?}"),
+            Ok(hsm_api::StepDownResponse::Complete { .. }) => {
+                self.0
+                    .maybe_role_changed(realm, group, GroupMemberRole::Witness);
+            }
+            Ok(hsm_api::StepDownResponse::NotLeader(role)) => {
+                self.0.maybe_role_changed(realm, group, role);
+            }
+            Ok(r) => todo!("{r:?}"),
         }
     }
 
@@ -365,24 +549,26 @@ impl<T: Transport + 'static> Agent<T> {
             // easy case, we're not leader, job done.
             return;
         }
-        info!("Starting graceful agent shutdown");
-
-        let maybe_hsm_id = self
-            .0
-            .hsm
-            .send(hsm_api::StatusRequest {})
-            .await
-            .ok()
-            .map(|s| s.id);
 
         // If there's a cluster manager available via service discovery, ask
         // that to perform the step down. The cluster manager can handle the
         // hand-off such that clients don't see an availability gap. If there
         // isn't one we'll step down gracefully but there may be an availability
         // gap until a new leader is appointed.
+        let maybe_hsm_id: Option<HsmId> = {
+            let locked = self.0.state.lock().unwrap();
+            locked.hsm_id
+        };
         if let Some(hsm_id) = maybe_hsm_id {
+            info!(
+                ?hsm_id,
+                "Starting graceful agent shutdown with cluster manager"
+            );
             self.stepdown_with_cluster_manager(hsm_id).await;
+        } else {
+            info!("Starting graceful agent shutdown without cluster manager");
         }
+
         let leading = get_leading();
         if !leading.is_empty() {
             // We're still leader after trying with the cluster manager, force a local stepdown.
@@ -458,6 +644,8 @@ impl<T: Transport + 'static> Agent<T> {
                 }
             };
             let hsm_id = fn_hsm_id().await;
+            agent.state.lock().unwrap().hsm_id = Some(hsm_id);
+
             info!(hsm=?hsm_id, %url, "registering agent with service discovery");
             let mut first_registration = true;
             loop {
@@ -576,6 +764,11 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
 impl<T: Transport + 'static> Agent<T> {
     async fn handle_status(&self, _request: StatusRequest) -> Result<StatusResponse, HandlerError> {
         let hsm_status = self.0.hsm.send(hsm_api::StatusRequest {}).await;
+        if let Ok(hsm_status) = &hsm_status {
+            // The ID is cached before service discovery registration, but we
+            // set it here too in case others call this before that happens.
+            self.0.state.lock().unwrap().hsm_id = Some(hsm_status.id);
+        }
         Ok(StatusResponse {
             hsm: hsm_status.ok(),
             uptime: self.0.boot_time.elapsed(),
@@ -594,9 +787,19 @@ impl<T: Transport + 'static> Agent<T> {
                 .unwrap()
         };
 
-        if !self.0.state.lock().unwrap().registered {
-            return unavailable_response(format_args!("not yet registered with service discovery"));
+        {
+            let locked = self.0.state.lock().unwrap();
+            if !locked.registered || locked.hsm_id.is_none() {
+                // The HSM ID is cached before registration, so the message
+                // only mentions service discovery.
+                return unavailable_response(format_args!(
+                    "not yet registered with service discovery"
+                ));
+            }
         }
+
+        // Note: As this is a liveness check, we want to send a real
+        // StatusRequest and not use the cached local HSM ID.
         match tokio::time::timeout(
             Duration::from_secs(1),
             self.0.hsm.send(hsm_api::StatusRequest {}),
@@ -627,13 +830,8 @@ impl<T: Transport + 'static> Agent<T> {
         type Response = NewRealmResponse;
         let name = &self.0.name;
 
-        // Get the HSM ID (which is used as the new group's Configuration
-        // below). This also checks if a realm already exists, because it might
-        // as well.
-        let hsm_id = match self.0.hsm.send(hsm_api::StatusRequest {}).await {
-            Err(_) => return Ok(Response::NoHsm),
-            Ok(hsm_api::StatusResponse { realm: Some(_), .. }) => return Ok(Response::HaveRealm),
-            Ok(hsm_api::StatusResponse { id, .. }) => id,
+        let Some(hsm_id) = self.0.state.lock().unwrap().hsm_id else {
+            return Ok(Response::NoHsm);
         };
 
         info!(agent = name, ?hsm_id, "creating new realm");
@@ -659,7 +857,9 @@ impl<T: Transport + 'static> Agent<T> {
             .store_admin
             .initialize_realm(&realm)
             .await
-            .expect("TODO");
+            .unwrap_or_else(|err| {
+                panic!("failed to create Bigtable tables for new realm ({realm:?}): {err}")
+            });
 
         info!(
             agent = name,
@@ -670,12 +870,12 @@ impl<T: Transport + 'static> Agent<T> {
         assert_eq!(entry.index, LogIndex::FIRST);
 
         match self.0.store.append(&realm, &group, &[entry], delta).await {
-            Ok(()) => {
+            Ok(_row) => {
                 self.finish_new_group(realm, group, vec![hsm_id]);
                 Ok(Response::Ok { realm, group })
             }
             Err(store::AppendError::Grpc(_)) => Ok(Response::NoStore),
-            Err(store::AppendError::MerkleWrites(_)) => todo!(),
+            Err(err @ store::AppendError::MerkleWrites(_)) => todo!("{err:?}"),
             Err(store::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
             Err(store::AppendError::MerkleDeletes(_)) => {
                 unreachable!("no merkle nodes to delete")
@@ -684,8 +884,8 @@ impl<T: Transport + 'static> Agent<T> {
     }
 
     fn finish_new_group(&self, realm: RealmId, group: GroupId, config: Vec<HsmId>) {
-        self.start_watching(realm, group, LogIndex::FIRST);
-        self.start_leading(realm, group, config, LogIndex::FIRST);
+        self.start_watching(realm, group, config.clone(), LogIndex::FIRST);
+        self.start_leading(realm, group, config, LogIndex::FIRST.next());
     }
 
     fn start_leading(
@@ -699,13 +899,20 @@ impl<T: Transport + 'static> Agent<T> {
         // When we get here we might already be leading.
         let start = {
             let mut locked = self.0.state.lock().unwrap();
+
+            // All paths into this function make sure we know the HSM ID first.
+            // This is useful so that any leadership-related code can safely
+            // unwrap the ID.
+            assert!(locked.hsm_id.is_some());
+
             if let Entry::Vacant(entry) = locked.leader.entry((realm, group)) {
                 entry.insert(LeaderState {
                     append_queue: HashMap::new(),
                     appending: AppendingState::NotAppending {
-                        next: starting_index.next(),
+                        next: starting_index,
                     },
                     last_appended: None,
+                    uncompacted_rows: VecDeque::new(),
                     response_channels: HashMap::new(),
                 });
                 true
@@ -714,7 +921,11 @@ impl<T: Transport + 'static> Agent<T> {
             }
         };
         if start {
-            self.start_group_committer(realm, group, config);
+            info!(name=?self.0.name, ?realm, ?group, "Starting group committer");
+            tokio::spawn(
+                self.clone()
+                    .group_committer(realm, group, config, starting_index),
+            );
         }
     }
 
@@ -748,16 +959,19 @@ impl<T: Transport + 'static> Agent<T> {
     ) -> Result<NewGroupResponse, HandlerError> {
         type Response = NewGroupResponse;
         type HsmResponse = hsm_api::NewGroupResponse;
-
-        let name = &self.0.name;
-        let hsm = &self.0.hsm;
-        let store = &self.0.store;
-
         let realm = request.realm;
+
+        if self.0.state.lock().unwrap().hsm_id.is_none() {
+            // The HSM should be up by now, and we don't want to start
+            // leadership without knowing its ID.
+            return Ok(Response::NoHsm);
+        }
 
         let configuration: Vec<HsmId> = request.members.iter().map(|(id, _)| *id).collect();
 
-        let (group, statement, entry) = match hsm
+        let (group, statement, entry) = match self
+            .0
+            .hsm
             .send(hsm_api::NewGroupRequest {
                 realm,
                 members: request.members,
@@ -777,18 +991,20 @@ impl<T: Transport + 'static> Agent<T> {
         };
 
         info!(
-            agent = name,
+            agent = self.0.name,
             ?realm,
             ?group,
             "appending log entry for new group"
         );
         assert_eq!(entry.index, LogIndex::FIRST);
 
-        match store
+        match self
+            .0
+            .store
             .append(&realm, &group, &[entry], StoreDelta::default())
             .await
         {
-            Ok(()) => {
+            Ok(_row) => {
                 self.finish_new_group(realm, group, configuration);
                 Ok(Response::Ok { group, statement })
             }
@@ -812,7 +1028,7 @@ impl<T: Transport + 'static> Agent<T> {
             .send(hsm_api::JoinGroupRequest {
                 realm: request.realm,
                 group: request.group,
-                configuration: request.configuration,
+                configuration: request.configuration.clone(),
                 statement: request.statement,
             })
             .await;
@@ -824,7 +1040,12 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
             Ok(HsmResponse::TooManyGroups) => Ok(Response::TooManyGroups),
             Ok(HsmResponse::Ok) => {
-                self.start_watching(request.realm, request.group, LogIndex::FIRST);
+                self.start_watching(
+                    request.realm,
+                    request.group,
+                    request.configuration,
+                    LogIndex::FIRST,
+                );
                 Ok(Response::Ok)
             }
         }
@@ -834,7 +1055,12 @@ impl<T: Transport + 'static> Agent<T> {
         &self,
         request: BecomeLeaderRequest,
     ) -> Result<BecomeLeaderResponse, HandlerError> {
-        info!(realm=?request.realm, group=?request.group, last=?request.last, "requested to become leader");
+        info!(
+            realm=?request.realm,
+            group=?request.group,
+            last=?request.last,
+            "requested to become leader",
+        );
         match timeout(
             Duration::from_secs(5),
             self.handle_become_leader_inner(&request),
@@ -843,7 +1069,12 @@ impl<T: Transport + 'static> Agent<T> {
         {
             Ok(r) => r,
             Err(_) => {
-                warn!(realm=?request.realm, group=?request.group, last=?request.last, "timeout trying to become leader");
+                warn!(
+                    realm=?request.realm,
+                    group=?request.group,
+                    last=?request.last,
+                    "timeout trying to become leader",
+                );
                 Ok(BecomeLeaderResponse::Timeout)
             }
         }
@@ -859,51 +1090,64 @@ impl<T: Transport + 'static> Agent<T> {
         let hsm = &self.0.hsm;
         let store = &self.0.store;
 
-        let last_entry = match request.last {
-            None => match store
+        if self.0.state.lock().unwrap().hsm_id.is_none() {
+            // The HSM should be up by now, and we don't want to start
+            // leadership without knowing its ID.
+            return Ok(Response::NoHsm);
+        }
+
+        let last_entry: LogEntry = loop {
+            let entry = match store
                 .read_last_log_entry(&request.realm, &request.group)
                 .await
             {
-                Err(err) => {
+                Ok(entry) => entry,
+                Err(ReadLastLogEntryError::EmptyLog) => {
+                    panic!(
+                        "store says log is empty for realm {:?} group {:?}",
+                        request.realm, request.group
+                    );
+                }
+                Err(ReadLastLogEntryError::Grpc(err)) => {
                     warn!(?err, "failed to read last log entry from store");
                     return Ok(Response::NoStore);
                 }
-                Ok(Some(entry)) => entry,
-                Ok(None) => panic!(
-                    "store says log is empty for realm {:?} group {:?}",
-                    request.realm, request.group
-                ),
-            },
-            // If the cluster manager is doing a coordinated leadership handoff it
-            // knows what the last log index of the stepping down leader owned,
-            // we'll wait for that to be available.
-            Some(idx) => {
-                let entry: LogEntry;
-                loop {
-                    entry = match store
-                        .read_log_entry(&request.realm, &request.group, idx)
-                        .await
-                    {
-                        Err(err) => {
-                            warn!(?err, index=?idx, "failed to read specific log entry");
-                            return Ok(Response::NoStore);
-                        }
-                        Ok(Some(entry)) => entry,
-                        Ok(None) => {
-                            sleep(Duration::from_millis(2)).await;
-                            continue;
-                        }
-                    };
-                    break;
-                }
-                entry
-            }
+            };
+
+            break match request.last {
+                None => entry,
+
+                // If the cluster manager is doing a coordinated leadership
+                // handoff, it knows what the last log index of the stepping
+                // down leader owned.
+                Some(expected) => match entry.index.cmp(&expected) {
+                    Ordering::Less => {
+                        // The last leader probably hasn't quite written the
+                        // entry to the store yet. Wait for it.
+                        sleep(Duration::from_millis(2)).await;
+                        continue;
+                    }
+                    Ordering::Equal => entry,
+                    Ordering::Greater => {
+                        // The log is beyond this point, so a new leader
+                        // starting here would be unable to append anything.
+                        warn!(
+                            found = %entry.index,
+                            %expected,
+                            "found log entry beyond BecomeLeaderRequest index",
+                        );
+                        return Ok(Response::StaleIndex);
+                    }
+                },
+            };
         };
+
         let last_entry_index = last_entry.index;
         info!(
             index=?last_entry_index,
             "read log entry, asking HSM to become leader"
         );
+
         loop {
             match hsm
                 .send(hsm_api::BecomeLeaderRequest {
@@ -919,28 +1163,35 @@ impl<T: Transport + 'static> Agent<T> {
                         request.realm,
                         request.group,
                         configuration,
-                        last_entry_index,
+                        last_entry_index.next(),
                     );
                     return Ok(Response::Ok);
                 }
                 Ok(HsmResponse::InvalidRealm) => return Ok(Response::InvalidRealm),
                 Ok(HsmResponse::InvalidGroup) => return Ok(Response::InvalidGroup),
                 Ok(HsmResponse::StepdownInProgress) => {
-                    info!(realm=?request.realm, group=?request.group, state=?self.0.state.lock().unwrap(), "didn't become leader because still stepping down");
+                    info!(
+                        realm=?request.realm,
+                        group=?request.group,
+                        state=?self.0.state.lock().unwrap(),
+                        "didn't become leader because still stepping down",
+                    );
                     return Ok(Response::StepdownInProgress);
                 }
                 Ok(HsmResponse::InvalidMac) => panic!(),
                 Ok(HsmResponse::NotCaptured { have }) => match have {
-                    // On an active group its possible that the index that the HSM has captured up to
-                    // is behind the log entry we just read. Wait around a little to let it catch up.
-                    // Particularly for cluster rebalance operations its better to wait slightly here
-                    // so that the selected agent becomes leader, rather then ending up trying to undo
-                    // the leadership move.
+                    // On an active group it's possible that the index that the
+                    // HSM has captured up to is behind the log entry we just
+                    // read. Wait around a little to let it catch up.
+                    // Particularly for cluster rebalance operations, it's
+                    // better to wait slightly here so that the selected agent
+                    // becomes leader, rather then ending up trying to undo the
+                    // leadership move.
                     Some(have_idx)
                         if LogIndex(have_idx.0.saturating_add(1000)) >= last_entry_index =>
                     {
                         // Its close, give it chance to catch up.
-                        sleep(Duration::from_millis(5)).await
+                        sleep(Duration::from_millis(5)).await;
                     }
                     Some(_) | None => return Ok(Response::NotCaptured { have }),
                 },
@@ -972,12 +1223,17 @@ impl<T: Transport + 'static> Agent<T> {
             .send(hsm_api::StepDownRequest {
                 realm: request.realm,
                 group: request.group,
+                force: false,
             })
             .await
         {
             Err(_) => Ok(Response::NoHsm),
             Ok(HsmResponse::Complete { last }) => {
-                info!(group=?request.group, realm=?request.realm, "HSM Stepped down as leader");
+                info!(
+                    group=?request.group,
+                    realm=?request.realm,
+                    "HSM stepped down as leader",
+                );
                 self.0.maybe_role_changed(
                     request.realm,
                     request.group,
@@ -986,7 +1242,12 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(Response::Ok { last })
             }
             Ok(HsmResponse::InProgress { last }) => {
-                info!(group=?request.group, realm=?request.realm, index=?last, "HSM will stepdown as leader");
+                info!(
+                    group=?request.group,
+                    realm=?request.realm,
+                    index=?last,
+                    "HSM will step down as leader"
+                );
                 self.0.maybe_role_changed(
                     request.realm,
                     request.group,
@@ -1041,9 +1302,9 @@ impl<T: Transport + 'static> Agent<T> {
                 .read_last_log_entry(&request.realm, &request.source)
                 .await
             {
-                Err(_) => return Ok(Response::NoStore),
-                Ok(Some(entry)) => entry,
-                Ok(None) => todo!(),
+                Ok(entry) => entry,
+                Err(err @ ReadLastLogEntryError::EmptyLog) => todo!("{err}"),
+                Err(ReadLastLogEntryError::Grpc(_)) => return Ok(Response::NoStore),
             };
             let Some(partition) = entry.partition else {
                 return Ok(Response::NotOwner);
@@ -1069,7 +1330,7 @@ impl<T: Transport + 'static> Agent<T> {
                 .await
                 {
                     Ok(proof) => Some(proof),
-                    Err(TreeStoreError::MissingNode) => todo!(),
+                    Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
                     Err(TreeStoreError::Network(e)) => {
                         warn!(error = ?e, "handle_transfer_out: error reading proof");
                         return Ok(Response::NoStore);
@@ -1093,8 +1354,8 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
                 Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
                 Ok(HsmResponse::NotOwner) => Ok(Response::NotOwner),
-                Ok(HsmResponse::StaleIndex) => todo!(),
-                Ok(HsmResponse::MissingProof) => todo!(),
+                Ok(r @ HsmResponse::StaleIndex) => todo!("{r:?}"),
+                Ok(r @ HsmResponse::MissingProof) => todo!("{r:?}"),
                 Ok(HsmResponse::InvalidProof) => Ok(Response::InvalidProof),
                 Ok(HsmResponse::StaleProof) => {
                     trace!("hsm said stale proof, will retry");
@@ -1192,9 +1453,9 @@ impl<T: Transport + 'static> Agent<T> {
                 .read_last_log_entry(&request.realm, &request.destination)
                 .await
             {
-                Err(_) => return Ok(Response::NoStore),
-                Ok(Some(entry)) => entry,
-                Ok(None) => todo!(),
+                Ok(entry) => entry,
+                Err(err @ ReadLastLogEntryError::EmptyLog) => todo!("{err}"),
+                Err(ReadLastLogEntryError::Grpc(_)) => return Ok(Response::NoStore),
             };
 
             let proofs = match entry.partition {
@@ -1229,12 +1490,12 @@ impl<T: Transport + 'static> Agent<T> {
                     );
                     let transferring_in_proof = match transferring_in_proof_req.await {
                         Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
-                        Err(TreeStoreError::MissingNode) => todo!(),
+                        Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
                         Ok(proof) => proof,
                     };
                     let owned_range_proof = match owned_range_proof_req.await {
                         Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
-                        Err(TreeStoreError::MissingNode) => todo!(),
+                        Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
                         Ok(proof) => proof,
                     };
                     Some(TransferInProofs {
@@ -1262,8 +1523,8 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(HsmResponse::UnacceptableRange) => Ok(Response::UnacceptableRange),
                 Ok(HsmResponse::InvalidNonce) => Ok(Response::InvalidNonce),
                 Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
-                Ok(HsmResponse::InvalidProof) => todo!(),
-                Ok(HsmResponse::MissingProofs) => todo!(),
+                Ok(r @ HsmResponse::InvalidProof) => todo!("{r:?}"),
+                Ok(r @ HsmResponse::MissingProofs) => todo!("{r:?}"),
                 Ok(HsmResponse::StaleProof) => {
                     trace!(?hsm, "hsm said stale proof, will retry");
                     // TODO: slow down and/or limit attempts
@@ -1505,9 +1766,9 @@ impl<T: Transport + 'static> Agent<T> {
                     .read_last_log_entry(&request.realm, &request.group)
                     .await
                 {
-                    Err(_) => return Err(Response::NoStore),
-                    Ok(Some(entry)) => entry,
-                    Ok(None) => return Err(Response::InvalidGroup),
+                    Ok(entry) => entry,
+                    Err(ReadLastLogEntryError::Grpc(_)) => return Err(Response::NoStore),
+                    Err(ReadLastLogEntryError::EmptyLog) => return Err(Response::InvalidGroup),
                 },
             };
 

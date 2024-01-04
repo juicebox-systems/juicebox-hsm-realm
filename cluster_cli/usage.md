@@ -16,6 +16,7 @@ Commands:
   new-realm      Create a new realm and group on a single agent's HSM
   stepdown       Ask an HSM to step down as leader
   rebalance      Rebalance the cluster workload by potentially moving group leadership
+  table-stats    Print information about a Bigtable table
   transfer       Transfer ownership of user records from one group to another
   user-summary   Report counts of active users by tenant for a month. These are users that have a secret stored at some point during the month (in the UTC timezone)
   help           Print this message or the help of the given subcommand(s)
@@ -289,6 +290,22 @@ Options:
   -c, --cluster <CLUSTER>     URL to a cluster manager, which will execute the request. By default it will find a cluster manager using service discovery
       --type <STEPDOWN_TYPE>  Treat the supplied ID specifically as a HSM or group identifier. If not set will look for matches against known HSM and group ids and act accordingly [possible values: hsm, group]
   -h, --help                  Print help
+
+```
+
+## `cluster table-stats --help`
+
+```
+Print information about a Bigtable table
+
+Usage: cluster table-stats <TABLE> <REALM>
+
+Arguments:
+  <TABLE>  Only the "log" table is currently supported [possible values: log]
+  <REALM>  Realm ID
+
+Options:
+  -h, --help  Print help
 
 ```
 

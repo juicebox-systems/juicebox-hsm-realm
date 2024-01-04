@@ -75,7 +75,7 @@ pub(crate) async fn initialize(
                         }),
                     },
                 )]),
-                granularity: TimestampGranularity::Unspecified as i32,
+                granularity: TimestampGranularity::Unspecified.into(),
                 restore_info: None,
                 change_stream_config: None,
                 deletion_protection: false,

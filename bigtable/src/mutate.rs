@@ -15,6 +15,10 @@ pub async fn mutate_rows(
     request: MutateRowsRequest,
 ) -> Result<(), MutateRowsError> {
     let num_mutations = request.entries.len();
+    if num_mutations == 0 {
+        return Ok(());
+    }
+
     let mut stream = bigtable
         .mutate_rows(request)
         .await

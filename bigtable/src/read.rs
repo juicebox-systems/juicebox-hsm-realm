@@ -1,6 +1,8 @@
 use google::bigtable::v2::bigtable_client::BigtableClient;
 use google::bigtable::v2::read_rows_response::cell_chunk::RowStatus;
 use google::bigtable::v2::read_rows_response::CellChunk;
+use google::bigtable::v2::row_range::EndKey::{EndKeyClosed, EndKeyOpen};
+use google::bigtable::v2::row_range::StartKey::{StartKeyClosed, StartKeyOpen};
 use google::bigtable::v2::ReadRowsRequest;
 use std::fmt;
 use std::marker::PhantomData;
@@ -58,14 +60,68 @@ where
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
 {
+    /// Runs a query and returns the resulting rows.
+    ///
+    /// See [`Self::read_column`] to return only the first cell for each row,
+    /// [`Self::read_row`] to return only the first row, and
+    /// [`Self::read_cell`] to return only the first cell of the first row.
     pub async fn read_rows(
         bigtable: &mut BigtableClient<T>,
         request: ReadRowsRequest,
     ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
         let mut rows = Vec::new();
-        Self::read_rows_stream(bigtable, request, |key, cells| rows.push((key, cells)))
-            .await
-            .map(|_| rows)
+        Self::read_rows_stream(bigtable, request, |key, cells| rows.push((key, cells))).await?;
+        Ok(rows)
+    }
+
+    /// Runs a query and returns the first cell of each of the resulting rows.
+    ///
+    /// To prevent wasted work, the caller should restrict the query to return
+    /// only one cell per row.
+    pub async fn read_column(
+        bigtable: &mut BigtableClient<T>,
+        request: ReadRowsRequest,
+    ) -> Result<Vec<(RowKey, Cell)>, tonic::Status> {
+        let mut rows = Vec::new();
+        Self::read_rows_stream(bigtable, request, |key, cells| {
+            let cell = cells.into_iter().next().unwrap();
+            rows.push((key, cell))
+        })
+        .await?;
+        Ok(rows)
+    }
+
+    /// Runs a query and returns the first resulting row.
+    ///
+    /// To prevent wasted work, the caller should restrict the query to return
+    /// only one row.
+    pub async fn read_row(
+        bigtable: &mut BigtableClient<T>,
+        request: ReadRowsRequest,
+    ) -> Result<Option<(RowKey, Vec<Cell>)>, tonic::Status> {
+        let mut row = None;
+        Self::read_rows_stream(bigtable, request, |key, cells| {
+            row.get_or_insert((key, cells));
+        })
+        .await?;
+        Ok(row)
+    }
+
+    /// Runs a query and returns the first cell of the first resulting row.
+    ///
+    /// To prevent wasted work, the caller should restrict the query to return
+    /// only one row and one cell.
+    pub async fn read_cell(
+        bigtable: &mut BigtableClient<T>,
+        request: ReadRowsRequest,
+    ) -> Result<Option<(RowKey, Cell)>, tonic::Status> {
+        let mut row = None;
+        Self::read_rows_stream(bigtable, request, |key, cells| {
+            let cell = cells.into_iter().next().unwrap();
+            row.get_or_insert((key, cell));
+        })
+        .await?;
+        Ok(row)
     }
 
     #[instrument(
@@ -87,6 +143,7 @@ where
     where
         F: FnMut(RowKey, Vec<Cell>),
     {
+        validate_request_rows(&request);
         Span::current().record(
             "num_request_items",
             match &request.rows {
@@ -109,6 +166,12 @@ where
                         // https://github.com/hyperium/hyper/issues/2872
                         warn!(?e, code=?e.code(), "stream.message error during read_rows");
                         if e.code() == Code::Internal {
+                            if num_rows > 0 {
+                                // We've already streamed out some rows, so we
+                                // can't just start back at the beginning and
+                                // stream out duplicates out-of-order.
+                                todo!("read_rows_stream needs to safely restart");
+                            }
                             tokio::time::sleep(Duration::from_millis(1)).await;
                             trace!("retrying read_rows");
                             retry_count += 1;
@@ -143,6 +206,58 @@ where
             return Ok(());
         }
     }
+}
+
+fn validate_request_rows(request: &ReadRowsRequest) {
+    let Some(rows) = &request.rows else {
+        // `None` indicates to return all rows, which is valid.
+        return;
+    };
+
+    assert!(
+        !rows.row_keys.is_empty() || !rows.row_ranges.is_empty(),
+        "Bigtable read request missing row keys or ranges: {request:#?}"
+    );
+
+    // Cloud Bigtable can return errors like this when the range given is
+    // trivially empty:
+    //
+    // ```
+    // Status { code: InvalidArgument, message: "Error in field
+    // 'row_ranges' : Error in element #0 : start_key must be less than
+    // end_key", ...
+    // ```
+    //
+    // The exact conditions that Cloud Bigtable checks are not documented. As
+    // of 2024-01-02, Cloud Bigtable will reject this range:
+    //
+    // ```
+    // RowRange {
+    //     start_key: Some(StartKeyOpen(log_key(group, LogIndex::FIRST))),
+    //     end_key: Some(EndKeyClosed(log_key(group, LogIndex::FIRST))),
+    // }
+    // ```
+    //
+    // The emulator has less restrictive checks. It validates only that `start
+    // <= end`, ignoring the closed vs open distinctions for the bounds.
+    // Therefore, the emulator permits the range above that Cloud Bigtable
+    // rejects. See
+    // <https://github.com/googleapis/google-cloud-go/blob/d101980/bigtable/bttest/validation.go#L27>.
+    //
+    // The assertion here is stricter than the emulator's in an attempt to
+    // approximate Cloud Bigtable's logic.
+    assert!(
+        rows.row_ranges
+            .iter()
+            .filter_map(|range| range.start_key.as_ref().zip(range.end_key.as_ref()))
+            .all(|(start, end)| match (start, end) {
+                (StartKeyClosed(start), EndKeyClosed(end)) => start <= end,
+                (StartKeyClosed(start), EndKeyOpen(end)) => start < end,
+                (StartKeyOpen(start), EndKeyClosed(end)) => start < end,
+                (StartKeyOpen(start), EndKeyOpen(end)) => start < end,
+            }),
+        "Bigtable read row range cannot be trivially empty: {request:#?}"
+    );
 }
 
 // In between processing chunks, there's either an active row with an active

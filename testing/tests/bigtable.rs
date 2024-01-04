@@ -12,11 +12,12 @@ use hsm_core::merkle::Tree;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::types::RealmId;
 use observability::metrics;
+use store::log::testing::{new_log_row, read_log_entry, ReadLogEntryError, TOMBSTONE_WINDOW_SIZE};
 use store::tenants::UserAccounting;
 use store::AppendError::LogPrecondition;
 use store::{
-    self, discovery, tenants, ExtendLeaseError, LeaseKey, LeaseType, ServiceKind, StoreAdminClient,
-    StoreClient,
+    self, discovery, tenants, ExtendLeaseError, LeaseKey, LeaseType, LogEntriesIterError,
+    ReadLastLogEntryError, ServiceKind, StoreAdminClient, StoreClient,
 };
 use testing::exec::bigtable::emulator;
 use testing::exec::{bigtable::BigtableRunner, PortIssuer};
@@ -200,21 +201,19 @@ async fn test_tenant() {
 }
 
 #[tokio::test]
-async fn read_log_entry() {
+async fn test_read_log_entry() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
 
     // Log should start empty.
-    assert!(data
-        .read_last_log_entry(&REALM, &GROUP_2)
-        .await
-        .unwrap()
-        .is_none());
-    assert!(data
-        .read_log_entry(&REALM, &GROUP_2, LogIndex::FIRST)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(matches!(
+        data.read_last_log_entry(&REALM, &GROUP_2).await,
+        Err(ReadLastLogEntryError::EmptyLog)
+    ));
+    assert!(matches!(
+        read_log_entry(&data, &REALM, &GROUP_2, LogIndex::FIRST).await,
+        Err(ReadLogEntryError::NotFound)
+    ));
 
     // Insert a row with a single log entry, that should then be the last entry.
     let entry = LogEntry {
@@ -229,16 +228,12 @@ async fn read_log_entry() {
         .await
         .unwrap();
     assert_eq!(
-        data.read_last_log_entry(&REALM, &GROUP_2)
-            .await
-            .unwrap()
-            .unwrap(),
+        data.read_last_log_entry(&REALM, &GROUP_2).await.unwrap(),
         entry
     );
     assert_eq!(
-        data.read_log_entry(&REALM, &GROUP_2, entry.index)
+        read_log_entry(&data, &REALM, &GROUP_2, entry.index)
             .await
-            .unwrap()
             .unwrap(),
         entry
     );
@@ -248,65 +243,60 @@ async fn read_log_entry() {
         .await
         .unwrap();
     assert_eq!(
-        data.read_last_log_entry(&REALM, &GROUP_2)
-            .await
-            .unwrap()
-            .as_ref(),
-        entries.last()
+        &data.read_last_log_entry(&REALM, &GROUP_2).await.unwrap(),
+        entries.last().unwrap()
     );
     // and we should be able to read all the rows
     entries.insert(0, entry);
     for e in &entries {
         assert_eq!(
-            data.read_log_entry(&REALM, &GROUP_2, e.index)
+            read_log_entry(&data, &REALM, &GROUP_2, e.index)
                 .await
-                .unwrap()
-                .as_ref()
                 .unwrap(),
-            e
+            *e
         );
     }
     // but not the one after the last
-    assert!(data
-        .read_log_entry(
+    assert!(matches!(
+        read_log_entry(
+            &data,
             &REALM,
             &GROUP_2,
             entries.last().as_ref().unwrap().index.next()
         )
-        .await
-        .unwrap()
-        .is_none());
+        .await,
+        Err(ReadLogEntryError::NotFound)
+    ));
     // reads from adjacent groups shouldn't pick up any of these rows
-    assert!(data
-        .read_log_entry(&REALM, &GROUP_1, LogIndex(1))
-        .await
-        .unwrap()
-        .is_none());
-    assert!(data
-        .read_last_log_entry(&REALM, &GROUP_1)
-        .await
-        .unwrap()
-        .is_none());
-    assert!(data
-        .read_log_entry(&REALM, &GROUP_3, LogIndex(1))
-        .await
-        .unwrap()
-        .is_none());
-    assert!(data
-        .read_last_log_entry(&REALM, &GROUP_3)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(matches!(
+        read_log_entry(&data, &REALM, &GROUP_1, LogIndex(1)).await,
+        Err(ReadLogEntryError::NotFound)
+    ));
+    assert!(matches!(
+        data.read_last_log_entry(&REALM, &GROUP_1).await,
+        Err(ReadLastLogEntryError::EmptyLog)
+    ));
+    assert!(matches!(
+        read_log_entry(&data, &REALM, &GROUP_3, LogIndex(1)).await,
+        Err(ReadLogEntryError::NotFound)
+    ));
+    assert!(matches!(
+        data.read_last_log_entry(&REALM, &GROUP_3).await,
+        Err(ReadLastLogEntryError::EmptyLog)
+    ));
 }
 
 #[tokio::test]
-async fn last_log_entry_does_not_cross_groups() {
+async fn test_last_log_entry_does_not_cross_groups() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let (_, delta) = Tree::<MerkleHasher>::new_tree(&OwnedRange::full());
 
     for g in &[GROUP_1, GROUP_2, GROUP_3] {
-        assert!(data.read_last_log_entry(&REALM, g).await.unwrap().is_none());
+        assert!(matches!(
+            data.read_last_log_entry(&REALM, g).await,
+            Err(ReadLastLogEntryError::EmptyLog)
+        ));
     }
     let entry1 = LogEntry {
         index: LogIndex(1),
@@ -322,18 +312,14 @@ async fn last_log_entry_does_not_cross_groups() {
         .await
         .expect("should have appended log entry");
     assert_eq!(
-        data.read_last_log_entry(&REALM, &GROUP_1)
-            .await
-            .unwrap()
-            .unwrap(),
+        data.read_last_log_entry(&REALM, &GROUP_1).await.unwrap(),
         entry1
     );
     for g in [GROUP_2, GROUP_3] {
-        assert!(data
-            .read_last_log_entry(&REALM, &g)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(matches!(
+            data.read_last_log_entry(&REALM, &g).await,
+            Err(ReadLastLogEntryError::EmptyLog)
+        ));
     }
 
     // with a row in group 1 & 3, group 2 should still see an empty log
@@ -341,36 +327,29 @@ async fn last_log_entry_does_not_cross_groups() {
         index: LogIndex(1),
         partition: None,
         transferring_out: None,
-        prev_mac: EntryMac::from([2; 32]),
+        prev_mac: EntryMac::from([0; 32]),
         entry_mac: EntryMac::from([3; 32]),
         hsm: HsmId([2; 16]),
     };
     data.append(&REALM, &GROUP_3, &[entry3.clone()], StoreDelta::default())
         .await
         .expect("should have appended log entry");
-    assert!(data
-        .read_last_log_entry(&REALM, &GROUP_2)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(matches!(
+        data.read_last_log_entry(&REALM, &GROUP_2).await,
+        Err(ReadLastLogEntryError::EmptyLog)
+    ));
     assert_eq!(
-        data.read_last_log_entry(&REALM, &GROUP_1)
-            .await
-            .unwrap()
-            .unwrap(),
+        data.read_last_log_entry(&REALM, &GROUP_1).await.unwrap(),
         entry1
     );
     assert_eq!(
-        data.read_last_log_entry(&REALM, &GROUP_3)
-            .await
-            .unwrap()
-            .unwrap(),
+        data.read_last_log_entry(&REALM, &GROUP_3).await.unwrap(),
         entry3
     );
 }
 
 #[tokio::test]
-async fn read_log_entries() {
+async fn test_read_log_entries() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let mut entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
@@ -459,7 +438,321 @@ async fn read_log_entries() {
 }
 
 #[tokio::test]
-async fn append_log_precondition() {
+async fn test_read_log_entries_compacted() {
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
+
+    let entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 18);
+    let batches = [
+        &entries[0..4],
+        &entries[4..10],
+        &entries[10..15],
+        &entries[15..18],
+    ];
+    for batch in batches {
+        println!(
+            "appending entries {:?} through {:?}",
+            batch.first().unwrap().index,
+            batch.last().unwrap().index,
+        );
+        data.append(&REALM, &GROUP_1, batch, StoreDelta::default())
+            .await
+            .unwrap();
+    }
+
+    println!("writing tombstone at index 11");
+    data.replace_oldest_rows_with_tombstones(&REALM, &GROUP_1, &[new_log_row(LogIndex(11), false)])
+        .await
+        .unwrap();
+    read_log_entries_compacted_assertions(&data, &batches).await;
+
+    println!("deleting row at index 11");
+    store::log::testing::delete_row(&data, &REALM, &GROUP_1, LogIndex(11))
+        .await
+        .unwrap();
+    read_log_entries_compacted_assertions(&data, &batches).await;
+
+    assert_eq!(
+        vec![
+            new_log_row(LogIndex(1), false),
+            new_log_row(LogIndex(5), false),
+            new_log_row(LogIndex(16), false),
+        ],
+        data.list_log_rows(&REALM, &GROUP_1, LogIndex(17))
+            .await
+            .unwrap()
+    );
+}
+
+async fn read_log_entries_compacted_assertions(data: &StoreClient, batches: &[&[LogEntry]; 4]) {
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex::FIRST, 20);
+    assert_eq!(
+        batches[0],
+        it.next().await.unwrap(),
+        "should have returned 1st log row"
+    );
+
+    let r = it.next().await;
+    assert!(
+        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(11)))),
+        "should have returned that index 11 is compacted, got {r:?}",
+    );
+    // same error if we retry
+    let r = it.next().await;
+    assert!(
+        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(11)))),
+        "should have returned that index 11 is compacted, got {r:?}",
+    );
+
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(16), 20);
+    assert_eq!(
+        batches[3],
+        it.next().await.unwrap(),
+        "should have returned 4th log row"
+    );
+
+    // read exactly compacted row index
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(11), 20);
+    let r = it.next().await;
+    assert!(
+        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(11)))),
+        "should have returned that index 11 is compacted, got {r:?}",
+    );
+
+    // read 1 past compacted row index
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(12), 20);
+    let r = it.next().await;
+    assert!(
+        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(12)))),
+        "should have returned that index 12 is compacted, got {r:?}",
+    );
+
+    // read last index in compacted row
+    let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(15), 20);
+    let r = it.next().await;
+    assert!(
+        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(15)))),
+        "should have returned that index 15 is compacted, got {r:?}",
+    );
+}
+
+#[tokio::test]
+async fn test_list_log_rows_end_of_log() {
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
+
+    assert_eq!(
+        Vec::<store::LogRow>::new(),
+        data.list_log_rows(&REALM, &GROUP_1, LogIndex(u64::MAX))
+            .await
+            .unwrap()
+    );
+
+    let entries = create_log_batch(
+        LogIndex::FIRST,
+        EntryMac::from([0; 32]),
+        TOMBSTONE_WINDOW_SIZE * 2 + 5,
+    );
+    let batches = entries.chunks(2);
+    let mut rows = Vec::new();
+    for batch in batches.clone() {
+        println!(
+            "appending entries {:?} through {:?}",
+            batch.first().unwrap().index,
+            batch.last().unwrap().index,
+        );
+        rows.push(
+            data.append(&REALM, &GROUP_1, batch, StoreDelta::default())
+                .await
+                .unwrap(),
+        );
+    }
+
+    assert_eq!(
+        rows,
+        data.list_log_rows(&REALM, &GROUP_1, LogIndex(u64::MAX))
+            .await
+            .unwrap()
+    );
+
+    // This is intended to test when the page boundary is equal to or near the
+    // log start.
+    for i in 1..=5 {
+        let expected = &rows[..rows.len() - i];
+        println!("expect {} rows", expected.len());
+        assert_eq!(
+            expected,
+            data.list_log_rows(&REALM, &GROUP_1, rows[rows.len() - i].index)
+                .await
+                .unwrap()
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_list_log_rows_compacted() {
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
+
+    let entries = create_log_batch(
+        LogIndex::FIRST,
+        EntryMac::from([0; 32]),
+        TOMBSTONE_WINDOW_SIZE * 3,
+    );
+    let mut rows = Vec::new();
+    for entry in entries {
+        rows.push(
+            data.append(&REALM, &GROUP_1, &[entry], StoreDelta::default())
+                .await
+                .unwrap(),
+        );
+    }
+
+    // Leave a log entry row at the start of the log. This violates the log
+    // invariants, but it enables us to check that the query terminates before
+    // reaching that entry.
+    data.replace_oldest_rows_with_tombstones(
+        &REALM,
+        &GROUP_1,
+        &rows[1..(TOMBSTONE_WINDOW_SIZE * 2 + 2)],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        &rows[(TOMBSTONE_WINDOW_SIZE * 2 + 2)..],
+        data.list_log_rows(&REALM, &GROUP_1, LogIndex(u64::MAX))
+            .await
+            .unwrap()
+    );
+
+    data.replace_oldest_rows_with_tombstones(
+        &REALM,
+        &GROUP_1,
+        &rows[(TOMBSTONE_WINDOW_SIZE * 2 + 10)..(TOMBSTONE_WINDOW_SIZE * 2 + 15)],
+    )
+    .await
+    .unwrap();
+    store::log::testing::delete_row(
+        &data,
+        &REALM,
+        &GROUP_1,
+        rows[TOMBSTONE_WINDOW_SIZE * 2 + 13].index,
+    )
+    .await
+    .unwrap();
+    store::log::testing::delete_row(
+        &data,
+        &REALM,
+        &GROUP_1,
+        rows[TOMBSTONE_WINDOW_SIZE * 2 + 18].index,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        (rows[(TOMBSTONE_WINDOW_SIZE * 2 + 2)..(TOMBSTONE_WINDOW_SIZE * 2 + 10)]
+            .iter()
+            .cloned())
+        .chain(
+            rows[(TOMBSTONE_WINDOW_SIZE * 2 + 10)..(TOMBSTONE_WINDOW_SIZE * 2 + 13)]
+                .iter()
+                .map(|row| new_log_row(row.index, true))
+        )
+        .chain(
+            rows[(TOMBSTONE_WINDOW_SIZE * 2 + 14)..(TOMBSTONE_WINDOW_SIZE * 2 + 15)]
+                .iter()
+                .map(|row| new_log_row(row.index, true))
+        )
+        .chain(
+            rows[(TOMBSTONE_WINDOW_SIZE * 2 + 15)..(TOMBSTONE_WINDOW_SIZE * 2 + 18)]
+                .iter()
+                .cloned()
+        )
+        .chain(rows[(TOMBSTONE_WINDOW_SIZE * 2 + 19)..].iter().cloned())
+        .collect::<Vec<store::LogRow>>(),
+        data.list_log_rows(&REALM, &GROUP_1, LogIndex(u64::MAX))
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_replace_oldest_rows_with_tombstones() {
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
+
+    // Replacing only tombstones is OK. This will do nothing.
+    data.replace_oldest_rows_with_tombstones(&REALM, &GROUP_1, &[new_log_row(LogIndex(40), true)])
+        .await
+        .unwrap();
+    let result = store::log::testing::read_log_entry(&data, &REALM, &GROUP_1, LogIndex(40)).await;
+    assert!(
+        matches!(result, Err(ReadLogEntryError::NotFound)),
+        "{result:?}"
+    );
+
+    // Replacing something nonexistent is OK (assuming it used to exist). This
+    // will write a tombstone.
+    data.replace_oldest_rows_with_tombstones(&REALM, &GROUP_1, &[new_log_row(LogIndex(41), false)])
+        .await
+        .unwrap();
+    let result = store::log::testing::read_log_entry(&data, &REALM, &GROUP_1, LogIndex(41)).await;
+    assert!(
+        matches!(result, Err(ReadLogEntryError::Tombstone)),
+        "{result:?}"
+    );
+
+    // Replacing an existing tombstone is OK. This will overwrite a tombstone
+    // with a tombstone.
+    data.replace_oldest_rows_with_tombstones(&REALM, &GROUP_1, &[new_log_row(LogIndex(41), false)])
+        .await
+        .unwrap();
+    let result = store::log::testing::read_log_entry(&data, &REALM, &GROUP_1, LogIndex(41)).await;
+    assert!(
+        matches!(result, Err(ReadLogEntryError::Tombstone)),
+        "{result:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_replace_oldest_rows_with_tombstones_chunked() {
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
+
+    let entries = create_log_batch(
+        LogIndex::FIRST,
+        EntryMac::from([0; 32]),
+        TOMBSTONE_WINDOW_SIZE * 2,
+    );
+    let mut rows = Vec::new();
+    for entry in entries {
+        rows.push(
+            data.append(&REALM, &GROUP_1, &[entry], StoreDelta::default())
+                .await
+                .unwrap(),
+        );
+    }
+
+    // This tests that replacing more than TOMBSTONE_WINDOW_SIZE rows at once
+    // works. Unfortunately, it's hard to assert that it's actually chunked.
+    data.replace_oldest_rows_with_tombstones(&REALM, &GROUP_1, &rows[..TOMBSTONE_WINDOW_SIZE + 10])
+        .await
+        .unwrap();
+    // Repeating it is OK.
+    data.replace_oldest_rows_with_tombstones(&REALM, &GROUP_1, &rows[..TOMBSTONE_WINDOW_SIZE + 10])
+        .await
+        .unwrap();
+    assert_eq!(
+        &rows[(TOMBSTONE_WINDOW_SIZE + 10)..],
+        data.list_log_rows(&REALM, &GROUP_1, LogIndex(u64::MAX))
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_append_log_precondition() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let entries = create_log_batch(LogIndex(2), EntryMac::from([0; 32]), 4);
@@ -497,8 +790,37 @@ async fn append_log_precondition() {
 }
 
 #[tokio::test]
+async fn test_append_log_precondition_row_boundary() {
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
+    let entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 6);
+
+    data.append(&REALM, &GROUP_1, &entries[..2], StoreDelta::default())
+        .await
+        .unwrap();
+    data.append(&REALM, &GROUP_1, &entries[2..4], StoreDelta::default())
+        .await
+        .unwrap();
+
+    // Although the preceding entry exists, it's not at the end of a row.
+    assert!(matches!(
+        data.append(&REALM, &GROUP_1, &entries[1..5], StoreDelta::default())
+            .await,
+        Err(LogPrecondition)
+    ));
+
+    // Although the preceding entry exists at the end of a row, it's not the
+    // last row.
+    assert!(matches!(
+        data.append(&REALM, &GROUP_1, &entries[2..5], StoreDelta::default())
+            .await,
+        Err(LogPrecondition)
+    ));
+}
+
+#[tokio::test]
 #[should_panic]
-async fn batch_index_chain_verified() {
+async fn test_batch_index_chain_verified() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let mut entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
@@ -510,7 +832,7 @@ async fn batch_index_chain_verified() {
 
 #[tokio::test]
 #[should_panic]
-async fn batch_mac_chain_verified() {
+async fn test_batch_mac_chain_verified() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let mut entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
@@ -521,7 +843,7 @@ async fn batch_mac_chain_verified() {
 }
 
 #[tokio::test]
-async fn append_store_delta() {
+async fn test_append_store_delta() {
     let mut pg = ProcessGroup::new();
     let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     let entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 4);
@@ -570,7 +892,7 @@ async fn append_store_delta() {
     // readable until the deferred delete kicks in.
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
-    let delete_handle = data
+    let (_row, delete_handle) = data
         .append_inner(&REALM, &GROUP_3, &entries, delta, rx)
         .await
         .unwrap();
@@ -631,7 +953,7 @@ fn create_log_batch(first_idx: LogIndex, prev_mac: EntryMac, count: usize) -> Ve
 }
 
 #[tokio::test]
-async fn service_discovery() {
+async fn test_service_discovery() {
     let mut pg = ProcessGroup::new();
     let (admin, data) = init_bt(&mut pg, emulator(PORT.next())).await;
 
@@ -703,7 +1025,7 @@ async fn service_discovery() {
 }
 
 #[tokio::test]
-async fn lease() {
+async fn test_lease() {
     let mut pg = ProcessGroup::new();
     let (admin, data) = init_bt(&mut pg, emulator(PORT.next())).await;
     admin.initialize_leases().await.unwrap();

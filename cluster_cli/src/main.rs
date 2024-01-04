@@ -154,6 +154,16 @@ enum Command {
         full: bool,
     },
 
+    /// Print information about a Bigtable table.
+    TableStats {
+        /// Only the "log" table is currently supported.
+        table: Table,
+
+        /// Realm ID.
+        #[arg(value_parser = parse_realm_id)]
+        realm: RealmId,
+    },
+
     /// Transfer ownership of user records from one group to another.
     ///
     /// Both groups must already exist and be part of the same realm.
@@ -219,6 +229,12 @@ enum Command {
 enum UserSummaryWhen {
     ThisMonth,
     LastMonth,
+}
+
+#[derive(Clone, Eq, PartialEq, ValueEnum)]
+enum Table {
+    Log,
+    // Merkle and user tables are not yet supported.
 }
 
 #[derive(Clone, ValueEnum)]
@@ -369,6 +385,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
         Command::NewRealm { agent } => commands::new_realm::new_realm(&agent, &agents_client).await,
 
+        Command::TableStats {
+            table: Table::Log,
+            realm,
+        } => commands::table_stats::print_log_stats(realm, &store).await,
+
         Command::Transfer {
             realm,
             source,
@@ -511,6 +532,7 @@ mod tests {
             vec!["cluster", "new-realm", "--help"],
             vec!["cluster", "rebalance", "--help"],
             vec!["cluster", "stepdown", "--help"],
+            vec!["cluster", "table-stats", "--help"],
             vec!["cluster", "transfer", "--help"],
             vec!["cluster", "user-summary", "--help"],
         ] {

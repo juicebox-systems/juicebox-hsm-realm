@@ -1,5 +1,6 @@
 use std::{fs, io, path::PathBuf, process::Command};
 
+#[derive(Debug)]
 pub struct Certificates {
     pub key_file_pem: PathBuf,
     pub cert_file_pem: PathBuf,

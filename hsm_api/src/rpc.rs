@@ -6,14 +6,14 @@ use core::fmt::Debug;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::{
-    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureNextRequest,
-    CaptureNextResponse, CommitRequest, CommitResponse, CompleteTransferRequest,
-    CompleteTransferResponse, HandshakeRequest, HandshakeResponse, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
-    NewRealmRequest, NewRealmResponse, PersistStateRequest, PersistStateResponse, StatusRequest,
-    StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse,
-    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
-    TransferStatementRequest, TransferStatementResponse,
+    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureJumpRequest,
+    CaptureJumpResponse, CaptureNextRequest, CaptureNextResponse, CommitRequest, CommitResponse,
+    CompleteTransferRequest, CompleteTransferResponse, HandshakeRequest, HandshakeResponse,
+    JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest,
+    NewGroupResponse, NewRealmRequest, NewRealmResponse, PersistStateRequest, PersistStateResponse,
+    StatusRequest, StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest,
+    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
+    TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 
 // Nanoseconds upto ~4.29 seconds.
@@ -62,6 +62,7 @@ pub enum HsmRequest {
     JoinGroup(JoinGroupRequest),
     BecomeLeader(BecomeLeaderRequest),
     StepDown(StepDownRequest),
+    CaptureJump(CaptureJumpRequest),
     CaptureNext(CaptureNextRequest),
     PersistState(PersistStateRequest),
     Commit(CommitRequest),
@@ -84,6 +85,7 @@ impl HsmRequest {
             HsmRequest::JoinGroup(_) => "JoinGroup",
             HsmRequest::BecomeLeader(_) => "BecomeLeader",
             HsmRequest::StepDown(_) => "StepDown",
+            HsmRequest::CaptureJump(_) => "CaptureJump",
             HsmRequest::CaptureNext(_) => "CaptureNext",
             HsmRequest::PersistState(_) => "PersistState",
             HsmRequest::Commit(_) => "Commit",
@@ -104,30 +106,42 @@ impl HsmRpc for StatusRequest {
         HsmRequest::Status(self)
     }
 }
+
 impl HsmRpc for NewRealmRequest {
     type Response = NewRealmResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::NewRealm(self)
     }
 }
+
 impl HsmRpc for JoinRealmRequest {
     type Response = JoinRealmResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::JoinRealm(self)
     }
 }
+
 impl HsmRpc for NewGroupRequest {
     type Response = NewGroupResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::NewGroup(self)
     }
 }
+
 impl HsmRpc for JoinGroupRequest {
     type Response = JoinGroupResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::JoinGroup(self)
     }
 }
+
+impl HsmRpc for CaptureJumpRequest {
+    type Response = CaptureJumpResponse;
+    fn to_req(self) -> HsmRequest {
+        HsmRequest::CaptureJump(self)
+    }
+}
+
 impl HsmRpc for CaptureNextRequest {
     type Response = CaptureNextResponse;
     fn to_req(self) -> HsmRequest {
@@ -162,42 +176,49 @@ impl HsmRpc for CommitRequest {
         HsmRequest::Commit(self)
     }
 }
+
 impl HsmRpc for TransferOutRequest {
     type Response = TransferOutResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::TransferOut(self)
     }
 }
+
 impl HsmRpc for TransferNonceRequest {
     type Response = TransferNonceResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::TransferNonce(self)
     }
 }
+
 impl HsmRpc for TransferStatementRequest {
     type Response = TransferStatementResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::TransferStatement(self)
     }
 }
+
 impl HsmRpc for TransferInRequest {
     type Response = TransferInResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::TransferIn(self)
     }
 }
+
 impl HsmRpc for CompleteTransferRequest {
     type Response = CompleteTransferResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::CompleteTransfer(self)
     }
 }
+
 impl HsmRpc for HandshakeRequest {
     type Response = HandshakeResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::HandshakeRequest(self)
     }
 }
+
 impl HsmRpc for AppRequest {
     type Response = AppResponse;
     fn to_req(self) -> HsmRequest {

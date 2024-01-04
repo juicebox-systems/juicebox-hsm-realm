@@ -12,11 +12,63 @@ use super::mac::{CapturedStatementMessage, CtMac, EntryMacMessage};
 use super::{is_group_member, Hsm, LeaderLog, Metrics, StepDownPoint};
 use election::HsmElection;
 use hsm_api::{
-    CaptureNextRequest, CaptureNextResponse, Captured, CommitRequest, CommitResponse, CommitState,
-    EntryMac, GroupMemberRole, LogEntry, LogIndex,
+    CaptureJumpRequest, CaptureJumpResponse, CaptureNextRequest, CaptureNextResponse, Captured,
+    CommitRequest, CommitResponse, CommitState, EntryMac, GroupMemberRole, LogEntry, LogIndex,
 };
 
 impl<P: Platform> Hsm<P> {
+    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
+    pub(super) fn handle_capture_jump(
+        &mut self,
+        _metrics: &mut Metrics<P>,
+        request: CaptureJumpRequest,
+    ) -> CaptureJumpResponse {
+        type Response = CaptureJumpResponse;
+
+        match is_group_member(&self.persistent, request.jump.realm, request.jump.group) {
+            Err(GroupMemberError::InvalidRealm) => return Response::InvalidRealm,
+            Err(GroupMemberError::InvalidGroup) => return Response::InvalidGroup,
+            Ok(_) => {}
+        }
+
+        let role = self
+            .current_role(&request.jump.group)
+            .expect("group member must have role");
+        if role != GroupMemberRole::Witness {
+            // Agents try to avoid compacting log entries needed for leaders
+            // and stepping down, so we don't expect to get here. It's easier
+            // to bail than to deal with the jump entry not agreeing with the
+            // leader/stepdown log (which would sometimes require log entries
+            // that have already been compacted).
+            return Response::NotWitness(role);
+        }
+
+        if self
+            .realm_keys
+            .mac
+            .captured_mac(&CapturedStatementMessage {
+                hsm: request.jump.hsm,
+                realm: request.jump.realm,
+                group: request.jump.group,
+                index: request.jump.index,
+                entry_mac: &request.jump.mac,
+            })
+            .verify(&request.jump.statement)
+            .is_err()
+        {
+            return Response::InvalidStatement;
+        }
+
+        let v = self.volatile.captured.entry(request.jump.group);
+        if let Entry::Occupied(v) = &v {
+            if v.get().0 >= request.jump.index {
+                return Response::StaleIndex;
+            }
+        }
+        v.insert((request.jump.index, request.jump.mac));
+        Response::Ok
+    }
+
     #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
     pub(super) fn handle_capture_next(
         &mut self,
@@ -46,8 +98,8 @@ impl<P: Platform> Hsm<P> {
                 return Response::InvalidMac;
             }
 
-            let e = self.volatile.captured.entry(request.group);
-            match &e {
+            let v = self.volatile.captured.entry(request.group);
+            match &v {
                 Entry::Vacant(_) => {
                     if entry.index != LogIndex::FIRST {
                         return Response::MissingPrev;
@@ -66,29 +118,29 @@ impl<P: Platform> Hsm<P> {
                     }
                 }
             }
-            e.insert((entry.index, entry.entry_mac.clone()));
+            v.insert((entry.index, entry.entry_mac.clone()));
 
             if let Some(ls) = self.volatile.leader.get_mut(&request.group) {
                 // If while leading another HSM becomes leader and writes a log
-                // entry the actual persisted log diverges from what our in
-                // memory copy of the log is.
+                // entry, the actual persisted log diverges from our in-memory
+                // copy of the log.
                 let status = has_log_diverged(&ls.log, &entry);
                 match status {
                     LogEntryStatus::Ok => {}
                     LogEntryStatus::PriorIndex => {
                         // The start of log gets truncated on commit. The
                         // commit may have been based on captures from just
-                        // witnesses not the leader. So it's valid that the
+                        // witnesses, not the leader. So, it's valid that the
                         // captured index is earlier than anything in the in
                         // memory log.
                     }
                     LogEntryStatus::FutureIndex => {
-                        // Some other HSM successfully wrote a log entry, we
-                        // should stop leading
+                        // Some other HSM successfully wrote a log entry, so we
+                        // should stop leading.
                         self.stepdown_at(request.group, StepDownPoint::LastLogIndex);
                     }
                     LogEntryStatus::EntryMacMismatch => {
-                        // The logs have diverged, we'll stepdown.
+                        // The logs have diverged, so we'll stepdown.
                         self.stepdown_at(
                             request.group,
                             StepDownPoint::LogIndex(entry.index.prev().unwrap()),
@@ -97,15 +149,15 @@ impl<P: Platform> Hsm<P> {
                 }
             }
 
-            // If we're stepping down we need to get the commit index up to the
-            // stepping down index. It's not possible for the agent to create a
-            // commit request with that exact index as the witnesses may have
-            // already passed the index and they can't generate a capture
-            // statement for an earlier index. So while stepping down we
-            // collect the new log entries that we're witnessing into the
-            // stepping down log. Commit can then successfully process a commit
-            // request that is after the stepdown index and complete the
-            // stepdown.
+            // If we're stepping down, we need to get the commit index up to
+            // the stepping down index. It's not possible for the agent to
+            // create a commit request with that exact index, as the witnesses
+            // may have already passed the index and they can't generate a
+            // capture statement for an earlier index. So, while stepping down,
+            // we collect the new log entries that we're witnessing into the
+            // stepping down log. The commit handler can then successfully
+            // process a request that is after the stepdown index and complete
+            // the stepdown.
             if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
                 let status = has_log_diverged(&sd.log, &entry);
                 match status {

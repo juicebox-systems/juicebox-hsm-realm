@@ -14,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 agent_api = { workspace = true }
 anyhow = { workspace = true }
+bigtable = { workspace = true }
 build_info = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }

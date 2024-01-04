@@ -52,6 +52,7 @@ pub struct RealmConfig {
     pub state_dir: Option<PathBuf>,
 }
 
+#[derive(Debug)]
 pub struct ClusterResult {
     pub load_balancers: Vec<Url>,
     pub certs: Certificates,
@@ -127,6 +128,7 @@ impl ClusterResult {
     }
 }
 
+#[derive(Debug)]
 pub struct RealmResult {
     pub agents: Vec<Url>,
     pub groups: Vec<GroupId>,
