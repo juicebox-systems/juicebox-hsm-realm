@@ -11,7 +11,7 @@ use tonic::codegen::{Body, Bytes, StdError};
 use tonic::Code;
 use tracing::{instrument, trace, warn, Span};
 
-#[derive(Clone, Hash, Eq, PartialEq)]
+#[derive(Clone, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct RowKey(pub Vec<u8>);
 
 impl fmt::Debug for RowKey {
@@ -153,12 +153,13 @@ where
         );
 
         let mut retry_count = 0;
+        let mut last_completed_row: Option<RowKey> = None;
+        let mut num_rows: usize = 0;
+        let mut num_response_chunks: usize = 0;
+        let mut num_response_messages: usize = 0;
         'outer: loop {
             let mut stream = bigtable.read_rows(request.clone()).await?.into_inner();
             let mut active_row: Option<RowBuffer> = None;
-            let mut num_rows: usize = 0;
-            let mut num_response_chunks: usize = 0;
-            let mut num_response_messages: usize = 0;
             loop {
                 match stream.message().await {
                     Err(e) => {
@@ -166,12 +167,6 @@ where
                         // https://github.com/hyperium/hyper/issues/2872
                         warn!(?e, code=?e.code(), "stream.message error during read_rows");
                         if e.code() == Code::Internal {
-                            if num_rows > 0 {
-                                // We've already streamed out some rows, so we
-                                // can't just start back at the beginning and
-                                // stream out duplicates out-of-order.
-                                todo!("read_rows_stream needs to safely restart");
-                            }
                             tokio::time::sleep(Duration::from_millis(1)).await;
                             trace!("retrying read_rows");
                             retry_count += 1;
@@ -180,7 +175,15 @@ where
                             return Err(e);
                         }
                     }
-                    Ok(None) => break,
+
+                    Ok(None) => {
+                        assert!(
+                            active_row.is_none(),
+                            "ReadRowsResponse missing chunks: last row didn't complete",
+                        );
+                        break 'outer;
+                    }
+
                     Ok(Some(message)) => {
                         num_response_messages += 1;
                         num_response_chunks += message.chunks.len();
@@ -188,23 +191,37 @@ where
                             let complete_row;
                             (active_row, complete_row) = process_read_chunk(chunk, active_row);
                             if let Some((key, row)) = complete_row {
-                                num_rows += 1;
-                                row_fn(key, row);
+                                // On a retry, we ask for the same row ranges
+                                // and get back duplicate results (or even rows
+                                // that weren't there the first time or changed
+                                // since then). We skip those result rows here.
+                                // (We could be smarter about filtering down
+                                // the requested row ranges instead, but that
+                                // would add some complexity.)
+                                let is_duplicate =
+                                    last_completed_row.as_ref().is_some_and(|completed| {
+                                        if request.reversed {
+                                            key >= *completed
+                                        } else {
+                                            key <= *completed
+                                        }
+                                    });
+                                if !is_duplicate {
+                                    num_rows += 1;
+                                    row_fn(key.clone(), row);
+                                    last_completed_row = Some(key);
+                                }
                             }
                         }
                     }
-                };
+                }
             }
-            assert!(
-                active_row.is_none(),
-                "ReadRowsResponse missing chunks: last row didn't complete",
-            );
-            Span::current().record("num_response_chunks", num_response_chunks);
-            Span::current().record("num_response_messages", num_response_messages);
-            Span::current().record("num_response_rows", num_rows);
-            Span::current().record("retry_count", retry_count);
-            return Ok(());
         }
+        Span::current().record("num_response_chunks", num_response_chunks);
+        Span::current().record("num_response_messages", num_response_messages);
+        Span::current().record("num_response_rows", num_rows);
+        Span::current().record("retry_count", retry_count);
+        return Ok(());
     }
 }
 
