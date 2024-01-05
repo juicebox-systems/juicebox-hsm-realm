@@ -345,9 +345,12 @@ impl LoadBalancer {
     ) -> Result<Response<Full<Bytes>>, Box<dyn Error + Send + Sync>> {
         let body = match self.0.svc_mgr.health_check().await {
             HealthCheckStatus::Ok => Bytes::from(format!(
-                "Juicebox load balancer: {}\n{}",
-                self.0.semver,
-                build_info::get!().livez()
+                "Juicebox load balancer: {version}
+name: {name}
+{build}",
+                version = self.0.semver,
+                name = self.0.name,
+                build = build_info::get!().livez()
             )),
             HealthCheckStatus::ShuttingDown => Bytes::from("Shutting down"),
         };

@@ -620,6 +620,7 @@ impl StoreClient {
         up_to: LogIndex,
     ) -> Result<(Vec<LogRow>, More), tonic::Status> {
         assert!(up_to > LogIndex::FIRST);
+        let start = Instant::now();
 
         let request = ReadRowsRequest {
             table_name: log_table(&self.instance, realm),
@@ -688,10 +689,23 @@ impl StoreClient {
         let more =
             More(rows.len() == TOMBSTONE_WINDOW_SIZE && !rows.iter().all(|row| row.is_tombstone));
 
+        let tags = [tag!(?realm), tag!(?group)];
+        self.metrics.timing(
+            "store_client.list_log_rows_page.time",
+            start.elapsed(),
+            &tags,
+        );
+        self.metrics
+            .distribution("store_client.list_log_rows_page.count", rows.len(), &tags);
         Span::current().record("rows", rows.len());
         if let Some(lowest) = rows.first() {
             Span::current().record("lowest", lowest.index.0);
             Span::current().record("highest", rows.last().unwrap().index.0);
+            self.metrics.gauge(
+                "store_client.list_log_rows_page.lowest",
+                lowest.index.0,
+                &tags,
+            );
         }
         Span::current().record("more", more.0);
 
@@ -771,6 +785,7 @@ impl StoreClient {
         group: &GroupId,
         rows: &[LogRow],
     ) -> Result<(), MutateRowsError> {
+        let start = Instant::now();
         assert!(rows.len() <= TOMBSTONE_WINDOW_SIZE);
         if let Some(lowest) = rows.first() {
             Span::current().record("lowest", lowest.index.0);
@@ -809,7 +824,7 @@ impl StoreClient {
                     .collect(),
             };
             match mutate_rows(&mut bigtable, request).await {
-                Ok(()) => return Ok(()),
+                Ok(()) => break,
                 Err(MutateRowsError::Tonic(status)) if status.code() == Code::Unknown => {
                     warn!(?realm, ?group, ?status, "error while writing tombstones");
                     continue;
@@ -817,6 +832,26 @@ impl StoreClient {
                 Err(status) => return Err(status),
             }
         }
+
+        let tags = [tag!(?realm), tag!(?group)];
+        self.metrics.timing(
+            "store_client.replace_chunk_with_tombstones.time",
+            start.elapsed(),
+            &tags,
+        );
+        self.metrics.distribution(
+            "store_client.replace_chunk_with_tombstones.rows",
+            rows.iter().filter(|row| !row.is_tombstone).count(),
+            &tags,
+        );
+        if let Some(highest) = rows.iter().rev().find(|row| !row.is_tombstone) {
+            self.metrics.gauge(
+                "store_client.replace_chunk_with_tombstones.highest",
+                highest.index.0,
+                &tags,
+            );
+        }
+        Ok(())
     }
 }
 
