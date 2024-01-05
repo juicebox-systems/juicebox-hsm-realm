@@ -844,6 +844,13 @@ impl StoreClient {
             rows.iter().filter(|row| !row.is_tombstone).count(),
             &tags,
         );
+        if let Some(highest) = rows.iter().rev().find(|row| !row.is_tombstone) {
+            self.metrics.gauge(
+                "store_client.replace_oldest_rows_with_tombstones.highest",
+                highest.index.0,
+                &tags,
+            );
+        }
         Ok(())
     }
 }
