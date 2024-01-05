@@ -88,7 +88,7 @@ impl Client {
         let channel = AuthMiddleware::new(
             channel,
             Some(auth_manager),
-            &["https://www.googleapis.com/auth/cloud-platform.read-only"],
+            &["https://www.googleapis.com/auth/cloud-platform"],
             metrics,
         );
         Ok(Self {
