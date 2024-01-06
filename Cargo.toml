@@ -3,6 +3,7 @@
 members = [
     "agent_api",
     "agent_core",
+    "async_util",
     "bigtable",
     "bitvec",
     "build_info",
@@ -42,6 +43,7 @@ members = [
 default-members = [
     "agent_api",
     "agent_core",
+    "async_util",
     "bigtable",
     "bitvec",
     "cluster_api",
@@ -86,6 +88,7 @@ agent_api = { path = "agent_api" }
 agent_core = { path = "agent_core" }
 anyhow = "1.0.75"
 async-trait = "0.1.74"
+async_util = { path = "async_util" }
 bigtable = { path = "bigtable" }
 bindgen = "0.68.1"
 bitvec = { path = "bitvec" }
@@ -155,7 +158,8 @@ once_cell = "1.18.0"
 opentelemetry = { version = "0.20.0", features = ["rt-tokio"] }
 opentelemetry-http = "0.9.0"
 opentelemetry-otlp = "0.13.0"
-pin-project-lite = { version = "0.2.13" }
+pin-project = "1.1.3"
+pin-project-lite = "0.2.13"
 prost = "0.12.1"
 prost-types = "0.12.1"
 pubsub_api = { path = "pubsub_api" }

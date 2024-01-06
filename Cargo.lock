@@ -48,6 +48,7 @@ dependencies = [
  "agent_api",
  "anyhow",
  "async-trait",
+ "async_util",
  "bitvec",
  "build_info",
  "bytes",
@@ -201,6 +202,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.38",
+]
+
+[[package]]
+name = "async_util"
+version = "0.2.3"
+dependencies = [
+ "pin-project",
+ "tokio",
 ]
 
 [[package]]
@@ -575,6 +584,7 @@ name = "cluster_bench"
 version = "0.2.3"
 dependencies = [
  "anyhow",
+ "async_util",
  "build_info",
  "clap",
  "futures",
@@ -2952,6 +2962,7 @@ version = "0.2.3"
 dependencies = [
  "anyhow",
  "async-trait",
+ "async_util",
  "futures",
  "gcp_auth",
  "google",
@@ -3028,6 +3039,7 @@ version = "0.2.3"
 dependencies = [
  "anyhow",
  "async-trait",
+ "async_util",
  "build_info",
  "clap",
  "dogstatsd",
@@ -3382,6 +3394,7 @@ dependencies = [
  "agent_api",
  "agent_core",
  "anyhow",
+ "async_util",
  "bigtable",
  "bitvec",
  "build_info",

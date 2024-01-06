@@ -5,7 +5,6 @@ use std::mem;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::watch;
-use tokio::task::JoinSet;
 use tokio::time::sleep;
 use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -13,6 +12,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use super::hsm::Transport;
 use super::{Agent, LeaderState};
 use agent_api::{ReadCapturedRequest, ReadCapturedResponse};
+use async_util::ScopedTask;
 use cluster_core::discover_hsm_ids;
 use election::HsmElection;
 use hsm_api::{
@@ -87,11 +87,10 @@ impl<T: Transport + 'static> Agent<T> {
         .await;
 
         // Spawn the log compactor task. The channel tracks the latest compact
-        // index (defined below). The JoinSet's Drop impl aborts the task when
-        // the committer task exits.
+        // index (defined below). The ScopedTask's Drop impl aborts the task
+        // when the committer task exits.
         let (compaction_tx, compaction_rx) = watch::channel(None);
-        let mut compaction_task = JoinSet::new();
-        compaction_task.spawn(self.clone().compactor(
+        let _compaction_task = ScopedTask::spawn(self.clone().compactor(
             realm,
             group,
             compaction_rx,
@@ -610,9 +609,9 @@ struct AgentDiscoveryCache {
 
 struct AgentDiscoveryCacheInner {
     peers: HashMap<HsmId, Url>,
-    // This is included for its `Drop` implementation, which aborts the
-    // background task(s).
-    tasks: JoinSet<()>,
+    /// This is included for its `Drop` implementation, which aborts the
+    /// background task. It's always `Some` after initialization.
+    task: Option<ScopedTask<()>>,
 }
 
 impl AgentDiscoveryCache {
@@ -629,11 +628,12 @@ impl AgentDiscoveryCache {
         let c = Self {
             inner: Arc::new(Mutex::new(AgentDiscoveryCacheInner {
                 peers: init_peers,
-                tasks: JoinSet::new(),
+                task: None,
             })),
         };
+
         let clone = c.clone();
-        c.inner.lock().unwrap().tasks.spawn(async move {
+        let task = Some(ScopedTask::spawn(async move {
             let mut next_interval = interval;
             loop {
                 sleep(next_interval).await;
@@ -650,7 +650,9 @@ impl AgentDiscoveryCache {
                     }
                 }
             }
-        });
+        }));
+        c.inner.lock().unwrap().task = task;
+
         c
     }
 

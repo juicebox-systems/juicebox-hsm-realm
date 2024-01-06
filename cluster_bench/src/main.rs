@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
+use async_util::ScopedTask;
 use google::{auth, GrpcConnectionOptions};
 use juicebox_networking::reqwest;
 use juicebox_realm_auth::creation::create_token;
@@ -218,7 +219,7 @@ async fn benchmark(
 
     let mut stream = futures::stream::iter(
         ids.clone()
-            .map(|i| tokio::spawn(run_op(op, i, client_builder.clone()))),
+            .map(|i| ScopedTask::spawn(run_op(op, i, client_builder.clone()))),
     )
     .buffer_unordered(concurrency);
 
