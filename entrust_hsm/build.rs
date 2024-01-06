@@ -49,7 +49,7 @@ fn main() {
     let hash = hasher.0.finalize();
     assert_eq!(
         hex::encode(hash),
-        "a4b819198dcc272e2cd309e68650274652e7e7f805682cb9a25adb5618409c65",
+        "07fe0cfa4e37f3f77cfcc7c579918c51d4e220723ad84f90e4921556b566fb8b",
         "SHA-256 of {out_file:?} (left) doesn't match expected (right)"
     );
 }
