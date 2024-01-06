@@ -706,6 +706,19 @@ pub struct MethodSettings {
     ///              seconds: 54000 # 90 minutes
     #[prost(message, optional, tag = "2")]
     pub long_running: ::core::option::Option<method_settings::LongRunning>,
+    /// List of top-level fields of the request message, that should be
+    /// automatically populated by the client libraries based on their
+    /// (google.api.field_info).format. Currently supported format: UUID4.
+    ///
+    /// Example of a YAML configuration:
+    ///
+    ///   publishing:
+    ///     method_settings:
+    ///       - selector: google.example.v1.ExampleService.CreateExample
+    ///         auto_populated_fields:
+    ///         - request_id
+    #[prost(string, repeated, tag = "3")]
+    pub auto_populated_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// Nested message and enum types in `MethodSettings`.
 pub mod method_settings {
@@ -871,6 +884,19 @@ pub enum FieldBehavior {
     /// a non-empty value will be returned. The user will not be aware of what
     /// non-empty value to expect.
     NonEmptyDefault = 7,
+    /// Denotes that the field in a resource (a message annotated with
+    /// google.api.resource) is used in the resource name to uniquely identify the
+    /// resource. For AIP-compliant APIs, this should only be applied to the
+    /// `name` field on the resource.
+    ///
+    /// This behavior should not be applied to references to other resources within
+    /// the message.
+    ///
+    /// The identifier field of resources often have different field behavior
+    /// depending on the request it is embedded in (e.g. for Create methods name
+    /// is optional and unused, while for Update methods it is required). Instead
+    /// of method-specific annotations, only `IDENTIFIER` is required.
+    Identifier = 8,
 }
 impl FieldBehavior {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -887,6 +913,7 @@ impl FieldBehavior {
             FieldBehavior::Immutable => "IMMUTABLE",
             FieldBehavior::UnorderedList => "UNORDERED_LIST",
             FieldBehavior::NonEmptyDefault => "NON_EMPTY_DEFAULT",
+            FieldBehavior::Identifier => "IDENTIFIER",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -900,6 +927,7 @@ impl FieldBehavior {
             "IMMUTABLE" => Some(Self::Immutable),
             "UNORDERED_LIST" => Some(Self::UnorderedList),
             "NON_EMPTY_DEFAULT" => Some(Self::NonEmptyDefault),
+            "IDENTIFIER" => Some(Self::Identifier),
             _ => None,
         }
     }
