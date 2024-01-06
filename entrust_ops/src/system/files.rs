@@ -118,6 +118,7 @@ impl Context {
     /// Returns an error if any of the filenames contain invalid UTF-8.
     ///
     /// For dry runs, returns an empty result.
+    #[allow(unused)]
     pub(crate) fn list_dir(&self, path: &str) -> Result<Vec<DirEntry>, Error> {
         if self.common_args.dry_run {
             println!("Not listing {path:?} dir because --dry-run");
@@ -165,6 +166,7 @@ impl Context {
     ///
     /// It is not an error if the directory or one of its ancestors does not
     /// exist.
+    #[allow(unused)]
     pub(crate) fn remove_dir_only(&self, path: &str) -> Result<(), Error> {
         if self.common_args.dry_run {
             println!("Not removing {path:?} because --dry-run");
