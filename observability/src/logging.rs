@@ -1,8 +1,8 @@
-use opentelemetry::sdk::propagation::TraceContextPropagator;
-use opentelemetry::sdk::trace::{Sampler, ShouldSample};
-use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::propagation::TraceContextPropagator;
+use opentelemetry_sdk::trace::{Sampler, ShouldSample};
+use opentelemetry_sdk::Resource;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::IsTerminal;
@@ -169,14 +169,14 @@ pub fn configure_with_options(options: Options) {
                 .with_endpoint("http://localhost:4317"),
         )
         .with_trace_config(
-            opentelemetry::sdk::trace::config()
+            opentelemetry_sdk::trace::config()
                 .with_sampler(TracingSourceSampler {
                     default: options.trace_sampler,
                     background: options.background_trace_sampler,
                 })
                 .with_resource(Resource::new(resource_properties)),
         )
-        .install_batch(opentelemetry::runtime::Tokio)
+        .install_batch(opentelemetry_sdk::runtime::Tokio)
         .expect("TODO");
 
     opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
@@ -239,7 +239,7 @@ impl ShouldSample for TracingSourceSampler {
         trace_id: opentelemetry::trace::TraceId,
         name: &str,
         span_kind: &opentelemetry::trace::SpanKind,
-        attributes: &opentelemetry::trace::OrderMap<opentelemetry::Key, opentelemetry::Value>,
+        attributes: &[opentelemetry::KeyValue],
         links: &[opentelemetry::trace::Link],
     ) -> opentelemetry::trace::SamplingResult {
         let sampler = match parent_context {
