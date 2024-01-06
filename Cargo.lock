@@ -31,7 +31,6 @@ dependencies = [
 name = "agent_api"
 version = "0.2.3"
 dependencies = [
- "async-trait",
  "hex",
  "hsm_api",
  "juicebox_networking",
@@ -47,7 +46,6 @@ version = "0.2.3"
 dependencies = [
  "agent_api",
  "anyhow",
- "async-trait",
  "bitvec",
  "build_info",
  "bytes",
@@ -291,7 +289,6 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 name = "bigtable"
 version = "0.2.3"
 dependencies = [
- "async-trait",
  "gcp_auth",
  "google",
  "observability",
@@ -1000,7 +997,6 @@ name = "entrust_agent"
 version = "0.2.3"
 dependencies = [
  "agent_core",
- "async-trait",
  "build_info",
  "clap",
  "entrust_api",
@@ -1474,7 +1470,6 @@ dependencies = [
 name = "hsm_core"
 version = "0.2.3"
 dependencies = [
- "async-trait",
  "bitvec",
  "blake2",
  "cbor-diag",
@@ -3160,7 +3155,6 @@ name = "software_agent"
 version = "0.2.3"
 dependencies = [
  "agent_core",
- "async-trait",
  "build_info",
  "clap",
  "expect-test",
@@ -3204,7 +3198,6 @@ name = "software_hsm_client"
 version = "0.2.3"
 dependencies = [
  "agent_core",
- "async-trait",
  "http",
  "juicebox_marshalling",
  "opentelemetry",
@@ -3252,7 +3245,6 @@ version = "0.2.3"
 dependencies = [
  "agent_api",
  "agent_core",
- "async-trait",
  "bigtable",
  "bitvec",
  "chrono",

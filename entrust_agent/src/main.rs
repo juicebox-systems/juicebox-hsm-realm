@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use clap::Args;
 use core::slice;
 use std::cmp::min;
@@ -76,7 +75,6 @@ async fn main() {
 
 struct EntrustConstructor;
 
-#[async_trait]
 impl HsmTransportConstructor<EntrustArgs, EntrustSeeTransport> for EntrustConstructor {
     async fn construct(
         &mut self,
@@ -276,7 +274,6 @@ struct TransportInner {
 
 unsafe impl Send for TransportInner {}
 
-#[async_trait]
 impl Transport for EntrustSeeTransport {
     type Error = SeeError;
 

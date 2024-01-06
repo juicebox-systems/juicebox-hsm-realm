@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use std::collections::HashMap;
 
 use hsm_api::merkle::{Node, NodeKey};
@@ -9,7 +8,7 @@ use observability::metrics;
 /// Interface to read Merkle nodes, primarily used by the
 /// agent_core::merkle::read and agent_core::merkle::read_tree_side. The only
 /// implementation is [`store::StoreClient`].
-#[async_trait]
+#[allow(async_fn_in_trait)]
 pub trait TreeStoreReader<HO>: Sync {
     /// Reads and returns all the nodes on the path from the root to
     /// `RecordId`.

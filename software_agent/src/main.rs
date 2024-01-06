@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use clap::Args;
 use nix::libc::pid_t;
 use nix::sys::signal::{kill, Signal};
@@ -37,7 +36,6 @@ async fn main() {
 
 struct TransportConstructor;
 
-#[async_trait]
 impl HsmTransportConstructor<SoftwareAgentArgs, HsmHttpClient> for TransportConstructor {
     async fn construct(
         &mut self,
