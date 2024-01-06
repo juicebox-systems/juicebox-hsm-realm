@@ -5,7 +5,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use sysinfo::{ProcessExt, SystemExt};
 use tokio::net::TcpStream;
 use tokio::time::sleep;
 use tokio_rustls::rustls::{self, Certificate, ClientConfig, ServerName};
