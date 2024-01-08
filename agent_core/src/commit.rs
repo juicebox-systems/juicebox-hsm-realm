@@ -28,10 +28,6 @@ use observability::metrics_tag as tag;
 use service_core::http::ReqwestClientMetrics;
 use store::{LogRow, StoreClient};
 
-// This is a feature flag to toggle whether the leader actually writes out
-// tombstones.
-const LOG_COMPACTION_ENABLED: bool = true;
-
 #[derive(Debug, Eq, PartialEq)]
 enum CommitterStatus {
     Committing { committed: Option<LogIndex> },
@@ -371,12 +367,6 @@ impl<T: Transport + 'static> Agent<T> {
             .await;
         }
 
-        if !LOG_COMPACTION_ENABLED {
-            // We want to run compact_init even when log compaction is disabled
-            // because we want to see it scan the log and eat up RAM.
-            return;
-        }
-
         // When the compaction index advances, replace more log entry rows with
         // tombstones.
         let mut last_compacted: Option<LogIndex> = None;
@@ -425,7 +415,6 @@ impl<T: Transport + 'static> Agent<T> {
             ?realm,
             ?group,
             elapsed = ?start.elapsed(),
-            LOG_COMPACTION_ENABLED,
             reason = match result {
                 Err(_) => "timed out confirming all peers are witnesses",
                 Ok(()) => "confirmed all peers are witnesses",
