@@ -4,11 +4,11 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tokio::task::JoinSet;
 use tokio::time::sleep;
 use tracing::warn;
 
 use super::{Error, Secret, SecretManager, SecretName, SecretVersion};
+use async_util::ScopedTask;
 
 /// Required of backends for [`Periodic`].
 ///
@@ -30,16 +30,15 @@ pub struct Periodic {
     // This is included for its `Drop` implementation, which aborts the
     // background task(s).
     #[allow(unused)]
-    tasks: JoinSet<()>,
+    task: ScopedTask<()>,
 }
 
 impl Periodic {
     pub async fn new<B: BulkLoad>(backend: B, interval: Duration) -> Result<Self, Error> {
         let secrets = backend.load_all().await?;
         let cache = Arc::new(Mutex::new(secrets));
-        let mut tasks = JoinSet::new();
-        tasks.spawn(refresh_loop(backend, cache.clone(), interval));
-        Ok(Self { cache, tasks })
+        let task = ScopedTask::spawn(refresh_loop(backend, cache.clone(), interval));
+        Ok(Self { cache, task })
     }
 }
 

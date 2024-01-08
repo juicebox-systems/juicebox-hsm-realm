@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
+use async_util::ScopedTask;
 use juicebox_networking::reqwest;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::types::Policy;
@@ -123,7 +124,7 @@ async fn main() {
     let start = Instant::now();
 
     let mut stream = futures::stream::iter((0..args.count).map(|i| {
-        tokio::spawn({
+        ScopedTask::spawn({
             let client = clients[i % args.concurrency].clone();
             async move {
                 client

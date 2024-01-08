@@ -9,6 +9,7 @@ build = "../build_info/build_script.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+async_util = { workspace = true }
 build_info = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }

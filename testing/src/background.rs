@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::task::JoinSet;
 
+use async_util::ScopedTask;
 use juicebox_networking::reqwest::{self};
 use juicebox_sdk::{AuthToken, Client, Policy, RealmId, TokioSleeper};
 
@@ -11,17 +11,16 @@ pub type JbClient = Client<TokioSleeper, reqwest::Client, HashMap<RealmId, AuthT
 pub struct BackgroundClientRequests {
     req_tx: Sender<WorkerReq>,
     res_rx: Receiver<WorkerResults>,
-    #[allow(unused)] // tasks is used for its Drop impl to stop the background task.
-    tasks: JoinSet<()>,
+    #[allow(unused)] // task is used for its Drop impl to stop the background task.
+    task: ScopedTask<()>,
 }
 
 impl BackgroundClientRequests {
     pub async fn spawn(client: JbClient) -> Self {
         let (tx, mut rx) = channel(1);
         let (res_tx, res_rx) = channel(1);
-        let mut tasks = JoinSet::new();
 
-        tasks.spawn(async move {
+        let task = ScopedTask::spawn(async move {
             let mut success_count = 0;
             let mut failures = Vec::new();
             loop {
@@ -81,7 +80,7 @@ impl BackgroundClientRequests {
         BackgroundClientRequests {
             req_tx: tx,
             res_rx,
-            tasks,
+            task,
         }
     }
 

@@ -21,6 +21,7 @@ use tokio::time::timeout;
 use tracing::{debug, error, info, instrument, warn};
 use x509_cert::der::{Decode, SliceReader};
 
+use async_util::ScopedTask;
 use juicebox_networking::{http, reqwest as jb_reqwest};
 use juicebox_realm_auth::creation::create_token;
 use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
@@ -204,7 +205,7 @@ impl Checker {
         });
 
         let mut stream = futures::stream::iter(
-            (1..=args.count).map(|i| tokio::spawn(run_op(i, client_builder.clone()))),
+            (1..=args.count).map(|i| ScopedTask::spawn(run_op(i, client_builder.clone()))),
         )
         .buffer_unordered(args.concurrency);
 

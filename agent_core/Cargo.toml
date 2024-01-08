@@ -9,6 +9,7 @@ rust-version = { workspace = true }
 [dependencies]
 agent_api = { workspace = true }
 anyhow = { workspace = true }
+async_util = { workspace = true }
 bitvec = { workspace = true }
 build_info = { workspace = true }
 bytes = { workspace = true }
