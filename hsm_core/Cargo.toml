@@ -1,7 +1,7 @@
 [package]
 name = "hsm_core"
 edition = "2021"
-version  = { workspace = true }
+version = { workspace = true }
 rust-version = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -29,7 +29,6 @@ tracing = { workspace = true }
 x25519-dalek = { workspace = true }
 
 [dev-dependencies]
-async-trait = { workspace = true }
 cbor-diag = { workspace = true }
 expect-test = { workspace = true }
 tokio = { workspace = true }

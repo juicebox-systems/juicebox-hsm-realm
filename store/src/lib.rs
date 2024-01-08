@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use google::auth::AuthMiddleware;
 use google::bigtable::v2::bigtable_client::BigtableClient as BtClient;
 use google::bigtable::v2::{read_rows_request, PingAndWarmRequest, ReadRowsRequest};
@@ -502,7 +501,6 @@ impl TablesReadWarmer {
     }
 }
 
-#[async_trait]
 impl ConnWarmer for TablesReadWarmer {
     async fn warm(&self, inst: Instance, mut conn: BtClient<AuthMiddleware>) {
         let r = conn

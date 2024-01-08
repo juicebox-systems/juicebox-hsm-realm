@@ -1,13 +1,12 @@
 [package]
 name = "agent_api"
 edition = "2021"
-version  = { workspace = true }
+version = { workspace = true }
 rust-version = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = { workspace = true }
 hex = { workspace = true }
 hsm_api = { workspace = true }
 juicebox_networking = { workspace = true }

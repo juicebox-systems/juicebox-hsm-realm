@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use std::fmt::{self, Debug};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
@@ -9,15 +9,14 @@ use hsm_api::rpc::{HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAct
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use observability::{metrics, metrics_tag as tag};
 
-#[async_trait]
 pub trait Transport: fmt::Debug + Send + Sync {
     type Error: fmt::Debug + From<SerializationError> + From<DeserializationError> + Send;
 
-    async fn send_rpc_msg(
+    fn send_rpc_msg(
         &self,
         msg_name: &'static str,
         msg: Vec<u8>,
-    ) -> Result<Vec<u8>, Self::Error>;
+    ) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send;
 }
 
 pub struct HsmClient<T>(Arc<HsmClientInner<T>>);
