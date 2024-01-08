@@ -90,7 +90,7 @@ anyhow = "1.0.79"
 async-trait = "0.1.77"
 async_util = { path = "async_util" }
 bigtable = { path = "bigtable" }
-bindgen = "0.68.1"
+bindgen = "0.69.1"
 bitvec = { path = "bitvec" }
 blake2 = { version = "0.10.6", default-features = false }
 build_info = { path = "build_info" }
@@ -139,7 +139,7 @@ http-body-util = "0.1.0-rc.3"
 # hyper-util. hyper-util is currently unreleased, so stick with 1.0.0-rc.3 for
 # now.
 hyper = { version = "=1.0.0-rc.3", features = ["http1", "http2", "server"] }
-itertools = { version = "0.11.0" }
+itertools = { version = "0.12.0" }
 juicebox_sdk = { path = "sdk/rust/sdk", features = ["reqwest", "tokio"] }
 juicebox_marshalling = { path = "sdk/rust/marshalling" }
 juicebox_networking = { path = "sdk/rust/networking", features = [
@@ -187,7 +187,7 @@ spin = { version = "=0.9.8", default-features = false, features = [
 ] }
 store = { path = "store" }
 subtle = { version = "2.5.0", default-features = false }
-sysinfo = { version = "0.29" }
+sysinfo = { version = "0.30" }
 table = { path = "table" }
 tempfile = "3.9.0"
 testing = { path = "testing" }
