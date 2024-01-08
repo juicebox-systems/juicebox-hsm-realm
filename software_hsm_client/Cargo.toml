@@ -8,7 +8,6 @@ version.workspace = true
 
 [dependencies]
 agent_core = { workspace = true }
-async-trait = { workspace = true }
 http = { workspace = true }
 juicebox_marshalling = { workspace = true }
 opentelemetry = { workspace = true }

@@ -139,7 +139,7 @@ impl Subscriber {
         let parsed: HashMap<String, serde_json::Value> = serde_json::from_slice(
             &pulled
                 .received_messages
-                .get(0)
+                .first()
                 .unwrap()
                 .message
                 .as_ref()

@@ -1,4 +1,4 @@
-use async_trait::async_trait;
+use std::future::Future;
 use std::time::Duration;
 use tonic::transport::{Endpoint, Uri};
 use tracing::info;
@@ -96,15 +96,17 @@ pub async fn new_data_client<W: ConnWarmer>(
     Ok(bigtable)
 }
 
-#[async_trait]
 pub trait ConnWarmer: Send + Clone + 'static {
-    async fn warm(&self, inst: Instance, conn: BtClient<AuthMiddleware>);
+    fn warm(
+        &self,
+        inst: Instance,
+        conn: BtClient<AuthMiddleware>,
+    ) -> impl Future<Output = ()> + Send;
 }
 
 #[derive(Clone)]
 pub struct NoWarmup;
 
-#[async_trait]
 impl ConnWarmer for NoWarmup {
     async fn warm(&self, _inst: Instance, _conn: BtClient<AuthMiddleware>) {}
 }

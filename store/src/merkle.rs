@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
 use google::bigtable::v2::row_range::{EndKey::EndKeyOpen, StartKey::StartKeyClosed};
@@ -316,7 +315,6 @@ fn cached_path_lookup(
     }
 }
 
-#[async_trait]
 impl TreeStoreReader<DataHash> for StoreClient {
     #[instrument(level = "trace", skip(self), fields(num_result_nodes))]
     async fn path_lookup(

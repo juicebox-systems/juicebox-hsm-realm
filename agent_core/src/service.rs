@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use clap::{Args, CommandFactory, FromArgMatches, Parser};
 use http::Uri;
 use std::fmt::Debug;
@@ -103,7 +102,7 @@ impl<SA: Args + Debug> AgentArgs<SA> {
     }
 }
 
-#[async_trait]
+#[allow(async_fn_in_trait)]
 pub trait HsmTransportConstructor<SA, T>
 where
     SA: Args + Debug,

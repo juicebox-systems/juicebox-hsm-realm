@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use http::{HeaderMap, HeaderName, HeaderValue};
 use opentelemetry::propagation::Injector;
 use std::fmt::Debug;
@@ -31,7 +30,6 @@ impl Debug for HsmHttpClient {
     }
 }
 
-#[async_trait]
 impl Transport for HsmHttpClient {
     type Error = HsmHttpTransportError;
 

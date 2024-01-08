@@ -77,7 +77,7 @@ exclude = ["ciborium", "gcp_auth", "sdk"]
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.74"
+rust-version = "1.75"
 version = "0.2.3"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
