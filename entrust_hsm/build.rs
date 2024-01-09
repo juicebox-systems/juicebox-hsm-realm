@@ -30,7 +30,7 @@ fn main() {
         .clang_arg("-DNF_CROSSCC_PPC_GCC=1")
         // Tell cargo to invalidate the built crate whenever any of the included
         // header files changed.
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         // Finish the builder and generate the bindings.
         .generate()
         // Unwrap the Result and panic on failure.
@@ -49,7 +49,7 @@ fn main() {
     let hash = hasher.0.finalize();
     assert_eq!(
         hex::encode(hash),
-        "a4b819198dcc272e2cd309e68650274652e7e7f805682cb9a25adb5618409c65",
+        "07fe0cfa4e37f3f77cfcc7c579918c51d4e220723ad84f90e4921556b566fb8b",
         "SHA-256 of {out_file:?} (left) doesn't match expected (right)"
     );
 }

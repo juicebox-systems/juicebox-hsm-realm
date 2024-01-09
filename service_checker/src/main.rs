@@ -4,7 +4,7 @@ use clap::Parser;
 use dogstatsd::{ServiceCheckOptions, ServiceStatus};
 use futures::future::join_all;
 use futures::StreamExt;
-use opentelemetry::sdk::trace::Sampler;
+use opentelemetry_sdk::trace::Sampler;
 use reqwest::tls::TlsInfo;
 use reqwest::Certificate;
 use service_core::http::ReqwestClientMetrics;

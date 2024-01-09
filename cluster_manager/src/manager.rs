@@ -5,6 +5,7 @@ use hyper::http;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use hyper_util::rt::TokioIo;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -206,11 +207,11 @@ impl Manager {
                     match listener.accept().await {
                         Err(e) => warn!("error accepting connection: {e:?}"),
                         Ok((stream, _)) => {
+                            let io = TokioIo::new(stream);
                             let manager = TracingMiddleware::new(self.clone());
                             tokio::spawn(async move {
-                                if let Err(e) = http1::Builder::new()
-                                    .serve_connection(stream, manager)
-                                    .await
+                                if let Err(e) =
+                                    http1::Builder::new().serve_connection(io, manager).await
                                 {
                                     warn!("error serving connection: {e:?}");
                                 }
@@ -228,7 +229,7 @@ impl Service<Request<IncomingBody>> for Manager {
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
+    fn call(&self, request: Request<IncomingBody>) -> Self::Future {
         let manager = self.clone();
         Box::pin(
             async move {
