@@ -3126,6 +3126,8 @@ dependencies = [
  "juicebox_networking",
  "observability",
  "reqwest",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
 ]

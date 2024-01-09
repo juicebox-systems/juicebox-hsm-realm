@@ -1,7 +1,7 @@
 [package]
 name = "service_core"
 edition = "2021"
-version  = { workspace = true }
+version = { workspace = true }
 rust-version = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -16,5 +16,7 @@ juicebox_marshalling = { workspace = true }
 juicebox_networking = { workspace = true }
 observability = { workspace = true }
 reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
