@@ -100,7 +100,8 @@ chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
     "alloc",
 ] }
 # Simon audited chrono 0.4.30 in Sept 2023. Didn't review anything behind a feature flag.
-chrono = { version = "=0.4.30", default-features = false }
+# Diego audited chrono's changes from 0.4.30 to 0.4.31 in Jan 2024.
+chrono = { version = "=0.4.31", default-features = false }
 # ciborium and ciborium-io are pinned because we have a local fork.
 ciborium = { version = "=0.2.1", default-features = false }
 ciborium-io = { version = "=0.2.1", default-features = false }
