@@ -4,12 +4,13 @@ use bytes::Bytes;
 use digest::{FixedOutput, KeyInit};
 use futures::future::join_all;
 use futures::{select_biased, FutureExt};
-use http::{HeaderValue, Method};
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
+use hyper::body::Incoming as IncomingBody;
+use hyper::http::HeaderValue;
 use hyper::server::conn::{http1, http2};
 use hyper::service::Service;
-use hyper::StatusCode;
-use hyper::{body::Incoming as IncomingBody, Request, Response};
+use hyper::{Method, Request, Response, StatusCode};
+use hyper_util::rt::TokioIo;
 use rustls::server::ResolvesServerCert;
 use semver::Version;
 use serde::Serialize;
@@ -151,16 +152,17 @@ impl LoadBalancer {
                                             "load_balancer.connections.count",
                                             [tag!(protocol)],
                                         );
+                                        let io = TokioIo::new(stream);
                                         let result = match protocol {
                                             "h2" => {
                                                 let c = http2::Builder::new(TokioExecutor)
-                                                    .serve_connection(stream, lb);
+                                                    .serve_connection(io, lb);
                                                 let c = mgr.manage(c).await;
                                                 c.await
                                             }
                                             "http/1.1" => {
-                                                let c = http1::Builder::new()
-                                                    .serve_connection(stream, lb);
+                                                let c =
+                                                    http1::Builder::new().serve_connection(io, lb);
                                                 let c = mgr.manage(c).await;
                                                 c.await
                                             }
@@ -274,7 +276,7 @@ impl Service<Request<IncomingBody>> for LoadBalancer {
     type Error = Box<dyn Error + Send + Sync>;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
+    fn call(&self, request: Request<IncomingBody>) -> Self::Future {
         let state = self.clone();
 
         Box::pin(

@@ -1,7 +1,6 @@
 use hyper::body::Incoming as IncomingBody;
 use hyper::service::Service;
 use hyper::Request;
-use opentelemetry_http::HeaderExtractor;
 use tracing::instrument::Instrumented;
 use tracing::{span, Instrument, Level};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -34,7 +33,7 @@ where
     type Error = S::Error;
     type Future = Instrumented<S::Future>;
 
-    fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
+    fn call(&self, request: Request<IncomingBody>) -> Self::Future {
         let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
             propagator.extract(&HeaderExtractor(request.headers()))
         });
@@ -48,5 +47,22 @@ where
         root_span
             .in_scope(|| self.inner.call(request))
             .instrument(root_span)
+    }
+}
+
+/// This is a copy of [`opentelemetry_http::HeaderExtractor`] that works with
+/// http crate v1.0.
+pub struct HeaderExtractor<'a>(pub &'a hyper::HeaderMap);
+
+impl<'a> opentelemetry::propagation::Extractor for HeaderExtractor<'a> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).and_then(|value| value.to_str().ok())
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.0
+            .keys()
+            .map(|value| value.as_str())
+            .collect::<Vec<_>>()
     }
 }

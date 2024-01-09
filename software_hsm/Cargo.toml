@@ -17,9 +17,9 @@ hex = { workspace = true }
 hkdf = { workspace = true }
 hsm_api = { workspace = true }
 hsm_core = { workspace = true }
-http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
+hyper-util = { workspace = true }
 observability = { workspace = true }
 rand = { workspace = true }
 service_core = { workspace = true }

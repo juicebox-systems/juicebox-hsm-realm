@@ -6,6 +6,7 @@ use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use hyper_util::rt::TokioIo;
 use observability::tracing::TracingMiddleware;
 use serde_json::json;
 use service_core::http::ReqwestClientMetrics;
@@ -520,10 +521,11 @@ impl<T: Transport + 'static> Agent<T> {
                     match listener.accept().await {
                         Err(e) => warn!("error accepting connection: {e:?}"),
                         Ok((stream, _)) => {
+                            let io = TokioIo::new(stream);
                             let agent = self.clone();
                             tokio::spawn(async move {
                                 if let Err(e) = http1::Builder::new()
-                                    .serve_connection(stream, TracingMiddleware::new(agent.clone()))
+                                    .serve_connection(io, TracingMiddleware::new(agent.clone()))
                                     .await
                                 {
                                     warn!("error serving connection: {e:?}");
@@ -673,7 +675,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
+    fn call(&self, request: Request<IncomingBody>) -> Self::Future {
         // If the client disconnects while the request processing is still in
         // flight the future we return from this function gets dropped and it
         // won't progress any further than its next .await point. This is
@@ -689,7 +691,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
             async move {
                 let Some(path) = request.uri().path().strip_prefix('/') else {
                     return Ok(Response::builder()
-                        .status(http::StatusCode::NOT_FOUND)
+                        .status(hyper::StatusCode::NOT_FOUND)
                         .body(Full::from(Bytes::new()))
                         .unwrap());
                 };
@@ -734,7 +736,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                         handle_rpc(&agent, request, Self::handle_transfer_statement).await
                     }
                     _ => Ok(Response::builder()
-                        .status(http::StatusCode::NOT_FOUND)
+                        .status(hyper::StatusCode::NOT_FOUND)
                         .body(Full::from(Bytes::new()))
                         .unwrap()),
                 }
@@ -750,7 +752,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                     Err(err) => {
                         warn!(?err, "Agent task failed with error");
                         Ok(Response::builder()
-                            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                            .status(hyper::StatusCode::INTERNAL_SERVER_ERROR)
                             .body(Full::from(Bytes::new()))
                             .unwrap())
                     }
@@ -778,7 +780,7 @@ impl<T: Transport + 'static> Agent<T> {
     async fn handle_livez(&self, _request: Request<IncomingBody>) -> Response<Full<Bytes>> {
         let unavailable_response = |message: Arguments| -> Response<Full<Bytes>> {
             Response::builder()
-                .status(http::StatusCode::SERVICE_UNAVAILABLE)
+                .status(hyper::StatusCode::SERVICE_UNAVAILABLE)
                 .body(Full::from(Bytes::from(format!(
                     "{}\n{}",
                     message,
@@ -807,7 +809,7 @@ impl<T: Transport + 'static> Agent<T> {
         .await
         {
             Ok(Ok(status)) => Response::builder()
-                .status(http::StatusCode::OK)
+                .status(hyper::StatusCode::OK)
                 .body(Full::from(Bytes::from(format!(
                     "hsm id: {:?}\n{}",
                     status.id,

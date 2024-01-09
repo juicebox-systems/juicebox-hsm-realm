@@ -10,7 +10,6 @@ rust-version = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
-http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 juicebox_marshalling = { workspace = true }

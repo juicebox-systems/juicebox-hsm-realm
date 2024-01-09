@@ -10,7 +10,6 @@ rust-version = { workspace = true }
 dogstatsd = { workspace = true }
 hyper = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry-http = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 tracing = { workspace = true }

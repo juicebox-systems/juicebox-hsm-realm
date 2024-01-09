@@ -23,6 +23,7 @@ hsm_api = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
+hyper-util = { workspace = true }
 juicebox_marshalling = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_realm_api = { workspace = true }
