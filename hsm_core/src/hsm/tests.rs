@@ -1058,7 +1058,7 @@ fn can_join_group_already_joined() {
         &mut metrics,
         JoinGroupRequest {
             realm: cluster.realm,
-            group: group,
+            group,
             configuration: members.iter().map(|x| x.0).collect(),
             statement: statement.clone(),
         },
@@ -1083,7 +1083,7 @@ fn can_join_group_already_joined() {
         &mut metrics,
         JoinGroupRequest {
             realm: cluster.realm,
-            group: group,
+            group,
             configuration: members.iter().map(|x| x.0).collect(),
             statement,
         },
