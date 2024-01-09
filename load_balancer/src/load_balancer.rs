@@ -107,7 +107,6 @@ impl LoadBalancer {
         self.start_refresher().await;
 
         let mut config = rustls::ServerConfig::builder()
-            .with_safe_defaults()
             .with_no_client_auth()
             .with_cert_resolver(cert_resolver);
         assert!(config.alpn_protocols.is_empty());

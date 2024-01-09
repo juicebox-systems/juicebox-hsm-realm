@@ -1,13 +1,14 @@
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use once_cell::sync::Lazy;
+use rustls::pki_types::{CertificateDer, ServerName};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::sleep;
-use tokio_rustls::rustls::{self, Certificate, ClientConfig, ServerName};
+use tokio_rustls::rustls::{self, ClientConfig};
 use tokio_rustls::TlsConnector;
 use url::Url;
 
@@ -82,25 +83,29 @@ async fn sighup_reloads_cert() {
 }
 
 // Returns the server certificates reported by the load balancer over https.
-async fn get_server_cert(lb: &Url, root_cert: &Certificates) -> anyhow::Result<Vec<Certificate>> {
+async fn get_server_cert(
+    lb: &Url,
+    root_cert: &Certificates,
+) -> anyhow::Result<Vec<CertificateDer<'static>>> {
     let host = format!("{}:{}", lb.domain().unwrap(), lb.port().unwrap());
     let mut root_certs = rustls::RootCertStore::empty();
-    let cert = rustls::Certificate(fs::read(root_cert.cert_file_der.as_path()).unwrap());
-    root_certs.add(&cert).unwrap();
+    let cert = CertificateDer::from(fs::read(root_cert.cert_file_der.as_path()).unwrap());
+    root_certs.add(cert).unwrap();
 
     let client_config = ClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(root_certs)
         .with_no_client_auth();
-    let connector = TlsConnector::from(Arc::new(client_config));
 
-    let stream = TcpStream::connect(&host).await.unwrap();
-    Ok(connector
-        .connect(ServerName::try_from("localhost").unwrap(), stream)
-        .await?
-        .get_ref()
-        .1
-        .peer_certificates()
-        .unwrap()
-        .to_owned())
+    let tcp_stream = TcpStream::connect(&host).await.unwrap();
+
+    let tls_stream = TlsConnector::from(Arc::new(client_config))
+        .connect(ServerName::try_from("localhost").unwrap(), tcp_stream)
+        .await?;
+
+    let peer_certs = tls_stream.get_ref().1.peer_certificates().unwrap();
+
+    Ok(peer_certs
+        .iter()
+        .map(|cert| cert.clone().into_owned())
+        .collect())
 }
