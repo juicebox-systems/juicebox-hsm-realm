@@ -23,14 +23,14 @@ impl<P: Platform> Hsm<P> {
 
         let leader = match is_group_leader(
             &self.persistent,
-            &mut self.volatile.leader,
+            &mut self.volatile.groups,
             request.realm,
             request.source,
         ) {
             Ok(leader) => leader,
             Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
             Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
-            Err(GroupLeaderError::NotLeader) => return Response::NotLeader,
+            Err(GroupLeaderError::NotLeader(_)) => return Response::NotLeader,
         };
 
         if request.source == request.destination {
@@ -147,14 +147,14 @@ impl<P: Platform> Hsm<P> {
 
         let leader = match is_group_leader(
             &self.persistent,
-            &mut self.volatile.leader,
+            &mut self.volatile.groups,
             request.realm,
             request.destination,
         ) {
             Ok(leader) => leader,
             Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
             Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
-            Err(GroupLeaderError::NotLeader) => return Response::NotLeader,
+            Err(GroupLeaderError::NotLeader(_)) => return Response::NotLeader,
         };
 
         let nonce = create_random_transfer_nonce(&mut self.platform);
@@ -172,14 +172,14 @@ impl<P: Platform> Hsm<P> {
 
         let leader = match is_group_leader(
             &self.persistent,
-            &mut self.volatile.leader,
+            &mut self.volatile.groups,
             request.realm,
             request.source,
         ) {
             Ok(leader) => leader,
             Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
             Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
-            Err(GroupLeaderError::NotLeader) => return Response::NotLeader,
+            Err(GroupLeaderError::NotLeader(_)) => return Response::NotLeader,
         };
 
         if request.source == request.destination {
@@ -221,14 +221,14 @@ impl<P: Platform> Hsm<P> {
 
         let leader = match is_group_leader(
             &self.persistent,
-            &mut self.volatile.leader,
+            &mut self.volatile.groups,
             request.realm,
             request.destination,
         ) {
             Ok(leader) => leader,
             Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
             Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
-            Err(GroupLeaderError::NotLeader) => return Response::NotLeader,
+            Err(GroupLeaderError::NotLeader(_)) => return Response::NotLeader,
         };
 
         if leader.incoming != Some(request.nonce) {
@@ -323,14 +323,14 @@ impl<P: Platform> Hsm<P> {
 
         let leader = match is_group_leader(
             &self.persistent,
-            &mut self.volatile.leader,
+            &mut self.volatile.groups,
             request.realm,
             request.source,
         ) {
             Ok(leader) => leader,
             Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
             Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
-            Err(GroupLeaderError::NotLeader) => return Response::NotLeader,
+            Err(GroupLeaderError::NotLeader(_)) => return Response::NotLeader,
         };
 
         if request.source == request.destination {

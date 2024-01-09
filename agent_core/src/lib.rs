@@ -927,11 +927,11 @@ impl<T: Transport + 'static> Agent<T> {
             // This is useful so that any leadership-related code can safely
             // unwrap the ID.
             assert!(state.hsm_id.is_some());
+            let current = state
+                .roles
+                .entry((realm, group))
+                .or_insert(new_status.clone());
 
-            let current = state.roles.entry((realm, group)).or_insert(RoleStatus {
-                role: GroupMemberRole::Witness,
-                at: RoleLogicalClock(0),
-            });
             if current.at > at && current.role == GroupMemberRole::Witness {
                 // the transition to witness should of already removed any leader state
                 assert!(!state.leader.contains_key(&(realm, group)));
@@ -1873,21 +1873,26 @@ impl<T: Transport + 'static> Agent<T> {
 impl<T> AgentInner<T> {
     fn maybe_role_changed(&self, realm: RealmId, group: GroupId, role_now: hsm_api::RoleStatus) {
         let mut locked = self.state.lock().unwrap();
-        let current = locked.roles.entry((realm, group)).or_insert(RoleStatus {
-            role: GroupMemberRole::Witness,
-            at: RoleLogicalClock(0),
-        });
-        if role_now.at < current.at {
-            warn!(%role_now, %current, "skipping stale state update");
-            return;
-        }
-        if role_now.role != current.role {
-            info!(?group, from=%current, to=%role_now, no_spew=1, "HSM role transitioned");
-        }
-        *current = role_now.clone();
-        // If we've transitioned to witness from leader/stepdown we need to cleanup our leader state.
-        if role_now.role == hsm_api::GroupMemberRole::Witness {
-            locked.leader.remove(&(realm, group));
+        match locked.roles.entry((realm, group)) {
+            Entry::Vacant(ve) => {
+                ve.insert(role_now);
+            }
+            Entry::Occupied(mut oe) => {
+                let current = oe.get_mut();
+                if role_now.at < current.at {
+                    warn!(%role_now, %current, "skipping stale state update");
+                    return;
+                }
+                if role_now.role != current.role {
+                    info!(?group, from=%current, to=%role_now, no_spew=1, "HSM role transitioned");
+                }
+                let is_witness = role_now.role == hsm_api::GroupMemberRole::Witness;
+                *current = role_now;
+                // If we've transitioned to witness from leader/stepdown we need to cleanup our leader state.
+                if is_witness {
+                    locked.leader.remove(&(realm, group));
+                }
+            }
         }
     }
 }

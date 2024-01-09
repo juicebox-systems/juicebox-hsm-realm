@@ -1004,6 +1004,95 @@ fn capture_next_spots_diverged_log_while_stepping_down() {
     assert_eq!(expected, res.abandoned);
 }
 
+#[test]
+fn can_join_realm_already_member_of() {
+    let mut cluster = TestCluster::new(2);
+    let s = cluster.hsms[0].status();
+    let stmt = s.realm.map(|r| r.statement).unwrap();
+    let mut metrics = Metrics::new("test", MetricsAction::Skip, TestPlatform::default());
+    let r = cluster.hsms[1].hsm.handle_join_realm(
+        &mut metrics,
+        JoinRealmRequest {
+            realm: cluster.realm,
+            peer: s.id,
+            statement: stmt,
+        },
+    );
+    assert!(matches!(r, JoinRealmResponse::Ok { hsm: _ }));
+}
+
+#[test]
+fn can_join_group_already_joined() {
+    let mut cluster = TestCluster::new(2);
+    let mut metrics = Metrics::new("test", MetricsAction::Skip, TestPlatform::default());
+
+    let mut members: Vec<(HsmId, HsmRealmStatement)> = cluster
+        .hsms
+        .iter_mut()
+        .map(|h| h.status())
+        .map(|s| (s.id, s.realm.unwrap().statement))
+        .collect();
+    members.sort_by_key(|m| m.0);
+
+    let new_group_response = cluster.hsms[0].hsm.handle_new_group(
+        &mut metrics,
+        NewGroupRequest {
+            realm: cluster.realm,
+            members: members.clone(),
+        },
+    );
+    let NewGroupResponse::Ok {
+        group,
+        statement,
+        entry: log_entry,
+        at: _,
+    } = new_group_response
+    else {
+        panic!("Unexpected response to new group {:?}", new_group_response)
+    };
+    cluster
+        .store
+        .append(group, log_entry.clone(), StoreDelta::default());
+
+    let jr = cluster.hsms[1].hsm.handle_join_group(
+        &mut metrics,
+        JoinGroupRequest {
+            realm: cluster.realm,
+            group: group,
+            configuration: members.iter().map(|x| x.0).collect(),
+            statement: statement.clone(),
+        },
+    );
+    assert!(matches!(jr, JoinGroupResponse::Ok));
+    cluster.capture_next_and_commit_group(group);
+
+    // make hsm[1] leader, this will update its internal role state
+
+    let become_leader_response = cluster.hsms[1].become_leader(cluster.realm, group, log_entry);
+    let BecomeLeaderResponse::Ok {
+        configuration: _,
+        at: leader_at,
+    } = become_leader_response
+    else {
+        panic!("failed to become leader {become_leader_response:?}");
+    };
+    assert!(leader_at > RoleLogicalClock::start());
+
+    // telling it to join a group its already a member of shouldn't overwrite its existing role state.
+    let jr = cluster.hsms[1].hsm.handle_join_group(
+        &mut metrics,
+        JoinGroupRequest {
+            realm: cluster.realm,
+            group: group,
+            configuration: members.iter().map(|x| x.0).collect(),
+            statement,
+        },
+    );
+    assert!(matches!(jr, JoinGroupResponse::Ok));
+    let r = cluster.hsms[1].hsm.volatile.groups.get(&group).unwrap();
+    assert_eq!(r.1, leader_at);
+}
+
 fn unpack_app_response(r: &AppResponse) -> (LogEntry, StoreDelta<DataHash>) {
     if let AppResponse::Ok { entry, delta } = r {
         (entry.clone(), delta.clone())

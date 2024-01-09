@@ -5,16 +5,16 @@ use core::cmp::max;
 use hashbrown::hash_map::Entry;
 use tracing::{info, instrument, trace, warn};
 
-use crate::hsm::GroupMemberError;
-
 use super::super::hal::Platform;
 use super::mac::{CapturedStatementMessage, CtMac, EntryMacMessage};
-use super::{is_group_member, Hsm, LeaderLog, Metrics, StepDownPoint};
+use super::{
+    is_group_member, GroupMemberError, Hsm, LeaderLog, Metrics, RoleState, RoleVolatileState,
+    StepDownPoint,
+};
 use election::HsmElection;
 use hsm_api::{
     CaptureJumpRequest, CaptureJumpResponse, CaptureNextRequest, CaptureNextResponse, Captured,
-    CommitRequest, CommitResponse, CommitState, EntryMac, GroupMemberRole, LogEntry, LogIndex,
-    RoleStatus,
+    CommitRequest, CommitResponse, CommitState, EntryMac, LogEntry, LogIndex,
 };
 
 impl<P: Platform> Hsm<P> {
@@ -33,15 +33,17 @@ impl<P: Platform> Hsm<P> {
         }
 
         let role = self
-            .current_role(&request.jump.group)
+            .volatile
+            .groups
+            .get(&request.jump.group)
             .expect("group member must have role");
-        if role.role != GroupMemberRole::Witness {
+        if !matches!(role.0, RoleVolatileState::Witness) {
             // Agents try to avoid compacting log entries needed for leaders
             // and stepping down, so we don't expect to get here. It's easier
             // to bail than to deal with the jump entry not agreeing with the
             // leader/stepdown log (which would sometimes require log entries
             // that have already been compacted).
-            return Response::NotWitness(role);
+            return Response::NotWitness(role.status());
         }
 
         if self
@@ -121,7 +123,9 @@ impl<P: Platform> Hsm<P> {
             }
             v.insert((entry.index, entry.entry_mac.clone()));
 
-            if let Some(ls) = self.volatile.leader.get_mut(&request.group) {
+            if let Some(RoleState(RoleVolatileState::Leader(ls), _)) =
+                self.volatile.groups.get_mut(&request.group)
+            {
                 // If while leading another HSM becomes leader and writes a log
                 // entry, the actual persisted log diverges from our in-memory
                 // copy of the log.
@@ -159,7 +163,9 @@ impl<P: Platform> Hsm<P> {
             // stepping down log. The commit handler can then successfully
             // process a request that is after the stepdown index and complete
             // the stepdown.
-            if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
+            if let Some(RoleState(RoleVolatileState::SteppingDown(sd), _)) =
+                self.volatile.groups.get_mut(&request.group)
+            {
                 let status = has_log_diverged(&sd.log, &entry);
                 match status {
                     LogEntryStatus::Ok | LogEntryStatus::PriorIndex => {}
@@ -190,8 +196,11 @@ impl<P: Platform> Hsm<P> {
             }
         }
         Response::Ok(
-            self.current_role(&request.group)
-                .expect("We already validated that this HSM is a member of the group"),
+            self.volatile
+                .groups
+                .get(&request.group)
+                .expect("We already validated that this HSM is a member of the group")
+                .status(),
         )
     }
 
@@ -209,17 +218,19 @@ impl<P: Platform> Hsm<P> {
             Err(GroupMemberError::InvalidGroup) => return Response::InvalidGroup,
         };
 
-        let (log, committed) = match self.volatile.leader.get_mut(&request.group) {
-            Some(leader) => (&mut leader.log, &mut leader.committed),
-            None => match self.volatile.stepping_down.get_mut(&request.group) {
-                Some(steppingdown) => (&mut steppingdown.log, &mut steppingdown.committed),
-                None => {
-                    return Response::NotLeader(RoleStatus {
-                        role: GroupMemberRole::Witness,
-                        at: self.role_clock(&request.group),
-                    })
-                }
-            },
+        let (log, committed) = match self
+            .volatile
+            .groups
+            .get_mut(&request.group)
+            .expect("already validated that this HSM is a member of the group")
+        {
+            RoleState(RoleVolatileState::Leader(leader), _) => {
+                (&mut leader.log, &mut leader.committed)
+            }
+            RoleState(RoleVolatileState::SteppingDown(steppingdown), _) => {
+                (&mut steppingdown.log, &mut steppingdown.committed)
+            }
+            role => return Response::NotLeader(role.status()),
         };
 
         let mut election = HsmElection::new(group_config);
@@ -301,33 +312,24 @@ impl<P: Platform> Hsm<P> {
 
         // See if we're finished stepping down.
         let mut abandoned = Vec::new();
-        let role = if let Some(sd) = self.volatile.stepping_down.get_mut(&request.group) {
+        let role = self
+            .volatile
+            .groups
+            .get_mut(&request.group)
+            .expect("we already validated this HSM is a member of the group");
+        if let RoleState(RoleVolatileState::SteppingDown(sd), _) = role {
             core::mem::swap(&mut abandoned, &mut sd.abandoned);
             if commit_index >= sd.stepdown_at {
                 info!(group=?request.group, hsm=self.options.name, "Completed leader stepdown");
-                self.volatile.stepping_down.remove(&request.group);
-                RoleStatus {
-                    role: GroupMemberRole::Witness,
-                    at: self.tick_role_clock(request.group),
-                }
-            } else {
-                RoleStatus {
-                    role: GroupMemberRole::SteppingDown,
-                    at: self.role_clock(&request.group),
-                }
+                role.make_witness();
             }
-        } else {
-            RoleStatus {
-                role: GroupMemberRole::Leader,
-                at: self.role_clock(&request.group),
-            }
-        };
+        }
 
         Response::Ok(CommitState {
             committed: commit_index,
             responses,
             abandoned,
-            role,
+            role: role.status(),
         })
     }
 }

@@ -590,11 +590,15 @@ impl From<CtBytes<32>> for TransferStatement {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-pub struct RoleLogicalClock(pub u64);
+pub struct RoleLogicalClock(u64);
 
 impl RoleLogicalClock {
-    pub fn tick(&mut self) {
-        self.0 += 1;
+    pub fn start() -> Self {
+        Self(1)
+    }
+
+    pub fn next(&self) -> Self {
+        Self(self.0 + 1)
     }
 }
 
