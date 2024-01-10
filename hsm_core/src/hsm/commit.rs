@@ -2,6 +2,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use core::cmp::max;
+use core::mem;
 use hashbrown::hash_map::Entry;
 use tracing::{info, instrument, trace, warn};
 
@@ -318,7 +319,7 @@ impl<P: Platform> Hsm<P> {
             .get_mut(&request.group)
             .expect("we already validated this HSM is a member of the group");
         if let RoleState(RoleVolatileState::SteppingDown(sd), _) = role {
-            core::mem::swap(&mut abandoned, &mut sd.abandoned);
+            abandoned = mem::take(&mut sd.abandoned);
             if commit_index >= sd.stepdown_at {
                 info!(group=?request.group, hsm=self.options.name, "Completed leader stepdown");
                 role.make_witness();

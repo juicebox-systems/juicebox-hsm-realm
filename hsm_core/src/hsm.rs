@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 use blake2::Blake2s256;
 use chacha20poly1305::aead::Aead;
 use core::fmt::{Debug, Display};
+use core::mem;
 use core::time::Duration;
 use digest::Digest;
 use hsm_api::merkle::StoreDelta;
@@ -248,9 +249,8 @@ impl RoleState {
         if Self::have_same_role(&self.0, &next) {
             None
         } else {
-            let mut n = RoleState(next, self.1.next());
-            core::mem::swap(&mut n, self);
-            Some(n)
+            let n = RoleState(next, self.1.next());
+            Some(mem::replace(self, n))
         }
     }
 
@@ -1175,8 +1175,7 @@ impl<P: Platform> Hsm<P> {
             let e = leader.log.pop_last();
             abandoned.push(e.entry.entry_mac);
         }
-        let mut log = LeaderLog(VecDeque::new());
-        core::mem::swap(&mut log, &mut leader.log);
+        let log = mem::replace(&mut leader.log, LeaderLog(VecDeque::new()));
 
         let sd = SteppingDownVolatileGroupState {
             log,
