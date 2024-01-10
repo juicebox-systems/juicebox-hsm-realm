@@ -16,7 +16,7 @@ use async_util::ScopedTask;
 use google::{auth, GrpcConnectionOptions};
 use juicebox_networking::reqwest;
 use juicebox_realm_auth::creation::create_token;
-use juicebox_realm_auth::{AuthKey, AuthKeyAlgorithm, AuthKeyVersion, Claims, Scope};
+use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
 use juicebox_sdk::{
     AuthToken, Configuration, Pin, PinHashingMode, Policy, RealmId, RecoverError, TokioSleeper,
     UserInfo, UserSecret, JUICEBOX_VERSION_HEADER, VERSION,
@@ -126,7 +126,7 @@ async fn run(args: Args) -> anyhow::Result<usize> {
         configuration.pin_hashing_mode = PinHashingMode::FastInsecure;
     }
 
-    let (auth_key, auth_key_algorithm, auth_key_version) =
+    let (auth_key, auth_key_version) =
         get_auth_key(&args.tenant, &args.secrets_file, &args.gcp_project)
             .await
             .with_context(|| format!("failed to get auth key for tenant {:?}", args.tenant))?;
@@ -158,7 +158,6 @@ async fn run(args: Args) -> anyhow::Result<usize> {
         configuration,
         tenant: args.tenant,
         auth_key,
-        auth_key_algorithm,
         auth_key_version,
         user_prefix: args.user_prefix,
     });
@@ -283,7 +282,6 @@ async fn run_op(op: Operation, i: u64, client_builder: Arc<ClientBuilder>) -> Re
             i,
             &AuthKey::from(b"invalid".to_vec()),
             AuthKeyVersion(1),
-            AuthKeyAlgorithm::HS256,
         )
     } else {
         client_builder.build(i)
@@ -355,18 +353,12 @@ struct ClientBuilder {
     tenant: String,
     auth_key_version: AuthKeyVersion,
     auth_key: AuthKey,
-    auth_key_algorithm: AuthKeyAlgorithm,
     user_prefix: String,
 }
 
 impl ClientBuilder {
     fn build(&self, user_num: u64) -> Client {
-        self.build_with_auth_key(
-            user_num,
-            &self.auth_key,
-            self.auth_key_version,
-            self.auth_key_algorithm,
-        )
+        self.build_with_auth_key(user_num, &self.auth_key, self.auth_key_version)
     }
 
     fn build_with_auth_key(
@@ -374,7 +366,6 @@ impl ClientBuilder {
         user_num: u64,
         auth_key: &AuthKey,
         auth_key_version: AuthKeyVersion,
-        auth_key_algorithm: AuthKeyAlgorithm,
     ) -> Client {
         let auth_tokens: HashMap<RealmId, AuthToken> = self
             .configuration
@@ -392,7 +383,6 @@ impl ClientBuilder {
                         },
                         auth_key,
                         auth_key_version,
-                        auth_key_algorithm,
                     ),
                 )
             })
@@ -418,7 +408,7 @@ async fn get_auth_key(
     tenant: &str,
     secrets_file: &Option<PathBuf>,
     gcp_project: &Option<String>,
-) -> anyhow::Result<(AuthKey, AuthKeyAlgorithm, AuthKeyVersion)> {
+) -> anyhow::Result<(AuthKey, AuthKeyVersion)> {
     if !tenant.starts_with("test-") {
         return Err(anyhow!("tenant must start with 'test-'"));
     }
@@ -458,9 +448,5 @@ async fn get_auth_key(
         .await
         .context("could not get secrets for tenant")?
         .ok_or_else(|| anyhow!("could not find any secret versions for tenant"))?;
-    Ok((
-        secret.auth_key(),
-        secret.auth_key_algorithm(),
-        version.into(),
-    ))
+    Ok((secret.into(), version.into()))
 }

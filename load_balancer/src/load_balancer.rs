@@ -536,16 +536,10 @@ async fn handle_client_request_inner(
         .get_secret_version(&tenant_secret_name(&tenant), version.into())
         .await
     {
-        Ok(Some(secret)) => {
-            match validator.validate(
-                &request.auth_token,
-                &secret.auth_key(),
-                &secret.auth_key_algorithm(),
-            ) {
-                Ok(claims) => claims,
-                Err(_) => return Response::InvalidAuth,
-            }
-        }
+        Ok(Some(key)) => match validator.validate(&request.auth_token, &key.into()) {
+            Ok(claims) => claims,
+            Err(_) => return Response::InvalidAuth,
+        },
         Ok(None) => return Response::InvalidAuth,
         Err(err) => {
             warn!(?tenant, ?version, ?err, "failed to get tenant key secret");

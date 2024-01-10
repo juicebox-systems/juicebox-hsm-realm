@@ -11,7 +11,7 @@ mod secrets_file;
 
 use google::GrpcConnectionOptions;
 use juicebox_realm_api::types::SecretBytesVec;
-use juicebox_realm_auth::{AuthKey, AuthKeyAlgorithm, AuthKeyVersion};
+use juicebox_realm_auth::{AuthKey, AuthKeyVersion};
 use observability::metrics;
 
 pub use anyhow::Error;
@@ -20,77 +20,38 @@ pub use periodic::{BulkLoad, Periodic};
 pub use secrets_file::SecretsFile;
 
 /// A value that should remain confidential.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum Secret {
     Raw(SecretBytesVec),
-    AuthKey {
-        key: SecretBytesVec,
-        algorithm: AuthKeyAlgorithm,
-    },
-}
-
-#[derive(Debug, Deserialize)]
-pub enum SecretEncoding {
-    Hex,
-    UTF8,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SecretAuthKeyJSON {
-    pub key: String,
-    pub encoding: SecretEncoding,
-    pub algorithm: AuthKeyAlgorithm,
+    AuthKey(AuthKey),
 }
 
 impl Secret {
     pub fn expose_secret(&self) -> &[u8] {
         match self {
             Self::Raw(secret) => secret.expose_secret(),
-            Self::AuthKey { key, .. } => key.expose_secret(),
+            Self::AuthKey(key) => key.expose_secret(),
         }
     }
+}
 
-    pub fn auth_key(&self) -> AuthKey {
-        match self {
-            Secret::AuthKey { key, .. } => AuthKey(key.clone()),
-            Secret::Raw(key) => AuthKey(key.clone()),
-        }
-    }
-
-    /// Returns the [AuthKeyAlgorithm] for this secret. Raw secrets will always default
-    /// to HS256.
-    pub fn auth_key_algorithm(&self) -> AuthKeyAlgorithm {
-        match self {
-            Secret::AuthKey { algorithm, .. } => algorithm.to_owned(),
-            Secret::Raw(_) => AuthKeyAlgorithm::HS256,
+impl From<Secret> for AuthKey {
+    fn from(value: Secret) -> Self {
+        match value {
+            Secret::AuthKey(key) => key,
+            Secret::Raw(secret) => AuthKey::from(secret),
         }
     }
 }
 
 impl From<Vec<u8>> for Secret {
-    /// If the secret data is a JSON string in the format of [SecretAuthKeyJSON],
-    /// parse the string and return a `Secret::AuthKey`, otherwise treat the secret
-    /// as `Raw` data.
+    /// Attempts to treat the provided `value` as AuthKey JSON data, but if
+    /// it can not successfully be parsed falls back to a `Raw` value.
     fn from(value: Vec<u8>) -> Self {
-        match std::str::from_utf8(&value) {
-            Ok(str) => {
-                if let Ok(json) = serde_json::from_str::<SecretAuthKeyJSON>(str) {
-                    let auth_key = match json.encoding {
-                        SecretEncoding::Hex => match hex::decode(json.key) {
-                            Ok(vec) => vec,
-                            Err(_) => return Self::Raw(SecretBytesVec::from(value)),
-                        },
-                        SecretEncoding::UTF8 => json.key.as_bytes().to_vec(),
-                    };
-                    Self::AuthKey {
-                        key: SecretBytesVec::from(auth_key),
-                        algorithm: json.algorithm,
-                    }
-                } else {
-                    Self::Raw(SecretBytesVec::from(value))
-                }
-            }
-            Err(_) => Self::Raw(SecretBytesVec::from(value)),
+        if let Ok(auth_key) = AuthKey::from_json(&value) {
+            Self::AuthKey(auth_key)
+        } else {
+            Self::Raw(SecretBytesVec::from(value))
         }
     }
 }

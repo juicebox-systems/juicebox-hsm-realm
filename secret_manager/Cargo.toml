@@ -13,7 +13,6 @@ async_util = { workspace = true }
 futures = { workspace = true }
 gcp_auth = { workspace = true }
 google = { workspace = true }
-hex = { workspace = true }
 http = { workspace = true }
 juicebox_realm_api = { workspace = true }
 juicebox_realm_auth = { workspace = true }
