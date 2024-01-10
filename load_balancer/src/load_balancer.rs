@@ -75,13 +75,15 @@ impl LoadBalancer {
             .get_latest_secret_version(&record_id_randomization_key_name())
             .await?
             .ok_or_else(|| anyhow!("missing secret: {}", record_id_randomization_key_name().0))?;
-        let record_id_randomization_key = SecretBytesArray::try_from(record_id_randomization_key.0)
-            .map_err(|_| {
-                anyhow!(
-                    "secret {:?} has invalid length: need 32 bytes",
-                    record_id_randomization_key_name().0
-                )
-            })?;
+        let record_id_randomization_key = SecretBytesArray::try_from(
+            record_id_randomization_key.expose_secret(),
+        )
+        .map_err(|_| {
+            anyhow!(
+                "secret {:?} has invalid length: need 32 bytes",
+                record_id_randomization_key_name().0
+            )
+        })?;
 
         Ok(Self(Arc::new(State {
             name,
@@ -534,10 +536,16 @@ async fn handle_client_request_inner(
         .get_secret_version(&tenant_secret_name(&tenant), version.into())
         .await
     {
-        Ok(Some(key)) => match validator.validate(&request.auth_token, &key.into()) {
-            Ok(claims) => claims,
-            Err(_) => return Response::InvalidAuth,
-        },
+        Ok(Some(secret)) => {
+            match validator.validate(
+                &request.auth_token,
+                &secret.auth_key(),
+                &secret.auth_key_algorithm(),
+            ) {
+                Ok(claims) => claims,
+                Err(_) => return Response::InvalidAuth,
+            }
+        }
         Ok(None) => return Response::InvalidAuth,
         Err(err) => {
             warn!(?tenant, ?version, ?err, "failed to get tenant key secret");

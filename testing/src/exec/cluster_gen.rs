@@ -22,7 +22,7 @@ use juicebox_networking::reqwest;
 use juicebox_networking::rpc::{self};
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_auth::creation::create_token;
-use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
+use juicebox_realm_auth::{AuthKey, AuthKeyAlgorithm, AuthKeyVersion, Claims, Scope};
 use juicebox_sdk::{
     AuthToken, Client, ClientBuilder, Configuration, PinHashingMode, Realm, RealmId, TokioSleeper,
 };
@@ -61,6 +61,7 @@ pub struct ClusterResult {
     pub tenant: String,
     pub auth_key_version: AuthKeyVersion,
     pub auth_key: AuthKey,
+    pub auth_key_algorithm: AuthKeyAlgorithm,
 
     pub store: StoreClient,
     pub cluster_managers: Vec<Url>,
@@ -111,6 +112,7 @@ impl ClusterResult {
                         },
                         &self.auth_key,
                         self.auth_key_version,
+                        self.auth_key_algorithm,
                     ),
                 )
             })
@@ -209,11 +211,17 @@ pub async fn create_cluster(
     };
 
     let tenant = "test-acme";
-    let (auth_key_version, auth_key) = secret_manager
+    let (auth_key_version, auth_key, auth_key_algorithm) = secret_manager
         .get_latest_secret_version(&tenant_secret_name(tenant))
         .await
         .unwrap_or_else(|e| panic!("failed to get tenant {tenant:?} auth key: {e}"))
-        .map(|(version, key)| (version.into(), key.into()))
+        .map(|(version, secret)| {
+            (
+                version.into(),
+                secret.auth_key(),
+                secret.auth_key_algorithm(),
+            )
+        })
         .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 
     let (lb_urls, certificates) = create_load_balancers(&args, process_group, &ports);
@@ -251,6 +259,7 @@ pub async fn create_cluster(
         tenant: tenant.to_owned(),
         auth_key_version,
         auth_key,
+        auth_key_algorithm,
         store,
         cluster_managers,
         pubsub: pubsub_url,

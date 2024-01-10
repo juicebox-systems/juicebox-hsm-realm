@@ -300,11 +300,17 @@ async fn main() {
     };
 
     let tenant = "test-acme";
-    let (auth_key_version, auth_key) = secret_manager
+    let (auth_key_version, auth_key, auth_key_algorithm) = secret_manager
         .get_latest_secret_version(&tenant_secret_name(tenant))
         .await
         .unwrap_or_else(|e| panic!("failed to get tenant {tenant:?} auth key: {e}"))
-        .map(|(version, key)| (version.into(), key.into()))
+        .map(|(version, secret)| {
+            (
+                version.into(),
+                secret.auth_key(),
+                secret.auth_key_algorithm(),
+            )
+        })
         .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 
     let auth_tokens: HashMap<RealmId, AuthToken> = configuration
@@ -322,6 +328,7 @@ async fn main() {
                     },
                     &auth_key,
                     auth_key_version,
+                    auth_key_algorithm,
                 ),
             )
         })

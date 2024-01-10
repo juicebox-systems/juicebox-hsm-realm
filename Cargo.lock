@@ -3020,6 +3020,7 @@ dependencies = [
  "futures",
  "gcp_auth",
  "google",
+ "hex",
  "http 0.2.11",
  "juicebox_realm_api",
  "juicebox_realm_auth",
