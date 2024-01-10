@@ -223,12 +223,13 @@ impl<P: Platform> Hsm<P> {
             Err(GroupMemberError::InvalidGroup) => return Response::InvalidGroup,
         };
 
-        let (log, committed) = match self
+        let role = self
             .volatile
             .groups
             .get_mut(&request.group)
-            .expect("already validated that this HSM is a member of the group")
-        {
+            .expect("already validated that this HSM is a member of the group");
+
+        let (log, committed) = match role {
             RoleState {
                 state: RoleVolatileState::Leader(leader),
                 ..
@@ -319,11 +320,6 @@ impl<P: Platform> Hsm<P> {
 
         // See if we're finished stepping down.
         let mut abandoned = Vec::new();
-        let role = self
-            .volatile
-            .groups
-            .get_mut(&request.group)
-            .expect("we already validated this HSM is a member of the group");
         if let RoleState {
             state: RoleVolatileState::SteppingDown(sd),
             ..

@@ -751,12 +751,7 @@ impl<P: Platform> Hsm<P> {
                                 }),
                                 _ => None,
                             },
-                            role: self
-                                .volatile
-                                .groups
-                                .get(group_id)
-                                .expect("we know we're a member of this group")
-                                .status(),
+                            role: role.status(),
                         }
                     })
                     .collect(),
@@ -1053,12 +1048,13 @@ impl<P: Platform> Hsm<P> {
             Ok(group_state) => group_state,
         };
 
-        if self
+        let role = self
             .volatile
             .groups
-            .get(&request.group)
-            .is_some_and(|r| matches!(r.state, RoleVolatileState::SteppingDown(_)))
-        {
+            .get_mut(&request.group)
+            .expect("already validated HSM member of this group");
+
+        if matches!(role.state, RoleVolatileState::SteppingDown(_)) {
             return Response::StepdownInProgress;
         }
 
@@ -1088,12 +1084,6 @@ impl<P: Platform> Hsm<P> {
                 group_state.configuration.to_vec()
             }
         };
-
-        let role = self
-            .volatile
-            .groups
-            .get_mut(&request.group)
-            .expect("already validated HSM member of this group");
 
         // make_leader is a no-op if we're already leading
         role.make_leader(LeaderVolatileGroupState::new(
