@@ -229,16 +229,12 @@ impl<P: Platform> Hsm<P> {
             .get_mut(&request.group)
             .expect("already validated that this HSM is a member of the group");
 
-        let (log, committed) = match role {
-            RoleState {
-                state: RoleVolatileState::Leader(leader),
-                ..
-            } => (&mut leader.log, &mut leader.committed),
-            RoleState {
-                state: RoleVolatileState::SteppingDown(steppingdown),
-                ..
-            } => (&mut steppingdown.log, &mut steppingdown.committed),
-            role => return Response::NotLeader(role.status()),
+        let (log, committed) = match &mut role.state {
+            RoleVolatileState::Leader(leader) => (&mut leader.log, &mut leader.committed),
+            RoleVolatileState::SteppingDown(steppingdown) => {
+                (&mut steppingdown.log, &mut steppingdown.committed)
+            }
+            RoleVolatileState::Witness => return Response::NotLeader(role.status()),
         };
 
         let mut election = HsmElection::new(group_config);
@@ -320,11 +316,7 @@ impl<P: Platform> Hsm<P> {
 
         // See if we're finished stepping down.
         let mut abandoned = Vec::new();
-        if let RoleState {
-            state: RoleVolatileState::SteppingDown(sd),
-            ..
-        } = role
-        {
+        if let RoleVolatileState::SteppingDown(sd) = &mut role.state {
             abandoned = mem::take(&mut sd.abandoned);
             if commit_index >= sd.stepdown_at {
                 info!(group=?request.group, hsm=self.options.name, "Completed leader stepdown");

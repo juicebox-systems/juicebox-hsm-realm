@@ -1113,20 +1113,10 @@ impl<P: Platform> Hsm<P> {
                         .groups
                         .get_mut(&request.group)
                         .expect("we already validated the HSM is a member of this group");
-                    let last = match role.make_witness() {
-                        Some(RoleState {
-                            state: RoleVolatileState::Leader(leader),
-                            ..
-                        }) => leader.log.last_index(),
-                        Some(RoleState {
-                            state: RoleVolatileState::SteppingDown(sd),
-                            ..
-                        }) => sd.stepdown_at,
-                        Some(RoleState {
-                            state: RoleVolatileState::Witness,
-                            ..
-                        })
-                        | None => {
+                    let last = match role.make_witness().map(|r| r.state) {
+                        Some(RoleVolatileState::Leader(leader)) => leader.log.last_index(),
+                        Some(RoleVolatileState::SteppingDown(sd)) => sd.stepdown_at,
+                        Some(RoleVolatileState::Witness) | None => {
                             // already witness
                             return Response::NotLeader(role.status());
                         }
@@ -1152,11 +1142,9 @@ impl<P: Platform> Hsm<P> {
             Some(role) => role,
             None => return StepDownResponse::InvalidGroup,
         };
-        let leader = match role {
-            RoleState {
-                state: RoleVolatileState::Leader(leader),
-                ..
-            } => leader,
+
+        let leader = match &mut role.state {
+            RoleVolatileState::Leader(leader) => leader,
             _ => return StepDownResponse::NotLeader(role.status()),
         };
 
