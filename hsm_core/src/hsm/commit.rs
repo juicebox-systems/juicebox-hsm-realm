@@ -38,7 +38,7 @@ impl<P: Platform> Hsm<P> {
             .groups
             .get(&request.jump.group)
             .expect("group member must have role");
-        if !matches!(role.0, RoleVolatileState::Witness) {
+        if !matches!(role.state, RoleVolatileState::Witness) {
             // Agents try to avoid compacting log entries needed for leaders
             // and stepping down, so we don't expect to get here. It's easier
             // to bail than to deal with the jump entry not agreeing with the
@@ -124,8 +124,10 @@ impl<P: Platform> Hsm<P> {
             }
             v.insert((entry.index, entry.entry_mac.clone()));
 
-            if let Some(RoleState(RoleVolatileState::Leader(ls), _)) =
-                self.volatile.groups.get_mut(&request.group)
+            if let Some(RoleState {
+                state: RoleVolatileState::Leader(ls),
+                ..
+            }) = self.volatile.groups.get_mut(&request.group)
             {
                 // If while leading another HSM becomes leader and writes a log
                 // entry, the actual persisted log diverges from our in-memory
@@ -164,8 +166,10 @@ impl<P: Platform> Hsm<P> {
             // stepping down log. The commit handler can then successfully
             // process a request that is after the stepdown index and complete
             // the stepdown.
-            if let Some(RoleState(RoleVolatileState::SteppingDown(sd), _)) =
-                self.volatile.groups.get_mut(&request.group)
+            if let Some(RoleState {
+                state: RoleVolatileState::SteppingDown(sd),
+                ..
+            }) = self.volatile.groups.get_mut(&request.group)
             {
                 let status = has_log_diverged(&sd.log, &entry);
                 match status {
@@ -225,12 +229,14 @@ impl<P: Platform> Hsm<P> {
             .get_mut(&request.group)
             .expect("already validated that this HSM is a member of the group")
         {
-            RoleState(RoleVolatileState::Leader(leader), _) => {
-                (&mut leader.log, &mut leader.committed)
-            }
-            RoleState(RoleVolatileState::SteppingDown(steppingdown), _) => {
-                (&mut steppingdown.log, &mut steppingdown.committed)
-            }
+            RoleState {
+                state: RoleVolatileState::Leader(leader),
+                ..
+            } => (&mut leader.log, &mut leader.committed),
+            RoleState {
+                state: RoleVolatileState::SteppingDown(steppingdown),
+                ..
+            } => (&mut steppingdown.log, &mut steppingdown.committed),
             role => return Response::NotLeader(role.status()),
         };
 
@@ -318,7 +324,11 @@ impl<P: Platform> Hsm<P> {
             .groups
             .get_mut(&request.group)
             .expect("we already validated this HSM is a member of the group");
-        if let RoleState(RoleVolatileState::SteppingDown(sd), _) = role {
+        if let RoleState {
+            state: RoleVolatileState::SteppingDown(sd),
+            ..
+        } = role
+        {
             abandoned = mem::take(&mut sd.abandoned);
             if commit_index >= sd.stepdown_at {
                 info!(group=?request.group, hsm=self.options.name, "Completed leader stepdown");

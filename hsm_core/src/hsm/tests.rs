@@ -1090,7 +1090,7 @@ fn can_join_group_already_joined() {
     );
     assert!(matches!(jr, JoinGroupResponse::Ok));
     let r = cluster.hsms[1].hsm.volatile.groups.get(&group).unwrap();
-    assert_eq!(r.1, leader_at);
+    assert_eq!(r.at, leader_at);
 }
 
 fn unpack_app_response(r: &AppResponse) -> (LogEntry, StoreDelta<DataHash>) {

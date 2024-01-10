@@ -224,7 +224,10 @@ struct VolatileState {
     groups: HashMap<GroupId, RoleState>,
 }
 
-struct RoleState(RoleVolatileState, RoleLogicalClock);
+struct RoleState {
+    state: RoleVolatileState,
+    at: RoleLogicalClock,
+}
 
 impl RoleState {
     // Update role to Witness, returning the prior state if not currently in
@@ -246,10 +249,13 @@ impl RoleState {
     }
 
     fn role_transition(&mut self, next: RoleVolatileState) -> Option<RoleState> {
-        if Self::have_same_role(&self.0, &next) {
+        if Self::have_same_role(&self.state, &next) {
             None
         } else {
-            let n = RoleState(next, self.1.next());
+            let n = RoleState {
+                state: next,
+                at: self.at.next(),
+            };
             Some(mem::replace(self, n))
         }
     }
@@ -265,18 +271,18 @@ impl RoleState {
     }
 
     fn status(&self) -> RoleStatus {
-        match self.0 {
+        match self.state {
             RoleVolatileState::Leader(_) => RoleStatus {
                 role: GroupMemberRole::Leader,
-                at: self.1,
+                at: self.at,
             },
             RoleVolatileState::SteppingDown(_) => RoleStatus {
                 role: GroupMemberRole::SteppingDown,
-                at: self.1,
+                at: self.at,
             },
             RoleVolatileState::Witness => RoleStatus {
                 role: GroupMemberRole::Witness,
-                at: self.1,
+                at: self.at,
             },
         }
     }
@@ -590,7 +596,10 @@ impl<P: Platform> Hsm<P> {
             .map(|g| {
                 (
                     *g.0,
-                    RoleState(RoleVolatileState::Witness, RoleLogicalClock::start()),
+                    RoleState {
+                        state: RoleVolatileState::Witness,
+                        at: RoleLogicalClock::start(),
+                    },
                 )
             })
             .collect();
@@ -729,7 +738,7 @@ impl<P: Platform> Hsm<P> {
                             id: *group_id,
                             configuration: group.configuration.to_vec(),
                             captured: group.captured.clone(),
-                            leader: match &role.0 {
+                            leader: match &role.state {
                                 RoleVolatileState::Leader(leader) => Some(LeaderStatus {
                                     committed: leader.committed,
                                     owned_range: leader
@@ -805,13 +814,13 @@ impl<P: Platform> Hsm<P> {
         let clock = RoleLogicalClock::start();
         self.volatile.groups.insert(
             group,
-            RoleState(
-                RoleVolatileState::Leader(LeaderVolatileGroupState::new(
+            RoleState {
+                state: RoleVolatileState::Leader(LeaderVolatileGroupState::new(
                     entry.clone(),
                     &self.options,
                 )),
-                clock,
-            ),
+                at: clock,
+            },
         );
 
         Response::Ok {
@@ -952,13 +961,13 @@ impl<P: Platform> Hsm<P> {
         let clock = RoleLogicalClock::start();
         self.volatile.groups.insert(
             group,
-            RoleState(
-                RoleVolatileState::Leader(LeaderVolatileGroupState::new(
+            RoleState {
+                state: RoleVolatileState::Leader(LeaderVolatileGroupState::new(
                     entry.clone(),
                     &self.options,
                 )),
-                clock,
-            ),
+                at: clock,
+            },
         );
         Response::Ok {
             group,
@@ -1019,10 +1028,10 @@ impl<P: Platform> Hsm<P> {
         self.volatile
             .groups
             .entry(request.group)
-            .or_insert(RoleState(
-                RoleVolatileState::Witness,
-                RoleLogicalClock::start(),
-            ));
+            .or_insert(RoleState {
+                state: RoleVolatileState::Witness,
+                at: RoleLogicalClock::start(),
+            });
         Response::Ok
     }
 
@@ -1048,7 +1057,7 @@ impl<P: Platform> Hsm<P> {
             .volatile
             .groups
             .get(&request.group)
-            .is_some_and(|r| matches!(r.0, RoleVolatileState::SteppingDown(_)))
+            .is_some_and(|r| matches!(r.state, RoleVolatileState::SteppingDown(_)))
         {
             return Response::StepdownInProgress;
         }
@@ -1094,7 +1103,7 @@ impl<P: Platform> Hsm<P> {
 
         Response::Ok {
             configuration,
-            at: role.1,
+            at: role.at,
         }
     }
 
@@ -1115,11 +1124,19 @@ impl<P: Platform> Hsm<P> {
                         .get_mut(&request.group)
                         .expect("we already validated the HSM is a member of this group");
                     let last = match role.make_witness() {
-                        Some(RoleState(RoleVolatileState::Leader(leader), _)) => {
-                            leader.log.last_index()
-                        }
-                        Some(RoleState(RoleVolatileState::SteppingDown(sd), _)) => sd.stepdown_at,
-                        Some(RoleState(RoleVolatileState::Witness, _)) | None => {
+                        Some(RoleState {
+                            state: RoleVolatileState::Leader(leader),
+                            ..
+                        }) => leader.log.last_index(),
+                        Some(RoleState {
+                            state: RoleVolatileState::SteppingDown(sd),
+                            ..
+                        }) => sd.stepdown_at,
+                        Some(RoleState {
+                            state: RoleVolatileState::Witness,
+                            ..
+                        })
+                        | None => {
                             // already witness
                             return Response::NotLeader(role.status());
                         }
@@ -1146,7 +1163,10 @@ impl<P: Platform> Hsm<P> {
             None => return StepDownResponse::InvalidGroup,
         };
         let leader = match role {
-            RoleState(RoleVolatileState::Leader(leader), _) => leader,
+            RoleState {
+                state: RoleVolatileState::Leader(leader),
+                ..
+            } => leader,
             _ => return StepDownResponse::NotLeader(role.status()),
         };
 
@@ -1373,7 +1393,10 @@ fn is_group_leader<'a>(
 ) -> Result<&'a mut LeaderVolatileGroupState, GroupLeaderError> {
     is_group_member(state, realm, group)?;
     match roles.get_mut(&group) {
-        Some(RoleState(RoleVolatileState::Leader(leader), _)) => Ok(leader),
+        Some(RoleState {
+            state: RoleVolatileState::Leader(leader),
+            ..
+        }) => Ok(leader),
         Some(role) => Err(GroupLeaderError::NotLeader(role.status())),
         None => Err(GroupLeaderError::InvalidGroup),
     }
