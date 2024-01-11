@@ -927,16 +927,23 @@ impl<T: Transport + 'static> Agent<T> {
             // This is useful so that any leadership-related code can safely
             // unwrap the ID.
             assert!(state.hsm_id.is_some());
+
             let current = state
                 .roles
                 .entry((realm, group))
                 .or_insert(new_status.clone());
 
             if current.at > at && current.role == GroupMemberRole::Witness {
-                // the transition to witness should of already removed any leader state
+                // The transition to witness should of already removed any leader state
                 assert!(!state.leader.contains_key(&(realm, group)));
                 false
             } else {
+                // maybe_role_changed may have already noted that the role has
+                // transitioned to leader. However it can't initiate the leader
+                // tasks because it doesn't have all the info needed. In that
+                // event we still need to look at the `state.leader` map entry
+                // to determine if the leader tasks have been started, and to
+                // start them if needed.
                 let prev_role = current.clone();
                 *current = new_status.clone();
                 if let Entry::Vacant(entry) = state.leader.entry((realm, group)) {
@@ -1258,10 +1265,16 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(HsmResponse::Ok { role, last }) => {
                 match role.role {
                     GroupMemberRole::Witness => {
-                        info!(group=?request.group, realm=?request.realm, index=?last, "HSM Stepped down as leader")
+                        info!(group=?request.group,
+                            realm=?request.realm,
+                            index=?last,
+                            "HSM stepped down as leader")
                     }
                     GroupMemberRole::SteppingDown => {
-                        info!(group=?request.group, realm=?request.realm, index=?last, "HSM will stepdown as leader")
+                        info!(group=?request.group,
+                            realm=?request.realm,
+                            index=?last,
+                            "HSM will step down as leader")
                     }
                     _ => {}
                 }
@@ -1871,27 +1884,33 @@ impl<T: Transport + 'static> Agent<T> {
 }
 
 impl<T> AgentInner<T> {
-    fn maybe_role_changed(&self, realm: RealmId, group: GroupId, role_now: hsm_api::RoleStatus) {
+    fn maybe_role_changed(&self, realm: RealmId, group: GroupId, role_now: RoleStatus) {
         let mut locked = self.state.lock().unwrap();
         match locked.roles.entry((realm, group)) {
             Entry::Vacant(ve) => {
+                info!(?group, to=%role_now, no_spew=1, "HSM role transitioned");
                 ve.insert(role_now);
             }
             Entry::Occupied(mut oe) => {
-                let current = oe.get_mut();
+                let current = oe.get();
                 if role_now.at < current.at {
                     warn!(%role_now, %current, "skipping stale state update");
                     return;
+                }
+                if role_now.at == current.at {
+                    assert_eq!(role_now.role, current.role);
                 }
                 if role_now.role != current.role {
                     info!(?group, from=%current, to=%role_now, no_spew=1, "HSM role transitioned");
                 }
                 let is_witness = role_now.role == hsm_api::GroupMemberRole::Witness;
-                *current = role_now;
+                oe.insert(role_now);
                 // If we've transitioned to witness from leader/stepdown we need to cleanup our leader state.
                 if is_witness {
                     locked.leader.remove(&(realm, group));
                 }
+                // If we've transitioned to leader, we don't have enough info to process that, but we
+                // know that start_leading will get called by whatever triggered the begin leading.
             }
         }
     }
