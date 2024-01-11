@@ -6,6 +6,7 @@ use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use hyper_util::rt::TokioIo;
 use observability::tracing::TracingMiddleware;
 use serde_json::json;
 use service_core::http::ReqwestClientMetrics;
@@ -31,26 +32,25 @@ pub mod hsm;
 pub mod merkle;
 pub mod service;
 mod tenants;
+mod transfer;
 
 use agent_api::merkle::TreeStoreError;
 use agent_api::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
-    CompleteTransferResponse, HashedUserId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest,
-    JoinRealmResponse, NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse,
-    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse, StepDownRequest,
-    StepDownResponse, TransferInRequest, TransferInResponse, TransferNonceRequest,
-    TransferNonceResponse, TransferOutRequest, TransferOutResponse, TransferStatementRequest,
-    TransferStatementResponse,
+    HashedUserId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse,
+    NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, ReadCapturedRequest,
+    ReadCapturedResponse, StatusRequest, StatusResponse, StepDownRequest, StepDownResponse,
+    TransferInRequest, TransferNonceRequest, TransferOutRequest, TransferStatementRequest,
 };
 use append::{Append, AppendingState};
 use build_info::BuildInfo;
 use cluster_core::discover_hsm_ids;
 use hsm::{HsmClient, Transport};
-use hsm_api::merkle::{Dir, StoreDelta};
+use hsm_api::merkle::StoreDelta;
 use hsm_api::{
     AppResultType, CaptureJumpRequest, CaptureJumpResponse, CaptureNextRequest,
     CaptureNextResponse, Captured, EntryMac, GroupId, GroupMemberRole, HsmId, LogEntry, LogIndex,
-    RoleLogicalClock, RoleStatus, TransferInProofs,
+    RoleLogicalClock, RoleStatus,
 };
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::{self, Rpc, SendOptions};
@@ -523,10 +523,11 @@ impl<T: Transport + 'static> Agent<T> {
                     match listener.accept().await {
                         Err(e) => warn!("error accepting connection: {e:?}"),
                         Ok((stream, _)) => {
+                            let io = TokioIo::new(stream);
                             let agent = self.clone();
                             tokio::spawn(async move {
                                 if let Err(e) = http1::Builder::new()
-                                    .serve_connection(stream, TracingMiddleware::new(agent.clone()))
+                                    .serve_connection(io, TracingMiddleware::new(agent.clone()))
                                     .await
                                 {
                                     warn!("error serving connection: {e:?}");
@@ -676,7 +677,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
+    fn call(&self, request: Request<IncomingBody>) -> Self::Future {
         // If the client disconnects while the request processing is still in
         // flight the future we return from this function gets dropped and it
         // won't progress any further than its next .await point. This is
@@ -692,7 +693,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
             async move {
                 let Some(path) = request.uri().path().strip_prefix('/') else {
                     return Ok(Response::builder()
-                        .status(http::StatusCode::NOT_FOUND)
+                        .status(hyper::StatusCode::NOT_FOUND)
                         .body(Full::from(Bytes::new()))
                         .unwrap());
                 };
@@ -737,7 +738,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                         handle_rpc(&agent, request, Self::handle_transfer_statement).await
                     }
                     _ => Ok(Response::builder()
-                        .status(http::StatusCode::NOT_FOUND)
+                        .status(hyper::StatusCode::NOT_FOUND)
                         .body(Full::from(Bytes::new()))
                         .unwrap()),
                 }
@@ -753,7 +754,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                     Err(err) => {
                         warn!(?err, "Agent task failed with error");
                         Ok(Response::builder()
-                            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                            .status(hyper::StatusCode::INTERNAL_SERVER_ERROR)
                             .body(Full::from(Bytes::new()))
                             .unwrap())
                     }
@@ -781,7 +782,7 @@ impl<T: Transport + 'static> Agent<T> {
     async fn handle_livez(&self, _request: Request<IncomingBody>) -> Response<Full<Bytes>> {
         let unavailable_response = |message: Arguments| -> Response<Full<Bytes>> {
             Response::builder()
-                .status(http::StatusCode::SERVICE_UNAVAILABLE)
+                .status(hyper::StatusCode::SERVICE_UNAVAILABLE)
                 .body(Full::from(Bytes::from(format!(
                     "{}\n{}",
                     message,
@@ -810,7 +811,7 @@ impl<T: Transport + 'static> Agent<T> {
         .await
         {
             Ok(Ok(status)) => Response::builder()
-                .status(http::StatusCode::OK)
+                .status(hyper::StatusCode::OK)
                 .body(Full::from(Bytes::from(format!(
                     "hsm id: {:?}\n{}",
                     status.id,
@@ -1306,301 +1307,6 @@ impl<T: Transport + 'static> Agent<T> {
             .find(|c| c.group == request.group && c.realm == request.realm)
             .cloned();
         Ok(Response::Ok(c))
-    }
-
-    async fn handle_transfer_out(
-        &self,
-        request: TransferOutRequest,
-    ) -> Result<TransferOutResponse, HandlerError> {
-        type Response = TransferOutResponse;
-        type HsmResponse = hsm_api::TransferOutResponse;
-        let realm = request.realm;
-        let source = request.source;
-
-        let hsm = &self.0.hsm;
-        let store = &self.0.store;
-
-        // This loop handles retries if the read from the store is stale. It's
-        // expected to run just once.
-        //
-        // TODO: put some retry limit on this
-        loop {
-            let entry = match store
-                .read_last_log_entry(&request.realm, &request.source)
-                .await
-            {
-                Ok(entry) => entry,
-                Err(err @ ReadLastLogEntryError::EmptyLog) => todo!("{err}"),
-                Err(ReadLastLogEntryError::Grpc(_)) => return Ok(Response::NoStore),
-            };
-            let Some(partition) = entry.partition else {
-                return Ok(Response::NotOwner);
-            };
-
-            // if we're splitting, then we need the proof for the split point.
-            let proof = if partition.range == request.range {
-                None
-            } else {
-                let rec_id = match partition.range.split_at(&request.range) {
-                    Some(id) => id,
-                    None => return Ok(Response::NotOwner),
-                };
-                match merkle::read(
-                    &request.realm,
-                    store,
-                    &partition.range,
-                    &partition.root_hash,
-                    &rec_id,
-                    &self.0.metrics,
-                    &[tag!(?realm), tag!("group": ?source)],
-                )
-                .await
-                {
-                    Ok(proof) => Some(proof),
-                    Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
-                    Err(TreeStoreError::Network(e)) => {
-                        warn!(error = ?e, "handle_transfer_out: error reading proof");
-                        return Ok(Response::NoStore);
-                    }
-                }
-            };
-
-            return match hsm
-                .send(hsm_api::TransferOutRequest {
-                    realm: request.realm,
-                    source: request.source,
-                    destination: request.destination,
-                    range: request.range.clone(),
-                    index: entry.index,
-                    proof,
-                })
-                .await
-            {
-                Err(_) => Ok(Response::NoHsm),
-                Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
-                Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
-                Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
-                Ok(HsmResponse::NotOwner) => Ok(Response::NotOwner),
-                Ok(r @ HsmResponse::StaleIndex) => todo!("{r:?}"),
-                Ok(r @ HsmResponse::MissingProof) => todo!("{r:?}"),
-                Ok(HsmResponse::InvalidProof) => Ok(Response::InvalidProof),
-                Ok(HsmResponse::StaleProof) => {
-                    trace!("hsm said stale proof, will retry");
-                    sleep(Duration::from_millis(1)).await;
-                    continue;
-                }
-                Ok(HsmResponse::Ok { entry, delta }) => {
-                    let transferring_partition = match &entry.transferring_out {
-                        Some(t) => t.partition.clone(),
-                        None => panic!("Log entry missing TransferringOut section"),
-                    };
-                    self.append(realm, source, Append { entry, delta });
-                    Ok(Response::Ok {
-                        transferring: transferring_partition,
-                    })
-                }
-            };
-        }
-    }
-
-    async fn handle_transfer_nonce(
-        &self,
-        request: TransferNonceRequest,
-    ) -> Result<TransferNonceResponse, HandlerError> {
-        type Response = TransferNonceResponse;
-        type HsmResponse = hsm_api::TransferNonceResponse;
-
-        match self
-            .0
-            .hsm
-            .send(hsm_api::TransferNonceRequest {
-                realm: request.realm,
-                destination: request.destination,
-            })
-            .await
-        {
-            Err(_) => Ok(Response::NoHsm),
-            Ok(HsmResponse::Ok(nonce)) => Ok(Response::Ok(nonce)),
-            Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
-            Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
-            Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
-        }
-    }
-
-    async fn handle_transfer_statement(
-        &self,
-        request: TransferStatementRequest,
-    ) -> Result<TransferStatementResponse, HandlerError> {
-        type Response = TransferStatementResponse;
-        type HsmResponse = hsm_api::TransferStatementResponse;
-        loop {
-            return match self
-                .0
-                .hsm
-                .send(hsm_api::TransferStatementRequest {
-                    realm: request.realm,
-                    source: request.source,
-                    destination: request.destination,
-                    nonce: request.nonce,
-                })
-                .await
-            {
-                Err(_) => Ok(Response::NoHsm),
-                Ok(HsmResponse::Ok(statement)) => Ok(Response::Ok(statement)),
-                Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
-                Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
-                Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
-                Ok(HsmResponse::NotTransferring) => Ok(Response::NotTransferring),
-                Ok(HsmResponse::Busy) => {
-                    sleep(Duration::from_millis(1)).await;
-                    continue;
-                }
-            };
-        }
-    }
-
-    async fn handle_transfer_in(
-        &self,
-        request: TransferInRequest,
-    ) -> Result<TransferInResponse, HandlerError> {
-        type Response = TransferInResponse;
-        type HsmResponse = hsm_api::TransferInResponse;
-
-        let hsm = &self.0.hsm;
-        let store = &self.0.store;
-        let tags = [
-            tag!("realm": ?request.realm),
-            tag!("group": ?request.destination),
-        ];
-
-        // This loop handles retries if the read from the store is stale. It's
-        // expected to run just once.
-        loop {
-            let entry = match store
-                .read_last_log_entry(&request.realm, &request.destination)
-                .await
-            {
-                Ok(entry) => entry,
-                Err(err @ ReadLastLogEntryError::EmptyLog) => todo!("{err}"),
-                Err(ReadLastLogEntryError::Grpc(_)) => return Ok(Response::NoStore),
-            };
-
-            let proofs = match entry.partition {
-                None => None,
-                Some(partition) => {
-                    let proof_dir = match partition.range.join(&request.transferring.range) {
-                        None => return Ok(Response::UnacceptableRange),
-                        Some(jr) => {
-                            if jr.start == request.transferring.range.start {
-                                Dir::Right
-                            } else {
-                                Dir::Left
-                            }
-                        }
-                    };
-
-                    let transferring_in_proof_req = merkle::read_tree_side(
-                        &request.realm,
-                        store,
-                        &request.transferring.range,
-                        &request.transferring.root_hash,
-                        proof_dir,
-                        &tags,
-                    );
-                    let owned_range_proof_req = merkle::read_tree_side(
-                        &request.realm,
-                        store,
-                        &partition.range,
-                        &partition.root_hash,
-                        proof_dir.opposite(),
-                        &tags,
-                    );
-                    let transferring_in_proof = match transferring_in_proof_req.await {
-                        Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
-                        Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
-                        Ok(proof) => proof,
-                    };
-                    let owned_range_proof = match owned_range_proof_req.await {
-                        Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
-                        Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
-                        Ok(proof) => proof,
-                    };
-                    Some(TransferInProofs {
-                        owned: owned_range_proof,
-                        transferring: transferring_in_proof,
-                    })
-                }
-            };
-
-            return match hsm
-                .send(hsm_api::TransferInRequest {
-                    realm: request.realm,
-                    destination: request.destination,
-                    transferring: request.transferring.clone(),
-                    proofs,
-                    nonce: request.nonce,
-                    statement: request.statement.clone(),
-                })
-                .await
-            {
-                Err(_) => Ok(Response::NoHsm),
-                Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
-                Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
-                Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
-                Ok(HsmResponse::UnacceptableRange) => Ok(Response::UnacceptableRange),
-                Ok(HsmResponse::InvalidNonce) => Ok(Response::InvalidNonce),
-                Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
-                Ok(r @ HsmResponse::InvalidProof) => todo!("{r:?}"),
-                Ok(r @ HsmResponse::MissingProofs) => todo!("{r:?}"),
-                Ok(HsmResponse::StaleProof) => {
-                    trace!(?hsm, "hsm said stale proof, will retry");
-                    // TODO: slow down and/or limit attempts
-                    continue;
-                }
-                Ok(HsmResponse::Ok { entry, delta }) => {
-                    let index = entry.index;
-                    self.append(request.realm, request.destination, Append { entry, delta });
-                    Ok(Response::Ok(index))
-                }
-            };
-        }
-    }
-
-    async fn handle_complete_transfer(
-        &self,
-        request: CompleteTransferRequest,
-    ) -> Result<CompleteTransferResponse, HandlerError> {
-        type Response = CompleteTransferResponse;
-        type HsmResponse = hsm_api::CompleteTransferResponse;
-        let hsm = &self.0.hsm;
-
-        let result = hsm
-            .send(hsm_api::CompleteTransferRequest {
-                realm: request.realm,
-                source: request.source,
-                destination: request.destination,
-                range: request.range,
-            })
-            .await;
-        match result {
-            Err(_) => Ok(Response::NoHsm),
-            Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
-            Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
-            Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
-            Ok(HsmResponse::NotTransferring) => Ok(Response::NotTransferring),
-            Ok(HsmResponse::Ok(entry)) => {
-                let index = entry.index;
-                self.append(
-                    request.realm,
-                    request.source,
-                    Append {
-                        entry,
-                        delta: StoreDelta::default(),
-                    },
-                );
-                Ok(Response::Ok(index))
-            }
-        }
     }
 
     /// Called by `handle_app` to process [`AppRequest`]s of type Handshake

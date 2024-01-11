@@ -23,12 +23,14 @@ hsm_api = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
+hyper-util = { workspace = true }
 juicebox_marshalling = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_realm_api = { workspace = true }
 juicebox_realm_auth = { workspace = true }
 observability = { workspace = true }
 opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 pin-project-lite = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }

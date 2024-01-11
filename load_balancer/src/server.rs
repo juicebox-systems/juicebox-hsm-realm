@@ -1,5 +1,5 @@
 use hyper::body::{Body, Incoming};
-use hyper::rt::bounds::Http2ConnExec;
+use hyper::rt::bounds::Http2ServerConnExec;
 use hyper::server::conn::{http1, http2};
 use hyper::service::HttpService;
 use pin_project_lite::pin_project;
@@ -9,7 +9,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, watch};
 use tokio::time::{sleep, Instant, Sleep};
 use tracing::{debug, info, warn};
@@ -229,7 +228,7 @@ pub trait GracefulShutdown {
 
 impl<IO, SVC, B> GracefulShutdown for http1::Connection<IO, SVC>
 where
-    IO: AsyncRead + AsyncWrite + Unpin + 'static,
+    IO: hyper::rt::Read + hyper::rt::Write + Unpin + 'static,
     B: Body + 'static,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     SVC: HttpService<Incoming, ResBody = B>,
@@ -241,11 +240,11 @@ where
 
 impl<IO, SVC, B, EXEC> GracefulShutdown for http2::Connection<IO, SVC, EXEC>
 where
-    IO: AsyncRead + AsyncWrite + Unpin + 'static,
+    IO: hyper::rt::Read + hyper::rt::Write + Unpin + 'static,
     B: Body + 'static,
     B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     SVC: HttpService<Incoming, ResBody = B>,
-    EXEC: Http2ConnExec<SVC::Future, B>,
+    EXEC: Http2ServerConnExec<SVC::Future, B>,
 {
     fn start_graceful_shutdown(self: Pin<&mut Self>) {
         self.graceful_shutdown();
@@ -256,10 +255,11 @@ where
 mod tests {
     use bytes::Bytes;
     use futures::{select_biased, FutureExt};
-    use http::StatusCode;
     use http_body_util::Full;
     use hyper::service::Service;
+    use hyper::StatusCode;
     use hyper::{body::Incoming, Request, Response};
+    use hyper_util::rt::TokioIo;
     use std::error::Error;
     use std::net::Ipv4Addr;
     use std::pin::pin;
@@ -394,10 +394,11 @@ mod tests {
                         _ = shutdown_f => { return; }
                         result = listener.accept().fuse() => result.unwrap(),
                     };
+                    let io = TokioIo::new(stream);
                     let service = service.clone();
                     let conn_mgr = mgr.clone();
                     tokio::spawn(async move {
-                        let c = http1::Builder::new().serve_connection(stream, service);
+                        let c = http1::Builder::new().serve_connection(io, service);
                         let c = conn_mgr.manage(c).await;
                         c.await.unwrap();
                     });
@@ -426,7 +427,7 @@ mod tests {
         type Error = Box<dyn Error + Send + Sync>;
         type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-        fn call(&mut self, request: Request<Incoming>) -> Self::Future {
+        fn call(&self, request: Request<Incoming>) -> Self::Future {
             let s = self.clone();
             Box::pin(async move {
                 let count = s.0.pending_count.fetch_add(1, Ordering::Relaxed);

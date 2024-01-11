@@ -28,7 +28,7 @@ where
         Err(e) => {
             warn!(error = ?e, "deserialization error");
             return Ok(Response::builder()
-                .status(http::StatusCode::BAD_REQUEST)
+                .status(hyper::StatusCode::BAD_REQUEST)
                 .body(Full::from(Bytes::new()))
                 .unwrap());
         }
@@ -54,7 +54,7 @@ where
                 Err(e) => {
                     warn!(error = ?e, ?response, "serialization error");
                     return Ok(Response::builder()
-                        .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                        .status(hyper::StatusCode::INTERNAL_SERVER_ERROR)
                         .body(Full::from(Bytes::new()))
                         .unwrap());
                 }

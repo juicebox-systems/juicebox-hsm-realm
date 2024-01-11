@@ -50,7 +50,7 @@ fn main() {
 
         // Tell cargo to invalidate the built crate whenever any of the included
         // header files changed.
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         // Finish the builder and generate the bindings.
         .generate()
         // Unwrap the Result and panic on failure.
@@ -69,7 +69,7 @@ fn main() {
     let hash = hasher.0.finalize();
     assert_eq!(
         hex::encode(hash),
-        "22b74bca1dc3ca43660ec3144f4e8c75bd026c415a87f1e1c7cfe3073eadbd0c",
+        "d42d17efbf4b75b3b53434c79822126c21d4398bcbebb53d59c750af033be451",
         "SHA-256 of {out_file:?} (left) doesn't match expected (right)"
     );
 }

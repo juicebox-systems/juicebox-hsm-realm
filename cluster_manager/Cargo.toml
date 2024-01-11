@@ -20,6 +20,7 @@ google = { workspace = true }
 hsm_api = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
+hyper-util = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_realm_api = { workspace = true }
 observability = { workspace = true }

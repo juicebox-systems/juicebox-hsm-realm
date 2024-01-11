@@ -1,6 +1,6 @@
 use clap::Parser;
 use futures::future;
-use opentelemetry::sdk::trace::Sampler;
+use opentelemetry_sdk::trace::Sampler;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;

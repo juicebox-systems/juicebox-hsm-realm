@@ -4,6 +4,7 @@ use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use hyper_util::rt::TokioIo;
 use observability::tracing::TracingMiddleware;
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -147,10 +148,11 @@ impl HttpHsm {
                     match listener.accept().await {
                         Err(e) => warn!("error accepting connection: {e:?}"),
                         Ok((stream, _)) => {
+                            let io = TokioIo::new(stream);
                             let hsm = TracingMiddleware::new(self.clone());
                             tokio::spawn(async move {
                                 if let Err(e) =
-                                    http1::Builder::new().serve_connection(stream, hsm).await
+                                    http1::Builder::new().serve_connection(io, hsm).await
                                 {
                                     warn!("error serving connection: {e:?}");
                                 }
@@ -168,14 +170,14 @@ impl Service<Request<IncomingBody>> for HttpHsm {
     type Error = hyper::Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn call(&mut self, request: Request<IncomingBody>) -> Self::Future {
+    fn call(&self, request: Request<IncomingBody>) -> Self::Future {
         let hsm = self.clone();
         Box::pin(async move {
             match request.uri().path().strip_prefix('/') {
                 Some("req") => {}
                 None | Some(_) => {
                     return Ok(Response::builder()
-                        .status(http::StatusCode::NOT_FOUND)
+                        .status(hyper::StatusCode::NOT_FOUND)
                         .body(Full::from(Bytes::new()))
                         .unwrap());
                 }
@@ -188,11 +190,11 @@ impl Service<Request<IncomingBody>> for HttpHsm {
             };
             match result {
                 Err(HsmError::Deserialization(_)) => Ok(Response::builder()
-                    .status(http::StatusCode::BAD_REQUEST)
+                    .status(hyper::StatusCode::BAD_REQUEST)
                     .body(Full::from(Bytes::new()))
                     .unwrap()),
                 Err(HsmError::Serialization(_)) => Ok(Response::builder()
-                    .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                    .status(hyper::StatusCode::INTERNAL_SERVER_ERROR)
                     .body(Full::from(Bytes::new()))
                     .unwrap()),
                 Ok(response_bytes) => Ok(Response::builder()
