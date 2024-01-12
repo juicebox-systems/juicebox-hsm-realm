@@ -823,7 +823,10 @@ impl<P: Platform> Hsm<P> {
             group,
             entry,
             delta,
-            at: clock,
+            role: RoleStatus {
+                role: GroupMemberRole::Leader,
+                at: clock,
+            },
         }
     }
 
@@ -968,7 +971,10 @@ impl<P: Platform> Hsm<P> {
             group,
             statement,
             entry,
-            at: clock,
+            role: RoleStatus {
+                role: GroupMemberRole::Leader,
+                at: clock,
+            },
         }
     }
 
@@ -1020,14 +1026,16 @@ impl<P: Platform> Hsm<P> {
                 captured: None,
             });
 
-        self.volatile
+        let role = self
+            .volatile
             .groups
             .entry(request.group)
             .or_insert(RoleState {
                 state: RoleVolatileState::Witness,
                 at: RoleLogicalClock::start(),
-            });
-        Response::Ok
+            })
+            .status();
+        Response::Ok(role)
     }
 
     #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
@@ -1058,7 +1066,7 @@ impl<P: Platform> Hsm<P> {
             return Response::StepdownInProgress;
         }
 
-        let configuration = match &group_state.captured {
+        match &group_state.captured {
             None => return Response::NotCaptured { have: None },
             Some((captured_index, captured_mac)) => {
                 if request.last_entry.index != *captured_index
@@ -1081,9 +1089,8 @@ impl<P: Platform> Hsm<P> {
                 {
                     return Response::InvalidMac;
                 }
-                group_state.configuration.to_vec()
             }
-        };
+        }
 
         // make_leader is a no-op if we're already leading
         role.make_leader(LeaderVolatileGroupState::new(
@@ -1092,8 +1099,7 @@ impl<P: Platform> Hsm<P> {
         ));
 
         Response::Ok {
-            configuration,
-            at: role.at,
+            role: role.status(),
         }
     }
 

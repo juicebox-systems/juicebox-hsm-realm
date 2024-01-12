@@ -594,7 +594,7 @@ impl From<CtBytes<32>> for TransferStatement {
 /// return the resulting role and clock. The Agent can use the role + clock
 /// values to ensure its own state relating to the group role is in sync.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-pub struct RoleLogicalClock(u64);
+pub struct RoleLogicalClock(pub u64);
 
 impl RoleLogicalClock {
     pub fn start() -> Self {
@@ -794,7 +794,8 @@ pub enum NewRealmResponse {
         /// The new group owns a new Merkle tree, and this contains its root
         /// node.
         delta: StoreDelta<DataHash>,
-        at: RoleLogicalClock,
+        /// The HSM's role for the new group.
+        role: RoleStatus,
     },
     /// This HSM is already a member of a realm, so it can't create a new
     /// realm.
@@ -891,7 +892,8 @@ pub enum NewGroupResponse {
         /// This entry should be persisted. If it somehow fails to persist, the
         /// new group should be abandoned.
         entry: LogEntry,
-        at: RoleLogicalClock,
+        /// The HSMs role for the new group.
+        role: RoleStatus,
     },
     /// This HSM is not a member of this realm (it's either not a member of any
     /// realm or is already a member of a different realm), so it can't create
@@ -946,7 +948,7 @@ pub struct JoinGroupRequest {
 pub enum JoinGroupResponse {
     /// The HSM successfully and persistently joined the group (or it had
     /// already done so).
-    Ok,
+    Ok(RoleStatus),
     /// This HSM is not a member of this realm (it's either not a member of any
     /// realm or is already a member of a different realm), so it can't join
     /// the new group.
@@ -1080,13 +1082,8 @@ pub enum BecomeLeaderResponse {
     /// The HSM successfully became leader of the group (or it was already
     /// leader).
     Ok {
-        /// The fixed set of HSM members of the group, including this one, in
-        /// sorted order.
-        ///
-        /// This is provided for convenience so that the caller (the agent) can
-        /// run the replication protocol with the other members.
-        configuration: Vec<HsmId>,
-        at: RoleLogicalClock,
+        /// The resulting role and role transition clock value.
+        role: RoleStatus,
     },
     /// This HSM is not a member of this realm.
     InvalidRealm,

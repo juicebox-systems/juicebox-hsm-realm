@@ -11,7 +11,6 @@ use observability::tracing::TracingMiddleware;
 use serde_json::json;
 use service_core::http::ReqwestClientMetrics;
 use std::cmp::Ordering;
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Arguments;
 use std::future::Future;
@@ -87,8 +86,9 @@ struct AgentInner<T> {
 
 #[derive(Debug)]
 struct State {
-    /// State about a group that's needed while the HSM is Leader or SteppingDown.
-    leader: HashMap<(RealmId, GroupId), LeaderState>,
+    /// State for a specific group. There is an entry in here for every group
+    /// the HSM is a member of.
+    groups: HashMap<(RealmId, GroupId), GroupState>,
     /// Captures that have been persisted to NVRAM in the HSM.
     captures: Vec<Captured>,
     /// Set after being successfully registered with service discovery.
@@ -97,9 +97,69 @@ struct State {
     /// service discovery. It's always available for leaders. It will never go
     /// from `Some` to `None`.
     hsm_id: Option<HsmId>,
-    /// Set to when the most recent role transition check was performed. See
-    /// [`AgentInner::maybe_role_changed`] and [`Agent::start_leading`].
-    roles: HashMap<(RealmId, GroupId), RoleStatus>,
+}
+
+impl State {
+    fn is_leader(&self, realm: RealmId, group: GroupId) -> bool {
+        self.groups
+            .get(&(realm, group))
+            .is_some_and(|g| g.leader.is_some())
+    }
+}
+
+#[derive(Debug)]
+struct GroupState {
+    /// The Id of the group, as generated during a new group operation.
+    group: GroupId,
+    /// The list of group members, including the local HSM.
+    configuration: Vec<HsmId>,
+    /// The last recorded role that the HSM is in for this group along with when
+    /// the transition to this role was.
+    role: RoleStatus,
+    /// When transitioning role to leader, contains the log index that the agent
+    /// should start leading from.
+    lead_from: HashMap<HashableRoleClock, LogIndex>,
+    /// Contains state needed while in the Leader or SteppingDown roles.
+    leader: Option<LeaderState>,
+}
+
+fn group_state(
+    groups: &HashMap<(RealmId, GroupId), GroupState>,
+    realm: RealmId,
+    group: GroupId,
+) -> &GroupState {
+    let Some(state) = groups.get(&(realm, group)) else {
+        panic!("Missing group state for realm:{realm:?} group:{group:?}");
+    };
+    assert_eq!(group, state.group);
+    state
+}
+
+fn group_state_mut(
+    groups: &mut HashMap<(RealmId, GroupId), GroupState>,
+    realm: RealmId,
+    group: GroupId,
+) -> &mut GroupState {
+    let Some(state) = groups.get_mut(&(realm, group)) else {
+        panic!("Missing group state for realm:{realm:?} group:{group:?}");
+    };
+    assert_eq!(group, state.group);
+    state
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct HashableRoleClock(RoleLogicalClock);
+
+impl From<RoleLogicalClock> for HashableRoleClock {
+    fn from(value: RoleLogicalClock) -> Self {
+        Self(value)
+    }
+}
+
+impl std::hash::Hash for HashableRoleClock {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0 .0.hash(state);
+    }
 }
 
 // State about a group that is used in the Leader or SteppingDown state.
@@ -199,11 +259,10 @@ impl<T: Transport + 'static> Agent<T> {
             store_admin,
             peer_client: ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default()),
             state: Mutex::new(State {
-                leader: HashMap::new(),
                 captures: Vec::new(),
                 registered: false,
                 hsm_id: None,
-                roles: HashMap::new(),
+                groups: HashMap::new(),
             }),
             metrics: metrics.clone(),
             accountant: UserAccountingWriter::new(store, metrics),
@@ -221,12 +280,31 @@ impl<T: Transport + 'static> Agent<T> {
                 }
                 Ok(sr) => {
                     if let Some(realm) = sr.realm {
+                        {
+                            let mut locked = self.0.state.lock().unwrap();
+                            locked.groups = realm
+                                .groups
+                                .iter()
+                                .map(|g| {
+                                    (
+                                        (realm.id, g.id),
+                                        GroupState {
+                                            group: g.id,
+                                            configuration: g.configuration.clone(),
+                                            role: g.role.clone(),
+                                            leader: None,
+                                            lead_from: HashMap::new(),
+                                        },
+                                    )
+                                })
+                                .collect();
+                        }
                         for g in realm.groups {
                             let idx = match g.captured {
                                 Some((index, _)) => index.next(),
                                 None => LogIndex::FIRST,
                             };
-                            self.start_watching(realm.id, g.id, g.configuration, idx);
+                            self.start_watching(realm.id, g.id, idx);
                         }
                     }
                     return;
@@ -235,26 +313,15 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
-    fn start_watching(
-        &self,
-        realm: RealmId,
-        group: GroupId,
-        configuration: Vec<HsmId>,
-        next_index: LogIndex,
-    ) {
-        tokio::spawn(
-            self.clone()
-                .watching_main(realm, group, configuration, next_index),
-        );
+    fn start_watching(&self, realm: RealmId, group: GroupId, next_index: LogIndex) {
+        tokio::spawn(self.clone().watching_main(realm, group, next_index));
     }
 
-    async fn watching_main(
-        self,
-        realm: RealmId,
-        group: GroupId,
-        configuration: Vec<HsmId>,
-        mut next_index: LogIndex,
-    ) {
+    async fn watching_main(self, realm: RealmId, group: GroupId, mut next_index: LogIndex) {
+        let configuration = group_state(&self.0.state.lock().unwrap().groups, realm, group)
+            .configuration
+            .clone();
+
         let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
         loop {
             info!(
@@ -262,6 +329,7 @@ impl<T: Transport + 'static> Agent<T> {
                 ?realm,
                 ?group,
                 ?next_index,
+                no_spew = 1,
                 "start watching log"
             );
             let mut it = self.0.store.read_log_entries_iter(
@@ -339,7 +407,7 @@ impl<T: Transport + 'static> Agent<T> {
                     Err(err) => todo!("{err:?}"),
                     Ok(CaptureNextResponse::Ok(role)) => {
                         Span::current().record("num_captured", num_entries);
-                        self.0.maybe_role_changed(realm, group, role);
+                        self.maybe_role_changed(realm, group, role);
                         Ok(())
                     }
                     Ok(r) => todo!("{r:#?}"),
@@ -439,10 +507,10 @@ impl<T: Transport + 'static> Agent<T> {
         {
             Err(err) => todo!("{err:?}"),
             Ok(hsm_api::StepDownResponse::Ok { role, .. }) => {
-                self.0.maybe_role_changed(realm, group, role);
+                self.maybe_role_changed(realm, group, role);
             }
             Ok(hsm_api::StepDownResponse::NotLeader(role)) => {
-                self.0.maybe_role_changed(realm, group, role);
+                self.maybe_role_changed(realm, group, role);
             }
             Ok(r) => todo!("{r:?}"),
         }
@@ -473,7 +541,7 @@ impl<T: Transport + 'static> Agent<T> {
                                 && hsm_group_status
                                     .captured
                                     .is_some_and(|(index, _)| index > LogIndex::FIRST)
-                                && !agent_state.leader.contains_key(&(realm, group));
+                                && !agent_state.is_leader(realm, group);
                             if is_suspect {
                                 let count = suspect_counts.entry(group).or_default();
                                 *count += 1;
@@ -546,7 +614,13 @@ impl<T: Transport + 'static> Agent<T> {
     pub async fn shutdown(&self) {
         let get_leading = || {
             let state = self.0.state.lock().unwrap();
-            state.leader.keys().copied().collect::<Vec<_>>()
+            state
+                .groups
+                .iter()
+                .filter(|g| g.1.leader.is_some())
+                .map(|(k, _v)| k)
+                .copied()
+                .collect::<Vec<_>>()
         };
         let leading = get_leading();
         if leading.is_empty() {
@@ -593,7 +667,7 @@ impl<T: Transport + 'static> Agent<T> {
         // now wait til we're done stepping down.
         info!("Waiting for leadership stepdown(s) to complete.");
         loop {
-            if self.0.state.lock().unwrap().leader.is_empty() {
+            if get_leading().is_empty() {
                 return;
             }
             sleep(Duration::from_millis(20)).await;
@@ -839,7 +913,7 @@ impl<T: Transport + 'static> Agent<T> {
         };
 
         info!(agent = name, ?hsm_id, "creating new realm");
-        let (realm, group, entry, delta, at) =
+        let (realm, group, entry, delta, role) =
             match self.0.hsm.send(hsm_api::NewRealmRequest {}).await {
                 Err(_) => return Ok(Response::NoHsm),
                 Ok(hsm_api::NewRealmResponse::HaveRealm) => return Ok(Response::HaveRealm),
@@ -848,8 +922,8 @@ impl<T: Transport + 'static> Agent<T> {
                     group,
                     entry,
                     delta,
-                    at,
-                }) => (realm, group, entry, delta, at),
+                    role,
+                }) => (realm, group, entry, delta, role),
             };
 
         info!(
@@ -876,7 +950,7 @@ impl<T: Transport + 'static> Agent<T> {
 
         match self.0.store.append(&realm, &group, &[entry], delta).await {
             Ok(_row) => {
-                self.finish_new_group(realm, group, vec![hsm_id], at);
+                self.finish_new_group(realm, group, vec![hsm_id], role);
                 Ok(Response::Ok { realm, group })
             }
             Err(store::AppendError::Grpc(_)) => Ok(Response::NoStore),
@@ -893,84 +967,30 @@ impl<T: Transport + 'static> Agent<T> {
         realm: RealmId,
         group: GroupId,
         config: Vec<HsmId>,
-        at: RoleLogicalClock,
+        role: RoleStatus,
     ) {
-        self.start_watching(realm, group, config.clone(), LogIndex::FIRST);
-        self.start_leading(realm, group, config, LogIndex::FIRST.next(), at);
-    }
-
-    fn start_leading(
-        &self,
-        realm: RealmId,
-        group: GroupId,
-        config: Vec<HsmId>,
-        starting_index: LogIndex,
-        at: RoleLogicalClock,
-    ) {
-        // The HSM will return Ok to become_leader if it's already leader. When
-        // we get here we might already be leading.
-        //
-        // Its also possible due to thread/task scheduling that `roles` was
-        // already updated based on a later event (where later is from the POV
-        // of the HSM). If the latest roles state is from after `at`, we should
-        // be careful to ensure we end up in the correct state. If it indicates
-        // the role is witness, then the HSM has already transitioned out of
-        // leader and we should not start leading. If it indicates the role is
-        // leader, we should start leading as originally requested.
-        let new_status = RoleStatus {
-            role: GroupMemberRole::Leader,
-            at,
+        let s = GroupState {
+            group,
+            configuration: config.clone(),
+            role: RoleStatus {
+                role: GroupMemberRole::Witness,
+                at: RoleLogicalClock(0),
+            },
+            leader: None,
+            lead_from: HashMap::from_iter([(role.at.into(), LogIndex::FIRST.next())]),
         };
-        let start = {
-            let mut state = self.0.state.lock().unwrap();
-
-            // All paths into this function make sure we know the HSM ID first.
-            // This is useful so that any leadership-related code can safely
-            // unwrap the ID.
-            assert!(state.hsm_id.is_some());
-
-            let current = state
-                .roles
-                .entry((realm, group))
-                .or_insert(new_status.clone());
-
-            if current.at > at && current.role == GroupMemberRole::Witness {
-                // The transition to witness should of already removed any leader state
-                assert!(!state.leader.contains_key(&(realm, group)));
-                false
-            } else {
-                // maybe_role_changed may have already noted that the role has
-                // transitioned to leader. However it can't initiate the leader
-                // tasks because it doesn't have all the info needed. In that
-                // event we still need to look at the `state.leader` map entry
-                // to determine if the leader tasks have been started, and to
-                // start them if needed.
-                let prev_role = current.clone();
-                *current = new_status.clone();
-                if let Entry::Vacant(entry) = state.leader.entry((realm, group)) {
-                    entry.insert(LeaderState {
-                        append_queue: HashMap::new(),
-                        appending: AppendingState::NotAppending {
-                            next: starting_index,
-                        },
-                        last_appended: None,
-                        uncompacted_rows: VecDeque::new(),
-                        response_channels: HashMap::new(),
-                    });
-                    info!(?group, from=%prev_role, to=%new_status, "HSM role transitioned");
-                    true
-                } else {
-                    false
-                }
-            }
-        };
-        if start {
-            info!(name=?self.0.name, ?realm, ?group, "Starting group committer");
-            tokio::spawn(
-                self.clone()
-                    .group_committer(realm, group, config, starting_index),
-            );
+        {
+            let existing = self
+                .0
+                .state
+                .lock()
+                .unwrap()
+                .groups
+                .insert((realm, group), s);
+            assert!(existing.is_none());
         }
+        self.start_watching(realm, group, LogIndex::FIRST);
+        self.maybe_role_changed(realm, group, role);
     }
 
     async fn handle_join_realm(
@@ -1013,7 +1033,7 @@ impl<T: Transport + 'static> Agent<T> {
 
         let configuration: Vec<HsmId> = request.members.iter().map(|(id, _)| *id).collect();
 
-        let (group, statement, entry, at) = match self
+        let (group, statement, entry, role) = match self
             .0
             .hsm
             .send(hsm_api::NewGroupRequest {
@@ -1031,8 +1051,8 @@ impl<T: Transport + 'static> Agent<T> {
                 group,
                 statement,
                 entry,
-                at,
-            }) => (group, statement, entry, at),
+                role,
+            }) => (group, statement, entry, role),
         };
 
         info!(
@@ -1050,7 +1070,7 @@ impl<T: Transport + 'static> Agent<T> {
             .await
         {
             Ok(_row) => {
-                self.finish_new_group(realm, group, configuration, at);
+                self.finish_new_group(realm, group, configuration, role);
                 Ok(Response::Ok { group, statement })
             }
             Err(store::AppendError::Grpc(_)) => Ok(Response::NoStore),
@@ -1084,13 +1104,27 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(HsmResponse::InvalidConfiguration) => Ok(Response::InvalidConfiguration),
             Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
             Ok(HsmResponse::TooManyGroups) => Ok(Response::TooManyGroups),
-            Ok(HsmResponse::Ok) => {
-                self.start_watching(
-                    request.realm,
-                    request.group,
-                    request.configuration,
-                    LogIndex::FIRST,
-                );
+            Ok(HsmResponse::Ok(role)) => {
+                let mut start = false;
+                self.0
+                    .state
+                    .lock()
+                    .unwrap()
+                    .groups
+                    .entry((request.realm, request.group))
+                    .or_insert_with(|| {
+                        start = true;
+                        GroupState {
+                            group: request.group,
+                            configuration: request.configuration,
+                            role,
+                            leader: None,
+                            lead_from: HashMap::new(),
+                        }
+                    });
+                if start {
+                    self.start_watching(request.realm, request.group, LogIndex::FIRST);
+                }
                 Ok(Response::Ok)
             }
         }
@@ -1192,7 +1226,6 @@ impl<T: Transport + 'static> Agent<T> {
             index=?last_entry_index,
             "read log entry, asking HSM to become leader"
         );
-
         loop {
             match hsm
                 .send(hsm_api::BecomeLeaderRequest {
@@ -1203,14 +1236,16 @@ impl<T: Transport + 'static> Agent<T> {
                 .await
             {
                 Err(_) => return Ok(Response::NoHsm),
-                Ok(HsmResponse::Ok { configuration, at }) => {
-                    self.start_leading(
-                        request.realm,
-                        request.group,
-                        configuration,
-                        last_entry_index.next(),
-                        at,
-                    );
+                Ok(HsmResponse::Ok { role }) => {
+                    {
+                        let mut locked = self.0.state.lock().unwrap();
+                        let group_state =
+                            group_state_mut(&mut locked.groups, request.realm, request.group);
+                        group_state
+                            .lead_from
+                            .insert(role.at.into(), last_entry_index.next());
+                    }
+                    self.maybe_role_changed(request.realm, request.group, role);
                     return Ok(Response::Ok);
                 }
                 Ok(HsmResponse::InvalidRealm) => return Ok(Response::InvalidRealm),
@@ -1279,15 +1314,13 @@ impl<T: Transport + 'static> Agent<T> {
                     }
                     _ => {}
                 }
-                self.0
-                    .maybe_role_changed(request.realm, request.group, role);
+                self.maybe_role_changed(request.realm, request.group, role);
                 Ok(Response::Ok { last })
             }
             Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
             Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
             Ok(HsmResponse::NotLeader(role)) => {
-                self.0
-                    .maybe_role_changed(request.realm, request.group, role);
+                self.maybe_role_changed(request.realm, request.group, role);
                 Ok(Response::NotLeader)
             }
         }
@@ -1451,17 +1484,18 @@ impl<T: Transport + 'static> Agent<T> {
 
         {
             let mut locked = self.0.state.lock().unwrap();
-            match locked.leader.get_mut(&(realm, group)) {
+            let group_state = group_state_mut(&mut locked.groups, realm, group);
+            match &mut group_state.leader {
+                Some(leader) => {
+                    leader
+                        .response_channels
+                        .insert(append_request.entry.entry_mac.clone().into(), sender);
+                }
                 None => {
                     // Its possible for start_app_request to succeed, but to
                     // have subsequently lost leadership due to a background
                     // capture_next or commit operation.
                     return Ok((Response::NotLeader, None));
-                }
-                Some(leader) => {
-                    leader
-                        .response_channels
-                        .insert(append_request.entry.entry_mac.clone().into(), sender);
                 }
             }
         }
@@ -1484,8 +1518,11 @@ impl<T: Transport + 'static> Agent<T> {
 
         for attempt in 0..100 {
             let cached_entry: Option<LogEntry> = {
-                let mut locked = self.0.state.lock().unwrap();
-                let Some(leader) = locked.leader.get_mut(&(request.realm, request.group)) else {
+                let locked = self.0.state.lock().unwrap();
+                let Some(leader) = group_state(&locked.groups, request.realm, request.group)
+                    .leader
+                    .as_ref()
+                else {
                     return Err(Response::NotLeader);
                 };
                 leader.last_appended.clone()
@@ -1506,7 +1543,7 @@ impl<T: Transport + 'static> Agent<T> {
             };
 
             let Some(partition) = entry.partition else {
-                return Err(Response::NotLeader); // TODO: is that the right error?
+                return Err(Response::NotLeader);
             };
 
             let proof = match merkle::read(
@@ -1562,8 +1599,7 @@ impl<T: Transport + 'static> Agent<T> {
                     continue;
                 }
                 Ok(HsmResponse::NotLeader(role)) => {
-                    self.0
-                        .maybe_role_changed(request.realm, request.group, role);
+                    self.maybe_role_changed(request.realm, request.group, role);
                     return Err(Response::NotLeader);
                 }
                 Ok(HsmResponse::NotOwner) => return Err(Response::NotLeader),
@@ -1587,37 +1623,81 @@ impl<T: Transport + 'static> Agent<T> {
         }
         panic!("too slow to make progress");
     }
-}
 
-impl<T> AgentInner<T> {
     fn maybe_role_changed(&self, realm: RealmId, group: GroupId, role_now: RoleStatus) {
-        let mut locked = self.state.lock().unwrap();
-        match locked.roles.entry((realm, group)) {
-            Entry::Vacant(ve) => {
-                info!(?group, to=%role_now, no_spew=1, "HSM role transitioned");
-                ve.insert(role_now);
+        let starting_info = {
+            let mut locked = self.0.state.lock().unwrap();
+            let group_state = group_state_mut(&mut locked.groups, realm, group);
+
+            if role_now.at < group_state.role.at {
+                warn!(%role_now, %group_state.role, "skipping stale state update");
+                return;
             }
-            Entry::Occupied(mut oe) => {
-                let current = oe.get();
-                if role_now.at < current.at {
-                    warn!(%role_now, %current, "skipping stale state update");
-                    return;
-                }
-                if role_now.at == current.at {
-                    assert_eq!(role_now.role, current.role);
-                }
-                if role_now.role != current.role {
-                    info!(?group, from=%current, to=%role_now, no_spew=1, "HSM role transitioned");
-                }
-                let is_witness = role_now.role == hsm_api::GroupMemberRole::Witness;
-                oe.insert(role_now);
-                // If we've transitioned to witness from leader/stepdown we need to cleanup our leader state.
-                if is_witness {
-                    locked.leader.remove(&(realm, group));
-                }
-                // If we've transitioned to leader, we don't have enough info to process that, but we
-                // know that start_leading will get called by whatever triggered the begin leading.
+            if role_now.at == group_state.role.at {
+                assert_eq!(role_now.role, group_state.role.role);
             }
+            // Note that there's a path through the lead_from check that can result in this role change
+            // not being applied at this point, so we can't just log the transition here.
+            let transitioned = role_now.role != group_state.role.role;
+
+            // If we've transitioned to witness from leader/stepdown we need to cleanup our leader state.
+            if role_now.role == hsm_api::GroupMemberRole::Witness {
+                if transitioned {
+                    info!(?group, from=%group_state.role, to=%role_now, no_spew=1, "HSM role transitioned");
+                }
+                group_state.leader = None;
+                group_state.role = role_now;
+                return;
+            }
+            // Otherwise start the leader tasks if needed.
+            let starting_info = if group_state.leader.is_none() {
+                let starting_index = match group_state.lead_from.remove(&role_now.at.into()) {
+                    Some(idx) => idx,
+                    None => {
+                        // Some other thread slipped in a call with role as
+                        // leader while begin_leading hasn't finished
+                        // processing its response. We ignore this update
+                        // and wait for the one from begin_leading to turn
+                        // up and complete the transition. This means the
+                        // role and value in leader stay consistent.
+                        warn!(
+                            ?group,
+                            ?realm,
+                            at=?role_now.at,
+                            "No starting index for transition to leader,
+                            skipping role change, waiting on begin_leader"
+                        );
+                        // Note we didn't update group_state.role here on purpose.
+                        return;
+                    }
+                };
+
+                group_state.leader = Some(LeaderState {
+                    append_queue: HashMap::new(),
+                    appending: AppendingState::NotAppending {
+                        next: starting_index,
+                    },
+                    last_appended: None,
+                    uncompacted_rows: VecDeque::new(),
+                    response_channels: HashMap::new(),
+                });
+                Some((group_state.configuration.clone(), starting_index))
+            } else {
+                // Leader tasks already running.
+                None
+            };
+            if transitioned {
+                info!(?group, from=%group_state.role, to=%role_now, no_spew=1, "HSM role transitioned");
+            }
+            group_state.role = role_now;
+            starting_info
+        };
+        if let Some((config, starting_index)) = starting_info {
+            info!(name=?self.0.name, ?realm, ?group, no_spew=1, "Starting group committer");
+            tokio::spawn(
+                self.clone()
+                    .group_committer(realm, group, config, starting_index),
+            );
         }
     }
 }

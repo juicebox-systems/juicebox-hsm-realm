@@ -10,7 +10,7 @@ use observability::metrics::Tag;
 use observability::metrics_tag as tag;
 
 use super::commit::UncompactedRowsStats;
-use super::Agent;
+use super::{group_state_mut, Agent};
 use AppendingState::*;
 
 #[derive(Debug)]
@@ -29,7 +29,10 @@ impl<T: Transport + 'static> Agent<T> {
     pub(super) fn append(&self, realm: RealmId, group: GroupId, append_request: Append) {
         let appending = {
             let mut locked = self.0.state.lock().unwrap();
-            match locked.leader.get_mut(&(realm, group)) {
+            match group_state_mut(&mut locked.groups, realm, group)
+                .leader
+                .as_mut()
+            {
                 None => return,
                 Some(leader) => {
                     let existing = leader
@@ -63,7 +66,10 @@ impl<T: Transport + 'static> Agent<T> {
             batch.clear();
             {
                 let mut locked = self.0.state.lock().unwrap();
-                let Some(leader) = locked.leader.get_mut(&(realm, group)) else {
+                let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
+                    .leader
+                    .as_mut()
+                else {
                     return;
                 };
                 assert!(matches!(leader.appending, Appending));
@@ -95,8 +101,12 @@ impl<T: Transport + 'static> Agent<T> {
                     );
                     {
                         let mut locked = self.0.state.lock().unwrap();
+
                         // Empty the queue so we don't try and append anything else.
-                        if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
+                        if let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
+                            .leader
+                            .as_mut()
+                        {
                             leader.append_queue.clear();
                             leader.appending = NotAppending {
                                 next: LogIndex(u64::MAX),
@@ -116,7 +126,10 @@ impl<T: Transport + 'static> Agent<T> {
                     let batch_size = batch.len();
                     let stats = {
                         let mut locked = self.0.state.lock().unwrap();
-                        if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
+                        if let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
+                            .leader
+                            .as_mut()
+                        {
                             leader.uncompacted_rows.push_back(row);
                             leader.last_appended = batch.pop();
                             Some(UncompactedRowsStats::new(leader))
