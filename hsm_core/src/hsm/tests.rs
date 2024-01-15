@@ -920,9 +920,9 @@ fn capture_next_spots_diverged_log_while_stepping_down() {
     let (entry2, _) = unpack_app_response(&leader1_responses[1]);
     assert_eq!(1, res.responses.len());
     assert_eq!(entry2.entry_mac, res.responses[0].0);
-    // everyone captured the log entry written by the new leader, so we'll commit
-    // to that index.
-    assert_eq!(entry2.index.next(), res.committed);
+    // Everyone captured the log entry written by the new leader. But the
+    // stepping down leader shouldn't commit past its stepping_down point.
+    assert_eq!(entry2.index, res.committed);
 
     res.abandoned.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     let mut expected: Vec<EntryMac> = leader1_responses[2..]
