@@ -150,6 +150,13 @@ struct LeaderState {
     /// store.
     appending: append::AppendingState,
 
+    /// The most recent log entry confirmed to be committed by the HSM.
+    ///
+    /// This index refers to an entry that the HSM marked as committed during
+    /// this leadership role: either it was in the log when the leader started
+    /// or this HSM appended it.
+    committed: Option<LogIndex>,
+
     /// A copy of the last log entry that was acknowledged by the store.
     ///
     /// This is used in the read path to avoid reading the last log entry in
@@ -1631,6 +1638,7 @@ impl<T: Transport + 'static> Agent<T> {
                             appending: AppendingState::NotAppending {
                                 next: starting_index,
                             },
+                            committed: None,
                             last_appended: None,
                             uncompacted_rows: VecDeque::new(),
                             response_channels: HashMap::new(),
