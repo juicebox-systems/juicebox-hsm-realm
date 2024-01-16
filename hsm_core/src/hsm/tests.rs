@@ -787,7 +787,7 @@ fn capture_next_spots_diverged_log() {
     for (hsm, role_clock) in zip(&mut cluster.hsms[1..], hsm_role_clocks.iter_mut()) {
         let res = hsm.capture_next(&cluster.store, cluster.realm, cluster.group);
         if let Some(RoleStatus {
-            role: GroupMemberRole::SteppingDown,
+            role: GroupMemberRole::SteppingDown { .. },
             at,
         }) = res
         {
@@ -861,7 +861,7 @@ fn capture_next_spots_diverged_log_pipelined() {
         cluster.hsms[0]
             .capture_next(&cluster.store, cluster.realm, cluster.group),
         Some(RoleStatus{
-            role:GroupMemberRole::SteppingDown,
+            role:GroupMemberRole::SteppingDown{..},
             at}
         ) if at > clock
     ));
@@ -933,7 +933,7 @@ fn capture_next_spots_diverged_log_while_stepping_down() {
     if let StepDownResponse::Ok {
         role:
             RoleStatus {
-                role: GroupMemberRole::SteppingDown,
+                role: GroupMemberRole::SteppingDown { .. },
                 at,
             },
         ..
@@ -956,7 +956,10 @@ fn capture_next_spots_diverged_log_while_stepping_down() {
     let (entry, _) = unpack_app_response(&leader1_responses[0]);
     assert_eq!(entry.entry_mac, res.responses[0].0);
     assert_eq!(entry.index, res.committed);
-    assert_eq!(res.role.role, GroupMemberRole::SteppingDown);
+    assert!(matches!(
+        res.role.role,
+        GroupMemberRole::SteppingDown { .. }
+    ));
     assert_eq!(res.role.at, clock);
 
     // Write the 2nd request to the log.
@@ -979,13 +982,10 @@ fn capture_next_spots_diverged_log_while_stepping_down() {
     cluster.append(cluster.group, &leader2_response);
 
     // hsms[0] capture next sees this diverged log. Its still stepping down.
-    assert_eq!(
-        cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group),
-        Some(RoleStatus {
-            role: GroupMemberRole::SteppingDown,
-            at: clock
-        })
-    );
+    let res = cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group);
+    assert!(res.is_some_and(
+        |rs| rs.at == clock && matches!(rs.role, GroupMemberRole::SteppingDown { .. })
+    ));
 
     cluster.capture_next(cluster.group);
     let captures = cluster.persist_state(cluster.group);
