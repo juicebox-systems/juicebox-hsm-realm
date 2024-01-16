@@ -118,7 +118,7 @@ struct GroupState {
     role: RoleStatus,
     /// When transitioning role to leader, contains the log index that the agent
     /// should start leading from.
-    lead_from: HashMap<HashableRoleClock, LogIndex>,
+    lead_from: HashMap<RoleLogicalClock, LogIndex>,
     /// Contains state needed while in the Leader or SteppingDown roles.
     leader: Option<LeaderState>,
 }
@@ -145,21 +145,6 @@ fn group_state_mut(
     };
     assert_eq!(group, state.group);
     state
-}
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct HashableRoleClock(RoleLogicalClock);
-
-impl From<RoleLogicalClock> for HashableRoleClock {
-    fn from(value: RoleLogicalClock) -> Self {
-        Self(value)
-    }
-}
-
-impl std::hash::Hash for HashableRoleClock {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0 .0.hash(state);
-    }
 }
 
 // State about a group that is used in the Leader or SteppingDown state.
@@ -977,7 +962,7 @@ impl<T: Transport + 'static> Agent<T> {
                 at: RoleLogicalClock(0),
             },
             leader: None,
-            lead_from: HashMap::from_iter([(role.at.into(), LogIndex::FIRST.next())]),
+            lead_from: HashMap::from_iter([(role.at, LogIndex::FIRST.next())]),
         };
         {
             let existing = self
@@ -1243,7 +1228,7 @@ impl<T: Transport + 'static> Agent<T> {
                             group_state_mut(&mut locked.groups, request.realm, request.group);
                         group_state
                             .lead_from
-                            .insert(role.at.into(), last_entry_index.next());
+                            .insert(role.at, last_entry_index.next());
                     }
                     self.maybe_role_changed(request.realm, request.group, role);
                     return Ok(Response::Ok);
@@ -1651,7 +1636,7 @@ impl<T: Transport + 'static> Agent<T> {
             }
             // Otherwise start the leader tasks if needed.
             let starting_info = if group_state.leader.is_none() {
-                let starting_index = match group_state.lead_from.remove(&role_now.at.into()) {
+                let starting_index = match group_state.lead_from.remove(&role_now.at) {
                     Some(idx) => idx,
                     None => {
                         // Some other thread slipped in a call with role as

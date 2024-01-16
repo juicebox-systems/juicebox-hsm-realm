@@ -593,7 +593,7 @@ impl From<CtBytes<32>> for TransferStatement {
 /// a particular group. HSM requests that might result in a role transition
 /// return the resulting role and clock. The Agent can use the role + clock
 /// values to ensure its own state relating to the group role is in sync.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct RoleLogicalClock(pub u64);
 
 impl RoleLogicalClock {
