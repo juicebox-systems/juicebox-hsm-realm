@@ -701,7 +701,7 @@ impl Display for RoleStatus {
 pub enum GroupMemberRole {
     /// The HSM accepts new requests from clients and executes them. It also
     /// acts as a witness.
-    Leader,
+    Leader { starting: LogIndex },
     /// The HSM is finishing up client requests that it received as leader, but
     /// it is not accepting new requests. It also acts as a witness.
     ///
@@ -716,7 +716,7 @@ pub enum GroupMemberRole {
 impl Display for GroupMemberRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GroupMemberRole::Leader => f.write_str("Leader"),
+            GroupMemberRole::Leader { .. } => f.write_str("Leader"),
             GroupMemberRole::SteppingDown => f.write_str("Stepping Down"),
             GroupMemberRole::Witness => f.write_str("Witness"),
         }

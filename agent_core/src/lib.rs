@@ -114,9 +114,6 @@ struct GroupState {
     /// The last recorded role that the HSM is in for this group along with when
     /// the transition to this role was.
     role: RoleStatus,
-    /// When transitioning role to leader, contains the log index that the agent
-    /// should start leading from.
-    lead_from: HashMap<RoleLogicalClock, LogIndex>,
     /// Contains state needed while in the Leader or SteppingDown roles.
     leader: Option<LeaderState>,
 }
@@ -273,7 +270,6 @@ impl<T: Transport + 'static> Agent<T> {
                                             configuration: g.configuration.clone(),
                                             role: g.role.clone(),
                                             leader: None,
-                                            lead_from: HashMap::new(),
                                         },
                                     )
                                 })
@@ -517,10 +513,12 @@ impl<T: Transport + 'static> Agent<T> {
                             // tables and has appended the first log entry &
                             // merkle tree nodes. The check on the captured
                             // index stops us from treating that as a bad state.
-                            let is_suspect = hsm_group_status.role.role == GroupMemberRole::Leader
-                                && hsm_group_status
-                                    .captured
-                                    .is_some_and(|(index, _)| index > LogIndex::FIRST)
+                            let is_suspect = matches!(
+                                hsm_group_status.role.role,
+                                GroupMemberRole::Leader { .. }
+                            ) && hsm_group_status
+                                .captured
+                                .is_some_and(|(index, _)| index > LogIndex::FIRST)
                                 && !agent_state.is_leader(realm, group);
                             if is_suspect {
                                 let count = suspect_counts.entry(group).or_default();
@@ -956,7 +954,6 @@ impl<T: Transport + 'static> Agent<T> {
                 at: RoleLogicalClock(0),
             },
             leader: None,
-            lead_from: HashMap::from_iter([(role.at, LogIndex::FIRST.next())]),
         };
         {
             let existing = self
@@ -1097,7 +1094,6 @@ impl<T: Transport + 'static> Agent<T> {
                             configuration: request.configuration,
                             role,
                             leader: None,
-                            lead_from: HashMap::new(),
                         }
                     });
                 if start {
@@ -1215,14 +1211,6 @@ impl<T: Transport + 'static> Agent<T> {
             {
                 Err(_) => return Ok(Response::NoHsm),
                 Ok(HsmResponse::Ok { role }) => {
-                    {
-                        let mut locked = self.0.state.lock().unwrap();
-                        let group_state =
-                            group_state_mut(&mut locked.groups, request.realm, request.group);
-                        group_state
-                            .lead_from
-                            .insert(role.at, last_entry_index.next());
-                    }
                     self.maybe_role_changed(request.realm, request.group, role);
                     return Ok(Response::Ok);
                 }
@@ -1614,61 +1602,46 @@ impl<T: Transport + 'static> Agent<T> {
             if role_now.at == group_state.role.at {
                 assert_eq!(role_now.role, group_state.role.role);
             }
-            // Note that there's a path through the lead_from check that can result in this role change
-            // not being applied at this point, so we can't just log the transition here.
-            let transitioned = role_now.role != group_state.role.role;
 
-            // If we've transitioned to witness from leader/stepdown we need to cleanup our leader state.
-            if role_now.role == hsm_api::GroupMemberRole::Witness {
-                if transitioned {
-                    info!(?group, from=%group_state.role, to=%role_now, no_spew=1, "HSM role transitioned");
-                }
-                group_state.leader = None;
-                group_state.role = role_now;
-                return;
-            }
-            // Otherwise start the leader tasks if needed.
-            let starting_info = if group_state.leader.is_none() {
-                let starting_index = match group_state.lead_from.remove(&role_now.at) {
-                    Some(idx) => idx,
-                    None => {
-                        // Some other thread slipped in a call with role as
-                        // leader while begin_leading hasn't finished
-                        // processing its response. We ignore this update
-                        // and wait for the one from begin_leading to turn
-                        // up and complete the transition. This means the
-                        // role and value in leader stay consistent.
-                        warn!(
-                            ?group,
-                            ?realm,
-                            at=?role_now.at,
-                            "No starting index for transition to leader,
-                            skipping role change, waiting on begin_leader"
-                        );
-                        // Note we didn't update group_state.role here on purpose.
-                        return;
-                    }
-                };
-
-                group_state.leader = Some(LeaderState {
-                    append_queue: HashMap::new(),
-                    appending: AppendingState::NotAppending {
-                        next: starting_index,
-                    },
-                    last_appended: None,
-                    uncompacted_rows: VecDeque::new(),
-                    response_channels: HashMap::new(),
-                });
-                Some((group_state.configuration.clone(), starting_index))
-            } else {
-                // Leader tasks already running. (e.g. become_leader called while already leader)
-                None
-            };
-            if transitioned {
+            if role_now.role != group_state.role.role {
                 info!(?group, from=%group_state.role, to=%role_now, no_spew=1, "HSM role transitioned");
             }
-            group_state.role = role_now;
-            starting_info
+            group_state.role = role_now.clone();
+
+            match role_now.role {
+                GroupMemberRole::Witness => {
+                    // If we've transitioned to witness from leader/stepdown we
+                    // need to cleanup our leader state.
+                    group_state.leader = None;
+                    None
+                }
+                GroupMemberRole::SteppingDown => {
+                    // There's nothing to do with a leader -> stepdown
+                    // transition. The leader tasks for the agent need to
+                    // continue to run until the stepdown completes.
+                    None
+                }
+                GroupMemberRole::Leader {
+                    starting: starting_index,
+                } => {
+                    // Start the leader tasks if needed.
+                    if group_state.leader.is_none() {
+                        group_state.leader = Some(LeaderState {
+                            append_queue: HashMap::new(),
+                            appending: AppendingState::NotAppending {
+                                next: starting_index,
+                            },
+                            last_appended: None,
+                            uncompacted_rows: VecDeque::new(),
+                            response_channels: HashMap::new(),
+                        });
+                        Some((group_state.configuration.clone(), starting_index))
+                    } else {
+                        // Leader tasks already running. (e.g. become_leader called while already leader)
+                        None
+                    }
+                }
+            }
         };
         if let Some((config, starting_index)) = starting_info {
             info!(name=?self.0.name, ?realm, ?group, no_spew=1, "Starting group committer");

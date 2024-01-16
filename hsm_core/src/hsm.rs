@@ -272,8 +272,10 @@ impl RoleState {
 
     fn status(&self) -> RoleStatus {
         match self.state {
-            RoleVolatileState::Leader(_) => RoleStatus {
-                role: GroupMemberRole::Leader,
+            RoleVolatileState::Leader(ref leader) => RoleStatus {
+                role: GroupMemberRole::Leader {
+                    starting: leader.starting_index,
+                },
                 at: self.at,
             },
             RoleVolatileState::SteppingDown(_) => RoleStatus {
@@ -301,6 +303,7 @@ struct LeaderVolatileGroupState {
     /// This is `Some` if and only if the last entry in `log` owns a partition.
     tree: Option<Tree<MerkleHasher>>,
     sessions: SessionCache,
+    starting_index: LogIndex,
 }
 
 impl LeaderVolatileGroupState {
@@ -310,6 +313,7 @@ impl LeaderVolatileGroupState {
             .as_ref()
             .map(|p| Tree::with_existing_root(p.root_hash, options.tree_overlay_size));
         Self {
+            starting_index: last_entry.index.next(),
             log: LeaderLog::new(last_entry),
             committed: None,
             incoming: None,
@@ -824,7 +828,9 @@ impl<P: Platform> Hsm<P> {
             entry,
             delta,
             role: RoleStatus {
-                role: GroupMemberRole::Leader,
+                role: GroupMemberRole::Leader {
+                    starting: LogIndex::FIRST.next(),
+                },
                 at: clock,
             },
         }
@@ -972,7 +978,9 @@ impl<P: Platform> Hsm<P> {
             statement,
             entry,
             role: RoleStatus {
-                role: GroupMemberRole::Leader,
+                role: GroupMemberRole::Leader {
+                    starting: LogIndex::FIRST.next(),
+                },
                 at: clock,
             },
         }

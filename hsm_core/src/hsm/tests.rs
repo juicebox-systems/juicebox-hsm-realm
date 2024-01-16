@@ -346,7 +346,7 @@ fn capture_next() {
             }
         ),
         CaptureNextResponse::Ok(RoleStatus {
-            role: GroupMemberRole::Leader,
+            role: GroupMemberRole::Leader { .. },
             ..
         }),
     ));
@@ -542,14 +542,14 @@ fn commit_captures_verified() {
     // Can commit with the good captures
     let state = cluster.hsms[0].commit(cluster.realm, cluster.group, captures.clone());
     assert_eq!(LogIndex(3), state.committed);
-    assert_eq!(GroupMemberRole::Leader, state.role.role);
+    assert!(matches!(state.role.role, GroupMemberRole::Leader { .. }));
     assert!(state.abandoned.is_empty());
     assert_eq!(1, state.responses.len());
 
     // We can commit the same index again, but the response has already been delivered.
     let state = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
     assert_eq!(LogIndex(3), state.committed);
-    assert_eq!(GroupMemberRole::Leader, state.role.role);
+    assert!(matches!(state.role.role, GroupMemberRole::Leader { .. }));
     assert!(state.abandoned.is_empty());
     assert!(state.responses.is_empty());
 }
@@ -590,7 +590,10 @@ fn can_commit_from_other_captures() {
     assert_eq!(1, committed.len());
     let committed = &committed[0];
     assert_eq!(committed.committed, entry.index);
-    assert_eq!(committed.role.role, GroupMemberRole::Leader);
+    assert!(matches!(
+        committed.role.role,
+        GroupMemberRole::Leader { .. }
+    ));
     assert_eq!(1, committed.responses.len());
     assert_eq!(entry.entry_mac, committed.responses[0].0);
     assert!(matches!(
@@ -607,7 +610,10 @@ fn can_commit_from_other_captures() {
     assert_eq!(committed.committed, committed2.committed);
     assert!(committed2.responses.is_empty());
     assert!(committed2.abandoned.is_empty());
-    assert_eq!(GroupMemberRole::Leader, committed2.role.role);
+    assert!(matches!(
+        committed2.role.role,
+        GroupMemberRole::Leader { .. }
+    ));
 }
 
 #[test]
@@ -770,7 +776,7 @@ fn capture_next_spots_diverged_log() {
     assert!(matches!(
         cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group),
         Some(RoleStatus {
-            role: GroupMemberRole::Leader,
+            role: GroupMemberRole::Leader{..},
             at
         }) if at == hsm_role_clocks[0],
     ));
@@ -894,7 +900,7 @@ fn capture_next_spots_diverged_log_pipelined() {
     assert_eq!(1, commit.responses.len());
     assert_eq!(entry.entry_mac, commit.responses[0].0);
     assert!(commit.abandoned.is_empty());
-    assert_eq!(commit.role.role, GroupMemberRole::Leader);
+    assert!(matches!(commit.role.role, GroupMemberRole::Leader { .. }));
 }
 
 #[test]
