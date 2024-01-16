@@ -111,9 +111,9 @@ jobs:
         timeout-minutes: 20
         strategy:
           matrix:
-            # Role Logical Clock (PR #383, `8d14be7...`) added a RoleState struct that is
+            # Role Logical Clock (PR #383, `f379755...`) added a RoleState struct that is
             # used in many places where GroupMemberRole was previous used.
-            hsm_version: ["8d14be7e914ce80e7ba99ce2adc4bb815a9c327f"]
+            hsm_version: ["f37975518ee101e9739dce4e20cee013c0b88238"]
         steps:
         - name: Check out sources
           uses: actions/checkout@v4
