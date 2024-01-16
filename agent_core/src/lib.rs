@@ -1604,9 +1604,7 @@ impl<T: Transport + 'static> Agent<T> {
                 return;
             }
 
-            if role_now != group_state.role {
-                info!(?group, from=%group_state.role, to=%role_now, no_spew=1, "HSM role transitioned");
-            }
+            info!(?group, from=%group_state.role, to=%role_now, no_spew=1, "HSM role transitioned");
             group_state.role = role_now.clone();
 
             match role_now.role {
