@@ -111,9 +111,9 @@ jobs:
         timeout-minutes: 20
         strategy:
           matrix:
-            # Log compaction (PR #372, `bdd495...`) added an HSM CaptureJump
-            # RPC and a force flag to the StepDown RPC.
-            hsm_version: ["bdd495abdb65a5029da28b7b1471caed0e390cfa"]
+            # Role Logical Clock (PR #383, `539163...`) added a RoleState struct that is
+            # used in many places where GroupMemberRole was previous used.
+            hsm_version: ["539163182314fb5cc86659ff797192879fd57eca"]
         steps:
         - name: Check out sources
           uses: actions/checkout@v4

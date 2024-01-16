@@ -589,6 +589,29 @@ impl From<CtBytes<32>> for TransferStatement {
     }
 }
 
+/// The RoleLogicalClock value increases each time there's a role transition for
+/// a particular group. HSM requests that might result in a role transition
+/// return the resulting role and clock. The Agent can use the role + clock
+/// values to ensure its own state relating to the group role is in sync.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct RoleLogicalClock(pub u64);
+
+impl RoleLogicalClock {
+    pub fn start() -> Self {
+        Self(1)
+    }
+
+    pub fn next(&self) -> Self {
+        Self(self.0 + 1)
+    }
+}
+
+impl Display for RoleLogicalClock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// Request type for the HSM Status RPC (see [`StatusResponse`]). Returns
 /// information about the HSM's current state.
 ///
@@ -658,21 +681,34 @@ pub struct GroupStatus {
     /// (though only one will be able to commit its log entries successfully).
     pub leader: Option<LeaderStatus>,
     /// The HSM's current role in this group.
+    pub role: RoleStatus,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RoleStatus {
     pub role: GroupMemberRole,
+    pub at: RoleLogicalClock,
+}
+
+impl Display for RoleStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} (@{})", self.role, self.at)
+    }
 }
 
 /// An HSM's current role in a particular replication group.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum GroupMemberRole {
     /// The HSM accepts new requests from clients and executes them. It also
-    /// acts as a witness.
-    Leader,
+    /// acts as a witness. starting is the first log index generated as leader.
+    Leader { starting: LogIndex },
     /// The HSM is finishing up client requests that it received as leader, but
     /// it is not accepting new requests. It also acts as a witness.
     ///
     /// Once this HSM commits the existing client requests, it will become a
-    /// witness only.
-    SteppingDown,
+    /// witness only. leader_starting is the first log index generated during
+    /// the immediately prior leading state.
+    SteppingDown { leader_starting: LogIndex },
     /// The HSM is not accepting requests from clients. It "captures" log
     /// entries after they have been persisted to an external storage system.
     Witness,
@@ -681,8 +717,8 @@ pub enum GroupMemberRole {
 impl Display for GroupMemberRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GroupMemberRole::Leader => f.write_str("Leader"),
-            GroupMemberRole::SteppingDown => f.write_str("Stepping Down"),
+            GroupMemberRole::Leader { .. } => f.write_str("Leader"),
+            GroupMemberRole::SteppingDown { .. } => f.write_str("Stepping Down"),
             GroupMemberRole::Witness => f.write_str("Witness"),
         }
     }
@@ -759,6 +795,8 @@ pub enum NewRealmResponse {
         /// The new group owns a new Merkle tree, and this contains its root
         /// node.
         delta: StoreDelta<DataHash>,
+        /// The HSM's role for the new group.
+        role: RoleStatus,
     },
     /// This HSM is already a member of a realm, so it can't create a new
     /// realm.
@@ -855,6 +893,8 @@ pub enum NewGroupResponse {
         /// This entry should be persisted. If it somehow fails to persist, the
         /// new group should be abandoned.
         entry: LogEntry,
+        /// The HSMs role for the new group.
+        role: RoleStatus,
     },
     /// This HSM is not a member of this realm (it's either not a member of any
     /// realm or is already a member of a different realm), so it can't create
@@ -909,7 +949,7 @@ pub struct JoinGroupRequest {
 pub enum JoinGroupResponse {
     /// The HSM successfully and persistently joined the group (or it had
     /// already done so).
-    Ok,
+    Ok(RoleStatus),
     /// This HSM is not a member of this realm (it's either not a member of any
     /// realm or is already a member of a different realm), so it can't join
     /// the new group.
@@ -951,7 +991,7 @@ pub enum CaptureJumpResponse {
     InvalidGroup,
     /// This HSM was the leader of the group or stepping down. It doesn't
     /// handle these cases to avoid complexity.
-    NotWitness(GroupMemberRole),
+    NotWitness(RoleStatus),
     /// The `jump.statement` was invalid.
     InvalidStatement,
     /// The HSM has already captured (to volatile memory) an index `>=
@@ -992,7 +1032,7 @@ pub enum CaptureNextResponse {
     /// The role of this HSM in the group is returned. The HSM may have used the
     /// data captured to detect that it's no longer leader and transition out of
     /// the leader state.
-    Ok(GroupMemberRole),
+    Ok(RoleStatus),
     /// This HSM is not a member of this realm.
     InvalidRealm,
     /// This HSM is not a member of this group.
@@ -1043,12 +1083,8 @@ pub enum BecomeLeaderResponse {
     /// The HSM successfully became leader of the group (or it was already
     /// leader).
     Ok {
-        /// The fixed set of HSM members of the group, including this one, in
-        /// sorted order.
-        ///
-        /// This is provided for convenience so that the caller (the agent) can
-        /// run the replication protocol with the other members.
-        configuration: Vec<HsmId>,
+        /// The resulting role and role transition clock value.
+        role: RoleStatus,
     },
     /// This HSM is not a member of this realm.
     InvalidRealm,
@@ -1095,23 +1131,18 @@ pub struct StepDownRequest {
 /// Response type for the HSM StepDown RPC (see [`StepDownRequest`]).
 #[derive(Debug, Deserialize, Serialize)]
 pub enum StepDownResponse {
-    /// The HSM transitioned into the stepping down role.
-    InProgress {
+    Ok {
         /// The last log index generated (or inherited) as leader. The HSM will
         /// stay in the stepping down role until it is able to commit the log
-        /// entry with index 'last'.
+        /// entry with index 'last'. If this entry is already committed, the HSM
+        /// will transition directly to Witness.
         ///
         /// The caller (the agent) should continue to issue commit requests to
         /// the HSM until it reaches at least this index. This will ensure that
         /// all the pending client responses are released.
         last: LogIndex,
-    },
-    /// The HSM transitioned directly into the witness-only role. It is done
-    /// stepping down.
-    Complete {
-        /// The last log index generated (or inherited) as leader. If `force`
-        /// was false, this entry has now also been committed.
-        last: LogIndex,
+        /// Role that the HSM has transitioned to.
+        role: RoleStatus,
     },
     /// This HSM is not a member of this realm.
     InvalidRealm,
@@ -1119,7 +1150,7 @@ pub enum StepDownResponse {
     InvalidGroup,
     /// The HSM wasn't acting as leader of the group. It might have only been a
     /// witness or it might have already been stepping down.
-    NotLeader(GroupMemberRole),
+    NotLeader(RoleStatus),
 }
 
 /// Request type for the HSM PersistState RPC (see [`PersistStateResponse`]).
@@ -1210,7 +1241,7 @@ pub struct CommitState {
     /// down, then this request may have caused the role to complete its
     /// responsibilities and return to the witness-only role (or it may
     /// have more to commit and remain in the stepping down role).
-    pub role: GroupMemberRole,
+    pub role: RoleStatus,
 }
 
 /// Response type for the HSM Commit RPC (see [`CommitRequest`]).
@@ -1235,7 +1266,7 @@ pub enum CommitResponse {
     /// role as a recent leader. It has no business committing log entries, and
     /// it does not have any client responses. GroupMemberRole is returned for
     /// consistency but will always be Witness in this case.
-    NotLeader(GroupMemberRole),
+    NotLeader(RoleStatus),
 }
 
 /// The HSMs transfer ownership of a range of record IDs from one replication
@@ -1747,7 +1778,7 @@ pub enum AppResponse {
     NotOwner,
     /// This HSM is not a leader of this group, so clients have no business
     /// connecting to it.
-    NotLeader(GroupMemberRole),
+    NotLeader(RoleStatus),
     /// The Merkle leaf node could not be decrypted into a user record.
     InvalidRecordData,
     /// The HSM could not locate an active session for the given record ID and

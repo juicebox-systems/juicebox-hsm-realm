@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use core::iter;
+use core::iter::{self, zip};
 use rand::Rng;
 use rand_core::{CryptoRng, OsRng, RngCore};
 use std::sync::Mutex;
@@ -336,8 +336,7 @@ fn capture_next() {
 
     let (log_entry1, _delta) = unpack_app_response(&res1);
     let (log_entry2, _delta) = unpack_app_response(&res2);
-    assert_eq!(
-        CaptureNextResponse::Ok(GroupMemberRole::Leader),
+    assert!(matches!(
         cluster.hsms[0].hsm.handle_capture_next(
             &mut metrics,
             CaptureNextRequest {
@@ -345,8 +344,12 @@ fn capture_next() {
                 group: cluster.group,
                 entries: vec![log_entry1, log_entry2]
             }
-        )
-    );
+        ),
+        CaptureNextResponse::Ok(RoleStatus {
+            role: GroupMemberRole::Leader { .. },
+            ..
+        }),
+    ));
 }
 
 #[test]
@@ -530,20 +533,23 @@ fn commit_captures_verified() {
                 captures: captures.clone(),
             },
         ),
-        CommitResponse::NotLeader(GroupMemberRole::Witness)
+        CommitResponse::NotLeader(RoleStatus {
+            role: GroupMemberRole::Witness,
+            at: _,
+        })
     ));
 
     // Can commit with the good captures
     let state = cluster.hsms[0].commit(cluster.realm, cluster.group, captures.clone());
     assert_eq!(LogIndex(3), state.committed);
-    assert_eq!(GroupMemberRole::Leader, state.role);
+    assert!(matches!(state.role.role, GroupMemberRole::Leader { .. }));
     assert!(state.abandoned.is_empty());
     assert_eq!(1, state.responses.len());
 
     // We can commit the same index again, but the response has already been delivered.
     let state = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
     assert_eq!(LogIndex(3), state.committed);
-    assert_eq!(GroupMemberRole::Leader, state.role);
+    assert!(matches!(state.role.role, GroupMemberRole::Leader { .. }));
     assert!(state.abandoned.is_empty());
     assert!(state.responses.is_empty());
 }
@@ -584,7 +590,10 @@ fn can_commit_from_other_captures() {
     assert_eq!(1, committed.len());
     let committed = &committed[0];
     assert_eq!(committed.committed, entry.index);
-    assert_eq!(committed.role, GroupMemberRole::Leader);
+    assert!(matches!(
+        committed.role.role,
+        GroupMemberRole::Leader { .. }
+    ));
     assert_eq!(1, committed.responses.len());
     assert_eq!(entry.entry_mac, committed.responses[0].0);
     assert!(matches!(
@@ -601,7 +610,10 @@ fn can_commit_from_other_captures() {
     assert_eq!(committed.committed, committed2.committed);
     assert!(committed2.responses.is_empty());
     assert!(committed2.abandoned.is_empty());
-    assert_eq!(GroupMemberRole::Leader, committed2.role);
+    assert!(matches!(
+        committed2.role.role,
+        GroupMemberRole::Leader { .. }
+    ));
 }
 
 #[test]
@@ -612,10 +624,20 @@ fn app_request_spots_future_log() {
     let mut cluster = TestCluster::new(2);
     // Make both HSMs leader.
     let last_entry = cluster.store.latest_log(&cluster.group);
-    for hsm in &mut cluster.hsms {
-        let res = hsm.become_leader(cluster.realm, cluster.group, last_entry.clone());
-        assert!(matches!(res, BecomeLeaderResponse::Ok { .. }));
-    }
+
+    let hsm_role_clocks: Vec<RoleLogicalClock> = cluster
+        .hsms
+        .iter_mut()
+        .map(|hsm| {
+            let res = hsm.become_leader(cluster.realm, cluster.group, last_entry.clone());
+            if let BecomeLeaderResponse::Ok { role } = res {
+                role.at
+            } else {
+                panic!("hsm should of responded with Ok to become_leader, but got {res:?}");
+            }
+        })
+        .collect();
+
     // Ensure everyone has committed the current log.
     cluster.capture_next_and_commit_group(cluster.group);
 
@@ -640,7 +662,13 @@ fn app_request_spots_future_log() {
     );
     // The 2nd HSM should of stepped down to Witness.
     assert!(
-        matches!(res, AppResponse::NotLeader(GroupMemberRole::Witness)),
+        matches!(
+            res,
+            AppResponse::NotLeader(RoleStatus {
+                role: GroupMemberRole::Witness,
+                at
+            }) if at > hsm_role_clocks[1]
+        ),
         "app_request unexpected result: {res:?}"
     );
 }
@@ -683,10 +711,14 @@ fn capture_next_spots_diverged_log_no_inflight_reqs() {
     // When the first HSM captures this new entry from a different leader it
     // should stand down. As it has no requests left to commit, it can go
     // straight to Witness.
-    assert_eq!(
-        Some(GroupMemberRole::Witness),
-        cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group)
-    );
+    let clock = cluster.hsms[0].role_clock(cluster.group);
+    assert!(matches!(
+        cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group),
+        Some(RoleStatus {
+            role: GroupMemberRole::Witness,
+            at
+        }) if at > clock,
+    ));
 }
 
 #[test]
@@ -703,10 +735,18 @@ fn capture_next_spots_diverged_log() {
     let mut cluster = TestCluster::new(3);
     // Make all the HSMs leader.
     let last = cluster.store.latest_log(&cluster.group);
-    for hsm in cluster.hsms.iter_mut() {
-        let r = hsm.become_leader(cluster.realm, cluster.group, last.clone());
-        assert!(matches!(r, BecomeLeaderResponse::Ok { .. }));
-    }
+    let mut hsm_role_clocks: Vec<RoleLogicalClock> = cluster
+        .hsms
+        .iter_mut()
+        .map(|hsm| {
+            let res = hsm.become_leader(cluster.realm, cluster.group, last.clone());
+            if let BecomeLeaderResponse::Ok { role } = res {
+                role.at
+            } else {
+                panic!("hsm should of responded with Ok to become_leader, but got {res:?}");
+            }
+        })
+        .collect();
 
     // They all should be able to commit the existing log.
     cluster.commit(cluster.group);
@@ -733,27 +773,38 @@ fn capture_next_spots_diverged_log() {
     cluster.append(cluster.group, &responses[0]);
 
     // hsm[0] should happily capture next and think its still leader.
-    assert_eq!(
-        Some(GroupMemberRole::Leader),
-        cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group)
-    );
+    assert!(matches!(
+        cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group),
+        Some(RoleStatus {
+            role: GroupMemberRole::Leader{..},
+            at
+        }) if at == hsm_role_clocks[0],
+    ));
 
     // The other HSMs should stand down. They have uncommitted entries but
     // they can't be committed. The HSM should transition to stepping down
     // and report these uncommitted entries as abandoned.
-    for hsm in &mut cluster.hsms[1..] {
-        assert_eq!(
-            Some(GroupMemberRole::SteppingDown),
-            hsm.capture_next(&cluster.store, cluster.realm, cluster.group)
-        );
+    for (hsm, role_clock) in zip(&mut cluster.hsms[1..], hsm_role_clocks.iter_mut()) {
+        let res = hsm.capture_next(&cluster.store, cluster.realm, cluster.group);
+        if let Some(RoleStatus {
+            role: GroupMemberRole::SteppingDown { .. },
+            at,
+        }) = res
+        {
+            assert!(at > *role_clock);
+            *role_clock = at;
+        } else {
+            panic!("Unexpected response from capture next {res:?}")
+        }
     }
     let captures = cluster.persist_state(cluster.group);
-    for hsm in &mut cluster.hsms[1..] {
+    for (hsm, role_clock) in zip(&mut cluster.hsms[1..], hsm_role_clocks.iter()) {
         let res = hsm.commit(cluster.realm, cluster.group, captures.clone());
         assert!(res.responses.is_empty());
         assert_eq!(1, res.abandoned.len());
         // Nothing left for commit to do, transition back to Witness.
-        assert_eq!(GroupMemberRole::Witness, res.role);
+        assert_eq!(res.role.role, GroupMemberRole::Witness);
+        assert!(res.role.at > *role_clock);
     }
 }
 
@@ -805,13 +856,19 @@ fn capture_next_spots_diverged_log_pipelined() {
 
     // When hsm[0] (the original leader) captures the log it should spot
     // that it diverged and start stepping down.
-    assert_eq!(
-        Some(GroupMemberRole::SteppingDown),
-        cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group)
-    );
+    let clock = cluster.hsms[0].role_clock(cluster.group);
+    assert!(matches!(
+        cluster.hsms[0]
+            .capture_next(&cluster.store, cluster.realm, cluster.group),
+        Some(RoleStatus{
+            role:GroupMemberRole::SteppingDown{..},
+            at}
+        ) if at > clock
+    ));
 
     // hsm[0] is stepping down and should commit the log entries that it
     // successfully wrote to the log.
+    let clock = cluster.hsms[0].role_clock(cluster.group);
     let captures = cluster.persist_state(cluster.group);
     let commit = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
     // The first leader should of committed the first 2 responses it generated.
@@ -831,7 +888,8 @@ fn capture_next_spots_diverged_log_pipelined() {
     }
     assert_eq!(3, commit.abandoned.len());
     // its committed everything it can, it can now go back to being a witness.
-    assert_eq!(GroupMemberRole::Witness, commit.role);
+    assert_eq!(commit.role.role, GroupMemberRole::Witness);
+    assert!(commit.role.at > clock);
 
     // hsm[1] should be able to commit the new entry it wrote once capture_next has caught up.
     cluster.capture_next(cluster.group);
@@ -842,7 +900,7 @@ fn capture_next_spots_diverged_log_pipelined() {
     assert_eq!(1, commit.responses.len());
     assert_eq!(entry.entry_mac, commit.responses[0].0);
     assert!(commit.abandoned.is_empty());
-    assert_eq!(GroupMemberRole::Leader, commit.role);
+    assert!(matches!(commit.role.role, GroupMemberRole::Leader { .. }));
 }
 
 #[test]
@@ -870,8 +928,22 @@ fn capture_next_spots_diverged_log_while_stepping_down() {
     .collect();
 
     // Ask the HSM to gracefully step down.
+    let mut clock = cluster.hsms[0].role_clock(cluster.group);
     let res = cluster.hsms[0].stepdown_as_leader(cluster.realm, cluster.group);
-    assert!(matches!(res, StepDownResponse::InProgress { .. }));
+    if let StepDownResponse::Ok {
+        role:
+            RoleStatus {
+                role: GroupMemberRole::SteppingDown { .. },
+                at,
+            },
+        ..
+    } = res
+    {
+        assert!(at > clock);
+        clock = at;
+    } else {
+        panic!("Unexpected response to stepdown {res:?}");
+    }
 
     // The first request is successfully written to the log.
     cluster.append(cluster.group, &leader1_responses[0]);
@@ -884,7 +956,11 @@ fn capture_next_spots_diverged_log_while_stepping_down() {
     let (entry, _) = unpack_app_response(&leader1_responses[0]);
     assert_eq!(entry.entry_mac, res.responses[0].0);
     assert_eq!(entry.index, res.committed);
-    assert_eq!(GroupMemberRole::SteppingDown, res.role);
+    assert!(matches!(
+        res.role.role,
+        GroupMemberRole::SteppingDown { .. }
+    ));
+    assert_eq!(res.role.at, clock);
 
     // Write the 2nd request to the log.
     cluster.append(cluster.group, &leader1_responses[1]);
@@ -906,17 +982,18 @@ fn capture_next_spots_diverged_log_while_stepping_down() {
     cluster.append(cluster.group, &leader2_response);
 
     // hsms[0] capture next sees this diverged log. Its still stepping down.
-    assert_eq!(
-        Some(GroupMemberRole::SteppingDown),
-        cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group)
-    );
+    let res = cluster.hsms[0].capture_next(&cluster.store, cluster.realm, cluster.group);
+    assert!(res.is_some_and(
+        |rs| rs.at == clock && matches!(rs.role, GroupMemberRole::SteppingDown { .. })
+    ));
 
     cluster.capture_next(cluster.group);
     let captures = cluster.persist_state(cluster.group);
     // Commit on hsms[0] should release the one entry that got persisted and
     // abandon the later ones.
     let mut res = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
-    assert_eq!(GroupMemberRole::Witness, res.role);
+    assert_eq!(res.role.role, GroupMemberRole::Witness);
+    assert!(res.role.at > clock);
     let (entry2, _) = unpack_app_response(&leader1_responses[1]);
     assert_eq!(1, res.responses.len());
     assert_eq!(entry2.entry_mac, res.responses[0].0);
@@ -931,6 +1008,91 @@ fn capture_next_spots_diverged_log_while_stepping_down() {
         .collect();
     expected.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     assert_eq!(expected, res.abandoned);
+}
+
+#[test]
+fn can_join_realm_already_member_of() {
+    let mut cluster = TestCluster::new(2);
+    let s = cluster.hsms[0].status();
+    let stmt = s.realm.map(|r| r.statement).unwrap();
+    let mut metrics = Metrics::new("test", MetricsAction::Skip, TestPlatform::default());
+    let r = cluster.hsms[1].hsm.handle_join_realm(
+        &mut metrics,
+        JoinRealmRequest {
+            realm: cluster.realm,
+            peer: s.id,
+            statement: stmt,
+        },
+    );
+    assert!(matches!(r, JoinRealmResponse::Ok { hsm: _ }));
+}
+
+#[test]
+fn can_join_group_already_joined() {
+    let mut cluster = TestCluster::new(2);
+    let mut metrics = Metrics::new("test", MetricsAction::Skip, TestPlatform::default());
+
+    let mut members: Vec<(HsmId, HsmRealmStatement)> = cluster
+        .hsms
+        .iter_mut()
+        .map(|h| h.status())
+        .map(|s| (s.id, s.realm.unwrap().statement))
+        .collect();
+    members.sort_by_key(|m| m.0);
+
+    let new_group_response = cluster.hsms[0].hsm.handle_new_group(
+        &mut metrics,
+        NewGroupRequest {
+            realm: cluster.realm,
+            members: members.clone(),
+        },
+    );
+    let NewGroupResponse::Ok {
+        group,
+        statement,
+        entry: log_entry,
+        role: _,
+    } = new_group_response
+    else {
+        panic!("Unexpected response to new group {:?}", new_group_response)
+    };
+    cluster
+        .store
+        .append(group, log_entry.clone(), StoreDelta::default());
+
+    let jr = cluster.hsms[1].hsm.handle_join_group(
+        &mut metrics,
+        JoinGroupRequest {
+            realm: cluster.realm,
+            group,
+            configuration: members.iter().map(|x| x.0).collect(),
+            statement: statement.clone(),
+        },
+    );
+    assert!(matches!(jr, JoinGroupResponse::Ok(_)));
+    cluster.capture_next_and_commit_group(group);
+
+    // make hsm[1] leader, this will update its internal role state
+
+    let become_leader_response = cluster.hsms[1].become_leader(cluster.realm, group, log_entry);
+    let BecomeLeaderResponse::Ok { role } = become_leader_response else {
+        panic!("failed to become leader {become_leader_response:?}");
+    };
+    assert!(role.at > RoleLogicalClock::start());
+
+    // telling it to join a group its already a member of shouldn't overwrite its existing role state.
+    let jr = cluster.hsms[1].hsm.handle_join_group(
+        &mut metrics,
+        JoinGroupRequest {
+            realm: cluster.realm,
+            group,
+            configuration: members.iter().map(|x| x.0).collect(),
+            statement,
+        },
+    );
+    assert!(matches!(jr, JoinGroupResponse::Ok(_)));
+    let r = cluster.hsms[1].hsm.volatile.groups.get(&group).unwrap();
+    assert_eq!(r.at, role.at);
 }
 
 fn unpack_app_response(r: &AppResponse) -> (LogEntry, StoreDelta<DataHash>) {
@@ -987,6 +1149,7 @@ impl<'a> TestCluster<'a> {
                 group: starting_group,
                 entry,
                 delta,
+                ..
             } => {
                 store.append(starting_group, entry, delta);
                 (realm, starting_group)
@@ -1042,6 +1205,7 @@ impl<'a> TestCluster<'a> {
             group: new_group,
             statement,
             entry,
+            ..
         } = new_group_resp
         else {
             panic!("new group failed: {:?}", new_group_resp);
@@ -1052,7 +1216,7 @@ impl<'a> TestCluster<'a> {
 
         let config: Vec<HsmId> = members.iter().map(|(id, _stmt)| *id).collect();
         for hsm in &mut cluster.hsms[1..] {
-            assert_eq!(
+            assert!(matches!(
                 hsm.hsm.handle_join_group(
                     &mut m,
                     JoinGroupRequest {
@@ -1062,8 +1226,8 @@ impl<'a> TestCluster<'a> {
                         statement: statement.clone(),
                     },
                 ),
-                JoinGroupResponse::Ok
-            );
+                JoinGroupResponse::Ok(_)
+            ));
         }
 
         let TransferOutResponse::Ok { entry, delta } = cluster.hsms[0].hsm.handle_transfer_out(
@@ -1223,6 +1387,15 @@ impl<'a> TestHsm<'a> {
             .handle_status_request(&mut self.metrics, StatusRequest {})
     }
 
+    fn role_clock(&mut self, group: GroupId) -> RoleLogicalClock {
+        self.status()
+            .realm
+            .and_then(|r| r.groups.into_iter().find(|g| g.id == group))
+            .unwrap()
+            .role
+            .at
+    }
+
     fn has_group(&mut self, group: GroupId) -> bool {
         self.status()
             .realm
@@ -1277,7 +1450,7 @@ impl<'a> TestHsm<'a> {
         store: &TestStore,
         realm: RealmId,
         group: GroupId,
-    ) -> Option<GroupMemberRole> {
+    ) -> Option<RoleStatus> {
         let log = store.group_log(&group);
         let next_capture = self
             .next_capture

@@ -10,7 +10,7 @@ use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::hsm::Transport;
-use super::{Agent, LeaderState};
+use super::{group_state_mut, Agent, LeaderState};
 use agent_api::{ReadCapturedRequest, ReadCapturedResponse};
 use async_util::ScopedTask;
 use cluster_core::discover_hsm_ids;
@@ -171,15 +171,7 @@ impl<T: Transport + 'static> Agent<T> {
         peers: &AgentDiscoveryCache,
         last_committed: Option<LogIndex>,
     ) -> CommitterStatus {
-        if self
-            .0
-            .state
-            .lock()
-            .unwrap()
-            .leader
-            .get(&(realm, group))
-            .is_none()
-        {
+        if !self.0.state.lock().unwrap().is_leader(realm, group) {
             return CommitterStatus::NoLongerLeader;
         }
 
@@ -273,7 +265,7 @@ impl<T: Transport + 'static> Agent<T> {
             }
             Ok(CommitResponse::NotLeader(role)) => {
                 info!(agent = self.0.name, ?realm, ?group, "Leader stepped down");
-                self.0.maybe_role_changed(realm, group, role);
+                self.maybe_role_changed(realm, group, role);
                 return CommitterStatus::NoLongerLeader;
             }
             _ => {
@@ -295,15 +287,16 @@ impl<T: Transport + 'static> Agent<T> {
         Span::current().record("released_count", released_count);
 
         // See if we're done stepping down
-        self.0.maybe_role_changed(realm, group, role);
-        if role == GroupMemberRole::Witness {
-            info!(?group, "Leader stepped down");
+        let result = if role.role == GroupMemberRole::Witness {
+            info!(?group, "Leader completed step down as part of commit");
             CommitterStatus::NoLongerLeader
         } else {
             CommitterStatus::Committing {
                 committed: Some(committed),
             }
-        }
+        };
+        self.maybe_role_changed(realm, group, role);
+        result
     }
 
     // Returns the number of released responses.
@@ -316,7 +309,10 @@ impl<T: Transport + 'static> Agent<T> {
     ) -> usize {
         let mut released_count = 0;
         let mut locked = self.0.state.lock().unwrap();
-        if let Some(leader) = locked.leader.get_mut(&(realm, group)) {
+        if let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
+            .leader
+            .as_mut()
+        {
             for (mac, client_response, event) in responses {
                 if let Some(sender) = leader.response_channels.remove(&mac.into()) {
                     if sender.send((client_response, event)).is_err() {
@@ -447,7 +443,10 @@ impl<T: Transport + 'static> Agent<T> {
         // leader already appended (`>= leader_start_index`).
         let stats = {
             let mut locked = self.0.state.lock().unwrap();
-            let Some(leader) = locked.leader.get_mut(&(*realm, *group)) else {
+            let Some(leader) = group_state_mut(&mut locked.groups, *realm, *group)
+                .leader
+                .as_mut()
+            else {
                 return; // no longer leader
             };
             if let Some(row) = rows_read.back() {
@@ -468,7 +467,10 @@ impl<T: Transport + 'static> Agent<T> {
     async fn compact_once(&self, realm: RealmId, group: GroupId, compact_index: LogIndex) {
         let (to_compact, stats): (Vec<LogRow>, UncompactedRowsStats) = {
             let mut locked = self.0.state.lock().unwrap();
-            let Some(leader) = locked.leader.get_mut(&(realm, group)) else {
+            let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
+                .leader
+                .as_mut()
+            else {
                 return; // no longer leader
             };
             (
@@ -531,7 +533,7 @@ impl<T: Transport + 'static> Agent<T> {
                     && rs
                         .groups
                         .iter()
-                        .any(|gs| gs.id == *group && gs.role == GroupMemberRole::Witness)
+                        .any(|gs| gs.id == *group && gs.role.role == GroupMemberRole::Witness)
             })
         })
         .count();

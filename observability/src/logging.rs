@@ -43,7 +43,10 @@ impl Spew {
 impl<S: Subscriber> Filter<S> for SpewFilter {
     fn enabled(&self, meta: &Metadata<'_>, _cx: &Context<'_, S>) -> bool {
         // Higher levels are more verbose, leave DEBUG & TRACE logging alone.
-        if *meta.level() > Level::INFO || meta.fields().field("suppressed").is_some() {
+        if *meta.level() > Level::INFO
+            || meta.fields().field("suppressed").is_some()
+            || meta.fields().field("no_spew").is_some()
+        {
             return true;
         }
         let k = meta.callsite();
