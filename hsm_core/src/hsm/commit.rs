@@ -1,7 +1,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use core::cmp::max;
+use core::cmp::{max, min};
 use core::mem;
 use hashbrown::hash_map::Entry;
 use tracing::{info, instrument, trace, warn};
@@ -229,11 +229,13 @@ impl<P: Platform> Hsm<P> {
             .get_mut(&request.group)
             .expect("already validated that this HSM is a member of the group");
 
-        let (log, committed) = match &mut role.state {
-            RoleVolatileState::Leader(leader) => (&mut leader.log, &mut leader.committed),
-            RoleVolatileState::SteppingDown(steppingdown) => {
-                (&mut steppingdown.log, &mut steppingdown.committed)
-            }
+        let (log, committed, stepdown_at) = match &mut role.state {
+            RoleVolatileState::Leader(leader) => (&mut leader.log, &mut leader.committed, None),
+            RoleVolatileState::SteppingDown(steppingdown) => (
+                &mut steppingdown.log,
+                &mut steppingdown.committed,
+                Some(steppingdown.stepdown_at),
+            ),
             RoleVolatileState::Witness => return Response::NotLeader(role.status()),
         };
 
@@ -285,6 +287,15 @@ impl<P: Platform> Hsm<P> {
             );
             return Response::NoQuorum;
         };
+
+        // Don't let the commit_index go past the stepdown point. This allows
+        // the agent to use the combination of the commit_index and the role
+        // clock to determine if a previously generated entry from this HSM has
+        // committed. Entries in the log past the stepdown point were written by
+        // a different leader.
+        if let Some(stepdown_at) = stepdown_at {
+            commit_index = min(commit_index, stepdown_at);
+        }
 
         if let Some(committed) = committed {
             // Don't let the commit_index go backwards from a prior commit.
