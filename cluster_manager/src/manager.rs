@@ -34,6 +34,7 @@ use store::{Lease, LeaseKey, LeaseType, ServiceKind, StoreClient};
 mod leader;
 mod rebalance;
 mod stepdown;
+mod transfer;
 
 const LEASE_DURATION: Duration = Duration::from_secs(3);
 
@@ -246,6 +247,9 @@ impl Service<Request<IncomingBody>> for Manager {
                     }
                     cluster_api::RebalanceRequest::PATH => {
                         handle_rpc(&manager, request, Self::handle_rebalance).await
+                    }
+                    cluster_api::TransferRequest::PATH => {
+                        handle_rpc(&manager, request, Self::handle_transfer).await
                     }
                     _ => Ok(Response::builder()
                         .status(http::StatusCode::NOT_FOUND)

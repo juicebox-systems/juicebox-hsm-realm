@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use hsm_api::{GroupId, HsmId};
+use hsm_api::{GroupId, HsmId, OwnedRange};
 use juicebox_networking::rpc::{Rpc, RpcError, Service};
 use juicebox_sdk::RealmId;
 
@@ -67,7 +67,6 @@ pub struct RebalancedLeader {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, Error, PartialEq, Serialize)]
-
 pub enum RebalanceError {
     /// An attempt to move leadership was made, but the stepdown request to the
     /// current leader failed.
@@ -96,4 +95,29 @@ pub enum RebalanceError {
 
     #[error("An RPC Error occurred between the cluster manager and the cluster: {0:?}")]
     Rpc(#[from] RpcError),
+}
+
+impl Rpc<ClusterService> for TransferRequest {
+    const PATH: &'static str = "transfer";
+    type Response = Result<TransferSuccess, TransferError>;
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TransferRequest {
+    pub realm: RealmId,
+    pub source: GroupId,
+    pub destination: GroupId,
+    pub range: OwnedRange,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TransferSuccess {}
+
+#[derive(Clone, Debug, Deserialize, Eq, Error, PartialEq, Serialize)]
+pub enum TransferError {
+    #[error("could not find source group leader")]
+    NoSourceLeader,
+    #[error("could not find destination group leader")]
+    NoDestinationLeader,
+    // more error cases hidden in todo!()s.
 }

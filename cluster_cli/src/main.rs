@@ -168,6 +168,13 @@ enum Command {
     ///
     /// Both groups must already exist and be part of the same realm.
     Transfer {
+        /// URL to a cluster manager, which will execute the request. By
+        /// default it will find a cluster manager using service discovery if
+        /// the environment variable CMGR_TRANSFER=1 or do a locally
+        /// coordinated transfer otherwise.
+        #[arg(short, long)]
+        cluster: Option<Url>,
+
         /// Realm ID.
         #[arg(long, value_parser = parse_realm_id)]
         realm: RealmId,
@@ -391,6 +398,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         } => commands::table_stats::print_log_stats(realm, &store).await,
 
         Command::Transfer {
+            cluster,
             realm,
             source,
             destination,
@@ -398,6 +406,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
             end,
         } => {
             commands::transfer::transfer(
+                &cluster,
                 realm,
                 source,
                 destination,

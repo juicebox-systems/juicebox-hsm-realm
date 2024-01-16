@@ -1,5 +1,4 @@
 use std::time::Duration;
-use thiserror::Error;
 use tokio::time::sleep;
 use tracing::info;
 
@@ -8,20 +7,12 @@ use agent_api::{
     TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
     TransferStatementRequest, TransferStatementResponse,
 };
+pub use cluster_api::TransferError;
 use hsm_api::{GroupId, OwnedRange};
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_networking::rpc;
 use juicebox_realm_api::types::RealmId;
 use store::{ReadLastLogEntryError, StoreClient};
-
-#[derive(Debug, Error)]
-pub enum TransferError {
-    #[error("source group missing leader")]
-    NoSourceLeader,
-    #[error("destination missing leader")]
-    NoDestinationLeader,
-    // more error cases hidden in todo!()s.
-}
 
 pub async fn transfer(
     realm: RealmId,
@@ -48,7 +39,7 @@ pub async fn transfer(
 
     let leaders = super::leader::find_leaders(store, &agent_client)
         .await
-        .expect("TODO");
+        .unwrap_or_default();
 
     let Some((_, source_leader)) = leaders.get(&(realm, source)) else {
         return Err(Error::NoSourceLeader);
