@@ -1279,7 +1279,7 @@ impl<T: Transport + 'static> Agent<T> {
                             index=?last,
                             "HSM stepped down as leader")
                     }
-                    GroupMemberRole::SteppingDown => {
+                    GroupMemberRole::SteppingDown { .. } => {
                         info!(group=?request.group,
                             realm=?request.realm,
                             index=?last,
@@ -1608,11 +1608,10 @@ impl<T: Transport + 'static> Agent<T> {
             }
             if role_now.at == group_state.role.at {
                 assert_eq!(role_now.role, group_state.role.role);
+                return;
             }
 
-            if role_now.role != group_state.role.role {
-                info!(?group, from=%group_state.role, to=%role_now, no_spew=1, "HSM role transitioned");
-            }
+            info!(?group, from=%group_state.role, to=%role_now, no_spew=1, "HSM role transitioned");
             group_state.role = role_now.clone();
 
             match role_now.role {
@@ -1622,13 +1621,10 @@ impl<T: Transport + 'static> Agent<T> {
                     group_state.leader = None;
                     None
                 }
-                GroupMemberRole::SteppingDown => {
-                    // There's nothing to do with a leader -> stepdown
-                    // transition. The leader tasks for the agent need to
-                    // continue to run until the stepdown completes.
-                    None
+                GroupMemberRole::SteppingDown {
+                    leader_starting: starting_index,
                 }
-                GroupMemberRole::Leader {
+                | GroupMemberRole::Leader {
                     starting: starting_index,
                 } => {
                     // Start the leader tasks if needed.
@@ -1645,7 +1641,9 @@ impl<T: Transport + 'static> Agent<T> {
                         });
                         Some((group_state.configuration.clone(), starting_index))
                     } else {
-                        // Leader tasks already running. (e.g. become_leader called while already leader)
+                        // Leader tasks already running. (e.g. become_leader
+                        // called while already leader, or transitioning from
+                        // leader to stepping down)
                         None
                     }
                 }

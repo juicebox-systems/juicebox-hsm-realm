@@ -700,14 +700,15 @@ impl Display for RoleStatus {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum GroupMemberRole {
     /// The HSM accepts new requests from clients and executes them. It also
-    /// acts as a witness.
+    /// acts as a witness. starting is the first log index generated as leader.
     Leader { starting: LogIndex },
     /// The HSM is finishing up client requests that it received as leader, but
     /// it is not accepting new requests. It also acts as a witness.
     ///
     /// Once this HSM commits the existing client requests, it will become a
-    /// witness only.
-    SteppingDown,
+    /// witness only. leader_starting is the first log index generated during
+    /// the immediately prior leading state.
+    SteppingDown { leader_starting: LogIndex },
     /// The HSM is not accepting requests from clients. It "captures" log
     /// entries after they have been persisted to an external storage system.
     Witness,
@@ -717,7 +718,7 @@ impl Display for GroupMemberRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             GroupMemberRole::Leader { .. } => f.write_str("Leader"),
-            GroupMemberRole::SteppingDown => f.write_str("Stepping Down"),
+            GroupMemberRole::SteppingDown { .. } => f.write_str("Stepping Down"),
             GroupMemberRole::Witness => f.write_str("Witness"),
         }
     }

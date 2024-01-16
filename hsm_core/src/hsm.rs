@@ -278,8 +278,10 @@ impl RoleState {
                 },
                 at: self.at,
             },
-            RoleVolatileState::SteppingDown(_) => RoleStatus {
-                role: GroupMemberRole::SteppingDown,
+            RoleVolatileState::SteppingDown(ref sd) => RoleStatus {
+                role: GroupMemberRole::SteppingDown {
+                    leader_starting: sd.leader_starting_index,
+                },
                 at: self.at,
             },
             RoleVolatileState::Witness => RoleStatus {
@@ -335,6 +337,7 @@ struct SteppingDownVolatileGroupState {
     // The last log index owned by this leader. When this (or some index after
     // it) is committed the stepdown is complete.
     stepdown_at: LogIndex,
+    leader_starting_index: LogIndex,
 }
 
 struct LeaderLogEntry {
@@ -1194,6 +1197,7 @@ impl<P: Platform> Hsm<P> {
             committed: leader.committed,
             stepdown_at: stepdown_index,
             abandoned,
+            leader_starting_index: leader.starting_index,
         };
         role.make_stepping_down(sd);
         StepDownResponse::Ok {
