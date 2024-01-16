@@ -10,7 +10,7 @@ use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::hsm::Transport;
-use super::{group_state_mut, Agent, LeaderState};
+use super::{group_state, group_state_mut, Agent, LeaderState};
 use agent_api::{ReadCapturedRequest, ReadCapturedResponse};
 use async_util::ScopedTask;
 use cluster_core::discover_hsm_ids;
@@ -28,9 +28,15 @@ use observability::metrics_tag as tag;
 use service_core::http::ReqwestClientMetrics;
 use store::{LogRow, StoreClient};
 
+/// Returned by [`Agent::commit_maybe`] and its helper [`Agent::do_commit`].
 #[derive(Debug, Eq, PartialEq)]
-enum CommitterStatus {
-    Committing { committed: Option<LogIndex> },
+enum CommitResult {
+    /// The HSM returned its current commit index.
+    ///
+    /// Note that the log index may be the same as one previously committed,
+    /// which should be handled the same as `NoChange`.
+    Committed(LogIndex),
+    NoChange,
     NoLongerLeader,
 }
 
@@ -83,8 +89,8 @@ impl<T: Transport + 'static> Agent<T> {
         .await;
 
         // Spawn the log compactor task. The channel tracks the latest compact
-        // index (defined below). The ScopedTask's Drop impl aborts the task
-        // when the committer task exits.
+        // index (see `get_compact_index`). The ScopedTask's Drop impl aborts
+        // the task when the committer task exits.
         let (compaction_tx, compaction_rx) = watch::channel(None);
         let _compaction_task = ScopedTask::spawn(self.clone().compactor(
             realm,
@@ -97,48 +103,28 @@ impl<T: Transport + 'static> Agent<T> {
 
         let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
 
-        let mut last_committed: Option<LogIndex> = None;
         loop {
             let span = span!(Level::TRACE, "committer_loop");
             span.set_parent(cx.clone());
 
             match self
-                .commit_maybe(realm, group, &config, &agent_discovery, last_committed)
+                .commit_maybe(realm, group, &config, &agent_discovery)
                 .instrument(span)
                 .await
             {
-                CommitterStatus::NoLongerLeader => {
+                CommitResult::NoLongerLeader => {
                     info!(name=?self.0.name, ?realm, ?group, "No longer leader, stopping committer");
                     return;
                 }
-                CommitterStatus::Committing { committed: c } => {
-                    assert!(last_committed <= c, "commit index shouldn't go backwards");
-                    last_committed = c;
-                }
+                CommitResult::NoChange | CommitResult::Committed(_) => { /* fall through */ }
             };
 
-            // Notify the compaction task of updates. The compaction task may
-            // compact up through the compact index, defined as the lower of:
-            // the index preceding the commit index, or the leader HSM's
-            // captured index. The first constraint keeps the critically useful
-            // entries in the log, and the second prevents the leader HSM from
-            // needing a CaptureJump RPC due to its own compactions.
+            // Notify the compaction task of updates.
             //
             // When PersistState updates the captured info, `compaction_tx`
             // won't be notified until this loop gets back here. This loops
             // frequently so that's OK for now.
-            let local_captured = {
-                let locked = self.0.state.lock().unwrap();
-                locked
-                    .captures
-                    .iter()
-                    .find(|captured| captured.realm == realm && captured.group == group)
-                    .map(|captured| captured.index)
-            };
-            let compact_index = Option::<LogIndex>::min(
-                last_committed.and_then(|index| index.prev()),
-                local_captured,
-            );
+            let compact_index = self.get_compact_index(realm, group);
             let modified = compaction_tx.send_if_modified(|state| {
                 if *state == compact_index {
                     false
@@ -169,13 +155,18 @@ impl<T: Transport + 'static> Agent<T> {
         group: GroupId,
         config: &[HsmId],
         peers: &AgentDiscoveryCache,
-        last_committed: Option<LogIndex>,
-    ) -> CommitterStatus {
-        if !self.0.state.lock().unwrap().is_leader(realm, group) {
-            return CommitterStatus::NoLongerLeader;
-        }
+    ) -> CommitResult {
+        // Verify we're acting as leader and get the last commit index.
+        let last_committed = {
+            let locked = self.0.state.lock().unwrap();
+            let group = group_state(&locked.groups, realm, group);
+            match &group.leader {
+                Some(leader) => leader.committed,
+                None => return CommitResult::NoLongerLeader,
+            }
+        };
 
-        // We're still leader for this group. See if we can move the commit index forward.
+        // See if we can move the commit index forward.
         let captures = self.get_captures(realm, group, config, peers).await;
 
         // Calculate a commit index.
@@ -183,29 +174,20 @@ impl<T: Transport + 'static> Agent<T> {
         for c in &captures {
             election.vote(c.hsm, c.index);
         }
-        let Ok(commit_index) = election.outcome() else {
-            return CommitterStatus::Committing {
-                committed: last_committed,
-            };
-        };
-        if let Some(commit) = last_committed {
-            // We've already committed this.
-            if commit_index <= commit {
-                return CommitterStatus::Committing {
-                    committed: last_committed,
-                };
-            }
+        let commit_index: Option<LogIndex> = election.outcome().ok();
+        if commit_index <= last_committed {
+            return CommitResult::NoChange;
         }
-        Span::current().record("quorum", commit_index.0);
+        // `commit_index` must be `Some` to be greater than `last_committed`.
+        Span::current().record("quorum", commit_index.unwrap().0);
 
-        self.do_commit(
-            CommitRequest {
-                realm,
-                group,
-                captures,
-            },
-            last_committed,
-        )
+        // Request the HSM to commit. This will update the leader's committed
+        // state before returning.
+        self.do_commit(CommitRequest {
+            realm,
+            group,
+            captures,
+        })
         .await
     }
 
@@ -240,11 +222,7 @@ impl<T: Transport + 'static> Agent<T> {
 
     // Ask the HSM to do the commit.
     #[instrument(level = "trace", skip(self, request), fields(released_count))]
-    async fn do_commit(
-        &self,
-        request: CommitRequest,
-        last_committed: Option<LogIndex>,
-    ) -> CommitterStatus {
+    async fn do_commit(&self, request: CommitRequest) -> CommitResult {
         let realm = request.realm;
         let group = request.group;
         let response = self.0.hsm.send(request).await;
@@ -266,17 +244,14 @@ impl<T: Transport + 'static> Agent<T> {
             Ok(CommitResponse::NotLeader(role)) => {
                 info!(agent = self.0.name, ?realm, ?group, "Leader stepped down");
                 self.maybe_role_changed(realm, group, role);
-                return CommitterStatus::NoLongerLeader;
+                return CommitResult::NoLongerLeader;
             }
             _ => {
                 warn!(agent = self.0.name, ?response, "commit response not ok");
-                return CommitterStatus::Committing {
-                    committed: last_committed,
-                };
+                return CommitResult::NoChange;
             }
         };
 
-        let role = commit_state.role;
         let committed = commit_state.committed;
         let released_count = self.release_client_responses(
             realm,
@@ -286,17 +261,22 @@ impl<T: Transport + 'static> Agent<T> {
         );
         Span::current().record("released_count", released_count);
 
-        // See if we're done stepping down
-        let result = if role.role == GroupMemberRole::Witness {
-            info!(?group, "Leader completed step down as part of commit");
-            CommitterStatus::NoLongerLeader
-        } else {
-            CommitterStatus::Committing {
-                committed: Some(committed),
+        self.maybe_role_changed(realm, group, commit_state.role);
+
+        let mut locked = self.0.state.lock().unwrap();
+        if let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
+            .leader
+            .as_mut()
+        {
+            if leader.committed < Some(committed) {
+                leader.committed = Some(committed);
+                CommitResult::Committed(committed)
+            } else {
+                CommitResult::NoChange
             }
-        };
-        self.maybe_role_changed(realm, group, role);
-        result
+        } else {
+            CommitResult::NoLongerLeader
+        }
     }
 
     // Returns the number of released responses.
@@ -335,6 +315,29 @@ impl<T: Transport + 'static> Agent<T> {
             warn!("dropping responses on the floor: no leader state");
         }
         released_count
+    }
+
+    /// Calculates the current compaction index based on cached state.
+    ///
+    /// The compaction task may compact up through the compact index, defined
+    /// as the lower of: the index preceding the commit index, or the leader
+    /// HSM's captured index. The first constraint keeps the critically useful
+    /// entries in the log, and the second prevents the leader HSM from needing
+    /// a CaptureJump RPC due to its own compactions.
+    fn get_compact_index(&self, realm: RealmId, group: GroupId) -> Option<LogIndex> {
+        let locked = self.0.state.lock().unwrap();
+        let last_committed: LogIndex = locked
+            .groups
+            .get(&(realm, group))?
+            .leader
+            .as_ref()?
+            .committed?;
+        let local_captured: LogIndex = locked
+            .captures
+            .iter()
+            .find(|captured| captured.realm == realm && captured.group == group)?
+            .index;
+        Some(LogIndex::min(last_committed.prev()?, local_captured))
     }
 
     /// Main function for the leader's log compaction task.
