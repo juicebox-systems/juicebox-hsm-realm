@@ -109,8 +109,6 @@ impl State {
 
 #[derive(Debug)]
 struct GroupState {
-    /// The Id of the group, as generated during a new group operation.
-    group: GroupId,
     /// The list of group members, including the local HSM.
     configuration: Vec<HsmId>,
     /// The last recorded role that the HSM is in for this group along with when
@@ -131,7 +129,6 @@ fn group_state(
     let Some(state) = groups.get(&(realm, group)) else {
         panic!("Missing group state for realm:{realm:?} group:{group:?}");
     };
-    assert_eq!(group, state.group);
     state
 }
 
@@ -143,7 +140,6 @@ fn group_state_mut(
     let Some(state) = groups.get_mut(&(realm, group)) else {
         panic!("Missing group state for realm:{realm:?} group:{group:?}");
     };
-    assert_eq!(group, state.group);
     state
 }
 
@@ -274,7 +270,6 @@ impl<T: Transport + 'static> Agent<T> {
                                     (
                                         (realm.id, g.id),
                                         GroupState {
-                                            group: g.id,
                                             configuration: g.configuration.clone(),
                                             role: g.role.clone(),
                                             leader: None,
@@ -955,7 +950,6 @@ impl<T: Transport + 'static> Agent<T> {
         role: RoleStatus,
     ) {
         let s = GroupState {
-            group,
             configuration: config.clone(),
             role: RoleStatus {
                 role: GroupMemberRole::Witness,
@@ -1100,7 +1094,6 @@ impl<T: Transport + 'static> Agent<T> {
                     .or_insert_with(|| {
                         start = true;
                         GroupState {
-                            group: request.group,
                             configuration: request.configuration,
                             role,
                             leader: None,
@@ -1668,7 +1661,7 @@ impl<T: Transport + 'static> Agent<T> {
                 });
                 Some((group_state.configuration.clone(), starting_index))
             } else {
-                // Leader tasks already running.
+                // Leader tasks already running. (e.g. become_leader called while already leader)
                 None
             };
             if transitioned {
