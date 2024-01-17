@@ -148,7 +148,7 @@ impl From<ManagementLeaseKey> for LeaseKey {
     fn from(value: ManagementLeaseKey) -> Self {
         let k = match value {
             ManagementLeaseKey::RealmGroup(r, g) => format!("{r:?}-{g:?}"),
-            ManagementLeaseKey::Ownership(r) => format!("{r:?}-own"),
+            ManagementLeaseKey::Ownership(r) => format!("{r:?}-ownership"),
         };
         LeaseKey(LeaseType::ClusterManagement, k)
     }
