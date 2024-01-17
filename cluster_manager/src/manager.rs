@@ -51,10 +51,9 @@ struct ManagerInner {
     registered: AtomicBool,
 }
 
-/// When drop'd will remove the realm/group lease from the store.
+/// When drop'd will remove the lease from the store.
 pub struct ManagementGrant {
-    pub group: GroupId,
-    pub realm: RealmId,
+    key: ManagementLeaseKey,
     inner: Option<ManagementGrantInner>,
 }
 
@@ -65,7 +64,24 @@ struct ManagementGrantInner {
 }
 
 impl ManagementGrant {
-    fn new(mgr: Manager, realm: RealmId, group: GroupId, lease: Lease) -> Self {
+    async fn obtain(mgr: Manager, key: ManagementLeaseKey) -> Result<Option<Self>, tonic::Status> {
+        Ok(mgr
+            .0
+            .store
+            .obtain_lease(
+                key.clone(),
+                mgr.0.name.clone(),
+                LEASE_DURATION,
+                SystemTime::now(),
+            )
+            .await?
+            .map(|lease| {
+                info!(?key, "obtained lease for active management");
+                ManagementGrant::new(mgr, key, lease)
+            }))
+    }
+
+    fn new(mgr: Manager, key: ManagementLeaseKey, lease: Lease) -> Self {
         let mgr2 = mgr.clone();
         let lease2 = lease.clone();
         // This task gets aborted when the ManagementGrant is dropped.
@@ -85,8 +101,7 @@ impl ManagementGrant {
             }
         });
         ManagementGrant {
-            group,
-            realm,
+            key,
             inner: Some(ManagementGrantInner {
                 mgr,
                 lease,
@@ -98,8 +113,11 @@ impl ManagementGrant {
 
 impl Drop for ManagementGrant {
     fn drop(&mut self) {
-        info!(group=?self.group, realm=?self.realm, "management task completed");
         let inner = self.inner.take().unwrap();
+        info!(
+            key = ?self.key,
+            "management task completed. dropping lease"
+        );
         inner.renewer.abort();
         tokio::spawn(async move {
             _ = inner.renewer.await;
@@ -110,14 +128,17 @@ impl Drop for ManagementGrant {
     }
 }
 
-pub enum ManagementLease {
+#[derive(Clone, Debug)]
+pub enum ManagementLeaseKey {
     RealmGroup(RealmId, GroupId),
+    Ownership(RealmId),
 }
 
-impl From<ManagementLease> for LeaseKey {
-    fn from(value: ManagementLease) -> Self {
+impl From<ManagementLeaseKey> for LeaseKey {
+    fn from(value: ManagementLeaseKey) -> Self {
         let k = match value {
-            ManagementLease::RealmGroup(r, g) => format!("{r:?}-{g:?}"),
+            ManagementLeaseKey::RealmGroup(r, g) => format!("{r:?}-{g:?}"),
+            ManagementLeaseKey::Ownership(r) => format!("{r:?}-own"),
         };
         LeaseKey(LeaseType::ClusterManagement, k)
     }
@@ -271,26 +292,15 @@ impl Manager {
     // dropped, the group will be removed from the busy set. The grant uses a
     // lease managed by the bigtable store. The grant applies across all cluster
     // managers using the same store, not just this instance.
+    //
+    // This is a very thin wrapper now that should probably go away, but it's
+    // called in many places (for tests).
     async fn mark_as_busy(
         &self,
         realm: RealmId,
         group: GroupId,
     ) -> Result<Option<ManagementGrant>, tonic::Status> {
-        let grant = self
-            .0
-            .store
-            .obtain_lease(
-                ManagementLease::RealmGroup(realm, group),
-                self.0.name.clone(),
-                LEASE_DURATION,
-                SystemTime::now(),
-            )
-            .await?
-            .map(|lease| {
-                info!(?group, ?realm, "marked group as under active management");
-                ManagementGrant::new(self.clone(), realm, group, lease)
-            });
-        Ok(grant)
+        ManagementGrant::obtain(self.clone(), ManagementLeaseKey::RealmGroup(realm, group)).await
     }
 
     fn handle_livez(&self) -> Response<Full<Bytes>> {
@@ -326,7 +336,7 @@ mod tests {
 
     #[test]
     fn lease_key() {
-        let lk = ManagementLease::RealmGroup(RealmId([9; 16]), GroupId([3; 16]));
+        let lk = ManagementLeaseKey::RealmGroup(RealmId([9; 16]), GroupId([3; 16]));
         let k: LeaseKey = lk.into();
         assert_eq!(LeaseType::ClusterManagement, k.0);
         assert_eq!(

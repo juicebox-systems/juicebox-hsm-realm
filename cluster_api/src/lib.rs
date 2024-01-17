@@ -119,5 +119,7 @@ pub enum TransferError {
     NoSourceLeader,
     #[error("could not find destination group leader")]
     NoDestinationLeader,
+    #[error("cluster manager failed to obtain management lease")]
+    ManagerBusy,
     // more error cases hidden in todo!()s.
 }
