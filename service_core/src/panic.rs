@@ -52,6 +52,7 @@ fn json_panic_handler(info: &PanicInfo<'_>) {
         message: &'a str,
         reason: &'a str,
         panic: bool,
+        level: &'a str,
         location: String,
         backtrace: String,
     }
@@ -63,6 +64,7 @@ fn json_panic_handler(info: &PanicInfo<'_>) {
             message: "panicked. exiting",
             reason,
             panic: true,
+            level: "ERROR",
             location,
             backtrace,
         },
