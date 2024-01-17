@@ -168,12 +168,8 @@ enum Command {
     ///
     /// Both groups must already exist and be part of the same realm.
     Transfer {
-        /// If the environment variable CMGR_TRANSFER is "1", this is the URL
-        /// to a cluster manager, which will execute the request. By default it
-        /// will find a cluster manager using service discovery.
-        ///
-        /// If the environment variable CMGR_TRANSFER is not "1", it will do a
-        /// locally coordinated transfer instead.
+        /// URL to a cluster manager, which will execute the request. By
+        /// default it will find a cluster manager using service discovery.
         #[arg(short, long)]
         cluster: Option<Url>,
 
