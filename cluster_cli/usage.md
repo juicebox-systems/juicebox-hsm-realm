@@ -316,9 +316,14 @@ Transfer ownership of user records from one group to another.
 
 Both groups must already exist and be part of the same realm.
 
-Usage: cluster transfer --realm <REALM> --source <SOURCE> --destination <DESTINATION> --start <START> --end <END>
+Usage: cluster transfer [OPTIONS] --realm <REALM> --source <SOURCE> --destination <DESTINATION> --start <START> --end <END>
 
 Options:
+  -c, --cluster <CLUSTER>
+          If the environment variable CMGR_TRANSFER is "1", this is the URL to a cluster manager, which will execute the request. By default it will find a cluster manager using service discovery.
+          
+          If the environment variable CMGR_TRANSFER is not "1", it will do a locally coordinated transfer instead.
+
       --realm <REALM>
           Realm ID
 
