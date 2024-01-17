@@ -316,9 +316,12 @@ Transfer ownership of user records from one group to another.
 
 Both groups must already exist and be part of the same realm.
 
-Usage: cluster transfer --realm <REALM> --source <SOURCE> --destination <DESTINATION> --start <START> --end <END>
+Usage: cluster transfer [OPTIONS] --realm <REALM> --source <SOURCE> --destination <DESTINATION> --start <START> --end <END>
 
 Options:
+  -c, --cluster <CLUSTER>
+          URL to a cluster manager, which will execute the request. By default it will find a cluster manager using service discovery
+
       --realm <REALM>
           Realm ID
 

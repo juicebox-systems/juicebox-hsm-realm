@@ -75,7 +75,14 @@ impl Manager {
                 Ok(agent_api::StepDownResponse::NotLeader) => return Ok(Response::NotLeader),
                 Ok(agent_api::StepDownResponse::Ok { last }) => {
                     if let Err(err) = self
-                        .assign_leader_post_stepdown(&addresses, &grant, stepdown, Some(last))
+                        .assign_leader_post_stepdown(
+                            &addresses,
+                            stepdown.realm,
+                            stepdown.group,
+                            &grant,
+                            stepdown,
+                            Some(last),
+                        )
                         .await
                     {
                         return Ok(Response::RpcError(err));
@@ -90,6 +97,8 @@ impl Manager {
     async fn assign_leader_post_stepdown(
         &self,
         addresses: &HashMap<HsmId, Url>,
+        realm: RealmId,
+        group: GroupId,
         grant: &ManagementGrant,
         stepdown: Stepdown,
         last: Option<LogIndex>,
@@ -103,6 +112,8 @@ impl Manager {
 
         super::leader::assign_group_a_leader(
             &self.0.agents,
+            realm,
+            group,
             grant,
             Some(stepdown.hsm),
             &hsm_status,

@@ -1,13 +1,14 @@
 [package]
 name = "cluster_core"
 edition = "2021"
-version  = { workspace = true }
+version = { workspace = true }
 rust-version = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 agent_api = { workspace = true }
+cluster_api = { workspace = true }
 futures = { workspace = true }
 hsm_api = { workspace = true }
 juicebox_networking = { workspace = true }

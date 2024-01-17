@@ -637,6 +637,7 @@ name = "cluster_core"
 version = "0.2.3"
 dependencies = [
  "agent_api",
+ "cluster_api",
  "futures",
  "hsm_api",
  "juicebox_networking",

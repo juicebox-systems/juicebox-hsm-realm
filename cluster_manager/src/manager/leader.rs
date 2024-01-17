@@ -54,7 +54,16 @@ impl Manager {
                 }
                 Ok(Some(grant)) => {
                     // This group doesn't have a leader, we'll pick one and ask it to become leader.
-                    assign_group_a_leader(&self.0.agents, &grant, None, &hsm_status, None).await?;
+                    assign_group_a_leader(
+                        &self.0.agents,
+                        realm_id,
+                        group_id,
+                        &grant,
+                        None,
+                        &hsm_status,
+                        None,
+                    )
+                    .await?;
                 }
                 Err(err) => {
                     warn!(?err, "GRPC error trying to obtain lease");
@@ -70,7 +79,9 @@ impl Manager {
 #[instrument(level = "trace", skip_all)]
 pub(super) async fn assign_group_a_leader(
     agent_client: &ReqwestClientMetrics,
-    grant: &ManagementGrant,
+    realm: RealmId,
+    group: GroupId,
+    _: &ManagementGrant,
     skipping: Option<HsmId>,
     hsm_status: &HashMap<HsmId, (hsm_api::StatusResponse, Url)>,
     last: Option<LogIndex>,
@@ -81,9 +92,9 @@ pub(super) async fn assign_group_a_leader(
     let group_members = &hsm_status
         .values()
         .filter_map(|(sr, _url)| sr.realm.as_ref())
-        .filter(|rs| rs.id == grant.realm)
+        .filter(|rs| rs.id == realm)
         .flat_map(|rs| rs.groups.iter())
-        .find(|group| group.id == grant.group)
+        .find(|gs| gs.id == group)
         .unwrap()
         .configuration;
 
@@ -97,7 +108,7 @@ pub(super) async fn assign_group_a_leader(
                 last_captured: w
                     .groups
                     .iter()
-                    .find(|g| g.group == grant.group && g.realm == grant.realm)
+                    .find(|g| g.group == group && g.realm == realm)
                     .map(|g| g.last_captured)
                     .unwrap_or_default(),
             })
@@ -110,20 +121,16 @@ pub(super) async fn assign_group_a_leader(
 
     for hsm_id in scored.into_iter().map(|s| s.id) {
         if let Some((_, url)) = hsm_status.get(&hsm_id) {
-            info!(?hsm_id, realm=?grant.realm, group=?grant.group, "Asking hsm to become leader");
+            info!(?hsm_id, ?realm, ?group, "Asking hsm to become leader");
             match rpc::send(
                 agent_client,
                 url,
-                BecomeLeaderRequest {
-                    realm: grant.realm,
-                    group: grant.group,
-                    last,
-                },
+                BecomeLeaderRequest { realm, group, last },
             )
             .await
             {
                 Ok(BecomeLeaderResponse::Ok) => {
-                    info!(?hsm_id, realm=?grant.realm, group=?grant.group, "Now leader");
+                    info!(?hsm_id, ?realm, ?group, "Now leader");
                     return Ok(Some(hsm_id));
                 }
                 Ok(reply) => {
