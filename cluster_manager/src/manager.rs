@@ -64,6 +64,16 @@ struct ManagementGrantInner {
 }
 
 impl ManagementGrant {
+    /// Takes a lease out for some management operation that should block
+    /// conflicting management operations.
+    ///
+    /// Returns None if the lease has already been taken by some other task.
+    /// When the returned `ManagementGrant` is dropped, the lease will be
+    /// terminated.
+    ///
+    /// The grant uses a lease managed by the bigtable store. The grant applies
+    /// across all cluster managers using the same store, not just this
+    /// instance.
     async fn obtain(mgr: Manager, key: ManagementLeaseKey) -> Result<Option<Self>, tonic::Status> {
         Ok(mgr
             .0
@@ -286,13 +296,6 @@ impl Service<Request<IncomingBody>> for Manager {
 }
 
 impl Manager {
-    // Track that the group is going through some management operation that
-    // should block other management operations. Returns None if the group is
-    // already busy by some other task. When the returned ManagementGrant is
-    // dropped, the group will be removed from the busy set. The grant uses a
-    // lease managed by the bigtable store. The grant applies across all cluster
-    // managers using the same store, not just this instance.
-    //
     // This is a very thin wrapper now that should probably go away, but it's
     // called in many places (for tests).
     async fn mark_as_busy(

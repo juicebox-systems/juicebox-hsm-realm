@@ -102,6 +102,12 @@ impl Rpc<ClusterService> for TransferRequest {
     type Response = Result<TransferSuccess, TransferError>;
 }
 
+/// Request that the cluster manager transfer ownership of a record ID range
+/// from one group to another.
+///
+/// The range must be owned by the source group and one of the ends of the
+/// range must be the edge of its owned range (you can't transfer out the
+/// middle of a group's range and leave a gap there).
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TransferRequest {
     pub realm: RealmId,
