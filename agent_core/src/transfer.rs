@@ -319,49 +319,50 @@ impl<T: Transport + 'static> Agent<T> {
 
             let proofs = match last_entry.partition {
                 None => None,
-                Some(partition) => {
-                    let proof_dir = match partition.range.join(&request.transferring.range) {
-                        None => return Ok(Response::UnacceptableRange),
-                        Some(jr) => {
-                            if jr.start == request.transferring.range.start {
-                                Dir::Right
-                            } else {
-                                Dir::Left
-                            }
-                        }
-                    };
+                Some(partition) => match partition.range.join(&request.transferring.range) {
+                    // An invalid TransferIn request might specify mismatched
+                    // ranges. In this case we skip getting the proofs, and let
+                    // the HSM decide the outcome (probably NotPrepared)
+                    None => None,
+                    Some(jr) => {
+                        let proof_dir = if jr.start == request.transferring.range.start {
+                            Dir::Right
+                        } else {
+                            Dir::Left
+                        };
 
-                    let transferring_in_proof_req = merkle::read_tree_side(
-                        &request.realm,
-                        store,
-                        &request.transferring.range,
-                        &request.transferring.root_hash,
-                        proof_dir,
-                        &tags,
-                    );
-                    let owned_range_proof_req = merkle::read_tree_side(
-                        &request.realm,
-                        store,
-                        &partition.range,
-                        &partition.root_hash,
-                        proof_dir.opposite(),
-                        &tags,
-                    );
-                    let transferring_in_proof = match transferring_in_proof_req.await {
-                        Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
-                        Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
-                        Ok(proof) => proof,
-                    };
-                    let owned_range_proof = match owned_range_proof_req.await {
-                        Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
-                        Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
-                        Ok(proof) => proof,
-                    };
-                    Some(TransferInProofs {
-                        owned: owned_range_proof,
-                        transferring: transferring_in_proof,
-                    })
-                }
+                        let transferring_in_proof_req = merkle::read_tree_side(
+                            &request.realm,
+                            store,
+                            &request.transferring.range,
+                            &request.transferring.root_hash,
+                            proof_dir,
+                            &tags,
+                        );
+                        let owned_range_proof_req = merkle::read_tree_side(
+                            &request.realm,
+                            store,
+                            &partition.range,
+                            &partition.root_hash,
+                            proof_dir.opposite(),
+                            &tags,
+                        );
+                        let transferring_in_proof = match transferring_in_proof_req.await {
+                            Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
+                            Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
+                            Ok(proof) => proof,
+                        };
+                        let owned_range_proof = match owned_range_proof_req.await {
+                            Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
+                            Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
+                            Ok(proof) => proof,
+                        };
+                        Some(TransferInProofs {
+                            owned: owned_range_proof,
+                            transferring: transferring_in_proof,
+                        })
+                    }
+                },
             };
 
             return match hsm
@@ -377,10 +378,7 @@ impl<T: Transport + 'static> Agent<T> {
                 .await
             {
                 Err(_) => Ok(Response::NoHsm),
-                Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
-                Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
                 Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
-                Ok(HsmResponse::UnacceptableRange) => Ok(Response::UnacceptableRange),
                 Ok(HsmResponse::InvalidNonce) => Ok(Response::InvalidNonce),
                 Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
                 Ok(HsmResponse::NotPrepared) => Ok(Response::NotPrepared),

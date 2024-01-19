@@ -1624,17 +1624,9 @@ pub enum TransferInResponse {
         delta: StoreDelta<DataHash>,
         clock: RoleLogicalClock,
     },
-    /// This HSM is not a member of this realm.
-    InvalidRealm,
-    /// This HSM is not a member of the destination group.
-    InvalidGroup,
     /// This HSM is not a leader of the destination group, so it can't
     /// participate in ownership transfers.
     NotLeader,
-    /// The transfer requires merging Merkle trees because the destination
-    /// group already owns a range, but that range and the incoming range are
-    /// not adjacent.
-    UnacceptableRange,
     /// The given nonce is not the latest one that this leader had generated.
     ///
     /// This can happen if the HSM restarted or as a result of concurrent

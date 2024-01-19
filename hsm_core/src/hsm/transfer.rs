@@ -378,9 +378,7 @@ impl<P: Platform> Hsm<P> {
             request.destination,
         ) {
             Ok(leader) => leader,
-            Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
-            Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
-            Err(GroupLeaderError::NotLeader(_)) => return Response::NotLeader,
+            Err(_) => return Response::NotLeader,
         };
 
         let last_entry = &leader.log.last().entry;
@@ -401,7 +399,7 @@ impl<P: Platform> Hsm<P> {
         let needs_merge = match &last_entry.partition {
             None => false,
             Some(part) => match part.range.join(&request.transferring.range) {
-                None => return Response::UnacceptableRange,
+                None => panic!("Unable to join ranges during transferIn. but this was verified to be possible during prepareTransfer"),
                 Some(_) => {
                     // We need to verify that the transferring proof matches the
                     // transferring partition. We don't need to do this for owned
@@ -439,7 +437,10 @@ impl<P: Platform> Hsm<P> {
             let tree = leader.tree.take().unwrap();
             let proofs = request.proofs.unwrap();
             match tree.merge(proofs.owned, proofs.transferring) {
-                Err(MergeError::NotAdjacentRanges) => return Response::UnacceptableRange,
+                Err(MergeError::NotAdjacentRanges) => {
+                    // shouldn't be able to get here, this was verified above and during prepareTransfer
+                    panic!("merkle tree merge reported NotAdjacentRanges")
+                }
                 Err(MergeError::Proof(ProofError::Stale)) => return Response::StaleProof,
                 Err(MergeError::Proof(ProofError::Invalid)) => return Response::InvalidProof,
                 Ok(merge_result) => (
