@@ -189,7 +189,7 @@ mod tests {
             index: LogIndex(u64::MAX),
             entry_mac: &EntryMac::from([5; 32]),
         };
-        let entry = EntryMacMessage {
+        let full_entry = EntryMacMessage {
             realm: RealmId([1; 16]),
             group: GroupId([2; 16]),
             index: LogIndex(u64::MAX),
@@ -205,6 +205,15 @@ mod tests {
                 },
                 at: LogIndex(u64::MAX - 1),
             }),
+            prev_mac: &EntryMac::from([6; 32]),
+            hsm: HsmId([7; 16]),
+        };
+        let entry = EntryMacMessage {
+            realm: RealmId([1; 16]),
+            group: GroupId([2; 16]),
+            index: LogIndex(u64::MAX),
+            partition: &None,
+            transferring_out: &None,
             prev_mac: &EntryMac::from([6; 32]),
             hsm: HsmId([7; 16]),
         };
@@ -234,6 +243,7 @@ mod tests {
         add_diag(&mut out, &k, &hsm_realm);
         add_diag(&mut out, &k, &captured);
         add_diag(&mut out, &k, &entry);
+        add_diag(&mut out, &k, &full_entry);
         add_diag(&mut out, &k, &transfer);
         expect_file!["mac.txt"].assert_eq(&out);
     }
