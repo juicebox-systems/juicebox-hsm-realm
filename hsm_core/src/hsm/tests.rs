@@ -1,5 +1,6 @@
 use alloc::sync::Arc;
 use core::iter::{self, zip};
+use hsm_api::merkle::Dir;
 use rand::Rng;
 use rand_core::{CryptoRng, OsRng, RngCore};
 use std::sync::Mutex;
@@ -14,11 +15,12 @@ use juicebox_realm_api::types::RealmId;
 use super::super::hal::MAX_NVRAM_SIZE;
 use super::*;
 use hsm_api::{
-    CaptureNextRequest, CaptureNextResponse, CommitRequest, CommitResponse, CommitState,
-    CompleteTransferRequest, CompleteTransferResponse, EntryMac, GroupId, GuessState, HsmId,
-    LogIndex, TransferInRequest, TransferInResponse, TransferNonceRequest, TransferNonceResponse,
-    TransferOutRequest, TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
-    CONFIGURATION_LIMIT,
+    CancelPreparedTransferRequest, CancelPreparedTransferResponse, CaptureNextRequest,
+    CaptureNextResponse, CommitRequest, CommitResponse, CommitState, CompleteTransferRequest,
+    CompleteTransferResponse, EntryMac, GroupId, GuessState, HsmId, LogIndex,
+    PrepareTransferRequest, PrepareTransferResponse, PreparedTransfer, TransferInProofs,
+    TransferInRequest, TransferInResponse, TransferOutRequest, TransferOutResponse,
+    TransferStatement, TransferStatementRequest, TransferStatementResponse, CONFIGURATION_LIMIT,
 };
 
 fn array_big<const N: usize>(i: u8) -> [u8; N] {
@@ -69,6 +71,7 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
         index: LogIndex(42),
         partition: None,
         transferring_out: None,
+        transferring_in: None,
         prev_mac: EntryMac::from([3; 32]),
         entry_mac: EntryMac::from([42; 32]),
         hsm,
@@ -78,6 +81,7 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
         index: LogIndex(43),
         partition: None,
         transferring_out: None,
+        transferring_in: None,
         prev_mac: e.entry_mac.clone(),
         entry_mac: EntryMac::from([43; 32]),
         hsm,
@@ -95,6 +99,8 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
         index: LogIndex(44),
         partition: None,
         transferring_out: None,
+        transferring_in: None,
+
         prev_mac: e2.entry_mac.clone(),
         entry_mac: EntryMac::from([44; 32]),
         hsm,
@@ -124,6 +130,7 @@ fn leader_log_index_sequential() {
         index: LogIndex(55),
         partition: None,
         transferring_out: None,
+        transferring_in: None,
         prev_mac: macs[2].clone(),
         entry_mac: EntryMac::from([44; 32]),
         hsm: HsmId([1; 16]),
@@ -140,6 +147,7 @@ fn leader_log_mac_chain() {
         index: last.entry.index.next(),
         partition: None,
         transferring_out: None,
+        transferring_in: None,
         prev_mac: EntryMac::from([45; 32]),
         entry_mac: EntryMac::from([45; 32]),
         hsm: last.entry.hsm,
@@ -319,6 +327,7 @@ fn capture_next() {
         index: LogIndex(2),
         partition: log_entry.partition,
         transferring_out: None,
+        transferring_in: None,
         prev_mac: EntryMac::from([42; 32]),
     }
     .build(&cluster.hsms[0].hsm.realm_keys.mac);
@@ -541,14 +550,14 @@ fn commit_captures_verified() {
 
     // Can commit with the good captures
     let state = cluster.hsms[0].commit(cluster.realm, cluster.group, captures.clone());
-    assert_eq!(LogIndex(3), state.committed);
+    assert_eq!(LogIndex(4), state.committed);
     assert!(matches!(state.role.role, GroupMemberRole::Leader { .. }));
     assert!(state.abandoned.is_empty());
     assert_eq!(1, state.responses.len());
 
     // We can commit the same index again, but the response has already been delivered.
     let state = cluster.hsms[0].commit(cluster.realm, cluster.group, captures);
-    assert_eq!(LogIndex(3), state.committed);
+    assert_eq!(LogIndex(4), state.committed);
     assert!(matches!(state.role.role, GroupMemberRole::Leader { .. }));
     assert!(state.abandoned.is_empty());
     assert!(state.responses.is_empty());
@@ -1095,6 +1104,404 @@ fn can_join_group_already_joined() {
     assert_eq!(r.at, role.at);
 }
 
+#[test]
+fn transfer_protocol() {
+    let mut cluster = TestCluster::new(2);
+    let mut metrics = Metrics::new("test", MetricsAction::Skip, TestPlatform::default());
+    let realm = cluster.realm;
+    let source = cluster.group;
+    let destination = cluster.init_group;
+
+    let mut t = OwnershipTransfer::new(
+        &mut cluster,
+        source,
+        destination,
+        OwnedRange {
+            start: RecordId([0; 32]),
+            end: RecordId([1; 32]),
+        },
+        false,
+    );
+    let prepared = match t.prepare() {
+        PrepareTransferResponse::Ok(prepared) => {
+            assert!(prepared.entry.is_some());
+            let entry = prepared.entry.as_ref().unwrap();
+            assert_eq!(entry.index, prepared.wait_til_committed);
+            assert!(entry.transferring_in.is_some());
+            prepared
+        }
+        other => panic!("Unexpected response from prepare_transfer {other:?}"),
+    };
+
+    // We can prepare the same transfer again, we should get a new nonce.
+    let prepared = match t.prepare() {
+        PrepareTransferResponse::Ok(new_prepared) => {
+            assert!(new_prepared.entry.is_none());
+            assert_ne!(prepared.nonce, new_prepared.nonce);
+            new_prepared
+        }
+        other => panic!("Unexpected response from prepare_transfer {other:?}"),
+    };
+
+    // Can't prepare a different transfer
+    match t
+        .cluster
+        .leader(destination)
+        .unwrap()
+        .hsm
+        .handle_prepare_transfer(
+            &mut metrics,
+            PrepareTransferRequest {
+                realm,
+                source,
+                destination,
+                range: OwnedRange {
+                    start: RecordId([45; 32]),
+                    end: RecordId::max_id(),
+                },
+            },
+        ) {
+        PrepareTransferResponse::OtherTransferPending => {}
+        other => panic!("Unexpected response from prepare_transfer {other:?}"),
+    }
+
+    // The destination can't do a transfer out while a transfer in is pending
+    match t
+        .cluster
+        .leader(destination)
+        .unwrap()
+        .hsm
+        .handle_transfer_out(
+            &mut metrics,
+            TransferOutRequest {
+                realm,
+                source: destination,
+                destination: source,
+                range: OwnedRange::full(),
+                nonce: prepared.nonce,
+                statement: prepared.statement.clone(),
+                proof: None,
+            },
+        ) {
+        TransferOutResponse::OtherTransferPending => {}
+        other => panic!("transfer_out should of errored with TransferPending but got {other:?}"),
+    }
+
+    // now ask the source to transfer out
+    let transferring_partition = match t.transfer_out() {
+        TransferOutResponse::Ok {
+            entry,
+            delta,
+            partition,
+            wait_til_committed: after,
+            ..
+        } => {
+            assert!(entry.is_some());
+            assert!(!delta.is_empty());
+            assert_eq!(entry.unwrap().index, after);
+            assert_eq!(partition.range, t.range);
+            partition
+        }
+        other => panic!("transfer out failed {other:?}"),
+    };
+
+    // we can ask the source to do the same transfer out again.
+    match t.transfer_out() {
+        TransferOutResponse::Ok {
+            entry,
+            delta,
+            partition,
+            wait_til_committed: _,
+            clock: _,
+        } => {
+            assert!(entry.is_none());
+            assert!(delta.is_empty());
+            assert_eq!(partition.range, t.range);
+            assert_eq!(partition, transferring_partition);
+        }
+        other => panic!("transfer out failed {other:?}"),
+    };
+
+    // the source should verify the prepared transfer statement.
+    let nonce = t.prepared.as_ref().unwrap().nonce;
+    t.prepared.as_mut().unwrap().nonce = TransferNonce([42; 16]);
+    match t.transfer_out() {
+        TransferOutResponse::InvalidStatement => {}
+        other => panic!("transfer out failed {other:?}"),
+    }
+    t.prepared.as_mut().unwrap().nonce = nonce;
+
+    // we can't ask the source to do a different transfer out now until this one is completed.
+    let third_group = t.cluster.new_group();
+    let third_prepared = match t
+        .cluster
+        .leader(third_group)
+        .unwrap()
+        .hsm
+        .handle_prepare_transfer(
+            &mut metrics,
+            PrepareTransferRequest {
+                realm,
+                source,
+                destination: third_group,
+                range: OwnedRange::full(),
+            },
+        ) {
+        PrepareTransferResponse::Ok(p) => p,
+        other => panic!("prepare transfer failed {other:?}"),
+    };
+
+    match t.cluster.leader(source).unwrap().hsm.handle_transfer_out(
+        &mut metrics,
+        TransferOutRequest {
+            realm,
+            source,
+            destination: third_group,
+            range: OwnedRange::full(),
+            nonce: third_prepared.nonce,
+            statement: third_prepared.statement,
+            proof: None,
+        },
+    ) {
+        TransferOutResponse::OtherTransferPending => {}
+        other => panic!("unexpected transfer_out response {other:?}"),
+    }
+
+    // we can't get a transfer statement until the entry is committed.
+    match t.transfer_statement() {
+        TransferStatementResponse::Busy => {}
+        other => panic!("unexpected transfer_statement response {other:?}"),
+    };
+
+    t.cluster.capture_next_and_commit_group(source);
+    let stmt = match t.transfer_statement() {
+        TransferStatementResponse::Ok(stmt) => stmt,
+        other => panic!("unexpected transfer_statement response {other:?}"),
+    };
+
+    // the destination should only let us transfer in the transfer that was prepared.
+    match t
+        .cluster
+        .leader(destination)
+        .unwrap()
+        .hsm
+        .handle_transfer_in(
+            &mut metrics,
+            TransferInRequest {
+                realm,
+                source: GroupId([12; 16]),
+                destination,
+                transferring: transferring_partition.clone(),
+                proofs: None,
+                nonce: prepared.nonce,
+                statement: stmt.clone(),
+            },
+        ) {
+        TransferInResponse::NotPrepared => {}
+        other => panic!("unexpected transfer_in response {other:?}"),
+    }
+
+    // but should let us transfer in the transfer that was previously prepared.
+    match t.transfer_in() {
+        TransferInResponse::Ok {
+            entry,
+            delta,
+            clock: _,
+        } => {
+            assert!(entry.transferring_in.is_none());
+            // The destination group didn't own anything to start with, so
+            // there's no tree merge, and no resulting tree delta.
+            assert!(delta.is_empty());
+            t.cluster.capture_next_and_commit_group(destination);
+        }
+        other => panic!("unexpected transfer_in response {other:?}"),
+    }
+
+    // and finally, we should be able to tell the source the transfer completed.
+    match t.complete_transfer() {
+        CompleteTransferResponse::Ok { entry, .. } => {
+            assert!(entry.transferring_out.is_none());
+            cluster.capture_next_and_commit_group(source);
+        }
+        other => panic!("unexpected complete transfer response {other:?}"),
+    }
+}
+
+#[test]
+fn transfer_protocol_with_merge() {
+    let mut cluster = TestCluster::new(2);
+    let source = cluster.group;
+    let destination = cluster.init_group;
+    let mut t = OwnershipTransfer::new(
+        &mut cluster,
+        source,
+        destination,
+        OwnedRange {
+            start: RecordId([0; 32]),
+            end: RecordId([1; 32]),
+        },
+        true,
+    );
+    t.do_transfer();
+
+    let mut t = OwnershipTransfer::new(
+        &mut cluster,
+        source,
+        destination,
+        OwnedRange {
+            start: RecordId([1; 32]).next().unwrap(),
+            end: RecordId([4; 32]),
+        },
+        true,
+    );
+    t.do_transfer();
+
+    let dest_exp_range = OwnedRange {
+        start: RecordId::min_id(),
+        end: t.range.end.clone(),
+    };
+    let status = t.cluster.leader(destination).unwrap().status();
+    assert!(
+        status
+            .realm
+            .as_ref()
+            .is_some_and(|rs| rs.groups.iter().any(|gs| gs.id == destination
+                && gs.leader.as_ref().unwrap().owned_range == Some(dest_exp_range.clone()))),
+        "{status:?}"
+    );
+
+    let source_exp_range = OwnedRange {
+        start: t.range.end.next().unwrap(),
+        end: RecordId::max_id(),
+    };
+    let status = t.cluster.leader(source).unwrap().status();
+    assert!(
+        status
+            .realm
+            .as_ref()
+            .is_some_and(|rs| rs.groups.iter().any(|gs| gs.id == source
+                && gs.leader.as_ref().unwrap().owned_range == Some(source_exp_range.clone()))),
+        "{status:?}"
+    );
+}
+
+#[test]
+fn transfer_protocol_source_leadership_changes() {
+    // The leader for the source group changes between transferOut and transferStatement
+    let mut cluster = TestCluster::new(3);
+    let source = cluster.group;
+    let destination = cluster.init_group;
+    let mut t = OwnershipTransfer::new(
+        &mut cluster,
+        source,
+        destination,
+        OwnedRange {
+            start: RecordId([0; 32]),
+            end: RecordId([45; 32]),
+        },
+        true,
+    );
+    match t.prepare() {
+        PrepareTransferResponse::Ok { .. } => {}
+        other => panic!("prepare failed {other:?}"),
+    }
+    match t.transfer_out() {
+        TransferOutResponse::Ok { .. } => {}
+        other => panic!("transfer out failed {other:?}"),
+    }
+    match t
+        .cluster
+        .leader(source)
+        .unwrap()
+        .stepdown_as_leader(t.realm, source)
+    {
+        StepDownResponse::Ok { .. } => {}
+        other => panic!("step down failed {other:?}"),
+    }
+
+    let last_entry = t.cluster.store.latest_log(&source);
+    match t.cluster.hsms[2].become_leader(t.realm, source, last_entry) {
+        BecomeLeaderResponse::Ok { .. } => {}
+        other => panic!("become leader failed {other:?}"),
+    }
+
+    // The transfer statement request will return busy until the new leader has
+    // calculated the commit index.
+    match t.transfer_statement() {
+        TransferStatementResponse::Busy => {}
+        other => panic!("transfer statement failed {other:?}"),
+    }
+    t.cluster.capture_next_and_commit_group(source);
+    match t.transfer_statement() {
+        TransferStatementResponse::Ok(_) => {}
+        other => panic!("transfer statement failed {other:?}"),
+    }
+
+    match t.transfer_in() {
+        TransferInResponse::Ok { .. } => {}
+        other => panic!("transfer in failed {other:?}"),
+    }
+    match t.complete_transfer() {
+        CompleteTransferResponse::Ok { .. } => {}
+        other => panic!("complete transfer failed {other:?}"),
+    }
+}
+
+#[test]
+fn transfer_protocol_dest_leadership_changes() {
+    // The leader for the destination group changes between prepareTransfer and
+    // transferIn.
+    let mut cluster = TestCluster::new(3);
+    let source = cluster.group;
+    let destination = cluster.new_group();
+    let mut t = OwnershipTransfer::new(
+        &mut cluster,
+        source,
+        destination,
+        OwnedRange {
+            start: RecordId([0; 32]),
+            end: RecordId([45; 32]),
+        },
+        true,
+    );
+    match t.prepare() {
+        PrepareTransferResponse::Ok { .. } => {}
+        other => panic!("prepare transfer failed {other:?}"),
+    }
+
+    match t
+        .cluster
+        .leader(destination)
+        .unwrap()
+        .stepdown_as_leader(t.realm, t.destination)
+    {
+        StepDownResponse::Ok { .. } => {}
+        other => panic!("stepdown failed {other:?}"),
+    }
+    let last_entry = t.cluster.store.latest_log(&destination);
+    match t.cluster.hsms[1].become_leader(t.realm, t.destination, last_entry) {
+        BecomeLeaderResponse::Ok { .. } => {}
+        other => panic!("failed to become leader {other:?}"),
+    }
+
+    match t.transfer_out() {
+        TransferOutResponse::Ok { .. } => {}
+        other => panic!("transfer out failed {other:?}"),
+    }
+    match t.transfer_statement() {
+        TransferStatementResponse::Ok(_) => {}
+        other => panic!("transfer statement failed {other:?}"),
+    }
+
+    // the new leader doesn't have the nonce that was generated by the first leader.
+    match t.transfer_in() {
+        TransferInResponse::InvalidNonce => {}
+        other => panic!("transfer in failed {other:?}"),
+    }
+    // At this point the entire process gets retried, and should run to completion.
+    t.do_transfer();
+}
+
 fn unpack_app_response(r: &AppResponse) -> (LogEntry, StoreDelta<DataHash>) {
     if let AppResponse::Ok { entry, delta } = r {
         (entry.clone(), delta.clone())
@@ -1119,6 +1526,8 @@ fn finish_handshake(hs: Handshake, resp: &NoiseResponse) -> SecretsResponse {
 struct TestCluster<'a> {
     hsms: Vec<TestHsm<'a>>,
     realm: RealmId,
+    init_group: GroupId,
+    // This is the same as init_group for cluster count=1
     group: GroupId,
     store: TestStore,
 }
@@ -1177,6 +1586,7 @@ impl<'a> TestCluster<'a> {
             hsms,
             realm,
             group: starting_group,
+            init_group: starting_group,
             store,
         };
         cluster.capture_next_and_commit_group(starting_group);
@@ -1184,7 +1594,26 @@ impl<'a> TestCluster<'a> {
             return cluster;
         }
 
-        let mut members: Vec<_> = cluster
+        let new_group = cluster.new_group();
+
+        let mut t = OwnershipTransfer::new(
+            &mut cluster,
+            starting_group,
+            new_group,
+            OwnedRange::full(),
+            true,
+        );
+        t.do_transfer();
+
+        // We have a group of HSMs all initialized with a group, hsms[0] is the leader.
+        cluster.group = new_group;
+        cluster
+    }
+
+    // Creates a new group with all cluster members as member and have everyone join it.
+    fn new_group(&mut self) -> GroupId {
+        let mut metrics = Metrics::new("test", MetricsAction::Skip, TestPlatform::default());
+        let mut members: Vec<_> = self
             .hsms
             .iter_mut()
             .map(|hsm| {
@@ -1194,10 +1623,10 @@ impl<'a> TestCluster<'a> {
             .collect();
         members.sort_by_key(|g| g.0);
 
-        let new_group_resp = cluster.hsms[0].hsm.handle_new_group(
-            &mut m,
+        let new_group_resp = self.hsms[0].hsm.handle_new_group(
+            &mut metrics,
             NewGroupRequest {
-                realm,
+                realm: self.realm,
                 members: members.clone(),
             },
         );
@@ -1210,17 +1639,15 @@ impl<'a> TestCluster<'a> {
         else {
             panic!("new group failed: {:?}", new_group_resp);
         };
-        cluster
-            .store
-            .append(new_group, entry, StoreDelta::default());
+        self.store.append(new_group, entry, StoreDelta::default());
 
         let config: Vec<HsmId> = members.iter().map(|(id, _stmt)| *id).collect();
-        for hsm in &mut cluster.hsms[1..] {
+        for hsm in &mut self.hsms[1..] {
             assert!(matches!(
                 hsm.hsm.handle_join_group(
-                    &mut m,
+                    &mut hsm.metrics,
                     JoinGroupRequest {
-                        realm,
+                        realm: self.realm,
                         group: new_group,
                         configuration: config.clone(),
                         statement: statement.clone(),
@@ -1229,84 +1656,7 @@ impl<'a> TestCluster<'a> {
                 JoinGroupResponse::Ok(_)
             ));
         }
-
-        let TransferOutResponse::Ok { entry, delta } = cluster.hsms[0].hsm.handle_transfer_out(
-            &mut m,
-            TransferOutRequest {
-                realm,
-                source: starting_group,
-                destination: new_group,
-                range: OwnedRange::full(),
-                index: LogIndex(1),
-                proof: None,
-            },
-        ) else {
-            panic!("transfer out failed")
-        };
-        cluster.store.append(starting_group, entry.clone(), delta);
-
-        let partition = entry.transferring_out.as_ref().unwrap().partition.clone();
-        let TransferNonceResponse::Ok(nonce) = cluster.hsms[0].hsm.handle_transfer_nonce(
-            &mut m,
-            TransferNonceRequest {
-                realm,
-                destination: new_group,
-            },
-        ) else {
-            panic!("failed to generate transfer nonce");
-        };
-        cluster.capture_next_and_commit_group(starting_group);
-        cluster.capture_next_and_commit_group(new_group);
-
-        let transfer_stmt = cluster.hsms[0].hsm.handle_transfer_statement(
-            &mut m,
-            TransferStatementRequest {
-                realm,
-                source: starting_group,
-                destination: new_group,
-                nonce,
-            },
-        );
-        let TransferStatementResponse::Ok(stmt) = transfer_stmt else {
-            panic!("failed to generate transfer statement: {transfer_stmt:?}");
-        };
-
-        let TransferInResponse::Ok { entry, delta } = cluster.hsms[0].hsm.handle_transfer_in(
-            &mut m,
-            TransferInRequest {
-                realm,
-                destination: new_group,
-                transferring: partition,
-                proofs: None,
-                nonce,
-                statement: stmt,
-            },
-        ) else {
-            panic!("failed to transfer in");
-        };
-        cluster.store.append(new_group, entry, delta);
-
-        let CompleteTransferResponse::Ok(entry) = cluster.hsms[0].hsm.handle_complete_transfer(
-            &mut m,
-            CompleteTransferRequest {
-                realm,
-                source: starting_group,
-                destination: new_group,
-                range: OwnedRange::full(),
-            },
-        ) else {
-            panic!("failed to complete transfer");
-        };
-
-        cluster
-            .store
-            .append(starting_group, entry, StoreDelta::default());
-        cluster.capture_next_and_commit_group(starting_group);
-        cluster.capture_next_and_commit_group(new_group);
-
-        // We have a group of HSMs all initialized with a group, hsms[0] is the leader.
-        cluster.group = new_group;
-        cluster
+        new_group
     }
 
     // Brings each HSM up to date on capture_next and then does a commit.
@@ -1335,6 +1685,16 @@ impl<'a> TestCluster<'a> {
             }
         }
         results
+    }
+
+    #[allow(clippy::manual_find)] // hsm.is_leader takes &mut self but find gives you a &&mut
+    fn leader(&mut self, group: GroupId) -> Option<&mut TestHsm<'a>> {
+        for hsm in self.hsms.iter_mut() {
+            if hsm.is_leader(group) {
+                return Some(hsm);
+            }
+        }
+        None
     }
 
     fn persist_state(&mut self, group: GroupId) -> Vec<Captured> {
@@ -1505,14 +1865,7 @@ impl<'a> TestHsm<'a> {
     ) -> (Handshake, AppResponse) {
         let req_bytes = marshalling::to_vec(&req).unwrap();
         let (handshake, req) = Handshake::start(&self.public_key, &req_bytes, &mut OsRng).unwrap();
-
-        let last = store.latest_log(&group);
-        let partition = last.partition.as_ref().unwrap();
-        let proof = store
-            .tree
-            .read(&partition.range, &partition.root_hash, &record_id)
-            .unwrap();
-
+        let (proof, index) = read_proof(store, group, &record_id);
         (
             handshake,
             self.hsm.handle_app(
@@ -1524,11 +1877,276 @@ impl<'a> TestHsm<'a> {
                     session_id: SessionId(OsRng.next_u32()),
                     encrypted: NoiseRequest::Handshake { handshake: req },
                     proof,
-                    index: last.index,
+                    index,
                 },
             ),
         )
     }
+}
+
+// OwnershipTransfer deals with some the things the agent & coordinator deal
+// with in the full system. This can help reduce a lot of boilerplate steps in
+// tests.
+struct OwnershipTransfer<'a, 'b> {
+    cluster: &'a mut TestCluster<'b>,
+    realm: RealmId,
+    source: GroupId,
+    destination: GroupId,
+    range: OwnedRange,
+    prepared: Option<PreparedTransfer>,
+    partition: Option<Partition>,
+    stmt: Option<TransferStatement>,
+    auto_commit: bool,
+}
+
+impl<'a, 'b> OwnershipTransfer<'a, 'b> {
+    fn new(
+        cluster: &'a mut TestCluster<'b>,
+        source: GroupId,
+        destination: GroupId,
+        range: OwnedRange,
+        auto_commit: bool,
+    ) -> Self {
+        let realm = cluster.realm;
+        Self {
+            cluster,
+            realm,
+            source,
+            destination,
+            range,
+            prepared: None,
+            partition: None,
+            stmt: None,
+            auto_commit,
+        }
+    }
+
+    // Will run through the regular happy path and execute the transfer.
+    fn do_transfer(&mut self) {
+        self.auto_commit = true;
+        assert!(matches!(self.prepare(), PrepareTransferResponse::Ok { .. }));
+        assert!(matches!(
+            self.transfer_out(),
+            TransferOutResponse::Ok { .. }
+        ));
+        assert!(matches!(
+            self.transfer_statement(),
+            TransferStatementResponse::Ok(_)
+        ));
+        match self.transfer_in() {
+            TransferInResponse::Ok { .. } => {}
+            other => panic!("transfer in failed with {other:?}"),
+        }
+        assert!(matches!(
+            self.complete_transfer(),
+            CompleteTransferResponse::Ok { .. }
+        ));
+    }
+
+    fn prepare(&mut self) -> PrepareTransferResponse {
+        let hsm = self.cluster.leader(self.destination).unwrap();
+        let result = hsm.hsm.handle_prepare_transfer(
+            &mut hsm.metrics,
+            PrepareTransferRequest {
+                realm: self.realm,
+                source: self.source,
+                destination: self.destination,
+                range: self.range.clone(),
+            },
+        );
+        if let PrepareTransferResponse::Ok(prepared) = &result {
+            self.prepared = Some(prepared.clone());
+            if let Some(entry) = &prepared.entry {
+                self.cluster
+                    .store
+                    .append(self.destination, entry.clone(), StoreDelta::default());
+                if self.auto_commit {
+                    self.cluster.capture_next_and_commit_group(self.destination);
+                }
+            }
+        }
+        result
+    }
+
+    fn transfer_out(&mut self) -> TransferOutResponse {
+        let last = self.cluster.store.latest_log(&self.source);
+        let partition = last.partition.unwrap().clone();
+        let proof = if self.range == partition.range {
+            None
+        } else {
+            // When a transfer_out is retried, the last log entry already
+            // reflects that the transferring range has been moved out of what
+            // the group owns and into the transferring_out section. So split_at
+            // may indicate that the range can't be split at that point. In
+            // which case we skip getting a proof, and let the HSM decide.
+            partition.range.split_at(&self.range).and_then(|id| {
+                self.cluster
+                    .store
+                    .tree
+                    .read(&partition.range, &partition.root_hash, &id)
+                    .ok()
+            })
+        };
+        let hsm = self.cluster.leader(self.source).unwrap();
+        let result = hsm.hsm.handle_transfer_out(
+            &mut hsm.metrics,
+            TransferOutRequest {
+                realm: self.realm,
+                source: self.source,
+                destination: self.destination,
+                range: self.range.clone(),
+                nonce: self.prepared.as_ref().unwrap().nonce,
+                statement: self.prepared.as_ref().unwrap().statement.clone(),
+                proof,
+            },
+        );
+        if let TransferOutResponse::Ok {
+            entry,
+            delta,
+            partition,
+            ..
+        } = &result
+        {
+            self.partition = Some(partition.clone());
+            if let Some(entry) = entry {
+                self.cluster
+                    .store
+                    .append(self.source, entry.clone(), delta.clone());
+                if self.auto_commit {
+                    self.cluster.capture_next_and_commit_group(self.source);
+                }
+            }
+        }
+        result
+    }
+
+    fn transfer_statement(&mut self) -> TransferStatementResponse {
+        let hsm = self.cluster.leader(self.source).unwrap();
+        let result = hsm.hsm.handle_transfer_statement(
+            &mut hsm.metrics,
+            TransferStatementRequest {
+                realm: self.realm,
+                source: self.source,
+                destination: self.destination,
+                nonce: self.prepared.as_ref().unwrap().nonce,
+            },
+        );
+        if let TransferStatementResponse::Ok(stmt) = &result {
+            self.stmt = Some(stmt.clone());
+        }
+        result
+    }
+
+    fn transfer_in(&mut self) -> TransferInResponse {
+        let last_entry = self.cluster.store.latest_log(&self.destination);
+        let proofs = match last_entry.partition {
+            None => None,
+            Some(partition) => partition.range.join(&self.range).map(|jr| {
+                let proof_dir = if jr.start == self.range.start {
+                    Dir::Right
+                } else {
+                    Dir::Left
+                };
+                let transferring_in = self.partition.clone().unwrap();
+                let tin_proof = self.cluster.store.tree.read_tree_side(
+                    &transferring_in.range,
+                    &transferring_in.root_hash,
+                    proof_dir,
+                );
+                let owned_proof = self.cluster.store.tree.read_tree_side(
+                    &partition.range,
+                    &partition.root_hash,
+                    proof_dir.opposite(),
+                );
+                TransferInProofs {
+                    owned: owned_proof.unwrap(),
+                    transferring: tin_proof.unwrap(),
+                }
+            }),
+        };
+        let hsm = self.cluster.leader(self.destination).unwrap();
+
+        let result = hsm.hsm.handle_transfer_in(
+            &mut hsm.metrics,
+            TransferInRequest {
+                realm: self.realm,
+                source: self.source,
+                destination: self.destination,
+                transferring: self.partition.clone().unwrap(),
+                proofs,
+                nonce: self.prepared.as_ref().unwrap().nonce,
+                statement: self.stmt.clone().unwrap(),
+            },
+        );
+        if let TransferInResponse::Ok { entry, delta, .. } = &result {
+            self.cluster
+                .store
+                .append(self.destination, entry.clone(), delta.clone());
+            if self.auto_commit {
+                self.cluster.capture_next_and_commit_group(self.destination);
+            }
+        }
+        result
+    }
+
+    fn complete_transfer(&mut self) -> CompleteTransferResponse {
+        let hsm = self.cluster.leader(self.source).unwrap();
+        let result = hsm.hsm.handle_complete_transfer(
+            &mut hsm.metrics,
+            CompleteTransferRequest {
+                realm: self.realm,
+                source: self.source,
+                destination: self.destination,
+                range: self.range.clone(),
+            },
+        );
+        if let CompleteTransferResponse::Ok { entry, clock: _ } = &result {
+            self.cluster
+                .store
+                .append(self.source, entry.clone(), StoreDelta::default());
+            if self.auto_commit {
+                self.cluster.capture_next_and_commit_group(self.source);
+            }
+        }
+        result
+    }
+
+    #[allow(unused)]
+    fn cancel_prepare(&mut self) -> CancelPreparedTransferResponse {
+        let hsm = self.cluster.leader(self.destination).unwrap();
+        let result = hsm.hsm.handle_cancel_prepared_transfer(
+            &mut hsm.metrics,
+            CancelPreparedTransferRequest {
+                realm: self.realm,
+                source: self.source,
+                destination: self.destination,
+                range: self.range.clone(),
+            },
+        );
+        if let CancelPreparedTransferResponse::Ok { entry, clock } = &result {
+            self.cluster
+                .store
+                .append(self.source, entry.clone(), StoreDelta::default());
+            if self.auto_commit {
+                self.cluster.capture_next_and_commit_group(self.source);
+            }
+        }
+        result
+    }
+}
+
+fn read_proof(
+    store: &TestStore,
+    group: GroupId,
+    record: &RecordId,
+) -> (ReadProof<DataHash>, LogIndex) {
+    let last = store.latest_log(&group);
+    let partition = last.partition.as_ref().unwrap();
+    let proof = store
+        .tree
+        .read(&partition.range, &partition.root_hash, record)
+        .unwrap();
+    (proof, last.index)
 }
 
 #[derive(Default)]

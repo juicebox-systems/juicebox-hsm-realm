@@ -6,13 +6,14 @@ use core::fmt::Debug;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::{
-    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CaptureJumpRequest,
+    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
+    CancelPreparedTransferRequest, CancelPreparedTransferResponse, CaptureJumpRequest,
     CaptureJumpResponse, CaptureNextRequest, CaptureNextResponse, CommitRequest, CommitResponse,
     CompleteTransferRequest, CompleteTransferResponse, HandshakeRequest, HandshakeResponse,
     JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest,
     NewGroupResponse, NewRealmRequest, NewRealmResponse, PersistStateRequest, PersistStateResponse,
-    StatusRequest, StatusResponse, StepDownRequest, StepDownResponse, TransferInRequest,
-    TransferInResponse, TransferNonceRequest, TransferNonceResponse, TransferOutRequest,
+    PrepareTransferRequest, PrepareTransferResponse, StatusRequest, StatusResponse,
+    StepDownRequest, StepDownResponse, TransferInRequest, TransferInResponse, TransferOutRequest,
     TransferOutResponse, TransferStatementRequest, TransferStatementResponse,
 };
 
@@ -66,8 +67,9 @@ pub enum HsmRequest {
     CaptureNext(CaptureNextRequest),
     PersistState(PersistStateRequest),
     Commit(CommitRequest),
+    PrepareTransfer(PrepareTransferRequest),
+    CancelPreparedTransfer(CancelPreparedTransferRequest),
     TransferOut(TransferOutRequest),
-    TransferNonce(TransferNonceRequest),
     TransferStatement(TransferStatementRequest),
     TransferIn(TransferInRequest),
     CompleteTransfer(CompleteTransferRequest),
@@ -89,8 +91,9 @@ impl HsmRequest {
             HsmRequest::CaptureNext(_) => "CaptureNext",
             HsmRequest::PersistState(_) => "PersistState",
             HsmRequest::Commit(_) => "Commit",
+            HsmRequest::PrepareTransfer(_) => "PrepareTransfer",
+            HsmRequest::CancelPreparedTransfer(_) => "CancelPreparedTransfer",
             HsmRequest::TransferOut(_) => "TransferOut",
-            HsmRequest::TransferNonce(_) => "TransferNonce",
             HsmRequest::TransferStatement(_) => "TransferStatement",
             HsmRequest::TransferIn(_) => "TransferIn",
             HsmRequest::CompleteTransfer(_) => "CompleteTransfer",
@@ -177,17 +180,24 @@ impl HsmRpc for CommitRequest {
     }
 }
 
+impl HsmRpc for PrepareTransferRequest {
+    type Response = PrepareTransferResponse;
+    fn to_req(self) -> HsmRequest {
+        HsmRequest::PrepareTransfer(self)
+    }
+}
+
+impl HsmRpc for CancelPreparedTransferRequest {
+    type Response = CancelPreparedTransferResponse;
+    fn to_req(self) -> HsmRequest {
+        HsmRequest::CancelPreparedTransfer(self)
+    }
+}
+
 impl HsmRpc for TransferOutRequest {
     type Response = TransferOutResponse;
     fn to_req(self) -> HsmRequest {
         HsmRequest::TransferOut(self)
-    }
-}
-
-impl HsmRpc for TransferNonceRequest {
-    type Response = TransferNonceResponse;
-    fn to_req(self) -> HsmRequest {
-        HsmRequest::TransferNonce(self)
     }
 }
 

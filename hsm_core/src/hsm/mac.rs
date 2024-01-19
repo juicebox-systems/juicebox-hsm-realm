@@ -9,8 +9,8 @@ use super::configuration::GroupConfiguration;
 use super::RealmKeys;
 use hsm_api::{
     CapturedStatement, CtBytes, EntryMac, GroupConfigurationStatement, GroupId, HsmId,
-    HsmRealmStatement, LogEntry, LogIndex, Partition, TransferNonce, TransferStatement,
-    TransferringOut,
+    HsmRealmStatement, LogEntry, LogIndex, OwnedRange, Partition, PreparedTransferStatement,
+    TransferNonce, TransferStatement, TransferringIn, TransferringOut,
 };
 use juicebox_marshalling::bytes;
 use juicebox_realm_api::types::RealmId;
@@ -48,6 +48,13 @@ impl MacKey {
 
     pub fn log_entry_mac(&self, msg: &EntryMacMessage) -> EntryMac {
         self.calculate(msg, b"logentry").into()
+    }
+
+    pub fn prepared_transfer_mac(
+        &self,
+        msg: &PreparedTransferStatementMessage,
+    ) -> PreparedTransferStatement {
+        self.calculate(msg, b"prepared_transfer").into()
     }
 
     pub fn transfer_mac(&self, msg: &TransferStatementMessage) -> TransferStatement {
@@ -96,6 +103,7 @@ pub struct EntryMacMessage<'a> {
     pub index: LogIndex,
     pub partition: &'a Option<Partition>,
     pub transferring_out: &'a Option<TransferringOut>,
+    pub transferring_in: &'a Option<TransferringIn>,
     pub prev_mac: &'a EntryMac,
 }
 
@@ -108,9 +116,19 @@ impl<'a> EntryMacMessage<'a> {
             index: entry.index,
             partition: &entry.partition,
             transferring_out: &entry.transferring_out,
+            transferring_in: &entry.transferring_in,
             prev_mac: &entry.prev_mac,
         }
     }
+}
+
+#[derive(Serialize)]
+pub struct PreparedTransferStatementMessage<'a> {
+    pub realm: RealmId,
+    pub source: GroupId,
+    pub destination: GroupId,
+    pub range: &'a OwnedRange,
+    pub nonce: TransferNonce,
 }
 
 #[derive(Serialize)]
@@ -205,6 +223,11 @@ mod tests {
                 },
                 at: LogIndex(u64::MAX - 1),
             }),
+            transferring_in: &Some(TransferringIn {
+                source: GroupId([14; 16]),
+                range: OwnedRange::full(),
+                at: LogIndex(u64::MAX - 2),
+            }),
             prev_mac: &EntryMac::from([6; 32]),
             hsm: HsmId([7; 16]),
         };
@@ -213,6 +236,7 @@ mod tests {
             group: GroupId([2; 16]),
             index: LogIndex(u64::MAX),
             partition: &None,
+            transferring_in: &None,
             transferring_out: &None,
             prev_mac: &EntryMac::from([6; 32]),
             hsm: HsmId([7; 16]),

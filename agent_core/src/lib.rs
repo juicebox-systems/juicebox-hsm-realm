@@ -35,11 +35,12 @@ mod transfer;
 
 use agent_api::merkle::TreeStoreError;
 use agent_api::{
-    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse, CompleteTransferRequest,
-    HashedUserId, JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse,
-    NewGroupRequest, NewGroupResponse, NewRealmRequest, NewRealmResponse, ReadCapturedRequest,
+    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
+    CancelPreparedTransferRequest, CompleteTransferRequest, HashedUserId, JoinGroupRequest,
+    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
+    NewRealmRequest, NewRealmResponse, PrepareTransferRequest, ReadCapturedRequest,
     ReadCapturedResponse, StatusRequest, StatusResponse, StepDownRequest, StepDownResponse,
-    TransferInRequest, TransferNonceRequest, TransferOutRequest, TransferStatementRequest,
+    TransferInRequest, TransferOutRequest,
 };
 use append::{Append, AppendingState};
 use build_info::BuildInfo;
@@ -766,9 +767,6 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                     StepDownRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_stepdown_as_leader).await
                     }
-                    CompleteTransferRequest::PATH => {
-                        handle_rpc(&agent, request, Self::handle_complete_transfer).await
-                    }
                     JoinGroupRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_join_group).await
                     }
@@ -784,17 +782,20 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                     ReadCapturedRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_read_captured).await
                     }
-                    TransferInRequest::PATH => {
-                        handle_rpc(&agent, request, Self::handle_transfer_in).await
+                    PrepareTransferRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_prepare_transfer).await
                     }
-                    TransferNonceRequest::PATH => {
-                        handle_rpc(&agent, request, Self::handle_transfer_nonce).await
+                    CancelPreparedTransferRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_cancel_prepared_transfer).await
                     }
                     TransferOutRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_transfer_out).await
                     }
-                    TransferStatementRequest::PATH => {
-                        handle_rpc(&agent, request, Self::handle_transfer_statement).await
+                    TransferInRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_transfer_in).await
+                    }
+                    CompleteTransferRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_complete_transfer).await
                     }
                     _ => Ok(Response::builder()
                         .status(hyper::StatusCode::NOT_FOUND)

@@ -1,18 +1,16 @@
-use std::time::Duration;
-use tokio::time::sleep;
 use tracing::info;
 
 use agent_api::{
-    CompleteTransferRequest, CompleteTransferResponse, TransferInRequest, TransferInResponse,
-    TransferNonceRequest, TransferNonceResponse, TransferOutRequest, TransferOutResponse,
-    TransferStatementRequest, TransferStatementResponse,
+    CompleteTransferRequest, CompleteTransferResponse, PrepareTransferRequest,
+    PrepareTransferResponse, TransferInRequest, TransferInResponse, TransferOutRequest,
+    TransferOutResponse,
 };
 pub use cluster_api::TransferError;
 use hsm_api::{GroupId, OwnedRange};
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_networking::rpc;
 use juicebox_realm_api::types::RealmId;
-use store::{ReadLastLogEntryError, StoreClient};
+use store::StoreClient;
 
 pub async fn transfer(
     realm: RealmId,
@@ -51,16 +49,20 @@ pub async fn transfer(
 
     // The current ownership transfer protocol is dangerous in that the moment
     // the source group commits the log entry that the range is transferring
-    // out, the range must then move to the destination group. However, we
-    // don't have any guarantee that the destination group will accept the
-    // range. This is an issue with each group owning 0 or 1 ranges: the only
+    // out, the range must then move to the destination group. Having the
+    // destination have to prepare first and subsequently reject any other
+    // transfers ensures that when the process gets around to transfer_in, it'll
+    // succeed. This is an issue with each group owning 0 or 1 ranges: the only
     // group that can accept a range is one that owns no range or one that owns
     // an adjacent range.
 
-    let transferring_partition = match rpc::send(
+    // The Agents will not respond to these RPCs until the related log entry is
+    // committed. (where protocol safety requires the log entry to commit).
+
+    let (nonce, statement) = match rpc::send(
         &agent_client,
-        source_leader,
-        TransferOutRequest {
+        dest_leader,
+        PrepareTransferRequest {
             realm,
             source,
             destination,
@@ -69,41 +71,34 @@ pub async fn transfer(
     )
     .await
     {
-        Err(e) => todo!("{e:?}"),
-        Ok(TransferOutResponse::Ok { transferring }) => transferring,
+        Ok(PrepareTransferResponse::Ok { nonce, statement }) => (nonce, statement),
         Ok(r) => todo!("{r:?}"),
+        Err(e) => todo!("{e:?}"),
     };
 
-    let nonce = match rpc::send(
-        &agent_client,
-        dest_leader,
-        TransferNonceRequest { realm, destination },
-    )
-    .await
-    {
-        Err(e) => todo!("{e:?}"),
-        Ok(TransferNonceResponse::Ok(nonce)) => nonce,
-        Ok(r) => todo!("{r:?}"),
-    };
-
-    let statement = match rpc::send(
+    let (transferring_partition, statement) = match rpc::send(
         &agent_client,
         source_leader,
-        TransferStatementRequest {
+        TransferOutRequest {
             realm,
             source,
             destination,
+            range: range.clone(),
             nonce,
+            statement,
         },
     )
     .await
     {
-        Err(e) => todo!("{e:?}"),
-        Ok(TransferStatementResponse::Ok(statement)) => statement,
+        Ok(TransferOutResponse::Ok {
+            transferring,
+            statement,
+        }) => (transferring, statement),
         Ok(r) => todo!("{r:?}"),
+        Err(e) => todo!("{e:?}"),
     };
 
-    let dest_index = match rpc::send(
+    match rpc::send(
         &agent_client,
         dest_leader,
         TransferInRequest {
@@ -117,17 +112,15 @@ pub async fn transfer(
     )
     .await
     {
-        Err(e) => todo!("{e:?}"),
-        Ok(TransferInResponse::Ok(index)) => index,
+        Ok(TransferInResponse::Ok) => {}
         Ok(r) => todo!("{r:?}"),
+        Err(e) => todo!("{e:?}"),
     };
 
-    // TODO: This part is dangerous because TransferInRequest returns before
-    // the transfer has committed (for now). If that log entry doesn't commit
-    // and this calls CompleteTransferRequest, the range will be lost
-    // forever.
+    // If the transfer in log entry is not committed and this calls
+    // CompleteTransferRequest, the range will be lost forever.
 
-    let src_index = match rpc::send(
+    match rpc::send(
         &agent_client,
         source_leader,
         CompleteTransferRequest {
@@ -139,30 +132,10 @@ pub async fn transfer(
     )
     .await
     {
-        Err(e) => todo!("{e:?}"),
-        Ok(CompleteTransferResponse::Ok(index)) => index,
+        Ok(CompleteTransferResponse::Ok) => {}
         Ok(r) => todo!("{r:?}"),
+        Err(e) => todo!("{e:?}"),
     };
-    // At this point the agents have queued the log entry that contained
-    // the completed transfer but may or may not have actually written
-    // it to the store yet. So we need to wait for that to happen.
-    // TODO: this should really wait for commit, and handled in the agent
-    // to be resolved with the overall transfer review/update.
-    let wait_for_entry = |group, index| async move {
-        loop {
-            match store.read_last_log_entry(&realm, &group).await {
-                Ok(e) if e.index >= index => {
-                    return;
-                }
-                Ok(_) | Err(ReadLastLogEntryError::EmptyLog) => {
-                    sleep(Duration::from_millis(1)).await;
-                }
-                Err(ReadLastLogEntryError::Grpc(err)) => todo!("{err}"),
-            }
-        }
-    };
-    wait_for_entry(source, src_index).await;
-    wait_for_entry(destination, dest_index).await;
 
     Ok(())
 }
