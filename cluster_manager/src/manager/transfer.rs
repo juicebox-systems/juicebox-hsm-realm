@@ -29,7 +29,7 @@ impl Manager {
                     warn!(?err, "failed to get management lease");
                     Err(TransferError::ManagerBusy)
                 }
-            };
+            }?;
 
         cluster_core::transfer(
             req.realm,
