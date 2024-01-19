@@ -804,6 +804,16 @@ pub struct LeaderStatus {
     /// be committed yet, and it may never become committed. It may also be out
     /// of date.
     pub owned_range: Option<OwnedRange>,
+
+    /// An pending transfer into or out of the group.
+    ///
+    /// ## Warning
+    ///
+    /// Generally, this value changes very infrequently as the cluster's load
+    /// is rebalanced across groups. However, the value returned here might not
+    /// be committed yet, and it may never become committed. It may also be out
+    /// of date.
+    pub transferring: Option<Transferring>,
 }
 
 /// Request type for the HSM NewRealm RPC (see [`NewRealmResponse`]). Creates a

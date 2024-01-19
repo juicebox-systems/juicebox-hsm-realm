@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use agent_api::{StatusRequest, StatusResponse};
 use cluster_core::workload::{GroupWorkload, HsmWorkload};
-use hsm_api::{GroupStatus, HsmId, OwnedRange};
+use hsm_api::{GroupStatus, HsmId, OwnedRange, Transferring};
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError};
 use store::{ServiceKind, StoreClient};
@@ -107,6 +107,29 @@ fn print_group_status(hsm_id: &HsmId, group: &GroupStatus, work: &GroupWorkload)
             }
             None => {
                 println!("{TAB}{TAB}{TAB}owned range: none");
+            }
+        }
+        match &leader.transferring {
+            None => {
+                println!("{TAB}{TAB}{TAB}transfer: none");
+            }
+            Some(Transferring::In(prepared)) => {
+                let r = &prepared.range;
+                println!("{TAB}{TAB}{TAB}prepared transfer:");
+                println!("{TAB}{TAB}{TAB}{TAB}source: {:?}", prepared.source);
+                println!("{TAB}{TAB}{TAB}{TAB}since log index: {:?}", prepared.at);
+                println!("{TAB}{TAB}{TAB}{TAB}range start: {:?}", r.start);
+                println!("{TAB}{TAB}{TAB}{TAB}range end:   {:?}", r.end);
+            }
+
+            Some(Transferring::Out(tout)) => {
+                let p = &tout.partition;
+                println!("{TAB}{TAB}{TAB}transferring out:");
+                println!("{TAB}{TAB}{TAB}{TAB}destination:  {:?}", tout.destination);
+                println!("{TAB}{TAB}{TAB}{TAB}at log index: {:?}", tout.at);
+                println!("{TAB}{TAB}{TAB}{TAB}range start: {:?}", p.range.start);
+                println!("{TAB}{TAB}{TAB}{TAB}range end:   {:?}", p.range.end);
+                println!("{TAB}{TAB}{TAB}{TAB}root hash:   {:?}", p.root_hash);
             }
         }
     }
