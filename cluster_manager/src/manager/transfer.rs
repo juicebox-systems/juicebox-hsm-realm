@@ -19,26 +19,24 @@ impl Manager {
         &self,
         req: cluster_api::TransferRequest,
     ) -> Result<TransferSuccess, TransferError> {
-        let _grant =
-            match ManagementGrant::obtain(self.clone(), ManagementLeaseKey::Ownership(req.realm))
-                .await
-            {
-                Ok(Some(grant)) => Ok(grant),
-                Ok(None) => Err(TransferError::ManagerBusy),
-                Err(err) => {
-                    warn!(?err, "failed to get management lease");
-                    Err(TransferError::ManagerBusy)
-                }
-            }?;
-
-        cluster_core::transfer(
-            req.realm,
-            req.source,
-            req.destination,
-            req.range,
-            &self.0.store,
-        )
-        .await?;
-        Ok(TransferSuccess {})
+        match ManagementGrant::obtain(self.clone(), ManagementLeaseKey::Ownership(req.realm)).await
+        {
+            Ok(Some(_grant)) => {
+                cluster_core::transfer(
+                    req.realm,
+                    req.source,
+                    req.destination,
+                    req.range,
+                    &self.0.store,
+                )
+                .await?;
+                Ok(TransferSuccess {})
+            }
+            Ok(None) => Err(TransferError::ManagerBusy),
+            Err(err) => {
+                warn!(?err, "failed to get management lease");
+                Err(TransferError::ManagerBusy)
+            }
+        }
     }
 }
