@@ -25,8 +25,8 @@ mod tests;
 mod transfer;
 
 use self::mac::{
-    CapturedStatementMessage, CtMac, EntryMacMessage, GroupConfigurationStatementMessage,
-    HsmRealmStatementMessage, MacKey,
+    transferring_in, transferring_out, CapturedStatementMessage, CtMac, EntryMacMessage,
+    GroupConfigurationStatementMessage, HsmRealmStatementMessage, MacKey,
 };
 use super::hal::{Clock, CryptoRng, IOError, NVRam, Platform};
 use super::merkle::{
@@ -111,7 +111,8 @@ impl LogEntryBuilder {
             group: self.group,
             index: self.index,
             partition: &self.partition,
-            transferring: &self.transferring,
+            transferring_out: transferring_out(&self.transferring),
+            transferring_in: transferring_in(&self.transferring),
             prev_mac: &self.prev_mac,
         });
 

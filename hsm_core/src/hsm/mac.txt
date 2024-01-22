@@ -46,7 +46,7 @@ mac: 0c34181ee7555fe98d3628c25cb96d61f36982b022643d2187f1f5b4e85b9221
 }
 
 hsm_core::hsm::mac::EntryMacMessage
-mac: e3f3f21f87ed37a3f5a04923f6ba59466e8521d0873771c0e85559a7b7bfe9e9
+mac: 466cd3c8ff65f986fd33854fc3b650a585e1eff225c4e2b66f2080abe37f0e63
 {
     "hsm": h'07070707070707070707070707070707',
     "realm": h'01010101010101010101010101010101',
@@ -60,17 +60,41 @@ mac: e3f3f21f87ed37a3f5a04923f6ba59466e8521d0873771c0e85559a7b7bfe9e9
         "root_hash": h'0303030303030303030303030303030303030303030303030303030303030303',
     },
     "transferring_out": {
-        "Out": {
-            "destination": h'04040404040404040404040404040404',
-            "partition": {
-                "range": {
-                    "start": h'0000000000000000000000000000000000000000000000000000000000000000',
-                    "end": h'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
-                },
-                "root_hash": h'0505050505050505050505050505050505050505050505050505050505050505',
+        "destination": h'04040404040404040404040404040404',
+        "partition": {
+            "range": {
+                "start": h'0000000000000000000000000000000000000000000000000000000000000000',
+                "end": h'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
             },
-            "at": 18446744073709551614_3,
+            "root_hash": h'0505050505050505050505050505050505050505050505050505050505050505',
         },
+        "at": 18446744073709551614_3,
+    },
+    "prev_mac": h'0606060606060606060606060606060606060606060606060606060606060606',
+}
+
+hsm_core::hsm::mac::EntryMacMessage
+mac: affb3619c7557de2e45bd9c5e0cf6810536203f966615765f0fdeab5e9b751e8
+{
+    "hsm": h'07070707070707070707070707070707',
+    "realm": h'01010101010101010101010101010101',
+    "group": h'02020202020202020202020202020202',
+    "index": 18446744073709551615_3,
+    "partition": {
+        "range": {
+            "start": h'0000000000000000000000000000000000000000000000000000000000000000',
+            "end": h'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        },
+        "root_hash": h'0303030303030303030303030303030303030303030303030303030303030303',
+    },
+    "transferring_out": null,
+    "transferring_in": {
+        "source": h'0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e',
+        "range": {
+            "start": h'0000000000000000000000000000000000000000000000000000000000000000',
+            "end": h'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        },
+        "at": 18446744073709551613_3,
     },
     "prev_mac": h'0606060606060606060606060606060606060606060606060606060606060606',
 }
