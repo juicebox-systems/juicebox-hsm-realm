@@ -102,6 +102,10 @@ pub struct EntryMacMessage<'a> {
     pub group: GroupId,
     pub index: LogIndex,
     pub partition: &'a Option<Partition>,
+    // The rename allows verifying older log entries/mac where the transferring
+    // information was in a transferring_out field. This will only work for log
+    // entries without any transferring info.
+    #[serde(rename(serialize = "transferring_out"))]
     pub transferring: &'a Option<Transferring>,
     pub prev_mac: &'a EntryMac,
 }
