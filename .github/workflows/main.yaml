@@ -111,9 +111,9 @@ jobs:
         timeout-minutes: 20
         strategy:
           matrix:
-            # Transfer Protocol (PR #392, `c1093ae...`) added/changed many of the requests
+            # Transfer Protocol (PR #392, `fcd2bfd...`) added/changed many of the requests
             # related to ownership transfer.
-            hsm_version: ["c1093aeb19b1a93e2f718a93bb1e8e7c0f40b8e1"]
+            hsm_version: ["fcd2bfdd78103d79670e66f3238d23b02930b1bb"]
         steps:
         - name: Check out sources
           uses: actions/checkout@v4
