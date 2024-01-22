@@ -1,18 +1,16 @@
-use tracing::{debug, instrument};
-
-use crate::hsm::mac::PreparedTransferStatementMessage;
+use tracing::{instrument, warn};
 
 use super::super::hal::{CryptoRng, Platform};
 use super::super::merkle::{proof::ProofError, MergeError, Tree};
-use super::mac::{CtMac, TransferStatementMessage};
+use super::mac::{CtMac, PreparedTransferStatementMessage, TransferStatementMessage};
 use super::{is_group_leader, GroupLeaderError, Hsm, LogEntryBuilder, Metrics};
 use hsm_api::merkle::StoreDelta;
 use hsm_api::{
     CancelPreparedTransferRequest, CancelPreparedTransferResponse, CompleteTransferRequest,
     CompleteTransferResponse, Partition, PrepareTransferRequest, PrepareTransferResponse,
     PreparedTransfer, TransferInRequest, TransferInResponse, TransferNonce, TransferOutRequest,
-    TransferOutResponse, TransferStatementRequest, TransferStatementResponse, TransferringIn,
-    TransferringOut,
+    TransferOutResponse, TransferStatementRequest, TransferStatementResponse, Transferring,
+    TransferringIn, TransferringOut,
 };
 
 impl<P: Platform> Hsm<P> {
@@ -39,17 +37,16 @@ impl<P: Platform> Hsm<P> {
             Err(GroupLeaderError::NotLeader(_)) => return Response::NotLeader,
         };
         let last_entry = &leader.log.last().entry;
-        if last_entry.transferring_out.is_some() {
-            // To simplify things, don't allow a new inbound transfer while we
-            // are still dealing with a transfer out.
-            return Response::OtherTransferPending;
-        }
 
-        match &last_entry.transferring_in {
+        match &last_entry.transferring {
             None => {
                 // No other transfer pending, can proceed.
             }
-            Some(transferring)
+            Some(Transferring::Out(_)) => {
+                // Can't accept an inbound transfer while we're still transferring out.
+                return Response::OtherTransferPending;
+            }
+            Some(Transferring::In(transferring))
                 if transferring.source == request.source && transferring.range == request.range =>
             {
                 // This transfer was already prepared. Give it a new nonce and carry on.
@@ -96,12 +93,11 @@ impl<P: Platform> Hsm<P> {
             group: request.destination,
             index,
             partition: last_entry.partition.clone(),
-            transferring_out: last_entry.transferring_out.clone(),
-            transferring_in: Some(TransferringIn {
+            transferring: Some(Transferring::In(TransferringIn {
                 source: request.source,
                 range: request.range.clone(),
                 at: index,
-            }),
+            })),
             prev_mac: last_entry.entry_mac.clone(),
         }
         .build(&self.realm_keys.mac);
@@ -161,11 +157,6 @@ impl<P: Platform> Hsm<P> {
 
         let last_entry = &leader.log.last().entry;
 
-        if last_entry.transferring_in.is_some() {
-            // Can't transfer out while we're waiting for a transfer_in to arrive.
-            return Response::OtherTransferPending;
-        }
-
         if self
             .realm_keys
             .mac
@@ -182,11 +173,15 @@ impl<P: Platform> Hsm<P> {
             return Response::InvalidStatement;
         }
 
-        match last_entry.transferring_out.as_ref() {
+        match last_entry.transferring.as_ref() {
             None => {
                 // No in progress transfer out, can start a new one.
             }
-            Some(transferring)
+            Some(Transferring::In(_)) => {
+                // Can't transfer out while we're waiting for a transfer_in to arrive.
+                return Response::OtherTransferPending;
+            }
+            Some(Transferring::Out(transferring))
                 if transferring.destination == request.destination
                     && transferring.partition.range == request.range =>
             {
@@ -209,7 +204,7 @@ impl<P: Platform> Hsm<P> {
                     clock,
                 };
             }
-            Some(_) => return Response::OtherTransferPending,
+            Some(Transferring::Out(_)) => return Response::OtherTransferPending,
         }
 
         // Note: The owned_range found in the last entry might not have
@@ -284,12 +279,11 @@ impl<P: Platform> Hsm<P> {
             group: request.source,
             index,
             partition: keeping_partition,
-            transferring_out: Some(TransferringOut {
+            transferring: Some(Transferring::Out(TransferringOut {
                 destination: request.destination,
                 partition: transferring_partition.clone(),
                 at: index,
-            }),
-            transferring_in: last_entry.transferring_in.clone(),
+            })),
             prev_mac: last_entry.entry_mac.clone(),
         }
         .build(&self.realm_keys.mac);
@@ -336,11 +330,11 @@ impl<P: Platform> Hsm<P> {
             Err(GroupLeaderError::NotLeader(_)) => return Response::NotLeader,
         };
 
-        let Some(TransferringOut {
+        let Some(Transferring::Out(TransferringOut {
             destination,
             partition,
             at: transferring_at,
-        }) = &leader.log.last().entry.transferring_out
+        })) = &leader.log.last().entry.transferring
         else {
             return Response::NotTransferring;
         };
@@ -348,7 +342,7 @@ impl<P: Platform> Hsm<P> {
             return Response::NotTransferring;
         }
         if !matches!(leader.committed, Some(c) if c >= *transferring_at) {
-            debug!(group=?request.source, committed=?leader.committed, ?transferring_at,
+            warn!(group=?request.source, committed=?leader.committed, ?transferring_at,
                 "transfer out not yet committed");
             return Response::Busy;
         }
@@ -382,9 +376,9 @@ impl<P: Platform> Hsm<P> {
         };
 
         let last_entry = &leader.log.last().entry;
-        match last_entry.transferring_in.as_ref() {
-            None => return Response::NotPrepared,
-            Some(t) => {
+        match last_entry.transferring.as_ref() {
+            None | Some(Transferring::Out(_)) => return Response::NotPrepared,
+            Some(Transferring::In(t)) => {
                 if t.range != request.transferring.range || t.source != request.source {
                     return Response::NotPrepared;
                 }
@@ -461,8 +455,7 @@ impl<P: Platform> Hsm<P> {
             group: request.destination,
             index: last_entry.index.next(),
             partition: Some(partition.clone()),
-            transferring_out: last_entry.transferring_out.clone(),
-            transferring_in: None,
+            transferring: None,
             prev_mac: last_entry.entry_mac.clone(),
         }
         .build(&self.realm_keys.mac);
@@ -513,14 +506,13 @@ impl<P: Platform> Hsm<P> {
         };
 
         let last_entry = &leader.log.last().entry;
-        if let Some(transferring_out) = &last_entry.transferring_out {
-            if transferring_out.destination != request.destination
-                || transferring_out.partition.range != request.range
-            {
-                return Response::NotTransferring;
-            }
-        } else {
-            return Response::NotTransferring;
+        match &last_entry.transferring {
+            None => return Response::NotTransferring,
+            Some(Transferring::In(_)) => return Response::NotTransferring,
+            Some(Transferring::Out(transferring_out))
+                if transferring_out.destination == request.destination
+                    && transferring_out.partition.range == request.range => {}
+            Some(Transferring::Out(_)) => return Response::NotTransferring,
         }
 
         let entry = LogEntryBuilder {
@@ -529,8 +521,7 @@ impl<P: Platform> Hsm<P> {
             group: request.source,
             index: last_entry.index.next(),
             partition: last_entry.partition.clone(),
-            transferring_out: None,
-            transferring_in: last_entry.transferring_in.clone(),
+            transferring: None,
             prev_mac: last_entry.entry_mac.clone(),
         }
         .build(&self.realm_keys.mac);
@@ -567,9 +558,9 @@ impl<P: Platform> Hsm<P> {
         };
 
         let last_entry = &leader.log.last().entry;
-        match last_entry.transferring_in.as_ref() {
-            None => return Response::NotPrepared,
-            Some(t) if t.range != request.range || t.source != request.source => {
+        match &last_entry.transferring {
+            None | Some(Transferring::Out(_)) => return Response::NotPrepared,
+            Some(Transferring::In(t)) if t.range != request.range || t.source != request.source => {
                 return Response::NotPrepared;
             }
             Some(_) => {}
@@ -581,8 +572,7 @@ impl<P: Platform> Hsm<P> {
             group: request.source,
             index: last_entry.index.next(),
             partition: last_entry.partition.clone(),
-            transferring_out: last_entry.transferring_out.clone(),
-            transferring_in: None,
+            transferring: None,
             prev_mac: last_entry.entry_mac.clone(),
         }
         .build(&self.realm_keys.mac);

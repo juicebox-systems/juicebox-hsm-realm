@@ -10,7 +10,7 @@ use super::RealmKeys;
 use hsm_api::{
     CapturedStatement, CtBytes, EntryMac, GroupConfigurationStatement, GroupId, HsmId,
     HsmRealmStatement, LogEntry, LogIndex, OwnedRange, Partition, PreparedTransferStatement,
-    TransferNonce, TransferStatement, TransferringIn, TransferringOut,
+    TransferNonce, TransferStatement, Transferring,
 };
 use juicebox_marshalling::bytes;
 use juicebox_realm_api::types::RealmId;
@@ -102,8 +102,7 @@ pub struct EntryMacMessage<'a> {
     pub group: GroupId,
     pub index: LogIndex,
     pub partition: &'a Option<Partition>,
-    pub transferring_out: &'a Option<TransferringOut>,
-    pub transferring_in: &'a Option<TransferringIn>,
+    pub transferring: &'a Option<Transferring>,
     pub prev_mac: &'a EntryMac,
 }
 
@@ -115,8 +114,7 @@ impl<'a> EntryMacMessage<'a> {
             group,
             index: entry.index,
             partition: &entry.partition,
-            transferring_out: &entry.transferring_out,
-            transferring_in: &entry.transferring_in,
+            transferring: &entry.transferring,
             prev_mac: &entry.prev_mac,
         }
     }
@@ -171,7 +169,7 @@ impl<'a, D: digest::Update> ciborium_io::Write for DigestWriter<'a, D> {
 #[cfg(test)]
 mod tests {
     use crate::hsm::RecordEncryptionKey;
-    use hsm_api::{DataHash, OwnedRange};
+    use hsm_api::{DataHash, OwnedRange, TransferringOut};
 
     use super::*;
     use expect_test::expect_file;
@@ -215,19 +213,14 @@ mod tests {
                 range: OwnedRange::full(),
                 root_hash: DataHash([3; 32]),
             }),
-            transferring_out: &Some(TransferringOut {
+            transferring: &Some(Transferring::Out(TransferringOut {
                 destination: GroupId([4; 16]),
                 partition: Partition {
                     range: OwnedRange::full(),
                     root_hash: DataHash([5; 32]),
                 },
                 at: LogIndex(u64::MAX - 1),
-            }),
-            transferring_in: &Some(TransferringIn {
-                source: GroupId([14; 16]),
-                range: OwnedRange::full(),
-                at: LogIndex(u64::MAX - 2),
-            }),
+            })),
             prev_mac: &EntryMac::from([6; 32]),
             hsm: HsmId([7; 16]),
         };
@@ -236,8 +229,7 @@ mod tests {
             group: GroupId([2; 16]),
             index: LogIndex(u64::MAX),
             partition: &None,
-            transferring_in: &None,
-            transferring_out: &None,
+            transferring: &None,
             prev_mac: &EntryMac::from([6; 32]),
             hsm: HsmId([7; 16]),
         };

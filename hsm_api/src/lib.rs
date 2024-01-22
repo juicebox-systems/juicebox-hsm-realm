@@ -209,15 +209,9 @@ pub struct LogEntry {
     /// responsible for and the current root hash of the Merkle tree storing
     /// that data. Otherwise, this is `None`.
     pub partition: Option<Partition>,
-    /// If this group is currently transferring ownership of records to another
-    /// group, this field includes some metadata about that. This metadata is
+    /// Metadata about an in progress transfer in or out. This metadata is
     /// copied to all subsequent log entries until the transfer completes.
-    pub transferring_out: Option<TransferringOut>,
-    /// If this group is currently expecting a future transfer of ownership of
-    /// records into this group, this field includes some metadata about that.
-    /// This metadata is copied to all subsequent log entries until the transfer
-    /// completes.
-    pub transferring_in: Option<TransferringIn>,
+    pub transferring: Option<Transferring>,
 
     /// A copy of the `entry_mac` field of the entry preceding this one.
     ///
@@ -230,6 +224,19 @@ pub struct LogEntry {
     /// entry. This can happen if a log entry is generated but the tree did not
     /// change.
     pub hsm: HsmId,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum Transferring {
+    /// If this group is currently expecting a future transfer of ownership of
+    /// records into this group, this field includes some metadata about that.
+    /// This metadata is copied to all subsequent log entries until the transfer
+    /// completes.
+    In(TransferringIn),
+    /// If this group is currently transferring ownership of records to another
+    /// group, this field includes some metadata about that. This metadata is
+    /// copied to all subsequent log entries until the transfer completes.
+    Out(TransferringOut),
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1931,10 +1938,10 @@ mod tests {
     use subtle::ConstantTimeEq;
 
     use super::{
-        DataHash, EntryMac, GroupId, HsmId, LogEntry, Partition, RecordId, TransferringOut,
+        CtBytes, DataHash, EntryMac, GroupId, HsmId, LogEntry, LogIndex, OwnedRange, Partition,
+        RecordId, Transferring, TransferringOut,
     };
     use crate::merkle::HashOutput;
-    use crate::{CtBytes, LogIndex, OwnedRange};
     use bitvec::Bits;
     use juicebox_marshalling as marshalling;
 
@@ -2080,7 +2087,7 @@ mod tests {
     // make these numbers easy to reference.
     #[test]
     fn log_entry_serialized_size() {
-        assert_eq!(416, size_of::<LogEntry>(), "LogEntry struct size");
+        assert_eq!(320, size_of::<LogEntry>(), "LogEntry struct size");
 
         let full_entry = LogEntry {
             index: LogIndex(u64::MAX),
@@ -2088,36 +2095,30 @@ mod tests {
                 range: OwnedRange::full(),
                 root_hash: DataHash([0xff; 32]),
             }),
-            transferring_out: Some(TransferringOut {
+            transferring: Some(Transferring::Out(TransferringOut {
                 destination: GroupId([0xff; 16]),
                 partition: Partition {
                     range: OwnedRange::full(),
                     root_hash: DataHash([0xff; 32]),
                 },
                 at: LogIndex(u64::MAX),
-            }),
-            transferring_in: Some(crate::TransferringIn {
-                source: GroupId([0xff; 16]),
-                range: OwnedRange::full(),
-                at: LogIndex(u64::MAX),
-            }),
+            })),
             prev_mac: EntryMac::from([0xff; 32]),
             entry_mac: EntryMac::from([0xff; 32]),
             hsm: HsmId([0xff; 16]),
         };
         assert_eq!(
-            601,
+            464,
             marshalling::to_vec(&full_entry).unwrap().len(),
             "full entry serialized size"
         );
 
         let typical_entry = LogEntry {
-            transferring_out: None,
-            transferring_in: None,
+            transferring: None,
             ..full_entry
         };
         assert_eq!(
-            299,
+            278,
             marshalling::to_vec(&typical_entry).unwrap().len(),
             "typical entry serialized size"
         );

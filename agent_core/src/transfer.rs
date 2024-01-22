@@ -158,7 +158,7 @@ impl<T: Transport + 'static> Agent<T> {
             // at this point the transfer out may have already been processed, and so the
             // partition information in the last log entry reflects that the transfer out
             // has already occurred. In that event we can't / don't need to build any proofs.
-            let proof = match last_entry.transferring_out {
+            let proof = match last_entry.transferring {
                 None => {
                     let Some(partition) = last_entry.partition else {
                         return Ok(Response::NotOwner);

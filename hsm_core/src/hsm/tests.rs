@@ -70,8 +70,7 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
     let e = LogEntry {
         index: LogIndex(42),
         partition: None,
-        transferring_out: None,
-        transferring_in: None,
+        transferring: None,
         prev_mac: EntryMac::from([3; 32]),
         entry_mac: EntryMac::from([42; 32]),
         hsm,
@@ -80,8 +79,7 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
     let e2 = LogEntry {
         index: LogIndex(43),
         partition: None,
-        transferring_out: None,
-        transferring_in: None,
+        transferring: None,
         prev_mac: e.entry_mac.clone(),
         entry_mac: EntryMac::from([43; 32]),
         hsm,
@@ -98,8 +96,7 @@ fn make_leader_log() -> (LeaderLog, [EntryMac; 3]) {
     let e3 = LogEntry {
         index: LogIndex(44),
         partition: None,
-        transferring_out: None,
-        transferring_in: None,
+        transferring: None,
 
         prev_mac: e2.entry_mac.clone(),
         entry_mac: EntryMac::from([44; 32]),
@@ -129,8 +126,7 @@ fn leader_log_index_sequential() {
     let e = LogEntry {
         index: LogIndex(55),
         partition: None,
-        transferring_out: None,
-        transferring_in: None,
+        transferring: None,
         prev_mac: macs[2].clone(),
         entry_mac: EntryMac::from([44; 32]),
         hsm: HsmId([1; 16]),
@@ -146,8 +142,7 @@ fn leader_log_mac_chain() {
     let e = LogEntry {
         index: last.entry.index.next(),
         partition: None,
-        transferring_out: None,
-        transferring_in: None,
+        transferring: None,
         prev_mac: EntryMac::from([45; 32]),
         entry_mac: EntryMac::from([45; 32]),
         hsm: last.entry.hsm,
@@ -326,8 +321,7 @@ fn capture_next() {
         group: cluster.group,
         index: LogIndex(2),
         partition: log_entry.partition,
-        transferring_out: None,
-        transferring_in: None,
+        transferring: None,
         prev_mac: EntryMac::from([42; 32]),
     }
     .build(&cluster.hsms[0].hsm.realm_keys.mac);
@@ -1127,7 +1121,7 @@ fn transfer_protocol() {
             assert!(prepared.entry.is_some());
             let entry = prepared.entry.as_ref().unwrap();
             assert_eq!(entry.index, prepared.wait_til_committed);
-            assert!(entry.transferring_in.is_some());
+            assert!(entry.transferring.is_some());
             prepared
         }
         other => panic!("Unexpected response from prepare_transfer {other:?}"),
@@ -1165,6 +1159,25 @@ fn transfer_protocol() {
         other => panic!("Unexpected response from prepare_transfer {other:?}"),
     }
 
+    let group3 = t.cluster.new_group();
+    let group3_prep = match t
+        .cluster
+        .leader(group3)
+        .unwrap()
+        .hsm
+        .handle_prepare_transfer(
+            &mut metrics,
+            PrepareTransferRequest {
+                realm,
+                source: destination,
+                destination: group3,
+                range: OwnedRange::full(),
+            },
+        ) {
+        PrepareTransferResponse::Ok(prep) => prep,
+        other => panic!("Unexpected response from prepare_transfer {other:?}"),
+    };
+
     // The destination can't do a transfer out while a transfer in is pending
     match t
         .cluster
@@ -1176,10 +1189,10 @@ fn transfer_protocol() {
             TransferOutRequest {
                 realm,
                 source: destination,
-                destination: source,
+                destination: group3,
                 range: OwnedRange::full(),
-                nonce: prepared.nonce,
-                statement: prepared.statement.clone(),
+                nonce: group3_prep.nonce,
+                statement: group3_prep.statement.clone(),
                 proof: None,
             },
         ) {
@@ -1308,7 +1321,7 @@ fn transfer_protocol() {
             delta,
             clock: _,
         } => {
-            assert!(entry.transferring_in.is_none());
+            assert!(entry.transferring.is_none());
             // The destination group didn't own anything to start with, so
             // there's no tree merge, and no resulting tree delta.
             assert!(delta.is_empty());
@@ -1320,7 +1333,7 @@ fn transfer_protocol() {
     // and finally, we should be able to tell the source the transfer completed.
     match t.complete_transfer() {
         CompleteTransferResponse::Ok { entry, .. } => {
-            assert!(entry.transferring_out.is_none());
+            assert!(entry.transferring.is_none());
             cluster.capture_next_and_commit_group(source);
         }
         other => panic!("unexpected complete transfer response {other:?}"),

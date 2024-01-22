@@ -48,8 +48,8 @@ use hsm_api::{
     JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupRequest, NewGroupResponse,
     NewRealmRequest, NewRealmResponse, OwnedRange, Partition, PersistStateRequest,
     PersistStateResponse, PublicKey, RealmStatus, RecordId, RoleLogicalClock, RoleStatus,
-    StatusRequest, StatusResponse, StepDownRequest, StepDownResponse, TransferNonce,
-    TransferringIn, TransferringOut, CONFIGURATION_LIMIT, GROUPS_LIMIT,
+    StatusRequest, StatusResponse, StepDownRequest, StepDownResponse, TransferNonce, Transferring,
+    CONFIGURATION_LIMIT, GROUPS_LIMIT,
 };
 use juicebox_marshalling::{self as marshalling, bytes, DeserializationError};
 use juicebox_noise::server as noise;
@@ -99,8 +99,7 @@ struct LogEntryBuilder {
     group: GroupId,
     index: LogIndex,
     partition: Option<Partition>,
-    transferring_out: Option<TransferringOut>,
-    transferring_in: Option<TransferringIn>,
+    transferring: Option<Transferring>,
     prev_mac: EntryMac,
 }
 
@@ -112,8 +111,7 @@ impl LogEntryBuilder {
             group: self.group,
             index: self.index,
             partition: &self.partition,
-            transferring_out: &self.transferring_out,
-            transferring_in: &self.transferring_in,
+            transferring: &self.transferring,
             prev_mac: &self.prev_mac,
         });
 
@@ -121,8 +119,7 @@ impl LogEntryBuilder {
             hsm: self.hsm,
             index: self.index,
             partition: self.partition,
-            transferring_out: self.transferring_out,
-            transferring_in: self.transferring_in,
+            transferring: self.transferring,
             prev_mac: self.prev_mac,
             entry_mac,
         }
@@ -814,8 +811,7 @@ impl<P: Platform> Hsm<P> {
             group,
             index: LogIndex::FIRST,
             partition: Some(Partition { range, root_hash }),
-            transferring_out: None,
-            transferring_in: None,
+            transferring: None,
             prev_mac: EntryMac::zero(),
         }
         .build(&self.realm_keys.mac);
@@ -967,8 +963,7 @@ impl<P: Platform> Hsm<P> {
             group,
             index: LogIndex::FIRST,
             partition: None,
-            transferring_out: None,
-            transferring_in: None,
+            transferring: None,
             prev_mac: EntryMac::zero(),
         }
         .build(&self.realm_keys.mac);
@@ -1550,8 +1545,7 @@ fn handle_app_request(
             range: last_entry.entry.partition.as_ref().unwrap().range.clone(),
             root_hash,
         }),
-        transferring_out: last_entry.entry.transferring_out.clone(),
-        transferring_in: last_entry.entry.transferring_in.clone(),
+        transferring: last_entry.entry.transferring.clone(),
         prev_mac: last_entry.entry.entry_mac.clone(),
     }
     .build(&keys.mac);
