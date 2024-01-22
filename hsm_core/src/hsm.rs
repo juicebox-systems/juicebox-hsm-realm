@@ -25,8 +25,8 @@ mod tests;
 mod transfer;
 
 use self::mac::{
-    CapturedStatementMessage, CtMac, EntryMacMessage, GroupConfigurationStatementMessage,
-    HsmRealmStatementMessage, MacKey,
+    transferring_in, transferring_out, CapturedStatementMessage, CtMac, EntryMacMessage,
+    GroupConfigurationStatementMessage, HsmRealmStatementMessage, MacKey,
 };
 use super::hal::{Clock, CryptoRng, IOError, NVRam, Platform};
 use super::merkle::{
@@ -48,8 +48,8 @@ use hsm_api::{
     JoinRealmResponse, LeaderStatus, LogEntry, LogIndex, NewGroupRequest, NewGroupResponse,
     NewRealmRequest, NewRealmResponse, OwnedRange, Partition, PersistStateRequest,
     PersistStateResponse, PublicKey, RealmStatus, RecordId, RoleLogicalClock, RoleStatus,
-    StatusRequest, StatusResponse, StepDownRequest, StepDownResponse, TransferNonce,
-    TransferringOut, CONFIGURATION_LIMIT, GROUPS_LIMIT,
+    StatusRequest, StatusResponse, StepDownRequest, StepDownResponse, TransferNonce, Transferring,
+    CONFIGURATION_LIMIT, GROUPS_LIMIT,
 };
 use juicebox_marshalling::{self as marshalling, bytes, DeserializationError};
 use juicebox_noise::server as noise;
@@ -99,7 +99,7 @@ struct LogEntryBuilder {
     group: GroupId,
     index: LogIndex,
     partition: Option<Partition>,
-    transferring_out: Option<TransferringOut>,
+    transferring: Option<Transferring>,
     prev_mac: EntryMac,
 }
 
@@ -111,7 +111,8 @@ impl LogEntryBuilder {
             group: self.group,
             index: self.index,
             partition: &self.partition,
-            transferring_out: &self.transferring_out,
+            transferring_out: transferring_out(&self.transferring),
+            transferring_in: transferring_in(&self.transferring),
             prev_mac: &self.prev_mac,
         });
 
@@ -119,7 +120,7 @@ impl LogEntryBuilder {
             hsm: self.hsm,
             index: self.index,
             partition: self.partition,
-            transferring_out: self.transferring_out,
+            transferring: self.transferring,
             prev_mac: self.prev_mac,
             entry_mac,
         }
@@ -640,6 +641,10 @@ impl<P: Platform> Hsm<P> {
         let metrics = Metrics::new(req_name, request_metrics, self.platform.clone());
 
         match request.req {
+            HsmRequest::AppRequest(r) => self.dispatch_request(metrics, r, Self::handle_app),
+            HsmRequest::HandshakeRequest(r) => {
+                self.dispatch_request(metrics, r, Self::handle_handshake)
+            }
             HsmRequest::Status(r) => self.dispatch_request(metrics, r, Self::handle_status_request),
             HsmRequest::NewRealm(r) => self.dispatch_request(metrics, r, Self::handle_new_realm),
             HsmRequest::JoinRealm(r) => self.dispatch_request(metrics, r, Self::handle_join_realm),
@@ -661,11 +666,14 @@ impl<P: Platform> Hsm<P> {
                 self.dispatch_request(metrics, r, Self::handle_persist_state)
             }
             HsmRequest::Commit(r) => self.dispatch_request(metrics, r, Self::handle_commit),
+            HsmRequest::PrepareTransfer(r) => {
+                self.dispatch_request(metrics, r, Self::handle_prepare_transfer)
+            }
+            HsmRequest::CancelPreparedTransfer(r) => {
+                self.dispatch_request(metrics, r, Self::handle_cancel_prepared_transfer)
+            }
             HsmRequest::TransferOut(r) => {
                 self.dispatch_request(metrics, r, Self::handle_transfer_out)
-            }
-            HsmRequest::TransferNonce(r) => {
-                self.dispatch_request(metrics, r, Self::handle_transfer_nonce)
             }
             HsmRequest::TransferStatement(r) => {
                 self.dispatch_request(metrics, r, Self::handle_transfer_statement)
@@ -675,10 +683,6 @@ impl<P: Platform> Hsm<P> {
             }
             HsmRequest::CompleteTransfer(r) => {
                 self.dispatch_request(metrics, r, Self::handle_complete_transfer)
-            }
-            HsmRequest::AppRequest(r) => self.dispatch_request(metrics, r, Self::handle_app),
-            HsmRequest::HandshakeRequest(r) => {
-                self.dispatch_request(metrics, r, Self::handle_handshake)
             }
         }
     }
@@ -808,7 +812,7 @@ impl<P: Platform> Hsm<P> {
             group,
             index: LogIndex::FIRST,
             partition: Some(Partition { range, root_hash }),
-            transferring_out: None,
+            transferring: None,
             prev_mac: EntryMac::zero(),
         }
         .build(&self.realm_keys.mac);
@@ -960,7 +964,7 @@ impl<P: Platform> Hsm<P> {
             group,
             index: LogIndex::FIRST,
             partition: None,
-            transferring_out: None,
+            transferring: None,
             prev_mac: EntryMac::zero(),
         }
         .build(&self.realm_keys.mac);
@@ -1542,7 +1546,7 @@ fn handle_app_request(
             range: last_entry.entry.partition.as_ref().unwrap().range.clone(),
             root_hash,
         }),
-        transferring_out: last_entry.entry.transferring_out.clone(),
+        transferring: last_entry.entry.transferring.clone(),
         prev_mac: last_entry.entry.entry_mac.clone(),
     }
     .build(&keys.mac);

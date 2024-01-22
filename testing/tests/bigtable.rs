@@ -219,7 +219,7 @@ async fn test_read_log_entry() {
     let entry = LogEntry {
         index: LogIndex(1),
         partition: None,
-        transferring_out: None,
+        transferring: None,
         prev_mac: EntryMac::from([0; 32]),
         entry_mac: EntryMac::from([1; 32]),
         hsm: HsmId([2; 16]),
@@ -301,7 +301,7 @@ async fn test_last_log_entry_does_not_cross_groups() {
     let entry1 = LogEntry {
         index: LogIndex(1),
         partition: None,
-        transferring_out: None,
+        transferring: None,
         prev_mac: EntryMac::from([0; 32]),
         entry_mac: EntryMac::from([1; 32]),
         hsm: HsmId([2; 16]),
@@ -326,7 +326,7 @@ async fn test_last_log_entry_does_not_cross_groups() {
     let entry3 = LogEntry {
         index: LogIndex(1),
         partition: None,
-        transferring_out: None,
+        transferring: None,
         prev_mac: EntryMac::from([0; 32]),
         entry_mac: EntryMac::from([3; 32]),
         hsm: HsmId([2; 16]),
@@ -766,7 +766,7 @@ async fn test_append_log_precondition() {
     let entry = LogEntry {
         index: LogIndex::FIRST,
         partition: None,
-        transferring_out: None,
+        transferring: None,
         prev_mac: EntryMac::from([0; 32]),
         entry_mac: EntryMac::from([1; 32]),
         hsm: HsmId([2; 16]),
@@ -940,7 +940,7 @@ fn create_log_batch(first_idx: LogIndex, prev_mac: EntryMac, count: usize) -> Ve
         let e = LogEntry {
             index,
             partition: None,
-            transferring_out: None,
+            transferring: None,
             prev_mac,
             entry_mac: EntryMac::from([(index.0 % 255) as u8; 32]),
             hsm: HsmId([2; 16]),

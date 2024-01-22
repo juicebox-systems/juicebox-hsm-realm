@@ -209,10 +209,10 @@ pub struct LogEntry {
     /// responsible for and the current root hash of the Merkle tree storing
     /// that data. Otherwise, this is `None`.
     pub partition: Option<Partition>,
-    /// If this group is currently transferring ownership of records to another
-    /// group, this field includes some metadata about that. This metadata is
+    /// Metadata about an in progress transfer in or out. This metadata is
     /// copied to all subsequent log entries until the transfer completes.
-    pub transferring_out: Option<TransferringOut>,
+    pub transferring: Option<Transferring>,
+
     /// A copy of the `entry_mac` field of the entry preceding this one.
     ///
     /// For the first entry in the log, this is [`EntryMac::zero`].
@@ -227,12 +227,36 @@ pub struct LogEntry {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum Transferring {
+    /// If this group is currently expecting a future transfer of ownership of
+    /// records into this group, this field includes some metadata about that.
+    /// This metadata is copied to all subsequent log entries until the transfer
+    /// completes.
+    In(TransferringIn),
+    /// If this group is currently transferring ownership of records to another
+    /// group, this field includes some metadata about that. This metadata is
+    /// copied to all subsequent log entries until the transfer completes.
+    Out(TransferringOut),
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TransferringOut {
     pub destination: GroupId,
     pub partition: Partition,
     /// This is the first log index when this struct was placed in the source
     /// group's log. It's used by the source group to determine whether
     /// transferring out has committed.
+    pub at: LogIndex,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct TransferringIn {
+    pub source: GroupId,
+    pub range: OwnedRange,
+    /// This is the first log index when this struct was placed in the
+    /// destination group's log. It's used by the destination group to lock out
+    /// any other transfers from happening. This ensures the group will be able
+    /// to accept the transfer in.
     pub at: LogIndex,
 }
 
@@ -553,6 +577,29 @@ impl fmt::Debug for TransferNonce {
 impl PartialEq for TransferNonce {
     fn eq(&self, other: &Self) -> bool {
         self.0.ct_eq(&other.0).into()
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct PreparedTransferStatement(CtBytes<32>);
+
+impl Deref for PreparedTransferStatement {
+    type Target = CtBytes<32>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl fmt::Debug for PreparedTransferStatement {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl From<CtBytes<32>> for PreparedTransferStatement {
+    fn from(value: CtBytes<32>) -> Self {
+        Self(value)
     }
 }
 
@@ -1272,8 +1319,8 @@ pub enum CommitResponse {
 /// The HSMs transfer ownership of a range of record IDs from one replication
 /// group to another using a 5-step protocol.
 ///
-/// 1. source group leader ← [`TransferOutRequest`]
-/// 2. [`TransferNonceRequest`] → destination group leader
+/// 1. [`PrepareTransferRequest`] → destination group leader
+/// 2. source group leader ← [`TransferOutRequest`]
 /// 3. source group leader ← [`TransferStatementRequest`]
 /// 4. [`TransferInRequest`] → destination group leader
 /// 5. source group leader ← [`CompleteTransferRequest`]
@@ -1285,10 +1332,97 @@ pub enum CommitResponse {
 /// Each group is responsible for up to one contiguous range of record IDs.
 /// Therefore, the source group can transfer out either its entire existing
 /// range, or the beginning or end of its existing range (with a Merkle tree
-/// split operation). If the destination group owns no range, it can tranfer in
+/// split operation). If the destination group owns no range, it can transfer in
 /// any range. If it does own a range, it can only transfer in an adjacent
 /// range (with a Merkle tree merge operation).
 pub const TRANSFER_PROTOCOL_DESCRIPTION: (/* doc only */) = ();
+
+/// Request type for the HSM PrepareTransfer RPC (see
+/// [`PrepareTransferResponse`]). The leader of the destination group verifies
+/// it can accept the proposed transfer and records in its log that it is
+/// expecting a future TransferIn request for the transfer.
+///
+/// This is part of a multi-step ownership transfer protocol. See
+/// [`TRANSFER_PROTOCOL_DESCRIPTION`] for an overview.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PrepareTransferRequest {
+    /// The ID of the realm containing the groups `source` and `destination`.
+    pub realm: RealmId,
+    /// The ID of the group that previously owned the range.
+    pub source: GroupId,
+    /// The ID of the group that will soon own the range.
+    pub destination: GroupId,
+    /// The range of record IDs to transfer out of the `source` group and,
+    /// soon, into the `destination` group.
+    pub range: OwnedRange,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[allow(clippy::large_enum_variant)]
+pub enum PrepareTransferResponse {
+    Ok(PreparedTransfer),
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+    UnacceptableRange,
+    OtherTransferPending,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PreparedTransfer {
+    /// A Nonce generated by the destination leader. The destination leader uses
+    /// this to ensure freshness of the transfer information. Note that
+    /// repeating this request may result in a new nonce.
+    pub nonce: TransferNonce,
+    /// An optional new log entry for the destination group. This will be
+    /// present for any new transfer, but if the transfer has already been
+    /// prepared, the HSM won't produce a new entry.
+    pub entry: Option<LogEntry>,
+    /// The prepare is not complete until this log index is marked as committed
+    /// by the leader.
+    pub wait_til_committed: LogIndex,
+    /// The commitment check is only valid if the leaders role clock is still at
+    /// this value. If the role clock changes the PrepareTransfer request should
+    /// be remade with the current leader.
+    pub clock: RoleLogicalClock,
+    /// A Statement that the destination has prepared the transfer. The source
+    /// leader will require this as part of its TransferOut RPC. This lets the
+    /// source verify that the destination can accept the proposed range and
+    /// that it has access to the same realm MAC key as the source.
+    pub statement: PreparedTransferStatement,
+}
+
+/// Request type for the HSM CancelPreparedTransfer RPC (see
+/// [`CancelPreparedTransferResponse`]). The leader of the destination group
+/// removes the information it is tracking about an previously prepared
+/// transfer.
+///
+/// This is part of a multi-step ownership transfer protocol. See
+/// [`TRANSFER_PROTOCOL_DESCRIPTION`] for an overview.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CancelPreparedTransferRequest {
+    pub realm: RealmId,
+    pub source: GroupId,
+    pub destination: GroupId,
+    pub range: OwnedRange,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[allow(clippy::large_enum_variant)]
+pub enum CancelPreparedTransferResponse {
+    Ok {
+        // The cancellation is complete once this log entry is committed.
+        entry: LogEntry,
+        // The role clock when the above log entry was generated. The agent can
+        // only decide the log entry is committed if the role clock is still at
+        // this value at commit time.
+        clock: RoleLogicalClock,
+    },
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+    NotPrepared,
+}
 
 /// Request type for the HSM TransferOut RPC (see [`TransferOutResponse`]). The
 /// leader of the source group stops processing requests for the range and
@@ -1307,12 +1441,12 @@ pub struct TransferOutRequest {
     /// The range of record IDs to transfer out of the `source` group and,
     /// soon, into the `destination` group.
     pub range: OwnedRange,
-    /// The last entry that the HSM has created and also the entry that
-    /// corresponds to the proof.
-    ///
-    /// As already captured by a TODO, this makes it hard to execute other
-    /// requests while doing a transfer, and it's probably no longer needed.
-    pub index: LogIndex,
+
+    /// A Nonce and Statement generated by the destination group leader during
+    /// its processing of a PrepareTransferRequest. The nonce is required for
+    /// the source to verify the PreparedTransferStatement.
+    pub nonce: TransferNonce,
+    pub statement: PreparedTransferStatement,
     /// A Merkle proof used in splitting the existing Merkle tree.
     ///
     /// If the source group's partition is splitting to transfer a portion
@@ -1333,16 +1467,25 @@ pub enum TransferOutResponse {
     /// marked it as transferring out.
     ///
     /// The caller should write the new nodes to the Merkle tree storage,
-    /// conditionally append the entry to the destination group's log, have the
-    /// destination group commit the entry, and then delete the old nodes from
+    /// conditionally append the entry to the source group's log, have the
+    /// source group commit the entry, and then delete the old nodes from
     /// the Merkle tree storage.
     Ok {
-        /// A new log entry with updated metadata about the transfer and
-        /// an updated partition and Merkle tree.
-        entry: LogEntry,
+        /// A new log entry with updated metadata about the transfer and an
+        /// updated partition and Merkle tree. This may be None if the request
+        /// matches an existing already processed transfer out.
+        entry: Option<LogEntry>,
         /// If this transfer required a split, this contains changes to apply
         /// to the source group's Merkle tree to produce two separate trees.
         delta: StoreDelta<DataHash>,
+        /// The resulting partition information that should be sent to the
+        /// destination group.
+        partition: Partition,
+        /// The transfer process should wait for this log index to be committed
+        /// before proceeding.
+        wait_til_committed: LogIndex,
+        /// The leader role clock at the time it decided on `after`.
+        clock: RoleLogicalClock,
     },
     /// This HSM is not a member of this realm.
     InvalidRealm,
@@ -1357,8 +1500,6 @@ pub enum TransferOutResponse {
     /// in the range to transfer, or removing this range would leave the
     /// `source` group with a hole in its range, which is not allowed.
     NotOwner,
-    /// The given index is not the latest that the leader inherited or created.
-    StaleIndex,
     /// The HSM did not have previous knowledge about this proof's root hash.
     ///
     /// The caller should retry with a proof from a more recent snapshot of the
@@ -1370,40 +1511,10 @@ pub enum TransferOutResponse {
     /// The proof given did not correspond to the split point that the HSM
     /// computed.
     MissingProof,
-}
-
-/// Request type for the HSM TransferNonce RPC (see [`TransferNonceResponse`]).
-/// The leader of the destination group generates and returns a random nonce.
-///
-/// The leader will make a best effort to remember this nonce, as it will need
-/// the nonce for a successful [`TransferInRequest`].
-///
-/// It is safe for the caller to lose this nonce, as they can safely request a
-/// new one. Requesting a new nonce will invalidate old nonces.
-///
-/// This is part of a multi-step ownership transfer protocol. See
-/// [`TRANSFER_PROTOCOL_DESCRIPTION`] for an overview.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct TransferNonceRequest {
-    /// The ID of the realm containing the `destination` group.
-    pub realm: RealmId,
-    /// The ID of the group that this HSM leads, which will receive an incoming
-    /// transfer soon.
-    pub destination: GroupId,
-}
-
-/// Response type for the HSM TransferNonce RPC (see [`TransferNonceRequest`]).
-#[derive(Debug, Deserialize, Serialize)]
-pub enum TransferNonceResponse {
-    /// The HSM successfully generated a new transfer nonce.
-    Ok(TransferNonce),
-    /// This HSM is not a member of this realm.
-    InvalidRealm,
-    /// This HSM is not a member of the destination group.
-    InvalidGroup,
-    /// This HSM is not a leader of the destination group, so it can't
-    /// participate in ownership transfers.
-    NotLeader,
+    /// A different transfer operation is still in progress.
+    OtherTransferPending,
+    /// The prepared transfer statement is invalid.
+    InvalidStatement,
 }
 
 /// Request type for the HSM TransferStatement RPC (see
@@ -1451,7 +1562,7 @@ pub enum TransferStatementResponse {
     /// The log entry that this group generated in the [`TransferOutRequest`]
     /// has not yet been marked committed. The transfer cannot continue yet, as
     /// that would risk allowing two groups to own the same partition (which
-    /// would be a loss in consitency and a fork attack).
+    /// would be a loss in consistency and a fork attack).
     Busy,
 }
 
@@ -1486,6 +1597,8 @@ pub struct TransferInProofs {
 pub struct TransferInRequest {
     /// The ID of the realm containing the `destination` group.
     pub realm: RealmId,
+    /// The ID of the group that previously owned the the range.
+    pub source: GroupId,
     /// The ID of the group that will now own the range.
     pub destination: GroupId,
     /// The range of record IDs and the root hash of the Merkle tree that the
@@ -1498,7 +1611,8 @@ pub struct TransferInRequest {
     /// existing partition, this is required. If the destination group does not
     /// already own a partition, pass `None`.
     pub proofs: Option<TransferInProofs>,
-    /// A nonce that the destination group had previously generated.
+    /// A nonce that the destination group leader had previously generated
+    /// during PrepareTransfer.
     ///
     /// The destination group should already have this nonce, but passing this
     /// in helps distinguish the error cases of a stale nonce vs an invalid
@@ -1525,6 +1639,10 @@ pub enum TransferInResponse {
         /// to the existing and incoming Merkle trees to produce a single
         /// merged tree.
         delta: StoreDelta<DataHash>,
+        /// The role clock when the above log entry was generated. For safety
+        /// the agent must verify that the role clock is still this value when
+        /// determining if the entry is committed.
+        clock: RoleLogicalClock,
     },
     /// This HSM is not a member of this realm.
     InvalidRealm,
@@ -1533,10 +1651,6 @@ pub enum TransferInResponse {
     /// This HSM is not a leader of the destination group, so it can't
     /// participate in ownership transfers.
     NotLeader,
-    /// The transfer requires merging Merkle trees because the destination
-    /// group already owns a range, but that range and the incoming range are
-    /// not adjacent.
-    UnacceptableRange,
     /// The given nonce is not the latest one that this leader had generated.
     ///
     /// This can happen if the HSM restarted or as a result of concurrent
@@ -1560,6 +1674,8 @@ pub enum TransferInResponse {
     /// group already owns a range, but the `proofs` field in the request was
     /// `None`.
     MissingProofs,
+    /// There is no prepared transfer available to complete.
+    NotPrepared,
 }
 
 /// Request type for the HSM CompleteTransfer RPC (see
@@ -1597,7 +1713,10 @@ pub enum CompleteTransferResponse {
     /// group's log and have the source group commit the entry. If the log
     /// entry is never committed, the [`CompleteTransferRequest`] will need to
     /// be repeated.
-    Ok(LogEntry),
+    Ok {
+        entry: LogEntry,
+        clock: RoleLogicalClock,
+    },
     /// This HSM could not find an active transfer to this destination group
     /// for this range.
     NotTransferring,
@@ -1823,10 +1942,10 @@ mod tests {
     use subtle::ConstantTimeEq;
 
     use super::{
-        DataHash, EntryMac, GroupId, HsmId, LogEntry, Partition, RecordId, TransferringOut,
+        CtBytes, DataHash, EntryMac, GroupId, HsmId, LogEntry, LogIndex, OwnedRange, Partition,
+        RecordId, Transferring, TransferringOut,
     };
     use crate::merkle::HashOutput;
-    use crate::{CtBytes, LogIndex, OwnedRange};
     use bitvec::Bits;
     use juicebox_marshalling as marshalling;
 
@@ -1980,30 +2099,30 @@ mod tests {
                 range: OwnedRange::full(),
                 root_hash: DataHash([0xff; 32]),
             }),
-            transferring_out: Some(TransferringOut {
+            transferring: Some(Transferring::Out(TransferringOut {
                 destination: GroupId([0xff; 16]),
                 partition: Partition {
                     range: OwnedRange::full(),
                     root_hash: DataHash([0xff; 32]),
                 },
                 at: LogIndex(u64::MAX),
-            }),
+            })),
             prev_mac: EntryMac::from([0xff; 32]),
             entry_mac: EntryMac::from([0xff; 32]),
             hsm: HsmId([0xff; 16]),
         };
         assert_eq!(
-            463,
+            464,
             marshalling::to_vec(&full_entry).unwrap().len(),
             "full entry serialized size"
         );
 
         let typical_entry = LogEntry {
-            transferring_out: None,
+            transferring: None,
             ..full_entry
         };
         assert_eq!(
-            282,
+            278,
             marshalling::to_vec(&typical_entry).unwrap().len(),
             "typical entry serialized size"
         );

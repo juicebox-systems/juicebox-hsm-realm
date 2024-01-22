@@ -9,8 +9,8 @@ use super::configuration::GroupConfiguration;
 use super::RealmKeys;
 use hsm_api::{
     CapturedStatement, CtBytes, EntryMac, GroupConfigurationStatement, GroupId, HsmId,
-    HsmRealmStatement, LogEntry, LogIndex, Partition, TransferNonce, TransferStatement,
-    TransferringOut,
+    HsmRealmStatement, LogEntry, LogIndex, OwnedRange, Partition, PreparedTransferStatement,
+    TransferNonce, TransferStatement, Transferring, TransferringIn, TransferringOut,
 };
 use juicebox_marshalling::bytes;
 use juicebox_realm_api::types::RealmId;
@@ -47,7 +47,15 @@ impl MacKey {
     }
 
     pub fn log_entry_mac(&self, msg: &EntryMacMessage) -> EntryMac {
+        assert!(!(msg.transferring_in.is_some() && msg.transferring_out.is_some()));
         self.calculate(msg, b"logentry").into()
+    }
+
+    pub fn prepared_transfer_mac(
+        &self,
+        msg: &PreparedTransferStatementMessage,
+    ) -> PreparedTransferStatement {
+        self.calculate(msg, b"prepared_transfer").into()
     }
 
     pub fn transfer_mac(&self, msg: &TransferStatementMessage) -> TransferStatement {
@@ -95,7 +103,11 @@ pub struct EntryMacMessage<'a> {
     pub group: GroupId,
     pub index: LogIndex,
     pub partition: &'a Option<Partition>,
-    pub transferring_out: &'a Option<TransferringOut>,
+    pub transferring_out: Option<&'a TransferringOut>,
+    // This lets the mac calculation generate the same answer for older log
+    // entries that only had transferring_out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transferring_in: Option<&'a TransferringIn>,
     pub prev_mac: &'a EntryMac,
 }
 
@@ -107,10 +119,36 @@ impl<'a> EntryMacMessage<'a> {
             group,
             index: entry.index,
             partition: &entry.partition,
-            transferring_out: &entry.transferring_out,
+            transferring_out: transferring_out(&entry.transferring),
+            transferring_in: transferring_in(&entry.transferring),
             prev_mac: &entry.prev_mac,
         }
     }
+}
+
+pub(crate) fn transferring_in(t: &Option<Transferring>) -> Option<&TransferringIn> {
+    match t {
+        None => None,
+        Some(Transferring::In(tin)) => Some(tin),
+        Some(Transferring::Out(_)) => None,
+    }
+}
+
+pub(crate) fn transferring_out(t: &Option<Transferring>) -> Option<&TransferringOut> {
+    match t {
+        None => None,
+        Some(Transferring::In(_)) => None,
+        Some(Transferring::Out(tout)) => Some(tout),
+    }
+}
+
+#[derive(Serialize)]
+pub struct PreparedTransferStatementMessage<'a> {
+    pub realm: RealmId,
+    pub source: GroupId,
+    pub destination: GroupId,
+    pub range: &'a OwnedRange,
+    pub nonce: TransferNonce,
 }
 
 #[derive(Serialize)]
@@ -153,7 +191,7 @@ impl<'a, D: digest::Update> ciborium_io::Write for DigestWriter<'a, D> {
 #[cfg(test)]
 mod tests {
     use crate::hsm::RecordEncryptionKey;
-    use hsm_api::{DataHash, OwnedRange};
+    use hsm_api::{DataHash, OwnedRange, TransferringOut};
 
     use super::*;
     use expect_test::expect_file;
@@ -189,7 +227,20 @@ mod tests {
             index: LogIndex(u64::MAX),
             entry_mac: &EntryMac::from([5; 32]),
         };
-        let entry = EntryMacMessage {
+        let transferring_out = TransferringOut {
+            destination: GroupId([4; 16]),
+            partition: Partition {
+                range: OwnedRange::full(),
+                root_hash: DataHash([5; 32]),
+            },
+            at: LogIndex(u64::MAX - 1),
+        };
+        let transferring_in = TransferringIn {
+            source: GroupId([14; 16]),
+            range: OwnedRange::full(),
+            at: LogIndex(u64::MAX - 2),
+        };
+        let full_entry_transfer_out = EntryMacMessage {
             realm: RealmId([1; 16]),
             group: GroupId([2; 16]),
             index: LogIndex(u64::MAX),
@@ -197,16 +248,40 @@ mod tests {
                 range: OwnedRange::full(),
                 root_hash: DataHash([3; 32]),
             }),
-            transferring_out: &Some(TransferringOut {
-                destination: GroupId([4; 16]),
-                partition: Partition {
-                    range: OwnedRange::full(),
-                    root_hash: DataHash([5; 32]),
-                },
-                at: LogIndex(u64::MAX - 1),
-            }),
+            transferring_out: Some(&transferring_out),
+            transferring_in: None,
             prev_mac: &EntryMac::from([6; 32]),
             hsm: HsmId([7; 16]),
+        };
+        let full_entry_transfer_in = EntryMacMessage {
+            realm: RealmId([1; 16]),
+            group: GroupId([2; 16]),
+            index: LogIndex(u64::MAX),
+            partition: &Some(Partition {
+                range: OwnedRange::full(),
+                root_hash: DataHash([3; 32]),
+            }),
+            transferring_out: None,
+            transferring_in: Some(&transferring_in),
+            prev_mac: &EntryMac::from([6; 32]),
+            hsm: HsmId([7; 16]),
+        };
+        let entry = EntryMacMessage {
+            realm: RealmId([1; 16]),
+            group: GroupId([2; 16]),
+            index: LogIndex(u64::MAX),
+            partition: &None,
+            transferring_out: None,
+            transferring_in: None,
+            prev_mac: &EntryMac::from([6; 32]),
+            hsm: HsmId([7; 16]),
+        };
+        let prepared = PreparedTransferStatementMessage {
+            realm: RealmId([10; 16]),
+            source: GroupId([11; 16]),
+            destination: GroupId([12; 16]),
+            range: &OwnedRange::full(),
+            nonce: TransferNonce([13; 16]),
         };
         let transfer = TransferStatementMessage {
             realm: RealmId([1; 16]),
@@ -234,6 +309,9 @@ mod tests {
         add_diag(&mut out, &k, &hsm_realm);
         add_diag(&mut out, &k, &captured);
         add_diag(&mut out, &k, &entry);
+        add_diag(&mut out, &k, &full_entry_transfer_out);
+        add_diag(&mut out, &k, &full_entry_transfer_in);
+        add_diag(&mut out, &k, &prepared);
         add_diag(&mut out, &k, &transfer);
         expect_file!["mac.txt"].assert_eq(&out);
     }

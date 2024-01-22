@@ -34,6 +34,18 @@ mac: 64be4f2c6fba5c50102e87d2d4d51ee3a026c8d1eedfa1a04852b21b8b1dc353
 }
 
 hsm_core::hsm::mac::EntryMacMessage
+mac: 0c34181ee7555fe98d3628c25cb96d61f36982b022643d2187f1f5b4e85b9221
+{
+    "hsm": h'07070707070707070707070707070707',
+    "realm": h'01010101010101010101010101010101',
+    "group": h'02020202020202020202020202020202',
+    "index": 18446744073709551615_3,
+    "partition": null,
+    "transferring_out": null,
+    "prev_mac": h'0606060606060606060606060606060606060606060606060606060606060606',
+}
+
+hsm_core::hsm::mac::EntryMacMessage
 mac: 466cd3c8ff65f986fd33854fc3b650a585e1eff225c4e2b66f2080abe37f0e63
 {
     "hsm": h'07070707070707070707070707070707',
@@ -59,6 +71,45 @@ mac: 466cd3c8ff65f986fd33854fc3b650a585e1eff225c4e2b66f2080abe37f0e63
         "at": 18446744073709551614_3,
     },
     "prev_mac": h'0606060606060606060606060606060606060606060606060606060606060606',
+}
+
+hsm_core::hsm::mac::EntryMacMessage
+mac: affb3619c7557de2e45bd9c5e0cf6810536203f966615765f0fdeab5e9b751e8
+{
+    "hsm": h'07070707070707070707070707070707',
+    "realm": h'01010101010101010101010101010101',
+    "group": h'02020202020202020202020202020202',
+    "index": 18446744073709551615_3,
+    "partition": {
+        "range": {
+            "start": h'0000000000000000000000000000000000000000000000000000000000000000',
+            "end": h'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        },
+        "root_hash": h'0303030303030303030303030303030303030303030303030303030303030303',
+    },
+    "transferring_out": null,
+    "transferring_in": {
+        "source": h'0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e',
+        "range": {
+            "start": h'0000000000000000000000000000000000000000000000000000000000000000',
+            "end": h'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        },
+        "at": 18446744073709551613_3,
+    },
+    "prev_mac": h'0606060606060606060606060606060606060606060606060606060606060606',
+}
+
+hsm_core::hsm::mac::PreparedTransferStatementMessage
+mac: 0f1f2079aa4204fd393fd67e515ba4539392f398aef5e964e9f3d9d294e85218
+{
+    "realm": h'0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a',
+    "source": h'0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b',
+    "destination": h'0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c',
+    "range": {
+        "start": h'0000000000000000000000000000000000000000000000000000000000000000',
+        "end": h'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+    },
+    "nonce": h'0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d',
 }
 
 hsm_core::hsm::mac::TransferStatementMessage
