@@ -213,7 +213,7 @@ pub async fn create_cluster(
         .get_latest_secret_version(&tenant_secret_name(tenant))
         .await
         .unwrap_or_else(|e| panic!("failed to get tenant {tenant:?} auth key: {e}"))
-        .map(|(version, key)| (version.into(), key.into()))
+        .map(|(version, key)| (version.into(), key.try_into().expect("invalid AuthKey")))
         .unwrap_or_else(|| panic!("tenant {tenant:?} has no secrets"));
 
     let (lb_urls, certificates) = create_load_balancers(&args, process_group, &ports);

@@ -448,5 +448,5 @@ async fn get_auth_key(
         .await
         .context("could not get secrets for tenant")?
         .ok_or_else(|| anyhow!("could not find any secret versions for tenant"))?;
-    Ok((secret.into(), version.into()))
+    Ok((secret.try_into()?, version.into()))
 }

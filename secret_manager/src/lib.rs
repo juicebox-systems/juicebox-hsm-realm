@@ -11,47 +11,98 @@ mod secrets_file;
 
 use google::GrpcConnectionOptions;
 use juicebox_realm_api::types::SecretBytesVec;
-use juicebox_realm_auth::{AuthKey, AuthKeyVersion};
+use juicebox_realm_auth::{AuthKey, AuthKeyAlgorithm, AuthKeyVersion};
 use observability::metrics;
 
-pub use anyhow::Error;
+pub use anyhow::{anyhow, Error};
 pub use google_secret_manager::Client as GoogleSecretManagerClient;
 pub use periodic::{BulkLoad, Periodic};
 pub use secrets_file::SecretsFile;
 
 /// A value that should remain confidential.
-#[derive(Clone, Debug)]
-pub enum Secret {
-    Raw(SecretBytesVec),
-    AuthKey(AuthKey),
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Secret {
+    pub data: SecretBytesVec,
+    pub algorithm: SecretAlgorithm,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum SecretAlgorithm {
+    HmacSha256,
+    RsaPkcs1Sha256,
+    Blake2sMac256,
+    Edwards25519,
+}
+
+#[derive(Debug, Deserialize)]
+enum SecretDataEncoding {
+    Hex,
+    UTF8,
+}
+
+#[derive(Debug, Deserialize)]
+struct SecretJSON {
+    data: String,
+    encoding: SecretDataEncoding,
+    algorithm: SecretAlgorithm,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum SecretParsingError {
+    InvalidDataForEncoding,
+    InvalidJSON,
 }
 
 impl Secret {
-    pub fn expose_secret(&self) -> &[u8] {
-        match self {
-            Self::Raw(secret) => secret.expose_secret(),
-            Self::AuthKey(key) => key.expose_secret(),
-        }
-    }
-}
-
-impl From<Secret> for AuthKey {
-    fn from(value: Secret) -> Self {
-        match value {
-            Secret::AuthKey(key) => key,
-            Secret::Raw(secret) => AuthKey::from(secret),
-        }
-    }
-}
-
-impl From<Vec<u8>> for Secret {
-    /// Attempts to treat the provided `value` as AuthKey JSON data, but if
-    /// it can not successfully be parsed falls back to a `Raw` value.
-    fn from(value: Vec<u8>) -> Self {
-        if let Ok(auth_key) = AuthKey::from_json(&value) {
-            Self::AuthKey(auth_key)
+    pub fn from_json(slice: &[u8]) -> Result<Self, SecretParsingError> {
+        if let Ok(json) = serde_json::from_slice::<SecretJSON>(slice) {
+            Ok(Secret {
+                data: match json.encoding {
+                    SecretDataEncoding::Hex => match hex::decode(json.data) {
+                        Ok(vec) => vec,
+                        Err(_) => return Err(SecretParsingError::InvalidDataForEncoding),
+                    },
+                    SecretDataEncoding::UTF8 => json.data.as_bytes().to_vec(),
+                }
+                .into(),
+                algorithm: json.algorithm,
+            })
         } else {
-            Self::Raw(SecretBytesVec::from(value))
+            Err(SecretParsingError::InvalidJSON)
+        }
+    }
+
+    /// Attempts to treat the provided `slice` as JSON data, but if
+    /// it cannot successfully be parsed falls back to using it directly
+    /// as data for an HmacSha256 Secret value.
+    pub fn from_json_or_raw(data: Vec<u8>) -> Self {
+        match Self::from_json(&data) {
+            Ok(secret) => secret,
+            Err(_) => Secret {
+                data: SecretBytesVec::from(data),
+                algorithm: SecretAlgorithm::HmacSha256,
+            },
+        }
+    }
+}
+
+impl TryFrom<Secret> for AuthKey {
+    type Error = Error;
+    fn try_from(value: Secret) -> Result<Self, Self::Error> {
+        match value.algorithm {
+            SecretAlgorithm::HmacSha256 => Ok(AuthKey {
+                data: value.data,
+                algorithm: AuthKeyAlgorithm::HS256,
+            }),
+            SecretAlgorithm::RsaPkcs1Sha256 => Ok(AuthKey {
+                data: value.data,
+                algorithm: AuthKeyAlgorithm::RS256,
+            }),
+            SecretAlgorithm::Edwards25519 => Ok(AuthKey {
+                data: value.data,
+                algorithm: AuthKeyAlgorithm::EdDSA,
+            }),
+            _ => Err(anyhow!("unsupported JWT algorithm")),
         }
     }
 }
@@ -169,4 +220,99 @@ pub fn record_id_randomization_key_name() -> SecretName {
 
 pub fn tenant_secret_name(tenant: &str) -> SecretName {
     SecretName(format!("tenant-{tenant}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_json_parsing_hs256_utf8() {
+        let json = r#"
+        {
+            "data": "hello world",
+            "encoding": "UTF8",
+            "algorithm": "HmacSha256"
+        }
+        "#;
+        assert_eq!(
+            Secret::from_json(json.as_bytes()).unwrap(),
+            Secret {
+                data: b"hello world".to_vec().into(),
+                algorithm: SecretAlgorithm::HmacSha256
+            }
+        );
+    }
+
+    #[test]
+    fn test_json_parsing_eddsa_hex() {
+        let json = r#"
+        {
+            "data": "302e020100300506032b6570042204207c6f273d5ecccf1c01706ccd98a4fb661aac4185edd58c4705c9db9670ef8cdd",
+            "encoding": "Hex",
+            "algorithm": "Edwards25519"
+        }
+        "#;
+        assert_eq!(
+            Secret::from_json(json.as_bytes()).unwrap(),
+            Secret {
+                data: hex::decode("302e020100300506032b6570042204207c6f273d5ecccf1c01706ccd98a4fb661aac4185edd58c4705c9db9670ef8cdd").unwrap().into(),
+                algorithm: SecretAlgorithm::Edwards25519
+            }
+        );
+    }
+
+    #[test]
+    fn test_json_parsing_invalid_hex() {
+        let json = r#"
+        {
+            "data": "hello world",
+            "encoding": "Hex",
+            "algorithm": "HmacSha256"
+        }
+        "#;
+        assert_eq!(
+            Secret::from_json(json.as_bytes()).unwrap_err(),
+            SecretParsingError::InvalidDataForEncoding
+        );
+    }
+
+    #[test]
+    fn test_json_parsing_invalid_encoding() {
+        let json = r#"
+        {
+            "data": "hello world",
+            "encoding": "Nope",
+            "algorithm": "HmacSha256"
+        }
+        "#;
+        assert_eq!(
+            Secret::from_json(json.as_bytes()).unwrap_err(),
+            SecretParsingError::InvalidJSON
+        );
+    }
+
+    #[test]
+    fn test_json_parsing_invalid_algorithm() {
+        let json = r#"
+        {
+            "data": "hello world",
+            "encoding": "UTF8",
+            "algorithm": "LMNOP"
+        }
+        "#;
+        assert_eq!(
+            Secret::from_json(json.as_bytes()).unwrap_err(),
+            SecretParsingError::InvalidJSON
+        );
+    }
+
+    #[test]
+    fn test_json_parsing_invalid_json() {
+        let json = "xyz";
+        assert_eq!(
+            Secret::from_json(json.as_bytes()).unwrap_err(),
+            SecretParsingError::InvalidJSON
+        );
+    }
 }
