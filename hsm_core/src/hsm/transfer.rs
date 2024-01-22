@@ -359,16 +359,13 @@ impl<P: Platform> Hsm<P> {
 
         let last_entry = &leader.log.last().entry;
 
-        if !match last_entry.transferring.as_ref() {
+        match last_entry.transferring.as_ref() {
             Some(Transferring::In(transferring_in))
                 if transferring_in.range == request.transferring.range
-                    && transferring_in.source == request.source =>
-            {
-                true
+                    && transferring_in.source == request.source => {}
+            None | Some(Transferring::In(_)) | Some(Transferring::Out(_)) => {
+                return Response::NotPrepared
             }
-            None | Some(Transferring::In(_)) | Some(Transferring::Out(_)) => false,
-        } {
-            return Response::NotPrepared;
         }
 
         if leader.incoming != Some(request.nonce) {
