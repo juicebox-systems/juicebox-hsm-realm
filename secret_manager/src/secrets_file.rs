@@ -111,10 +111,22 @@ mod tests {
         assert_eq!(a.len(), 1);
         assert_eq!(b.len(), 3);
         assert_eq!(c.len(), 0);
-        assert_eq!(a.get(&SecretVersion(1)).unwrap().data.expose_secret(), b"one");
-        assert_eq!(b.get(&SecretVersion(1)).unwrap().data.expose_secret(), b"one");
-        assert_eq!(b.get(&SecretVersion(2)).unwrap().data.expose_secret(), b"two");
-        assert_eq!(b.get(&SecretVersion(3)).unwrap().data.expose_secret(), b"three");
+        assert_eq!(
+            a.get(&SecretVersion(1)).unwrap().data.expose_secret(),
+            b"one"
+        );
+        assert_eq!(
+            b.get(&SecretVersion(1)).unwrap().data.expose_secret(),
+            b"one"
+        );
+        assert_eq!(
+            b.get(&SecretVersion(2)).unwrap().data.expose_secret(),
+            b"two"
+        );
+        assert_eq!(
+            b.get(&SecretVersion(3)).unwrap().data.expose_secret(),
+            b"three"
+        );
     }
 
     #[tokio::test]
