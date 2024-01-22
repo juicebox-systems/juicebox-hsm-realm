@@ -38,9 +38,33 @@ impl<P: Platform> Hsm<P> {
         };
         let last_entry = &leader.log.last().entry;
 
-        match &last_entry.transferring {
+        let (entry, wait_til_committed) = match &last_entry.transferring {
             None => {
                 // No other transfer pending, can proceed.
+                if let Some(part) = &leader.log.last().entry.partition {
+                    if part.range.join(&request.range).is_none() {
+                        return Response::UnacceptableRange;
+                    }
+                }
+
+                let index = last_entry.index.next();
+                let entry = LogEntryBuilder {
+                    hsm: self.persistent.id,
+                    realm: request.realm,
+                    group: request.destination,
+                    index,
+                    partition: last_entry.partition.clone(),
+                    transferring: Some(Transferring::In(TransferringIn {
+                        source: request.source,
+                        range: request.range.clone(),
+                        at: index,
+                    })),
+                    prev_mac: last_entry.entry_mac.clone(),
+                }
+                .build(&self.realm_keys.mac);
+
+                leader.log.append(entry.clone(), None);
+                (Some(entry), index)
             }
             Some(Transferring::Out(_)) => {
                 // Can't accept an inbound transfer while we're still transferring out.
@@ -49,71 +73,24 @@ impl<P: Platform> Hsm<P> {
             Some(Transferring::In(transferring))
                 if transferring.source == request.source && transferring.range == request.range =>
             {
-                // This transfer was already prepared. Give it a new nonce and carry on.
-                let nonce = create_random_transfer_nonce(&mut self.platform);
-                leader.incoming = Some(nonce);
-                let wait_til_committed = transferring.at;
-                let clock = self
-                    .volatile
-                    .groups
-                    .get(&request.destination)
-                    .expect("already verified we're a group member")
-                    .at;
-
-                let prepared_stmt =
-                    self.realm_keys
-                        .mac
-                        .prepared_transfer_mac(&PreparedTransferStatementMessage {
-                            realm: request.realm,
-                            source: request.source,
-                            destination: request.destination,
-                            range: &request.range,
-                            nonce,
-                        });
-
-                return Response::Ok(PreparedTransfer {
-                    nonce,
-                    entry: None,
-                    wait_til_committed,
-                    clock,
-                    statement: prepared_stmt,
-                });
+                // This transfer was already prepared.
+                (None, transferring.at)
             }
             Some(_) => {
                 return Response::OtherTransferPending;
             }
-        }
-        if let Some(part) = &leader.log.last().entry.partition {
-            if part.range.join(&request.range).is_none() {
-                return Response::UnacceptableRange;
-            }
-        }
-
-        let index = last_entry.index.next();
-        let entry = LogEntryBuilder {
-            hsm: self.persistent.id,
-            realm: request.realm,
-            group: request.destination,
-            index,
-            partition: last_entry.partition.clone(),
-            transferring: Some(Transferring::In(TransferringIn {
-                source: request.source,
-                range: request.range.clone(),
-                at: index,
-            })),
-            prev_mac: last_entry.entry_mac.clone(),
-        }
-        .build(&self.realm_keys.mac);
-
-        leader.log.append(entry.clone(), None);
+        };
 
         let nonce = create_random_transfer_nonce(&mut self.platform);
         leader.incoming = Some(nonce);
 
-        let clock = match self.volatile.groups.get(&request.destination) {
-            None => return Response::InvalidGroup,
-            Some(rs) => rs.at,
-        };
+        let clock = self
+            .volatile
+            .groups
+            .get(&request.destination)
+            .expect("already validated this is a member of the group")
+            .at;
+
         let prepared_stmt =
             self.realm_keys
                 .mac
@@ -127,8 +104,8 @@ impl<P: Platform> Hsm<P> {
 
         Response::Ok(PreparedTransfer {
             nonce,
-            wait_til_committed: entry.index,
-            entry: Some(entry),
+            wait_til_committed,
+            entry,
             clock,
             statement: prepared_stmt,
         })
