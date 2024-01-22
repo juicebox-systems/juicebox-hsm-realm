@@ -375,7 +375,9 @@ impl<P: Platform> Hsm<P> {
             request.destination,
         ) {
             Ok(leader) => leader,
-            Err(_) => return Response::NotLeader,
+            Err(GroupLeaderError::InvalidRealm) => return Response::InvalidRealm,
+            Err(GroupLeaderError::InvalidGroup) => return Response::InvalidGroup,
+            Err(GroupLeaderError::NotLeader(_)) => return Response::NotLeader,
         };
 
         let last_entry = &leader.log.last().entry;

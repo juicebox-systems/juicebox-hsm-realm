@@ -58,7 +58,7 @@ pub async fn transfer(
     // The Agents will not respond to these RPCs until the related log entry is
     // committed. (where protocol safety requires the log entry to commit).
 
-    let (nonce, statement) = match rpc::send(
+    let (nonce, prepared_stmt) = match rpc::send(
         &agent_client,
         dest_leader,
         PrepareTransferRequest {
@@ -75,7 +75,7 @@ pub async fn transfer(
         Err(e) => todo!("{e:?}"),
     };
 
-    let (transferring_partition, statement) = match rpc::send(
+    let (transferring_partition, transfer_stmt) = match rpc::send(
         &agent_client,
         source_leader,
         TransferOutRequest {
@@ -84,7 +84,7 @@ pub async fn transfer(
             destination,
             range: range.clone(),
             nonce,
-            statement,
+            statement: prepared_stmt,
         },
     )
     .await
@@ -106,7 +106,7 @@ pub async fn transfer(
             destination,
             transferring: transferring_partition,
             nonce,
-            statement,
+            statement: transfer_stmt,
         },
     )
     .await
@@ -115,9 +115,6 @@ pub async fn transfer(
         Ok(r) => todo!("{r:?}"),
         Err(e) => todo!("{e:?}"),
     };
-
-    // If the transfer in log entry is not committed and this calls
-    // CompleteTransferRequest, the range will be lost forever.
 
     match rpc::send(
         &agent_client,

@@ -305,6 +305,8 @@ pub struct TransferInRequest {
 pub enum TransferInResponse {
     Ok,
     NoHsm,
+    InvalidRealm,
+    InvalidGroup,
     NotLeader,
     InvalidNonce,
     InvalidStatement,

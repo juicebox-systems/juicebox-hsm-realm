@@ -1644,6 +1644,10 @@ pub enum TransferInResponse {
         /// determining if the entry is committed.
         clock: RoleLogicalClock,
     },
+    /// This HSM is not a member of this realm.
+    InvalidRealm,
+    /// This HSM is not a member of the destination group.
+    InvalidGroup,
     /// This HSM is not a leader of the destination group, so it can't
     /// participate in ownership transfers.
     NotLeader,

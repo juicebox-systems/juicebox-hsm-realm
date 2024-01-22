@@ -378,6 +378,8 @@ impl<T: Transport + 'static> Agent<T> {
                 .await
             {
                 Err(_) => Ok(Response::NoHsm),
+                Ok(HsmResponse::InvalidRealm) => Ok(Response::InvalidRealm),
+                Ok(HsmResponse::InvalidGroup) => Ok(Response::InvalidGroup),
                 Ok(HsmResponse::NotLeader) => Ok(Response::NotLeader),
                 Ok(HsmResponse::InvalidNonce) => Ok(Response::InvalidNonce),
                 Ok(HsmResponse::InvalidStatement) => Ok(Response::InvalidStatement),
