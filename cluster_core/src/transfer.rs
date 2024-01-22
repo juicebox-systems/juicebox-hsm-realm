@@ -47,14 +47,13 @@ pub async fn transfer(
         return Err(Error::NoDestinationLeader);
     };
 
-    // The current ownership transfer protocol is dangerous in that the moment
-    // the source group commits the log entry that the range is transferring
-    // out, the range must then move to the destination group. Having the
-    // destination have to prepare first and subsequently reject any other
-    // transfers ensures that when the process gets around to transfer_in, it'll
-    // succeed. This is an issue with each group owning 0 or 1 ranges: the only
-    // group that can accept a range is one that owns no range or one that owns
-    // an adjacent range.
+    // Once the source group commits the log entry that the range is
+    // transferring out, the range must then move to the destination group.
+    // Having the destination have to prepare first and subsequently reject any
+    // other transfers ensures that when the process gets around to transfer_in,
+    // it'll succeed. This is an issue with each group owning 0 or 1 ranges: the
+    // only group that can accept a range is one that owns no range or one that
+    // owns an adjacent range.
 
     // The Agents will not respond to these RPCs until the related log entry is
     // committed. (where protocol safety requires the log entry to commit).
