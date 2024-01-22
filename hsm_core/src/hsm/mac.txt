@@ -75,6 +75,19 @@ mac: e3f3f21f87ed37a3f5a04923f6ba59466e8521d0873771c0e85559a7b7bfe9e9
     "prev_mac": h'0606060606060606060606060606060606060606060606060606060606060606',
 }
 
+hsm_core::hsm::mac::PreparedTransferStatementMessage
+mac: 0f1f2079aa4204fd393fd67e515ba4539392f398aef5e964e9f3d9d294e85218
+{
+    "realm": h'0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a',
+    "source": h'0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b',
+    "destination": h'0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c',
+    "range": {
+        "start": h'0000000000000000000000000000000000000000000000000000000000000000',
+        "end": h'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+    },
+    "nonce": h'0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d',
+}
+
 hsm_core::hsm::mac::TransferStatementMessage
 mac: c1319e7498d95636823b2f952d2e83d8bf2cd00daf2a8de5c6f7d2fbf5df78e3
 {

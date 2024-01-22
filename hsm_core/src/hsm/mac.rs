@@ -237,6 +237,13 @@ mod tests {
             prev_mac: &EntryMac::from([6; 32]),
             hsm: HsmId([7; 16]),
         };
+        let prepared = PreparedTransferStatementMessage {
+            realm: RealmId([10; 16]),
+            source: GroupId([11; 16]),
+            destination: GroupId([12; 16]),
+            range: &OwnedRange::full(),
+            nonce: TransferNonce([13; 16]),
+        };
         let transfer = TransferStatementMessage {
             realm: RealmId([1; 16]),
             partition: &Partition {
@@ -264,6 +271,7 @@ mod tests {
         add_diag(&mut out, &k, &captured);
         add_diag(&mut out, &k, &entry);
         add_diag(&mut out, &k, &full_entry);
+        add_diag(&mut out, &k, &prepared);
         add_diag(&mut out, &k, &transfer);
         expect_file!["mac.txt"].assert_eq(&out);
     }
