@@ -53,10 +53,13 @@ impl<P: Platform> Hsm<P> {
                 let nonce = create_random_transfer_nonce(&mut self.platform);
                 leader.incoming = Some(nonce);
                 let wait_til_committed = transferring.at;
-                let clock = match self.volatile.groups.get(&request.destination) {
-                    None => return Response::InvalidGroup,
-                    Some(rs) => rs.at,
-                };
+                let clock = self
+                    .volatile
+                    .groups
+                    .get(&request.destination)
+                    .expect("already verified we're a group member")
+                    .at;
+
                 let prepared_stmt =
                     self.realm_keys
                         .mac
@@ -376,13 +379,17 @@ impl<P: Platform> Hsm<P> {
         };
 
         let last_entry = &leader.log.last().entry;
-        match last_entry.transferring.as_ref() {
-            None | Some(Transferring::Out(_)) => return Response::NotPrepared,
-            Some(Transferring::In(t)) => {
-                if t.range != request.transferring.range || t.source != request.source {
-                    return Response::NotPrepared;
-                }
+
+        if !match last_entry.transferring.as_ref() {
+            Some(Transferring::In(transferring_in))
+                if transferring_in.range == request.transferring.range
+                    && transferring_in.source == request.source =>
+            {
+                true
             }
+            None | Some(Transferring::In(_)) | Some(Transferring::Out(_)) => false,
+        } {
+            return Response::NotPrepared;
         }
 
         if leader.incoming != Some(request.nonce) {
@@ -432,8 +439,9 @@ impl<P: Platform> Hsm<P> {
             let proofs = request.proofs.unwrap();
             match tree.merge(proofs.owned, proofs.transferring) {
                 Err(MergeError::NotAdjacentRanges) => {
-                    // shouldn't be able to get here, this was verified above and during prepareTransfer
-                    panic!("merkle tree merge reported NotAdjacentRanges")
+                    // Shouldn't be able to get here, this was verified above
+                    // and during prepareTransfer
+                    unreachable!("merkle tree merge reported NotAdjacentRanges")
                 }
                 Err(MergeError::Proof(ProofError::Stale)) => return Response::StaleProof,
                 Err(MergeError::Proof(ProofError::Invalid)) => return Response::InvalidProof,
@@ -578,6 +586,7 @@ impl<P: Platform> Hsm<P> {
         .build(&self.realm_keys.mac);
 
         leader.log.append(entry.clone(), None);
+        leader.incoming = None;
 
         let clock = self
             .volatile
