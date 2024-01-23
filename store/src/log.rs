@@ -378,7 +378,7 @@ impl StoreClient {
             // We need to determine the current state of the row in Bigtable
             // before attempting a retry. Otherwise, we can trip the log
             // precondition check on ourselves.
-            match self.log_append_completed(realm, group, entries).await {
+            match self.has_log_append_completed(realm, group, entries).await {
                 Ok(LogAppendStatus::Completed(row)) => return Ok(row),
                 Ok(LogAppendStatus::MayRetry) => { /* keep going below */ }
                 Ok(LogAppendStatus::LogPreconditionFailed) => {
@@ -436,7 +436,7 @@ impl StoreClient {
 
     /// Helper to [`Self::log_append`] used to determine what to do when the
     /// append did not return a successful acknowledgement.
-    async fn log_append_completed(
+    async fn has_log_append_completed(
         &self,
         realm: &RealmId,
         group: &GroupId,
