@@ -8,6 +8,8 @@ use url::Url;
 
 use agent_core::hsm::Transport;
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
+use observability::metrics_tag as tag;
+use retry_loop::AttemptError;
 
 #[derive(Clone)]
 pub struct HsmHttpClient {
@@ -31,13 +33,14 @@ impl Debug for HsmHttpClient {
 }
 
 impl Transport for HsmHttpClient {
-    type Error = HsmHttpTransportError;
+    type FatalError = HsmHttpTransportError;
+    type RetryableError = HsmHttpTransportError;
 
     async fn send_rpc_msg(
         &self,
         _msg_name: &'static str,
         msg: Vec<u8>,
-    ) -> Result<Vec<u8>, Self::Error> {
+    ) -> Result<Vec<u8>, AttemptError<HsmHttpTransportError>> {
         let mut headers = HeaderMap::new();
         opentelemetry::global::get_text_map_propagator(|propagator| {
             propagator.inject_context(
@@ -54,7 +57,7 @@ impl Transport for HsmHttpClient {
             .send()
             .await
         {
-            Err(err) => Err(HsmHttpTransportError::Network(err)),
+            Err(err) => Err(HsmHttpTransportError::Network(err).into()),
             Ok(response) if response.status().is_success() => {
                 let resp_body = response
                     .bytes()
@@ -62,7 +65,7 @@ impl Transport for HsmHttpClient {
                     .map_err(HsmHttpTransportError::Network)?;
                 Ok(resp_body.to_vec())
             }
-            Ok(response) => Err(HsmHttpTransportError::HttpStatus(response.status())),
+            Ok(response) => Err(HsmHttpTransportError::HttpStatus(response.status()).into()),
         }
     }
 }
@@ -103,5 +106,29 @@ impl From<SerializationError> for HsmHttpTransportError {
 impl From<DeserializationError> for HsmHttpTransportError {
     fn from(value: DeserializationError) -> Self {
         HsmHttpTransportError::Deserialization(value)
+    }
+}
+
+impl From<HsmHttpTransportError> for AttemptError<HsmHttpTransportError> {
+    fn from(error: HsmHttpTransportError) -> Self {
+        type Error = HsmHttpTransportError;
+        match error {
+            Error::Network(_) => AttemptError::Retryable {
+                error,
+                tags: vec![tag!("kind": "network")],
+            },
+            Error::HttpStatus(code) => AttemptError::Retryable {
+                error,
+                tags: vec![tag!("kind": "http_status"), tag!("http_code": code)],
+            },
+            Error::Serialization(_) => AttemptError::Fatal {
+                error,
+                tags: vec![tag!("kind": "serialization")],
+            },
+            Error::Deserialization(_) => AttemptError::Fatal {
+                error,
+                tags: vec![tag!("kind": "deserialization")],
+            },
+        }
     }
 }

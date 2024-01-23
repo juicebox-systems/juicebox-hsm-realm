@@ -213,3 +213,18 @@ where
         }
     }
 }
+
+/// An error type that serves as a placeholder when no fatal errors are
+/// possible or have been defined.
+///
+/// This type is not instantiable.
+#[derive(Debug)]
+pub enum NoFatalErrors {}
+
+impl Display for NoFatalErrors {
+    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+        unreachable!("NoFatalErrors cannot be instantiated")
+    }
+}
+
+impl std::error::Error for NoFatalErrors {}

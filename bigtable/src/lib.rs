@@ -98,7 +98,7 @@ pub async fn new_data_client<W: ConnWarmer>(
     Ok(bigtable)
 }
 
-pub trait ConnWarmer: Send + Clone + 'static {
+pub trait ConnWarmer: Send + Sync + Clone + 'static {
     fn warm(
         &self,
         inst: Instance,
@@ -138,6 +138,9 @@ pub fn bigtable_retries(retry: Retry) -> Retry {
 }
 
 /// Classifies a gRPC error as retryable and extracts its tags.
+///
+/// TODO: This is a fork of `google_pubsub::inspect_grpc_error`. Should they be
+/// combined?
 pub fn inspect_grpc_error(error: tonic::Status) -> AttemptError<tonic::Status> {
     use tonic::Code;
     let may_retry = matches!(

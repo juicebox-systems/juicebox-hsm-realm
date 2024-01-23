@@ -140,6 +140,7 @@ pub enum BecomeLeaderResponse {
     InvalidRealm,
     InvalidGroup,
     StaleIndex,
+    FutureIndex,
     StepdownInProgress,
     Timeout,
     NotCaptured { have: Option<LogIndex> },

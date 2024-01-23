@@ -1,10 +1,11 @@
-use std::cmp::min;
 use std::future::Future;
 use std::time::Duration;
 use tokio::sync::watch;
 use tonic::body::BoxBody;
 use tower_service::Service;
-use tracing::{info, warn};
+use tracing::info;
+
+use retry_loop::{retry_logging, AttemptError, NoFatalErrors, Retry};
 
 pub struct MaxConnectionLifetime<C> {
     // The 'C' instance that was driven to ready by the poll() needs to be the
@@ -31,42 +32,55 @@ impl<C: Clone> Clone for MaxConnectionLifetime<C> {
 impl<C: Service<http::Request<BoxBody>> + Send + Sync + Clone + 'static> MaxConnectionLifetime<C> {
     pub async fn new<E, F, Fut>(max_age: Duration, conn_factory: F) -> Result<Self, E>
     where
-        F: Fn() -> Fut + Send + 'static,
+        F: Fn() -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<C, E>> + Send,
-        E: std::error::Error,
+        E: std::error::Error + Send,
     {
-        const INIT_BACKOFF: Duration = Duration::from_secs(1);
-
         let init_conn = conn_factory().await?;
         let (tx_conn, rx_conn) = watch::channel(init_conn.clone());
         tokio::spawn(async move {
-            tokio::time::sleep(max_age).await;
-            let mut backoff = INIT_BACKOFF;
-            let mut next_sleep: Duration;
             loop {
-                let future_conn = conn_factory();
-                (next_sleep, backoff) = match future_conn.await {
+                tokio::time::sleep(max_age).await;
+
+                let make_new_conn = |_| async {
+                    conn_factory().await.map_err(|error| {
+                        AttemptError::<NoFatalErrors, E>::Retryable {
+                            error,
+                            tags: vec![],
+                        }
+                    })
+                };
+
+                match Retry::new("creating new connection to Google Cloud")
+                    .with_exponential_backoff(Duration::from_secs(1), 2.0, Duration::from_secs(30))
+                    .with_max_attempts(usize::MAX)
+                    .with_timeout(Duration::MAX)
+                    .retry(make_new_conn, retry_logging!())
+                    .await
+                {
+                    Err(_) => {
+                        // This is basically unreachable, since the retry loop
+                        // will try for `usize::MAX` attempts and there are no
+                        // fatal errors. Still, if we get here, the retry_loop
+                        // already warned, so just stay on the old connection
+                        // and loop around.
+                    }
                     Ok(new_conn) => {
                         info!("got new connection from factory");
                         match tx_conn.send(new_conn) {
                             Ok(_) => {
                                 info!("sent new connection to receivers");
-                                (max_age, INIT_BACKOFF)
                             }
                             Err(_err) => {
-                                // All receivers have been dropped, which'll happen if the
-                                // MaxConnectionLifetime has been dropped. In which case
-                                // there's nothing left to do.
+                                // All receivers have been dropped, which'll
+                                // happen if the MaxConnectionLifetime has been
+                                // dropped. In which case there's nothing left
+                                // to do.
                                 return;
                             }
                         }
                     }
-                    Err(err) => {
-                        warn!(%err, "failed to create new connection, will retry");
-                        (backoff, min(backoff * 2, Duration::from_secs(30)))
-                    }
-                };
-                tokio::time::sleep(next_sleep).await;
+                }
             }
         });
         Ok(Self {

@@ -99,6 +99,7 @@ impl Client {
     }
 
     // To go beyond the 25,000 maximum, this would have to deal with pagination.
+    // TODO: use retry_loop
     async fn list_secrets(&self) -> Result<Vec<SecretResource>, Error> {
         Ok(self
             .inner
@@ -118,6 +119,7 @@ impl Client {
     }
 
     // To go beyond the 25,000 maximum, this would have to deal with pagination.
+    // TODO: use retry_loop
     async fn list_secret_versions(
         &self,
         secret: &SecretResource,
@@ -139,6 +141,7 @@ impl Client {
             .collect())
     }
 
+    // TODO: use retry_loop
     async fn access_secret_version(
         &self,
         version: &VersionResource,

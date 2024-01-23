@@ -36,7 +36,9 @@ retry_loop = { workspace = true }
 serde_json = { workspace = true }
 service_core = { workspace = true }
 store = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
+tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 url = { workspace = true }

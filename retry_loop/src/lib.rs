@@ -28,7 +28,7 @@ mod logging;
 #[cfg(test)]
 mod tests;
 
-pub use errors::{AttemptError, RetryError};
+pub use errors::{AttemptError, NoFatalErrors, RetryError};
 pub use logging::Event;
 
 /// The retry loop works with both deadlines and timeouts.

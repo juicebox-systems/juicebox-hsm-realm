@@ -145,6 +145,7 @@ impl<T: Transport + 'static> Agent<T> {
         // expected to run just once.
         //
         // TODO: put some retry limit on this
+        // TODO: replace ad hoc retry loop with retry_loop::Retry
         loop {
             let last_entry = match store
                 .read_last_log_entry(&request.realm, &request.source)
@@ -255,6 +256,7 @@ impl<T: Transport + 'static> Agent<T> {
                 }
             };
 
+            // TODO: replace ad hoc retry loop with retry_loop::Retry
             loop {
                 match self
                     .0
@@ -312,6 +314,7 @@ impl<T: Transport + 'static> Agent<T> {
 
         // This loop handles retries if the read from the store is stale. It's
         // expected to run just once.
+        // TODO: replace ad hoc retry loop with retry_loop::Retry
         loop {
             let last_entry = match store
                 .read_last_log_entry(&request.realm, &request.destination)
