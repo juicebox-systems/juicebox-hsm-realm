@@ -13,6 +13,7 @@ use hsm_api::RecordId;
 use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::{Pin, Policy, RealmId, UserInfo, UserSecret};
 use observability::metrics;
+use retry_loop::Retry;
 use store::tenants::tenant_user_table;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
@@ -137,7 +138,9 @@ async fn read_realm_users(
         reversed: false,
     };
     let mut bigtable = bigtable.clone();
-    let rows = Reader::read_rows(&mut bigtable, read_req).await.unwrap();
+    let rows = Reader::read_rows(&mut bigtable, Retry::disabled(), read_req)
+        .await
+        .unwrap();
     rows.into_iter()
         .map(|(key, cells)| {
             let p = key.0.len() - RecordId::NUM_BYTES * 2;

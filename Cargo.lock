@@ -70,6 +70,7 @@ dependencies = [
  "opentelemetry",
  "pubsub_api",
  "reqwest",
+ "retry_loop",
  "serde_json",
  "service_core",
  "store",
@@ -302,6 +303,8 @@ dependencies = [
  "gcp_auth",
  "google",
  "observability",
+ "retry_loop",
+ "thiserror",
  "tokio",
  "tonic 0.10.2",
  "tracing",
@@ -622,6 +625,7 @@ dependencies = [
  "juicebox_sdk",
  "observability",
  "reqwest",
+ "retry_loop",
  "secret_manager",
  "serde_json",
  "store",
@@ -642,6 +646,8 @@ dependencies = [
  "hsm_api",
  "juicebox_networking",
  "juicebox_realm_api",
+ "observability",
+ "retry_loop",
  "service_core",
  "store",
  "thiserror",
@@ -675,6 +681,7 @@ dependencies = [
  "observability",
  "once_cell",
  "opentelemetry",
+ "retry_loop",
  "service_core",
  "store",
  "testing",
@@ -2810,6 +2817,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "retry_loop"
+version = "0.2.3"
+dependencies = [
+ "expect-test",
+ "observability",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "rfc6979"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3326,6 +3343,7 @@ dependencies = [
  "rand",
  "rand_core",
  "reqwest",
+ "retry_loop",
  "service_core",
  "thiserror",
  "tokio",
@@ -3468,6 +3486,7 @@ dependencies = [
  "rand",
  "rand_core",
  "reqwest",
+ "retry_loop",
  "secret_manager",
  "serde_json",
  "service_core",

@@ -11,12 +11,13 @@ use agent_api::{StatusRequest, StatusResponse};
 use hsm_api::{GroupId, HsmId};
 use juicebox_networking::rpc::{self, SendOptions};
 use juicebox_realm_api::types::RealmId;
+use retry_loop::RetryError;
 use store::{ServiceKind, StoreClient};
 
 pub async fn find_leaders(
     store: &StoreClient,
     agent_client: &impl http::Client,
-) -> Result<HashMap<(RealmId, GroupId), (HsmId, Url)>, tonic::Status> {
+) -> Result<HashMap<(RealmId, GroupId), (HsmId, Url)>, RetryError<tonic::Status>> {
     trace!("refreshing cluster information");
     let addresses: Vec<(Url, ServiceKind)> = store.get_addresses(Some(ServiceKind::Agent)).await?;
 
@@ -64,7 +65,7 @@ pub async fn find_leaders(
 pub async fn discover_hsm_ids(
     store: &StoreClient,
     agents_client: &impl http::Client,
-) -> Result<impl Iterator<Item = (HsmId, Url)>, tonic::Status> {
+) -> Result<impl Iterator<Item = (HsmId, Url)>, RetryError<tonic::Status>> {
     let agents = store.get_addresses(Some(ServiceKind::Agent)).await?;
     Ok(join_all(agents.iter().map(|(url, _)| {
         rpc::send_with_options(

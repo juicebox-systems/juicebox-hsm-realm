@@ -9,6 +9,8 @@ use google::bigtable::v2::bigtable_client::BigtableClient as BtClient;
 use google::conn::MaxConnectionLifetime;
 use google::GrpcConnectionOptions;
 use observability::metrics;
+use observability::metrics_tag as tag;
+use retry_loop::{AttemptError, Retry};
 
 pub mod mutate;
 pub mod read;
@@ -124,5 +126,36 @@ impl Instance {
             project = self.project,
             instance = self.instance,
         )
+    }
+}
+
+/// Configures a retry loop with reasonable defaults for Bigtable requests.
+pub fn bigtable_retries(retry: Retry) -> Retry {
+    retry
+        .with_exponential_backoff(Duration::from_millis(10), 2.0, Duration::from_secs(2))
+        .with_max_attempts(50)
+        .with_timeout(Duration::from_secs(30))
+}
+
+/// Classifies a gRPC error as retryable and extracts its tags.
+pub fn inspect_grpc_error(error: tonic::Status) -> AttemptError<tonic::Status> {
+    use tonic::Code;
+    let may_retry = matches!(
+        error.code(),
+        Code::DeadlineExceeded |
+            // TODO: this seemed to be a bug in hyper, in that it didn't handle RST
+            // properly. That was fixed according to
+            // <https://github.com/hyperium/hyper/issues/2872>. Does this happen
+            // anymore?
+            Code::Internal |
+            Code::ResourceExhausted |
+            Code::Unavailable |
+            Code::Unknown
+    );
+    let tags = vec![tag!("kind": "grpc"), tag!("grpc_code": error.code())];
+    if may_retry {
+        AttemptError::Retryable { error, tags }
+    } else {
+        AttemptError::Fatal { error, tags }
     }
 }

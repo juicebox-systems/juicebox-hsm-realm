@@ -23,8 +23,8 @@ use bigtable::{
 use hsm_api::merkle::StoreDelta;
 use hsm_api::{DataHash, EntryMac, GroupId, LogEntry, LogIndex};
 use juicebox_realm_api::types::RealmId;
-use observability::metrics;
-use observability::metrics_tag as tag;
+use observability::{metrics, metrics_tag as tag};
+use retry_loop::{Retry, RetryError};
 use service_core::clap_parsers::parse_duration;
 
 mod base128;
@@ -34,7 +34,7 @@ pub mod log;
 mod merkle;
 pub mod tenants;
 
-pub use log::{LogEntriesIter, LogEntriesIterError, LogRow, ReadLastLogEntryError};
+use log::{LogRow, ReadLastLogEntryError, ReadLastLogEntryFatal};
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct BigtableArgs {
@@ -239,17 +239,26 @@ impl fmt::Debug for StoreClient {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AppendError {
-    Grpc(tonic::Status),
-    MerkleWrites(google::rpc::Status),
+    #[error("error writing Merkle nodes: {0}")]
+    MerkleWrites(RetryError<MutateRowsError>),
+    #[error("error writing log entry: {0}")]
+    LogWrite(RetryError<tonic::Status>),
+    #[error("error checking log state: {0}")]
+    UnknownLogState(ReadLastLogEntryError),
+    #[error("log precondition not met")]
     LogPrecondition,
-    MerkleDeletes(google::rpc::Status),
 }
 
-impl From<tonic::Status> for AppendError {
-    fn from(value: tonic::Status) -> Self {
-        AppendError::Grpc(value)
+impl AppendError {
+    pub fn is_no_store(&self) -> bool {
+        matches!(
+            self,
+            Self::MerkleWrites(RetryError::Exhausted { .. })
+                | Self::LogWrite(RetryError::Exhausted { .. })
+                | Self::UnknownLogState(RetryError::Exhausted { .. })
+        )
     }
 }
 
@@ -380,10 +389,7 @@ impl StoreClient {
         // Write new Merkle nodes.
         self.write_merkle_nodes(realm, group, delta.adds())
             .await
-            .map_err(|e| match e {
-                MutateRowsError::Tonic(e) => AppendError::Grpc(e),
-                MutateRowsError::Mutation(e) => AppendError::MerkleWrites(e),
-            })?;
+            .map_err(AppendError::MerkleWrites)?;
 
         // Append the new entries but only if no other writer has appended.
         let append_start = Instant::now();
@@ -479,11 +485,13 @@ impl StoreClient {
                     Err(AppendError::LogPrecondition)
                 }
             }
-            Err(ReadLastLogEntryError::EmptyLog) => {
+            Err(RetryError::Fatal {
+                error: ReadLastLogEntryFatal::EmptyLog,
+            }) => {
                 // prev_index >= 1, so the log shouldn't be empty.
                 Err(AppendError::LogPrecondition)
             }
-            Err(ReadLastLogEntryError::Grpc(err)) => Err(err.into()),
+            Err(err) => Err(AppendError::UnknownLogState(err)),
         }
     }
 }
@@ -529,6 +537,9 @@ impl ConnWarmer for TablesReadWarmer {
         for table in tables {
             if let Err(err) = Reader::read_rows(
                 &mut conn,
+                Retry::new("warmup read request")
+                    .with_max_attempts(1)
+                    .with_timeout(Duration::from_secs(5)),
                 ReadRowsRequest {
                     table_name: table.clone(),
                     app_profile_id: String::from(""),
@@ -560,8 +571,14 @@ impl StoreClient {
     pub async fn get_addresses(
         &self,
         kind: Option<ServiceKind>,
-    ) -> Result<Vec<(Url, ServiceKind)>, tonic::Status> {
-        discovery::get_addresses(self.bigtable.clone(), &self.instance, kind).await
+    ) -> Result<Vec<(Url, ServiceKind)>, RetryError<tonic::Status>> {
+        discovery::get_addresses(
+            self.bigtable.clone(),
+            &self.instance,
+            kind,
+            self.metrics.clone(),
+        )
+        .await
     }
 
     #[instrument(level = "trace", skip(self, address), fields(address = %address))]
@@ -571,13 +588,14 @@ impl StoreClient {
         kind: ServiceKind,
         // timestamp of the registration, typically SystemTime::now()
         timestamp: SystemTime,
-    ) -> Result<(), tonic::Status> {
+    ) -> Result<(), RetryError<tonic::Status>> {
         discovery::set_address(
-            self.bigtable.clone(),
+            &self.bigtable,
             &self.instance,
             address,
             kind,
             timestamp,
+            self.metrics.clone(),
         )
         .await
     }
@@ -591,14 +609,15 @@ impl StoreClient {
         owner: String,
         dur: Duration,
         timestamp: SystemTime,
-    ) -> Result<Option<Lease>, tonic::Status> {
+    ) -> Result<Option<Lease>, RetryError<tonic::Status>> {
         lease::obtain(
-            self.bigtable.clone(),
+            &self.bigtable,
             &self.instance,
             key.into(),
             owner,
             dur,
             timestamp,
+            &self.metrics,
         )
         .await
     }
@@ -608,25 +627,29 @@ impl StoreClient {
         lease: Lease,
         dur: Duration,
         timestamp: SystemTime,
-    ) -> Result<Lease, ExtendLeaseError> {
-        lease::extend(self.bigtable.clone(), &self.instance, lease, dur, timestamp).await
+    ) -> Result<Lease, RetryError<ExtendLeaseError, tonic::Status>> {
+        lease::extend(
+            &self.bigtable,
+            &self.instance,
+            lease,
+            dur,
+            timestamp,
+            &self.metrics,
+        )
+        .await
     }
 
-    pub async fn terminate_lease(&self, lease: Lease) -> Result<(), tonic::Status> {
-        lease::terminate(self.bigtable.clone(), &self.instance, lease).await
+    pub async fn terminate_lease(&self, lease: Lease) -> Result<(), RetryError<tonic::Status>> {
+        lease::terminate(&self.bigtable, &self.instance, lease, &self.metrics).await
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ExtendLeaseError {
+    #[error("Tonic/gRPC error: {0}")]
     Rpc(tonic::Status),
+    #[error("not lease owner")]
     NotOwner,
-}
-
-impl From<tonic::Status> for ExtendLeaseError {
-    fn from(value: tonic::Status) -> Self {
-        ExtendLeaseError::Rpc(value)
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -31,6 +31,7 @@ juicebox_realm_api = { workspace = true }
 juicebox_realm_auth = { workspace = true }
 observability = { workspace = true }
 reqwest = { workspace = true }
+retry_loop = { workspace = true }
 secret_manager = { workspace = true }
 serde_json = { workspace = true }
 store = { workspace = true }

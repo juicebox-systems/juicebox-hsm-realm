@@ -57,14 +57,12 @@ use juicebox_networking::rpc::{self, Rpc, SendOptions};
 use juicebox_realm_api::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use juicebox_realm_api::types::RealmId;
 use observability::logging::TracingSource;
-use observability::metrics::{self};
-use observability::metrics_tag as tag;
+use observability::{metrics, metrics_tag as tag};
 use pubsub_api::{Message, Publisher};
+use retry_loop::RetryError;
 use service_core::rpc::{handle_rpc, HandlerError};
-use store::{
-    self, discovery, LogEntriesIter, LogEntriesIterError, LogRow, ReadLastLogEntryError,
-    ServiceKind,
-};
+use store::log::{LogEntriesIter, LogEntriesIterError, LogRow, ReadLastLogEntryFatal};
+use store::{discovery, ServiceKind};
 use tenants::UserAccountingWriter;
 
 #[derive(Debug)]
@@ -359,14 +357,14 @@ impl<T: Transport + 'static> Agent<T> {
         group: GroupId,
     ) -> Result<(), WatchingError> {
         match it.next().await {
-            Err(LogEntriesIterError::Grpc(err)) => {
-                warn!(?err, "error reading log");
-                sleep(Duration::from_millis(25)).await;
-                Ok(())
-            }
-            Err(ref err @ LogEntriesIterError::Compacted(index)) => {
+            Err(RetryError::Fatal {
+                error: ref err @ LogEntriesIterError::Compacted(index),
+            }) => {
                 warn!(?err, ?index, "fell behind on watching log");
                 Err(WatchingError::Compacted(index))
+            }
+            Err(err) => {
+                panic!("error watching log: {err:?}");
             }
             Ok(entries) if entries.is_empty() => {
                 sleep(Duration::from_millis(1)).await;
@@ -939,12 +937,9 @@ impl<T: Transport + 'static> Agent<T> {
                 self.finish_new_group(realm, group, vec![hsm_id], role);
                 Ok(Response::Ok { realm, group })
             }
-            Err(store::AppendError::Grpc(_)) => Ok(Response::NoStore),
-            Err(err @ store::AppendError::MerkleWrites(_)) => todo!("{err:?}"),
             Err(store::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
-            Err(store::AppendError::MerkleDeletes(_)) => {
-                unreachable!("no merkle nodes to delete")
-            }
+            Err(err) if err.is_no_store() => Ok(Response::NoStore),
+            Err(err) => todo!("{err:?}"),
         }
     }
 
@@ -1057,10 +1052,9 @@ impl<T: Transport + 'static> Agent<T> {
                 self.finish_new_group(realm, group, configuration, role);
                 Ok(Response::Ok { group, statement })
             }
-            Err(store::AppendError::Grpc(_)) => Ok(Response::NoStore),
-            Err(store::AppendError::MerkleWrites(_)) => unreachable!("no merkle writes"),
             Err(store::AppendError::LogPrecondition) => Ok(Response::StorePreconditionFailed),
-            Err(store::AppendError::MerkleDeletes(_)) => unreachable!("no merkle deletes"),
+            Err(err) if err.is_no_store() => Ok(Response::NoStore),
+            Err(err) => todo!("{err:?}"),
         }
     }
 
@@ -1157,19 +1151,21 @@ impl<T: Transport + 'static> Agent<T> {
             return Ok(Response::NoHsm);
         }
 
+        // TODO: replace ad hoc retry loop with `retry_loop`.
+        // TODO: need a bound on this retry loop.
         let last_entry: LogEntry = loop {
             let entry = match store
                 .read_last_log_entry(&request.realm, &request.group)
                 .await
             {
                 Ok(entry) => entry,
-                Err(ReadLastLogEntryError::EmptyLog) => {
+                Err(RetryError::Fatal { error }) => {
                     panic!(
-                        "store says log is empty for realm {:?} group {:?}",
+                        "error reading last log entry for realm {:?}, group {:?}: {error}",
                         request.realm, request.group
                     );
                 }
-                Err(ReadLastLogEntryError::Grpc(err)) => {
+                Err(err @ RetryError::Exhausted { .. }) => {
                     warn!(?err, "failed to read last log entry from store");
                     return Ok(Response::NoStore);
                 }
@@ -1208,6 +1204,8 @@ impl<T: Transport + 'static> Agent<T> {
             index=?last_entry_index,
             "read log entry, asking HSM to become leader"
         );
+        // TODO: replace ad hoc retry loop with `retry_loop`.
+        // TODO: need a bound on this retry loop.
         loop {
             match hsm
                 .send(hsm_api::BecomeLeaderRequest {
@@ -1511,8 +1509,10 @@ impl<T: Transport + 'static> Agent<T> {
                     .await
                 {
                     Ok(entry) => entry,
-                    Err(ReadLastLogEntryError::Grpc(_)) => return Err(Response::NoStore),
-                    Err(ReadLastLogEntryError::EmptyLog) => return Err(Response::InvalidGroup),
+                    Err(RetryError::Fatal {
+                        error: ReadLastLogEntryFatal::EmptyLog,
+                    }) => return Err(Response::InvalidGroup),
+                    Err(_) => return Err(Response::NoStore),
                 },
             };
 

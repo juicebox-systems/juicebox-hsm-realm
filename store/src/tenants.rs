@@ -22,6 +22,7 @@ use bigtable::mutate::{mutate_rows, MutateRowsError};
 use bigtable::read::Reader;
 use hsm_api::RecordId;
 use juicebox_realm_api::types::RealmId;
+use retry_loop::Retry;
 
 const FAMILY: &str = "f";
 const EVENT_COL: &[u8] = b"e";
@@ -266,7 +267,7 @@ impl StoreClient {
         };
         let mut bigtable = self.bigtable.clone();
         let mut results = Vec::new();
-        match Reader::read_rows_stream(&mut bigtable, read_req, |key, _cells| {
+        match Reader::read_rows_stream(&mut bigtable, Retry::disabled(), read_req, |key, _cells| {
             if let Some(t) = parse_tenant(&key.0) {
                 match results.last_mut() {
                     Some((last_tenant, count)) if last_tenant == t => *count += 1,
@@ -280,7 +281,7 @@ impl StoreClient {
         {
             Err(err) => {
                 warn!(?err, "couldn't read from bigtable");
-                Err(CountRealmUsersError::StoreRpc(err))
+                Err(CountRealmUsersError::StoreRpc(err.last().unwrap()))
             }
             Ok(_) => Ok(RealmUserSummary {
                 start: SystemTime::UNIX_EPOCH

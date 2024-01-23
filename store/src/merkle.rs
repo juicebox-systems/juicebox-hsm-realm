@@ -5,15 +5,15 @@ use google::bigtable::v2::{
     mutate_rows_request, mutation, read_rows_request, row_filter, MutateRowsRequest, Mutation,
     ReadRowsRequest, RowFilter, RowRange, RowSet,
 };
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{hash_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tonic::Code;
-use tracing::{instrument, trace, warn, Span};
+use tracing::{instrument, trace, Span};
 
 use super::{base128, StoreClient};
 use agent_api::merkle::{TreeStoreError, TreeStoreReader};
+use bigtable::bigtable_retries;
 use bigtable::mutate::{mutate_rows, MutateRowsError};
 use bigtable::read::Reader;
 use bigtable::{BigtableTableAdminClient, Instance};
@@ -22,8 +22,8 @@ use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey};
 use hsm_api::{DataHash, GroupId, RecordId};
 use juicebox_marshalling as marshalling;
 use juicebox_realm_api::types::RealmId;
-use observability::metrics;
-use observability::metrics_tag as tag;
+use observability::{metrics, metrics_tag as tag};
+use retry_loop::{retry_logging, Retry, RetryError};
 
 /// Wrapper for [`Instant`] used in the Merkle node cache.
 ///
@@ -45,8 +45,7 @@ impl lru_cache::Clock for MonotonicClock {
 type CacheStats = lru_cache::Stats<Instant>;
 
 /// Non-threadsafe Merkle node cache.
-type NodeCache =
-    lru_cache::Cache<StoreKey, Vec<u8>, MonotonicClock, std::collections::hash_map::RandomState>;
+type NodeCache = lru_cache::Cache<StoreKey, Vec<u8>, MonotonicClock, hash_map::RandomState>;
 
 /// Sharable and cheaply cloneable Merkle node cache.
 #[derive(Clone)]
@@ -114,21 +113,20 @@ pub(super) async fn initialize(
 }
 
 impl StoreClient {
-    #[instrument(level = "trace", skip(self, add), fields(retries))]
+    #[instrument(level = "trace", skip(self, add))]
     pub(super) async fn write_merkle_nodes(
         &self,
         realm: &RealmId,
         group: &GroupId,
         add: &BTreeMap<NodeKey<DataHash>, Node<DataHash>>,
-    ) -> Result<(), MutateRowsError> {
+    ) -> Result<(), RetryError<MutateRowsError>> {
         if add.is_empty() {
             return Ok(());
         }
 
-        let start = Instant::now();
-
-        let make_new_merkle_entries = || {
-            add.iter()
+        let run = |_| async {
+            let entries = add
+                .iter()
                 .map(|(key, value)| mutate_rows_request::Entry {
                     row_key: StoreKey::from(key).into_bytes(),
                     mutations: vec![Mutation {
@@ -140,46 +138,27 @@ impl StoreClient {
                         })),
                     }],
                 })
-                .collect::<Vec<_>>()
-        };
-
-        const MAX_RETRIES: usize = 3;
-        for retries in 0.. {
-            Span::current().record("retries", retries);
+                .collect::<Vec<_>>();
             let mut bigtable = self.bigtable.clone();
-            match mutate_rows(
+            mutate_rows(
                 &mut bigtable,
                 MutateRowsRequest {
                     table_name: merkle_table(&self.instance, realm),
                     app_profile_id: String::new(),
-                    entries: make_new_merkle_entries(),
+                    entries,
                 },
             )
-            .await
-            {
-                Ok(_) => break,
-                // Disconnect errors are buried under 'Unknown'. We'll only retry those.
-                Err(MutateRowsError::Tonic(status)) if status.code() == Code::Unknown => {
-                    warn!(
-                        ?realm,
-                        ?group,
-                        ?status,
-                        ?retries,
-                        "Tonic error writing new merkle nodes"
-                    );
-                    self.metrics.incr(
-                        "store_client.merkle_write.unknown_error",
-                        [tag!(?realm), tag!(?group)],
-                    );
-                    if retries >= MAX_RETRIES {
-                        return Err(MutateRowsError::Tonic(status));
-                    }
-                }
-                Err(err) => {
-                    return Err(err);
-                }
-            }
-        }
+            .await?;
+            Ok(())
+        };
+
+        let tags = [tag!(?realm), tag!(?group)];
+
+        Retry::new("writing merkle tree nodes")
+            .with(bigtable_retries)
+            .with_metrics(&self.metrics, "store_client.write_merkle_nodes", &tags)
+            .retry(run, retry_logging!())
+            .await?;
 
         let cache_stats = {
             let mut locked_cache = self.merkle_cache.0.lock().unwrap();
@@ -191,14 +170,7 @@ impl StoreClient {
             }
             locked_cache.stats()
         };
-
-        let tags = [tag!(?realm), tag!(?group)];
         report_cache_stats(&self.metrics, &tags, cache_stats);
-        self.metrics.timing(
-            "store_client.write_merkle_nodes.time",
-            start.elapsed(),
-            &tags,
-        );
         Ok(())
     }
 
@@ -324,8 +296,6 @@ impl TreeStoreReader<DataHash> for StoreClient {
         root_hash: &DataHash,
         tags: &[metrics::Tag],
     ) -> Result<HashMap<DataHash, Node<DataHash>>, TreeStoreError> {
-        let start = Instant::now();
-
         // Read as much as possible from the cache.
         let (cached_nodes, next) = {
             let result = {
@@ -362,6 +332,9 @@ impl TreeStoreReader<DataHash> for StoreClient {
         // Read the rest from Bigtable.
         let rows = Reader::read_rows(
             &mut self.bigtable.clone(),
+            Retry::new("merkle tree path lookup")
+                .with(bigtable_retries)
+                .with_metrics(&self.metrics, "store_client.path_lookup", tags),
             ReadRowsRequest {
                 table_name: merkle_table(&self.instance, realm),
                 app_profile_id: String::new(),
@@ -443,8 +416,6 @@ impl TreeStoreReader<DataHash> for StoreClient {
         }
 
         Span::current().record("num_result_nodes", nodes.len());
-        self.metrics
-            .timing("store_client.path_lookup.time", start.elapsed(), tags);
         Ok(nodes)
     }
 
@@ -470,6 +441,9 @@ impl TreeStoreReader<DataHash> for StoreClient {
         // Read from Bigtable.
         let rows = Reader::read_rows(
             &mut self.bigtable.clone(),
+            Retry::new("read merkle tree node")
+                .with(bigtable_retries)
+                .with_metrics(&self.metrics, "store_client.read_node", tags),
             ReadRowsRequest {
                 table_name: merkle_table(&self.instance, realm),
                 app_profile_id: String::new(),

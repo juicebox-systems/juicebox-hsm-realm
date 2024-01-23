@@ -8,6 +8,7 @@ use agent_api::StatusRequest;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
 use juicebox_sdk::RealmId;
+use retry_loop::RetryError;
 use store::StoreClient;
 
 use crate::UserSummaryWhen;
@@ -72,7 +73,7 @@ fn date_range(
 async fn find_realms(
     store: &StoreClient,
     agents_client: &Client,
-) -> Result<Vec<RealmId>, tonic::Status> {
+) -> Result<Vec<RealmId>, RetryError<tonic::Status>> {
     let agents = store.get_addresses(Some(store::ServiceKind::Agent)).await?;
 
     let status = join_all(

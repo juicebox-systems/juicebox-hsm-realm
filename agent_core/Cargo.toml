@@ -32,6 +32,7 @@ observability = { workspace = true }
 opentelemetry = { workspace = true }
 pubsub_api = { workspace = true }
 reqwest = { workspace = true }
+retry_loop = { workspace = true }
 serde_json = { workspace = true }
 service_core = { workspace = true }
 store = { workspace = true }
