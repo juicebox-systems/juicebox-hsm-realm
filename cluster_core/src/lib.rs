@@ -11,6 +11,7 @@ use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex};
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError, SendOptions};
 use juicebox_realm_api::types::RealmId;
+use retry_loop::RetryError;
 use service_core::http::ReqwestClientMetrics;
 
 mod leader;
@@ -22,20 +23,12 @@ pub use leader::{discover_hsm_ids, find_leaders};
 pub use realm::{join_realm, new_group, new_realm, JoinRealmError, NewGroupError, NewRealmError};
 pub use transfer::{transfer, TransferError};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    Grpc(tonic::Status),
-    Rpc(RpcError),
-}
-impl From<tonic::Status> for Error {
-    fn from(value: tonic::Status) -> Self {
-        Self::Grpc(value)
-    }
-}
-impl From<RpcError> for Error {
-    fn from(value: RpcError) -> Self {
-        Self::Rpc(value)
-    }
+    #[error("Tonic/gRPC error: {0}")]
+    Grpc(#[from] RetryError<tonic::Status>),
+    #[error("RPC error: {0}")]
+    Rpc(#[from] RpcError),
 }
 
 async fn wait_for_commit(

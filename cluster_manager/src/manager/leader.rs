@@ -6,8 +6,8 @@ use url::Url;
 
 use super::{ManagementGrant, Manager};
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse};
-use cluster_core::get_hsm_statuses;
 use cluster_core::workload::{HsmWorkload, WorkAmount};
+use cluster_core::{get_hsm_statuses, Error};
 use hsm_api::{GroupId, HsmId, LogIndex};
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
@@ -16,7 +16,7 @@ use store::ServiceKind;
 
 impl Manager {
     #[instrument(level = "trace", skip(self))]
-    pub(super) async fn ensure_groups_have_leader(&self) -> Result<(), anyhow::Error> {
+    pub(super) async fn ensure_groups_have_leader(&self) -> Result<(), Error> {
         let addresses = self.0.store.get_addresses(Some(ServiceKind::Agent)).await?;
         let hsm_status = get_hsm_statuses(
             &self.0.agents,
