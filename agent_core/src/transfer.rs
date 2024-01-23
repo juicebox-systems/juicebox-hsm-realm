@@ -14,7 +14,7 @@ use hsm_api::merkle::{Dir, StoreDelta};
 use hsm_api::{GroupId, GroupMemberRole, LogIndex, RoleLogicalClock, TransferInProofs};
 use juicebox_realm_api::types::RealmId;
 use observability::metrics_tag as tag;
-use observability::retry_loop::RetryError;
+use retry_loop::RetryError;
 use service_core::rpc::HandlerError;
 use store::log::ReadLastLogEntryFatal;
 

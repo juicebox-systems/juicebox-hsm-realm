@@ -11,8 +11,7 @@ use tonic::codegen::{Body, Bytes, StdError};
 use tracing::{instrument, Span};
 
 use super::inspect_grpc_error;
-use observability::retry_logging;
-use observability::retry_loop::{Retry, RetryError};
+use retry_loop::{retry_logging, Retry, RetryError};
 
 #[derive(Clone, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct RowKey(pub Vec<u8>);

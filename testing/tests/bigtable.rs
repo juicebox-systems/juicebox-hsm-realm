@@ -12,7 +12,7 @@ use hsm_core::merkle::Tree;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::types::RealmId;
 use observability::metrics;
-use observability::retry_loop::RetryError;
+use retry_loop::RetryError;
 use store::log::testing::{new_log_row, read_log_entry, ReadLogEntryError, TOMBSTONE_WINDOW_SIZE};
 use store::log::{LogEntriesIterError, LogRow, ReadLastLogEntryFatal};
 use store::tenants::UserAccounting;

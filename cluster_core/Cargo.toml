@@ -14,6 +14,7 @@ hsm_api = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_realm_api = { workspace = true }
 observability = { workspace = true }
+retry_loop = { workspace = true }
 service_core = { workspace = true }
 store = { workspace = true }
 thiserror = { workspace = true }

@@ -5,7 +5,7 @@
 //! debt. The repeating pattern has been that, as we gain operational
 //! experience, we want the loops to have better observability, better limits,
 //! apply backoff, etc. These features are tedious to apply universally and
-//! consistently, so this module implements our retry loop best practices in a
+//! consistently, so this crate implements our retry loop best practices in a
 //! single place.
 //!
 //!  The [`Retry`] loop supports:
@@ -22,8 +22,7 @@ use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout_at};
 use tracing::{instrument, Span};
 
-use crate::metrics;
-use crate::metrics_tag;
+use observability::{metrics, metrics_tag};
 
 /// Encodes what happened in the retry loop after an attempt.
 ///
@@ -105,7 +104,7 @@ macro_rules! retry_logging_debug {
 #[doc(hidden)]
 macro_rules! _retry_logging {
     ($error_trait:path, $error_fmt:expr) => {{
-        use $crate::retry_loop::Event;
+        use $crate::Event;
         fn handle(
             event: &Event<
                 impl $error_trait + std::fmt::Debug,
@@ -408,7 +407,7 @@ pub struct Context {
 
 /// Configuration for a feature-rich retry loop.
 ///
-/// See the [module-level documentation](`crate::retry_loop`).
+/// See the [crate-level documentation](`crate`).
 #[derive(Debug)]
 pub struct Retry<'a> {
     /// If true, [`Self::retry`] will make a single complete attempt and return

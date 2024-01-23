@@ -6,7 +6,7 @@ use tracing::warn;
 use bigtable::read::Reader;
 use hsm_api::{GroupId, LogIndex};
 use juicebox_sdk::RealmId;
-use observability::retry_loop::Retry;
+use retry_loop::Retry;
 use store::log::testing::{log_table, parse_log_key};
 use store::StoreClient;
 

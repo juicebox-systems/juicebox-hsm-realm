@@ -11,7 +11,7 @@ use agent_api::{StatusRequest, StatusResponse};
 use hsm_api::{GroupId, HsmId};
 use juicebox_networking::rpc::{self, SendOptions};
 use juicebox_realm_api::types::RealmId;
-use observability::retry_loop::RetryError;
+use retry_loop::RetryError;
 use store::{ServiceKind, StoreClient};
 
 pub async fn find_leaders(

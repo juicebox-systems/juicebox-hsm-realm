@@ -4,7 +4,7 @@ use tracing::instrument;
 use super::inspect_grpc_error;
 use super::BigtableClient;
 use observability::metrics_tag as tag;
-use observability::retry_loop::AttemptError;
+use retry_loop::AttemptError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MutateRowsError {

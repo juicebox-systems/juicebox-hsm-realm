@@ -15,10 +15,8 @@ use super::{
     LeaseKey,
 };
 use bigtable::{bigtable_retries, inspect_grpc_error};
-use observability::metrics;
-use observability::metrics_tag as tag;
-use observability::retry_logging;
-use observability::retry_loop::{AttemptError, Retry, RetryError};
+use observability::{metrics, metrics_tag as tag};
+use retry_loop::{retry_logging, AttemptError, Retry, RetryError};
 use tracing::warn;
 
 const FAMILY: &str = "f";

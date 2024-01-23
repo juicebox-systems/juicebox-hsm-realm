@@ -13,7 +13,7 @@ use hsm_api::RecordId;
 use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::{Pin, Policy, RealmId, UserInfo, UserSecret};
 use observability::metrics;
-use observability::retry_loop::Retry;
+use retry_loop::Retry;
 use store::tenants::tenant_user_table;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};

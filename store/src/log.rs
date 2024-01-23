@@ -72,10 +72,8 @@ use bigtable::{BigtableClient, BigtableTableAdminClient, Instance};
 use hsm_api::{GroupId, LogEntry, LogIndex};
 use juicebox_marshalling as marshalling;
 use juicebox_realm_api::types::RealmId;
-use observability::metrics;
-use observability::metrics_tag as tag;
-use observability::retry_logging;
-use observability::retry_loop::{AttemptError, Context, Retry, RetryError};
+use observability::{metrics, metrics_tag as tag};
+use retry_loop::{retry_logging, AttemptError, Context, Retry, RetryError};
 
 /// Defines how many tombstones can be intermingled with log entry rows.
 ///

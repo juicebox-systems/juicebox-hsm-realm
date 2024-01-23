@@ -23,9 +23,8 @@ use bigtable::{
 use hsm_api::merkle::StoreDelta;
 use hsm_api::{DataHash, EntryMac, GroupId, LogEntry, LogIndex};
 use juicebox_realm_api::types::RealmId;
-use observability::metrics;
-use observability::metrics_tag as tag;
-use observability::retry_loop::{Retry, RetryError};
+use observability::{metrics, metrics_tag as tag};
+use retry_loop::{Retry, RetryError};
 use service_core::clap_parsers::parse_duration;
 
 mod base128;

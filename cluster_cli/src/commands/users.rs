@@ -8,7 +8,7 @@ use agent_api::StatusRequest;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
 use juicebox_sdk::RealmId;
-use observability::retry_loop::RetryError;
+use retry_loop::RetryError;
 use store::StoreClient;
 
 use crate::UserSummaryWhen;

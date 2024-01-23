@@ -22,10 +22,8 @@ use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey};
 use hsm_api::{DataHash, GroupId, RecordId};
 use juicebox_marshalling as marshalling;
 use juicebox_realm_api::types::RealmId;
-use observability::metrics;
-use observability::metrics_tag as tag;
-use observability::retry_logging;
-use observability::retry_loop::{Retry, RetryError};
+use observability::{metrics, metrics_tag as tag};
+use retry_loop::{retry_logging, Retry, RetryError};
 
 /// Wrapper for [`Instant`] used in the Merkle node cache.
 ///

@@ -15,8 +15,8 @@ use super::{to_micros, BigtableClient, BigtableTableAdminClient, Instance, RowKe
 use bigtable::mutate::mutate_rows;
 use bigtable::read::Reader;
 use bigtable::{bigtable_retries, inspect_grpc_error};
-use observability::retry_loop::{Retry, RetryError};
-use observability::{metrics, retry_logging};
+use observability::metrics;
+use retry_loop::{retry_logging, Retry, RetryError};
 
 /// Agents should register themselves with service discovery this often.
 pub const REGISTER_INTERVAL: Duration = Duration::from_secs(60 * 10);

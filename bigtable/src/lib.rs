@@ -10,7 +10,7 @@ use google::conn::MaxConnectionLifetime;
 use google::GrpcConnectionOptions;
 use observability::metrics;
 use observability::metrics_tag as tag;
-use observability::retry_loop::{AttemptError, Retry};
+use retry_loop::{AttemptError, Retry};
 
 pub mod mutate;
 pub mod read;

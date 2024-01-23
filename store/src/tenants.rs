@@ -22,7 +22,7 @@ use bigtable::mutate::{mutate_rows, MutateRowsError};
 use bigtable::read::Reader;
 use hsm_api::RecordId;
 use juicebox_realm_api::types::RealmId;
-use observability::retry_loop::Retry;
+use retry_loop::Retry;
 
 const FAMILY: &str = "f";
 const EVENT_COL: &[u8] = b"e";
