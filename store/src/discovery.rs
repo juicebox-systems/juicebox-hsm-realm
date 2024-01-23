@@ -2,8 +2,8 @@ use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
 use google::bigtable::v2::row_range::{EndKey, StartKey};
 use google::bigtable::v2::{
-    mutate_rows_request, mutation, read_rows_request, MutateRowRequest, MutateRowResponse,
-    MutateRowsRequest, Mutation, ReadRowsRequest, RowRange, RowSet,
+    mutate_rows_request, mutation, read_rows_request, MutateRowRequest, MutateRowsRequest,
+    Mutation, ReadRowsRequest, RowRange, RowSet,
 };
 use std::collections::HashMap;
 use std::str;
@@ -14,6 +14,9 @@ use url::Url;
 use super::{to_micros, BigtableClient, BigtableTableAdminClient, Instance, RowKey, ServiceKind};
 use bigtable::mutate::mutate_rows;
 use bigtable::read::Reader;
+use bigtable::{bigtable_retries, inspect_grpc_error};
+use observability::retry_loop::{Retry, RetryError};
+use observability::{metrics, retry_logging};
 
 /// Agents should register themselves with service discovery this often.
 pub const REGISTER_INTERVAL: Duration = Duration::from_secs(60 * 10);
@@ -76,7 +79,8 @@ pub(super) async fn get_addresses(
     mut bigtable: BigtableClient,
     instance: &Instance,
     kind: Option<ServiceKind>,
-) -> Result<Vec<(Url, ServiceKind)>, tonic::Status> {
+    metrics: metrics::Client,
+) -> Result<Vec<(Url, ServiceKind)>, RetryError<tonic::Status>> {
     let row_set = kind.map(|s| RowSet {
         row_keys: Vec::new(),
         row_ranges: vec![RowRange {
@@ -88,6 +92,9 @@ pub(super) async fn get_addresses(
     });
     let rows = match Reader::read_rows(
         &mut bigtable,
+        Retry::new("read Bigtable service discovery table")
+            .with(bigtable_retries)
+            .with_metrics(&metrics, "store_client.discovery.get_addresses", &[]),
         ReadRowsRequest {
             table_name: discovery_table(instance),
             app_profile_id: String::new(),
@@ -101,11 +108,11 @@ pub(super) async fn get_addresses(
     .await
     {
         Ok(rows) => rows,
-        Err(e) if e.code() == tonic::Code::NotFound => {
+        Err(RetryError::Fatal { error }) if error.code() == tonic::Code::NotFound => {
             warn!(
-                error = e.message(),
+                error = error.message(),
                 "couldn't read from Bigtable service discovery table \
-                    (the cluster manager should create it)"
+                (the cluster manager should create it)"
             );
             return Ok(Vec::new());
         }
@@ -134,65 +141,84 @@ pub(super) async fn get_addresses(
 
     if !expired.is_empty() {
         let table_name = discovery_table(instance);
-        tokio::spawn(async move {
-            let len = expired.len();
-            let r = mutate_rows(
-                &mut bigtable,
-                MutateRowsRequest {
-                    table_name,
-                    app_profile_id: String::new(),
-                    entries: expired
-                        .into_iter()
-                        .map(|key| mutate_rows_request::Entry {
-                            row_key: key.0,
-                            mutations: vec![Mutation {
-                                mutation: Some(mutation::Mutation::DeleteFromRow(
-                                    mutation::DeleteFromRow {},
-                                )),
-                            }],
-                        })
-                        .collect(),
-                },
-            )
-            .await;
-            match r {
-                Err(e) => warn!(error = ?e, "failed to remove expired discovery entries"),
-                Ok(_) => debug!(num=?len, "removed expired discovery entries"),
-            }
-        });
+        tokio::spawn(delete_expired(bigtable, table_name, expired, metrics));
     }
 
     Ok(addresses)
 }
 
+async fn delete_expired(
+    bigtable: BigtableClient,
+    table_name: String,
+    expired: Vec<RowKey>,
+    metrics: metrics::Client,
+) {
+    let run = |_| async {
+        let request = MutateRowsRequest {
+            table_name: table_name.clone(),
+            app_profile_id: String::new(),
+            entries: expired
+                .iter()
+                .map(|key| mutate_rows_request::Entry {
+                    row_key: key.0.clone(),
+                    mutations: vec![Mutation {
+                        mutation: Some(mutation::Mutation::DeleteFromRow(
+                            mutation::DeleteFromRow {},
+                        )),
+                    }],
+                })
+                .collect(),
+        };
+        mutate_rows(&mut bigtable.clone(), request).await?;
+        Ok(())
+    };
+
+    match Retry::new("deleting expired service discovery entries")
+        .with(bigtable_retries)
+        .with_metrics(&metrics, "store_client.discovery.delete_expired", &[])
+        .retry(run, retry_logging!())
+        .await
+    {
+        Ok(()) => {
+            debug!(num = expired.len(), "removed expired discovery entries");
+        }
+        Err(_) => {
+            // The Retry loop already logged a warning.
+        }
+    }
+}
+
 pub(super) async fn set_address(
-    mut bigtable: BigtableClient,
+    bigtable: &BigtableClient,
     instance: &Instance,
     address: &Url,
     kind: ServiceKind,
     // timestamp of the registration, typically SystemTime::now()
     timestamp: SystemTime,
-) -> Result<(), tonic::Status> {
+    metrics: metrics::Client,
+) -> Result<(), RetryError<tonic::Status>> {
     // Timestamps are in microseconds, but need to be rounded to milliseconds
     // (or coarser depending on table schema). Come back before April 11, 2262
     // to fix this.
     let timestamp_micros = to_micros(timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap());
 
-    // Row keys are service_kind_key || url. There's one empty cell that has the timestamp.
-    let mut row_key = Vec::with_capacity(1 + address.as_str().as_bytes().len());
-    row_key.push(service_kind_key(kind));
-    row_key.extend_from_slice(address.as_ref().as_bytes());
+    let run = |_| async {
+        // Row keys are service_kind_key || url. There's one empty cell that has the timestamp.
+        let mut row_key = Vec::with_capacity(1 + address.as_str().as_bytes().len());
+        row_key.push(service_kind_key(kind));
+        row_key.extend_from_slice(address.as_ref().as_bytes());
 
-    let MutateRowResponse { /* empty */ } =
-            bigtable
-            .mutate_row(MutateRowRequest {
-                table_name: discovery_table(instance),
-                app_profile_id: String::new(),
-                row_key,
-                mutations: vec![Mutation {
-                    mutation: Some(mutation::Mutation::DeleteFromFamily(mutation::DeleteFromFamily {
-                        family_name: String::from("f"),
-                    })),
+        let request = MutateRowRequest {
+            table_name: discovery_table(instance),
+            app_profile_id: String::new(),
+            row_key,
+            mutations: vec![
+                Mutation {
+                    mutation: Some(mutation::Mutation::DeleteFromFamily(
+                        mutation::DeleteFromFamily {
+                            family_name: String::from("f"),
+                        },
+                    )),
                 },
                 Mutation {
                     mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
@@ -201,11 +227,22 @@ pub(super) async fn set_address(
                         timestamp_micros,
                         value: Vec::new(),
                     })),
-               }],
-            })
-            .await?
-            .into_inner();
-    Ok(())
+                },
+            ],
+        };
+        bigtable
+            .clone()
+            .mutate_row(request)
+            .await
+            .map_err(inspect_grpc_error)?;
+        Ok(())
+    };
+
+    Retry::new("registering service discovery address")
+        .with(bigtable_retries)
+        .with_metrics(&metrics, "store_client.discovery.set_address", &[])
+        .retry(run, retry_logging!())
+        .await
 }
 
 fn parse_row_key(b: &[u8]) -> Option<(Url, ServiceKind)> {

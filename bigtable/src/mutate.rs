@@ -1,14 +1,45 @@
 use google::bigtable::v2::MutateRowsRequest;
 use tracing::instrument;
 
+use super::inspect_grpc_error;
 use super::BigtableClient;
+use observability::metrics_tag as tag;
+use observability::retry_loop::AttemptError;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum MutateRowsError {
+    #[error("Tonic/gRPC error: {0}")]
     Tonic(tonic::Status),
+
+    /// An individual mutation failed.
+    ///
+    /// TODO: Can this even happen in practice? If not, we can probably get rid
+    /// of this enum.
+    #[error("Bigtable mutation error (code: {}): {}", .0.code, .0.message)]
     Mutation(google::rpc::Status),
 }
 
+/// This is convenient for [retry loops](`observability::retry_loop`).
+impl From<MutateRowsError> for AttemptError<MutateRowsError> {
+    fn from(error: MutateRowsError) -> Self {
+        match error {
+            MutateRowsError::Tonic(error) => {
+                inspect_grpc_error(error).map_err(MutateRowsError::Tonic)
+            }
+            MutateRowsError::Mutation(status) => AttemptError::Fatal {
+                tags: vec![tag!("kind": "mutation"), tag!("rpc_status": status.code)],
+                error: MutateRowsError::Mutation(status),
+            },
+        }
+    }
+}
+
+/// Modifies zero or more rows in a single Bigtable table.
+///
+/// Callers must handle their own retries. This function doesn't retry the
+/// request upon transient errors because not all requests are idempotent. For
+/// example, a request could create a new cell, which could accumulate if
+/// retried.
 #[instrument(level = "trace", skip(bigtable, request), fields(num_request_mutations = request.entries.len()))]
 pub async fn mutate_rows(
     bigtable: &mut BigtableClient,

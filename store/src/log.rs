@@ -62,18 +62,20 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::time::Instant;
 use thiserror::Error;
-use tonic::Code;
-use tracing::{info, instrument, warn, Span};
+use tracing::{info, instrument, Span};
 
 use super::{AppendError, StoreClient};
 use bigtable::mutate::{mutate_rows, MutateRowsError};
 use bigtable::read::{Cell, Reader, RowKey};
+use bigtable::{bigtable_retries, inspect_grpc_error};
 use bigtable::{BigtableClient, BigtableTableAdminClient, Instance};
 use hsm_api::{GroupId, LogEntry, LogIndex};
 use juicebox_marshalling as marshalling;
 use juicebox_realm_api::types::RealmId;
 use observability::metrics;
 use observability::metrics_tag as tag;
+use observability::retry_logging;
+use observability::retry_loop::{AttemptError, Context, Retry, RetryError};
 
 /// Defines how many tombstones can be intermingled with log entry rows.
 ///
@@ -277,9 +279,11 @@ pub struct LogRow {
 /// caller should request the next page.
 struct More(bool);
 
-/// Error type for [`StoreClient::read_last_log_entry`].
+pub type ReadLastLogEntryError = RetryError<ReadLastLogEntryFatal, ReadLastLogEntryRetryable>;
+
+/// Error type for [`StoreClient::read_last_log_entry`] fatal errors.
 #[derive(Debug, thiserror::Error)]
-pub enum ReadLastLogEntryError {
+pub enum ReadLastLogEntryFatal {
     #[error("failed to read the last log entry: empty log")]
     EmptyLog,
 
@@ -287,7 +291,17 @@ pub enum ReadLastLogEntryError {
     Grpc(#[from] tonic::Status),
 }
 
-/// Error type for [`StoreClient::read_log_entries_iter`].
+/// Error type for [`StoreClient::read_last_log_entry`] retryable errors.
+#[derive(Debug, thiserror::Error)]
+pub enum ReadLastLogEntryRetryable {
+    #[error(transparent)]
+    Grpc(#[from] tonic::Status),
+
+    #[error("failed to read the last log entry: found tombstone at {index}")]
+    Tombstone { index: LogIndex },
+}
+
+/// Error type for [`StoreClient::read_log_entries_iter`] fatal errors.
 #[derive(Debug, thiserror::Error)]
 pub enum LogEntriesIterError {
     #[error(
@@ -298,6 +312,17 @@ pub enum LogEntriesIterError {
 
     #[error(transparent)]
     Grpc(#[from] tonic::Status),
+
+    #[error("failed to read last log entry as needed to iterate log entries: {0}")]
+    ReadingLastEntry(ReadLastLogEntryError),
+}
+
+/// Describes the state of a log after a log append may or may not have
+/// completed. See [`Store::log_append_completed`].
+enum LogAppendStatus {
+    Completed(LogRow),
+    MayRetry,
+    LogPreconditionFailed,
 }
 
 impl StoreClient {
@@ -310,7 +335,6 @@ impl StoreClient {
         level = "trace",
         skip(self, bigtable, entries),
         fields(
-            retries,
             first_index = ?entries[0].index,
             num_entries = entries.len(),
         ),
@@ -322,108 +346,153 @@ impl StoreClient {
         group: &GroupId,
         entries: &[LogEntry],
     ) -> Result<LogRow, AppendError> {
-        const MAX_RETRIES: usize = 3;
-        for retries in 0.. {
-            Span::current().record("retries", retries);
+        match Retry::new("appending log entries")
+            .with(bigtable_retries)
+            .with_metrics(
+                &self.metrics,
+                "store_client.log_append",
+                &[tag!(?realm), tag!(?group)],
+            )
+            .retry(
+                |context| self.attempt_log_append(bigtable.clone(), realm, group, entries, context),
+                retry_logging!(),
+            )
+            .await
+        {
+            Ok(row) => Ok(row),
+            Err(RetryError::Exhausted { last }) => {
+                Err(AppendError::LogWrite(RetryError::Exhausted { last }))
+            }
+            Err(RetryError::Fatal { error }) => Err(error),
+        }
+    }
 
-            match bigtable
-                .check_and_mutate_row(CheckAndMutateRowRequest {
-                    table_name: log_table(&self.instance, realm),
-                    app_profile_id: String::new(),
-                    row_key: log_key(group, entries[0].index),
-                    predicate_filter: None, // check for any value, including tombstones
-                    true_mutations: Vec::new(),
-                    false_mutations: entries
-                        .iter()
-                        .map(|entry| Mutation {
-                            mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
-                                family_name: LogFamily::EntryBatch.name_string(),
-                                column_qualifier: DownwardLogIndex(entry.index).bytes().to_vec(),
-                                timestamp_micros: -1,
-                                value: marshalling::to_vec(entry).expect("TODO"),
-                            })),
-                        })
-                        .collect(),
-                })
-                .await
-            {
-                Err(status) if status.code() == Code::Unknown => {
-                    // Disconnect errors get bundled under Unknown. We need to
-                    // determine the current state of the row in bigtable before
-                    // attempting a retry, otherwise we can trip the log
-                    // precondition check unintentionally.
-                    warn!(?realm, ?group, ?status, "error while appending log entry");
-                    self.metrics.incr(
-                        "store_client.log_append.unknown_error",
-                        [tag!(?realm), tag!(?group)],
-                    );
-
-                    match self.read_last_log_entry_with_row(realm, group).await {
-                        Ok((_, entry)) if entry.index.next() == entries[0].index => {
-                            // Latest log entry is before the first one we're
-                            // trying to write. The row wasn't written and we
-                            // can retry that.
-                            info!(
-                                ?realm,
-                                ?group,
-                                "GRPC Unknown error and it appears the log entries weren't written"
-                            );
-                        }
-                        Ok((row, entry))
-                            if row.index == entries[0].index
-                                && entry == *entries.last().unwrap() =>
-                        {
-                            // Latest log row matches the entries we were
-                            // writing. The write succeeded.
-                            info!(
-                                ?realm,
-                                ?group,
-                                "GRPC Unknown error and it appears the log entries were written"
-                            );
-                            return Ok(row);
-                        }
-                        Ok(_) => {
-                            // Latest log entry does not match anything we're
-                            // expecting. It must have been written by another
-                            // leader.
-                            info!(
-                                ?realm,
-                                ?group,
-                                "GRPC Unknown error and it appears a log entry was written by someone else"
-                            );
-                            return Err(AppendError::LogPrecondition);
-                        }
-                        Err(ReadLastLogEntryError::EmptyLog) => {
-                            // No log entry at all, safe to retry.
-                            info!(
-                                ?realm,
-                                ?group,
-                                "GRPC Unknown error and the log appears empty"
-                            );
-                            // For anything but the first entry, the caller
-                            // should have already checked that the log isn't
-                            // empty.
-                            assert_eq!(entries[0].index, LogIndex::FIRST);
-                        }
-                        Err(ReadLastLogEntryError::Grpc(e)) => return Err(e.into()),
-                    }
-                    if retries >= MAX_RETRIES {
-                        return Err(AppendError::Grpc(status));
-                    }
+    /// Helper to [`Self::log_append`] that does a single attempt.
+    async fn attempt_log_append(
+        &self,
+        mut bigtable: BigtableClient,
+        realm: &RealmId,
+        group: &GroupId,
+        entries: &[LogEntry],
+        context: Context,
+    ) -> Result<LogRow, AttemptError<AppendError, tonic::Status>> {
+        if context.attempt > 1 {
+            // We need to determine the current state of the row in Bigtable
+            // before attempting a retry. Otherwise, we can trip the log
+            // precondition check on ourselves.
+            match self.log_append_completed(realm, group, entries).await {
+                Ok(LogAppendStatus::Completed(row)) => return Ok(row),
+                Ok(LogAppendStatus::MayRetry) => { /* keep going below */ }
+                Ok(LogAppendStatus::LogPreconditionFailed) => {
+                    return Err(AttemptError::Fatal {
+                        error: AppendError::LogPrecondition,
+                        tags: vec![tag!("kind": "log_precondition")],
+                    })
                 }
-                Err(status) => return Err(AppendError::Grpc(status)),
-                Ok(append_response) => {
-                    if append_response.into_inner().predicate_matched {
-                        return Err(AppendError::LogPrecondition);
-                    }
-                    return Ok(LogRow {
-                        index: entries[0].index,
-                        is_tombstone: false,
-                    });
+                Err(err) => {
+                    return Err(AttemptError::Fatal {
+                        error: AppendError::UnknownLogState(err),
+                        tags: vec![tag!("kind": "unknown_log_state")],
+                    })
                 }
             }
         }
-        unreachable!()
+
+        let request = CheckAndMutateRowRequest {
+            table_name: log_table(&self.instance, realm),
+            app_profile_id: String::new(),
+            row_key: log_key(group, entries[0].index),
+            predicate_filter: None, // check for any value, including tombstones
+            true_mutations: Vec::new(),
+            false_mutations: entries
+                .iter()
+                .map(|entry| Mutation {
+                    mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
+                        family_name: LogFamily::EntryBatch.name_string(),
+                        column_qualifier: DownwardLogIndex(entry.index).bytes().to_vec(),
+                        timestamp_micros: -1,
+                        value: marshalling::to_vec(entry).expect("TODO"),
+                    })),
+                })
+                .collect(),
+        };
+
+        match bigtable.check_and_mutate_row(request).await {
+            Err(error) => Err(inspect_grpc_error(error)
+                .map_fatal_err(|error| AppendError::LogWrite(RetryError::Fatal { error }))),
+            Ok(append_response) => {
+                if append_response.into_inner().predicate_matched {
+                    Err(AttemptError::Fatal {
+                        error: AppendError::LogPrecondition,
+                        tags: vec![tag!("kind": "log_precondition")],
+                    })
+                } else {
+                    Ok(LogRow {
+                        index: entries[0].index,
+                        is_tombstone: false,
+                    })
+                }
+            }
+        }
+    }
+
+    /// Helper to [`Self::log_append`] used to determine what to do when the
+    /// append did not return a successful acknowledgement.
+    async fn log_append_completed(
+        &self,
+        realm: &RealmId,
+        group: &GroupId,
+        entries: &[LogEntry],
+    ) -> Result<LogAppendStatus, ReadLastLogEntryError> {
+        match self.read_last_log_entry_with_row(realm, group).await {
+            Ok((_, entry)) if entry.index.next() == entries[0].index => {
+                // Latest log entry is before the first one we're trying to
+                // write. The row wasn't written and we can retry that.
+                info!(
+                    ?realm,
+                    ?group,
+                    "GRPC transient error and it appears the log entries weren't written"
+                );
+                Ok(LogAppendStatus::MayRetry)
+            }
+            Ok((row, entry))
+                if row.index == entries[0].index && entry == *entries.last().unwrap() =>
+            {
+                // Latest log row matches the entries we were writing. The
+                // write succeeded.
+                info!(
+                    ?realm,
+                    ?group,
+                    "GRPC transient error and it appears the log entries were written"
+                );
+                Ok(LogAppendStatus::Completed(row))
+            }
+            Ok(_) => {
+                // Latest log entry does not match anything we're expecting. It
+                // must have been written by another leader.
+                info!(
+                    ?realm,
+                    ?group,
+                    "GRPC transient error and it appears a log entry was written by someone else"
+                );
+                Ok(LogAppendStatus::LogPreconditionFailed)
+            }
+            Err(RetryError::Fatal {
+                error: ReadLastLogEntryFatal::EmptyLog,
+            }) => {
+                // No log entry at all, safe to retry.
+                info!(
+                    ?realm,
+                    ?group,
+                    "GRPC transient error and the log appears empty"
+                );
+                // For anything but the first entry, the caller should have
+                // already checked that the log isn't empty.
+                assert_eq!(entries[0].index, LogIndex::FIRST);
+                Ok(LogAppendStatus::MayRetry)
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Reads and returns the newest entry at the end of the log.
@@ -446,8 +515,6 @@ impl StoreClient {
         realm: &RealmId,
         group: &GroupId,
     ) -> Result<(LogRow, LogEntry), ReadLastLogEntryError> {
-        let start = Instant::now();
-
         // Retry when the last entry appears to be a tombstone. The last log
         // entry should never be a tombstone, but it might appear so with
         // concurrent operations:
@@ -459,10 +526,8 @@ impl StoreClient {
         //                                     commit entry 13
         //                                     replace 12 with tombstone
         //     read entry 12 -> tombstone
-        let mut attempt: u64 = 0;
-        loop {
-            attempt += 1;
 
+        let run = |_| async {
             let request = ReadRowsRequest {
                 table_name: log_table(&self.instance, realm),
                 app_profile_id: String::new(),
@@ -481,23 +546,31 @@ impl StoreClient {
                 reversed: false,
             };
 
+            // Don't do retries on the inner read since this is already in a
+            // tight retry loop.
             let (row_index, cell) =
-                match Reader::read_cell(&mut self.bigtable.clone(), request).await? {
+                match Reader::read_cell(&mut self.bigtable.clone(), Retry::disabled(), request)
+                    .await
+                    .map_err(|error| {
+                        inspect_grpc_error(error.last().unwrap())
+                            .map_fatal_err(ReadLastLogEntryFatal::Grpc)
+                            .map_retryable_err(ReadLastLogEntryRetryable::Grpc)
+                    })? {
                     Some((key, cell)) => {
                         let (_, row_index) = parse_log_key(&key).unwrap();
                         (row_index, cell)
                     }
-                    None => return Err(ReadLastLogEntryError::EmptyLog),
+                    None => {
+                        return Err(AttemptError::Fatal {
+                            error: ReadLastLogEntryFatal::EmptyLog,
+                            tags: vec![tag!("kind": "empty_log")],
+                        })
+                    }
                 };
 
-            return match LogFamily::try_from(&cell.family).unwrap() {
+            match LogFamily::try_from(&cell.family).unwrap() {
                 LogFamily::EntryBatch => {
                     let entry: LogEntry = marshalling::from_slice(&cell.value).expect("TODO");
-                    self.metrics.timing(
-                        "store_client.read_last_log_entry.time",
-                        start.elapsed(),
-                        [tag!(?realm), tag!(?group)],
-                    );
                     Ok((
                         LogRow {
                             index: row_index,
@@ -507,18 +580,22 @@ impl StoreClient {
                     ))
                 }
 
-                LogFamily::Tombstone => {
-                    if attempt > 100 {
-                        panic!("giving up after too many attempts");
-                    }
-                    warn!(
-                        ?realm, ?group, index = %row_index, attempt,
-                        "last log entry is a tombstone: retrying",
-                    );
-                    continue;
-                }
-            };
-        }
+                LogFamily::Tombstone => Err(AttemptError::Retryable {
+                    error: ReadLastLogEntryRetryable::Tombstone { index: row_index },
+                    tags: vec![tag!("kind": "tombstone")],
+                }),
+            }
+        };
+
+        Retry::new("reading last log entry")
+            .with(bigtable_retries)
+            .with_metrics(
+                &self.metrics,
+                "store_client.read_last_log_entry",
+                &[tag!(?realm), tag!(?group)],
+            )
+            .retry(run, retry_logging!())
+            .await
     }
 
     /// Returns an iterator-style object that can read the log starting from
@@ -565,7 +642,7 @@ impl StoreClient {
         realm: &RealmId,
         group: &GroupId,
         mut up_to: LogIndex,
-    ) -> Result<Vec<LogRow>, tonic::Status> {
+    ) -> Result<Vec<LogRow>, RetryError<tonic::Status>> {
         let start = Instant::now();
         let mut rows: Vec<LogRow> = Vec::new();
         let mut pages = 0;
@@ -618,9 +695,9 @@ impl StoreClient {
         realm: &RealmId,
         group: &GroupId,
         up_to: LogIndex,
-    ) -> Result<(Vec<LogRow>, More), tonic::Status> {
+    ) -> Result<(Vec<LogRow>, More), RetryError<tonic::Status>> {
         assert!(up_to > LogIndex::FIRST);
-        let start = Instant::now();
+        let tags = [tag!(?realm), tag!(?group)];
 
         let request = ReadRowsRequest {
             table_name: log_table(&self.instance, realm),
@@ -671,17 +748,27 @@ impl StoreClient {
             reversed: false,
         };
 
-        let rows: Vec<LogRow> = Reader::read_column(&mut self.bigtable.clone(), request)
-            .await?
-            .into_iter()
-            .map(|(key, cell)| LogRow {
-                index: parse_log_key(&key).unwrap().1,
-                is_tombstone: match LogFamily::try_from(&cell.family).unwrap() {
-                    LogFamily::Tombstone => true,
-                    LogFamily::EntryBatch => false,
-                },
-            })
-            .collect();
+        let rows: Vec<LogRow> = Reader::read_column(
+            &mut self.bigtable.clone(),
+            Retry::new("listing a page of log rows")
+                .with(bigtable_retries)
+                .with_metrics(
+                    &self.metrics,
+                    "store_client.list_log_rows_page",
+                    &[tag!(?realm), tag!(?group)],
+                ),
+            request,
+        )
+        .await?
+        .into_iter()
+        .map(|(key, cell)| LogRow {
+            index: parse_log_key(&key).unwrap().1,
+            is_tombstone: match LogFamily::try_from(&cell.family).unwrap() {
+                LogFamily::Tombstone => true,
+                LogFamily::EntryBatch => false,
+            },
+        })
+        .collect();
 
         // Technically, we could stop after cumulatively finding
         // `TOMBSTONE_WINDOW_SIZE` tombstones, but it's easier to stop after
@@ -689,12 +776,6 @@ impl StoreClient {
         let more =
             More(rows.len() == TOMBSTONE_WINDOW_SIZE && !rows.iter().all(|row| row.is_tombstone));
 
-        let tags = [tag!(?realm), tag!(?group)];
-        self.metrics.timing(
-            "store_client.list_log_rows_page.time",
-            start.elapsed(),
-            &tags,
-        );
         self.metrics
             .distribution("store_client.list_log_rows_page.count", rows.len(), &tags);
         Span::current().record("rows", rows.len());
@@ -727,7 +808,7 @@ impl StoreClient {
         realm: &RealmId,
         group: &GroupId,
         rows: &[LogRow],
-    ) -> Result<(), MutateRowsError> {
+    ) -> Result<(), RetryError<MutateRowsError>> {
         let start = Instant::now();
         if let Some(lowest) = rows.first() {
             Span::current().record("lowest", lowest.index.0);
@@ -784,17 +865,16 @@ impl StoreClient {
         realm: &RealmId,
         group: &GroupId,
         rows: &[LogRow],
-    ) -> Result<(), MutateRowsError> {
-        let start = Instant::now();
+    ) -> Result<(), RetryError<MutateRowsError>> {
         assert!(rows.len() <= TOMBSTONE_WINDOW_SIZE);
         if let Some(lowest) = rows.first() {
             Span::current().record("lowest", lowest.index.0);
             Span::current().record("highest", rows.last().unwrap().index.0);
         }
-        let mut bigtable = self.bigtable.clone();
 
-        // Retry on grpc stream unknown errors.
-        loop {
+        let run = |_| async {
+            let mut bigtable = self.bigtable.clone();
+
             let request = MutateRowsRequest {
                 table_name: log_table(&self.instance, realm),
                 app_profile_id: String::new(),
@@ -823,22 +903,22 @@ impl StoreClient {
                     })
                     .collect(),
             };
-            match mutate_rows(&mut bigtable, request).await {
-                Ok(()) => break,
-                Err(MutateRowsError::Tonic(status)) if status.code() == Code::Unknown => {
-                    warn!(?realm, ?group, ?status, "error while writing tombstones");
-                    continue;
-                }
-                Err(status) => return Err(status),
-            }
-        }
+
+            mutate_rows(&mut bigtable, request).await?;
+            Ok(())
+        };
 
         let tags = [tag!(?realm), tag!(?group)];
-        self.metrics.timing(
-            "store_client.replace_chunk_with_tombstones.time",
-            start.elapsed(),
-            &tags,
-        );
+        Retry::new("writing a chunk of log tombstones")
+            .with(bigtable_retries)
+            .with_metrics(
+                &self.metrics,
+                "store_client.replace_chunk_with_tombstones",
+                &tags,
+            )
+            .retry(run, retry_logging!())
+            .await?;
+
         self.metrics.distribution(
             "store_client.replace_chunk_with_tombstones.rows",
             rows.iter().filter(|row| !row.is_tombstone).count(),
@@ -889,7 +969,9 @@ impl LogEntriesIter {
             entries,
         )
     )]
-    pub async fn next(&mut self) -> Result<Vec<LogEntry>, LogEntriesIterError> {
+    pub async fn next(
+        &mut self,
+    ) -> Result<Vec<LogEntry>, RetryError<LogEntriesIterError, tonic::Status>> {
         let start = Instant::now();
         let rows = match self.next {
             Position::LogIndex(i) => match self.read_for_log_index(i).await? {
@@ -916,9 +998,11 @@ impl LogEntriesIter {
                                 marshalling::from_slice(&cell.value).expect("TODO");
                             Ok(entry)
                         }
-                        LogFamily::Tombstone => Err(LogEntriesIterError::Compacted(
-                            index.max(parse_log_key(&row_key).unwrap().1),
-                        )),
+                        LogFamily::Tombstone => Err(RetryError::Fatal {
+                            error: LogEntriesIterError::Compacted(
+                                index.max(parse_log_key(&row_key).unwrap().1),
+                            ),
+                        }),
                     }
                 })
             })
@@ -926,11 +1010,15 @@ impl LogEntriesIter {
 
         if !entries.is_empty() {
             if entries[0].index != index {
-                return Err(LogEntriesIterError::Compacted(index));
+                return Err(RetryError::Fatal {
+                    error: LogEntriesIterError::Compacted(index),
+                });
             }
             for w in entries.as_slice().windows(2) {
                 if w[0].index.next() != w[1].index {
-                    return Err(LogEntriesIterError::Compacted(w[0].index.next()));
+                    return Err(RetryError::Fatal {
+                        error: LogEntriesIterError::Compacted(w[0].index.next()),
+                    });
                 }
             }
             self.next = Position::RowBoundary(entries.last().unwrap().index.next());
@@ -954,41 +1042,48 @@ impl LogEntriesIter {
     async fn read_for_log_index(
         &self,
         index: LogIndex,
-    ) -> Result<Option<(RowKey, Vec<Cell>)>, LogEntriesIterError> {
-        if let Some(row) = self.try_read_for_log_index(index).await? {
+    ) -> Result<Option<(RowKey, Vec<Cell>)>, RetryError<LogEntriesIterError, tonic::Status>> {
+        if let Some(row) = self
+            .try_read_for_log_index(index)
+            .await
+            .map_err(|err| err.map_fatal_err(LogEntriesIterError::Grpc))?
+        {
             return Ok(Some(row));
         }
 
         // `index` wasn't found. Determine whether it's past the end of the log
         // or has already been deleted.
-        match self
+        let last_entry = self
             .client
             .read_last_log_entry(&self.realm, &self.group)
             .await
+            .map_err(|error| RetryError::Fatal {
+                error: LogEntriesIterError::ReadingLastEntry(error),
+            })?;
+
+        if last_entry.index < index {
+            return Ok(None);
+        }
+
+        // Because the last entry is >= `index`, we now know that either
+        // `index` is a gap or actually exists. It could have been created
+        // after the first attempt, so retry once to disambiguate.
+        match self
+            .try_read_for_log_index(index)
+            .await
+            .map_err(|err| err.map_fatal_err(LogEntriesIterError::Grpc))?
         {
-            Ok(last_entry) if last_entry.index < index => Ok(None),
-
-            Ok(_) => {
-                // Because the last entry is >= `index`, we now know that
-                // either `index` is a gap or actually exists. It could have
-                // been created after the first attempt, so retry once to
-                // disambiguate.
-                match self.try_read_for_log_index(index).await? {
-                    Some(row) => Ok(Some(row)),
-                    None => Err(LogEntriesIterError::Compacted(index)),
-                }
-            }
-
-            Err(ReadLastLogEntryError::EmptyLog) => Ok(None),
-
-            Err(ReadLastLogEntryError::Grpc(err)) => Err(err.into()),
+            Some(row) => Ok(Some(row)),
+            None => Err(RetryError::Fatal {
+                error: LogEntriesIterError::Compacted(index),
+            }),
         }
     }
 
     async fn try_read_for_log_index(
         &self,
         index: LogIndex,
-    ) -> Result<Option<(RowKey, Vec<Cell>)>, tonic::Status> {
+    ) -> Result<Option<(RowKey, Vec<Cell>)>, RetryError<tonic::Status>> {
         let request = ReadRowsRequest {
             table_name: self.table_name.clone(),
             app_profile_id: String::new(),
@@ -1011,7 +1106,19 @@ impl LogEntriesIter {
             reversed: false,
         };
 
-        match Reader::read_row(&mut self.client.bigtable.clone(), request).await? {
+        match Reader::read_row(
+            &mut self.client.bigtable.clone(),
+            Retry::new("reading first row for log entry iterator")
+                .with(bigtable_retries)
+                .with_metrics(
+                    &self.metrics,
+                    "store_client.read_for_log_index",
+                    &[tag!("realm": ?self.realm), tag!("group": ?self.group)],
+                ),
+            request,
+        )
+        .await?
+        {
             None => Ok(None),
             Some((key, mut cells)) => {
                 cells.retain(|cell| match LogFamily::try_from(&cell.family).unwrap() {
@@ -1040,7 +1147,7 @@ impl LogEntriesIter {
     async fn read_for_row_boundary(
         &self,
         index: LogIndex,
-    ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
+    ) -> Result<Vec<(RowKey, Vec<Cell>)>, RetryError<LogEntriesIterError, tonic::Status>> {
         let request = ReadRowsRequest {
             table_name: self.table_name.clone(),
             app_profile_id: String::new(),
@@ -1059,7 +1166,19 @@ impl LogEntriesIter {
             request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
             reversed: false,
         };
-        Reader::read_rows(&mut self.client.bigtable.clone(), request).await
+        Reader::read_rows(
+            &mut self.client.bigtable.clone(),
+            Retry::new("reading rows for log entry iterator")
+                .with(bigtable_retries)
+                .with_metrics(
+                    &self.metrics,
+                    "store_client.read_for_row_boundary",
+                    &[tag!("realm": ?self.realm), tag!("group": ?self.group)],
+                ),
+            request,
+        )
+        .await
+        .map_err(|err| err.map_fatal_err(LogEntriesIterError::Grpc))
     }
 }
 
@@ -1094,12 +1213,12 @@ pub mod testing {
 
         #[error(
             "failed to read specific log entry: it does not exist (it was never \
-        created or its tombstone was deleted)"
+            created or its tombstone was deleted)"
         )]
         NotFound,
 
         #[error(transparent)]
-        Grpc(#[from] tonic::Status),
+        Grpc(#[from] RetryError<tonic::Status>),
     }
 
     /// Reads a particular entry from the log.
@@ -1166,7 +1285,8 @@ pub mod testing {
             reversed: false,
         };
 
-        let Some((key, cell)) = Reader::read_cell(&mut store.bigtable.clone(), request).await?
+        let Some((key, cell)) =
+            Reader::read_cell(&mut store.bigtable.clone(), Retry::disabled(), request).await?
         else {
             return Err(ReadLogEntryError::NotFound);
         };

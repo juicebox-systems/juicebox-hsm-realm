@@ -25,6 +25,7 @@ use juicebox_networking::rpc::Rpc;
 use juicebox_realm_api::types::RealmId;
 use observability::logging::TracingSource;
 use observability::metrics;
+use observability::retry_loop::RetryError;
 use observability::tracing::TracingMiddleware;
 use service_core::http::ReqwestClientMetrics;
 use service_core::rpc::handle_rpc;
@@ -74,7 +75,10 @@ impl ManagementGrant {
     /// The grant uses a lease managed by the bigtable store. The grant applies
     /// across all cluster managers using the same store, not just this
     /// instance.
-    async fn obtain(mgr: Manager, key: ManagementLeaseKey) -> Result<Option<Self>, tonic::Status> {
+    async fn obtain(
+        mgr: Manager,
+        key: ManagementLeaseKey,
+    ) -> Result<Option<Self>, RetryError<tonic::Status>> {
         Ok(mgr
             .0
             .store
@@ -302,7 +306,7 @@ impl Manager {
         &self,
         realm: RealmId,
         group: GroupId,
-    ) -> Result<Option<ManagementGrant>, tonic::Status> {
+    ) -> Result<Option<ManagementGrant>, RetryError<tonic::Status>> {
         ManagementGrant::obtain(self.clone(), ManagementLeaseKey::RealmGroup(realm, group)).await
     }
 

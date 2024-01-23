@@ -14,8 +14,9 @@ use hsm_api::merkle::{Dir, StoreDelta};
 use hsm_api::{GroupId, GroupMemberRole, LogIndex, RoleLogicalClock, TransferInProofs};
 use juicebox_realm_api::types::RealmId;
 use observability::metrics_tag as tag;
+use observability::retry_loop::RetryError;
 use service_core::rpc::HandlerError;
-use store::{self, ReadLastLogEntryError};
+use store::log::ReadLastLogEntryFatal;
 
 impl<T: Transport + 'static> Agent<T> {
     pub(super) async fn handle_prepare_transfer(
@@ -150,8 +151,12 @@ impl<T: Transport + 'static> Agent<T> {
                 .await
             {
                 Ok(entry) => entry,
-                Err(err @ ReadLastLogEntryError::EmptyLog) => todo!("{err}"),
-                Err(ReadLastLogEntryError::Grpc(_)) => return Ok(Response::NoStore),
+                Err(
+                    err @ RetryError::Fatal {
+                        error: ReadLastLogEntryFatal::EmptyLog,
+                    },
+                ) => todo!("{err}"),
+                Err(_) => return Ok(Response::NoStore),
             };
             // The transfer coordinator will recover from crashes and other issues by
             // walking through the entire transfer process from scratch again. That means
@@ -313,8 +318,12 @@ impl<T: Transport + 'static> Agent<T> {
                 .await
             {
                 Ok(entry) => entry,
-                Err(err @ ReadLastLogEntryError::EmptyLog) => todo!("{err}"),
-                Err(ReadLastLogEntryError::Grpc(_)) => return Ok(Response::NoStore),
+                Err(
+                    err @ RetryError::Fatal {
+                        error: ReadLastLogEntryFatal::EmptyLog,
+                    },
+                ) => todo!("{err}"),
+                Err(_) => return Ok(Response::NoStore),
             };
 
             let proofs = match last_entry.partition {

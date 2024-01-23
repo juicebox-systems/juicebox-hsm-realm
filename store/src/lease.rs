@@ -10,9 +10,16 @@ use rand_core::{OsRng, RngCore};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
-use crate::ExtendLeaseError;
-
-use super::{to_micros, BigtableClient, BigtableTableAdminClient, Instance, Lease, LeaseKey};
+use super::{
+    to_micros, BigtableClient, BigtableTableAdminClient, ExtendLeaseError, Instance, Lease,
+    LeaseKey,
+};
+use bigtable::{bigtable_retries, inspect_grpc_error};
+use observability::metrics;
+use observability::metrics_tag as tag;
+use observability::retry_logging;
+use observability::retry_loop::{AttemptError, Retry, RetryError};
+use tracing::warn;
 
 const FAMILY: &str = "f";
 const OWNER_COL: &[u8] = b"o";
@@ -66,13 +73,14 @@ pub(super) async fn initialize(
 }
 
 pub(crate) async fn obtain(
-    mut bigtable: BigtableClient,
+    bigtable: &BigtableClient,
     instance: &Instance,
     key: LeaseKey,
     owner: String,
     duration: Duration,
     timestamp: SystemTime, // Timestamp of the lease start, typically SystemTime::now()
-) -> Result<Option<Lease>, tonic::Status> {
+    metrics: &metrics::Client,
+) -> Result<Option<Lease>, RetryError<tonic::Status>> {
     // Timestamps are in microseconds, but need to be rounded to milliseconds
     // (or coarser depending on table schema). Come back before April 11, 2262
     // to fix this.
@@ -84,8 +92,8 @@ pub(crate) async fn obtain(
     let id = hex::encode(id_bytes).into_bytes();
     let key = key.into_bigtable_key();
 
-    let response = bigtable
-        .check_and_mutate_row(CheckAndMutateRowRequest {
+    let run = |_| async {
+        let request = CheckAndMutateRowRequest {
             table_name: lease_table(instance),
             app_profile_id: String::new(),
             row_key: key.clone(),
@@ -106,7 +114,7 @@ pub(crate) async fn obtain(
                         family_name: FAMILY.to_string(),
                         column_qualifier: OWNER_COL.to_vec(),
                         timestamp_micros: expires,
-                        value: owner.as_bytes().to_vec(),
+                        value: owner.as_bytes().to_owned(),
                     })),
                 },
                 Mutation {
@@ -118,33 +126,41 @@ pub(crate) async fn obtain(
                     })),
                 },
             ],
-        })
-        .await?;
+        };
+        let response = bigtable
+            .clone()
+            .check_and_mutate_row(request)
+            .await
+            .map_err(inspect_grpc_error)?;
+        Ok(!response.into_inner().predicate_matched)
+    };
 
-    if response.into_inner().predicate_matched {
-        Ok(None)
-    } else {
-        Ok(Some(Lease {
+    Ok(Retry::new("obtaining lease")
+        .with(bigtable_retries)
+        .with_metrics(metrics, "store_client.obtain_lease", metrics::NO_TAGS)
+        .retry(run, retry_logging!())
+        .await?
+        .then_some(Lease {
             key,
             id,
             owner,
             expires: expires.try_into().unwrap(),
         }))
-    }
 }
 
 pub(crate) async fn extend(
-    mut bigtable: BigtableClient,
+    bigtable: &BigtableClient,
     instance: &Instance,
     lease: Lease,
     duration: Duration,
     timestamp: SystemTime,
-) -> Result<Lease, ExtendLeaseError> {
+    metrics: &metrics::Client,
+) -> Result<Lease, RetryError<ExtendLeaseError, tonic::Status>> {
     let now_micros = to_micros(timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap());
     let expires: i64 = now_micros + to_micros(duration);
 
-    let response = bigtable
-        .check_and_mutate_row(CheckAndMutateRowRequest {
+    let run = |_| async {
+        let request = CheckAndMutateRowRequest {
             table_name: lease_table(instance),
             app_profile_id: String::new(),
             row_key: lease.key.clone(),
@@ -176,42 +192,74 @@ pub(crate) async fn extend(
                     })),
                 },
             ],
-        })
-        .await?;
+        };
 
-    if response.into_inner().predicate_matched {
-        Ok(Lease {
-            key: lease.key,
-            id: lease.id,
-            owner: lease.owner,
-            expires: expires.try_into().unwrap(),
-        })
-    } else {
-        Err(ExtendLeaseError::NotOwner)
-    }
+        let response = bigtable
+            .clone()
+            .check_and_mutate_row(request)
+            .await
+            .map_err(|err| inspect_grpc_error(err).map_fatal_err(ExtendLeaseError::Rpc))?;
+
+        if response.into_inner().predicate_matched {
+            Ok(())
+        } else {
+            Err(AttemptError::Fatal {
+                error: ExtendLeaseError::NotOwner,
+                tags: vec![tag!("kind": "not_owner")],
+            })
+        }
+    };
+
+    Retry::new("extending lease")
+        .with(bigtable_retries)
+        .with_metrics(metrics, "store_client.extend_lease", metrics::NO_TAGS)
+        .retry(run, retry_logging!())
+        .await?;
+    Ok(Lease {
+        key: lease.key,
+        id: lease.id,
+        owner: lease.owner,
+        expires: expires.try_into().unwrap(),
+    })
 }
 
 pub(crate) async fn terminate(
-    mut bigtable: BigtableClient,
+    bigtable: &BigtableClient,
     instance: &Instance,
     lease: Lease,
-) -> Result<(), tonic::Status> {
-    bigtable
-        .check_and_mutate_row(CheckAndMutateRowRequest {
+    metrics: &metrics::Client,
+) -> Result<(), RetryError<tonic::Status>> {
+    let run = |_| async {
+        let request = CheckAndMutateRowRequest {
             table_name: lease_table(instance),
             app_profile_id: String::new(),
-            row_key: lease.key,
+            row_key: lease.key.clone(),
             predicate_filter: Some(RowFilter {
                 filter: Some(Filter::ValueRangeFilter(ValueRange {
                     start_value: Some(StartValue::StartValueClosed(lease.id.clone())),
-                    end_value: Some(EndValue::EndValueClosed(lease.id)),
+                    end_value: Some(EndValue::EndValueClosed(lease.id.clone())),
                 })),
             }),
             false_mutations: Vec::new(),
             true_mutations: vec![Mutation {
                 mutation: Some(mutation::Mutation::DeleteFromRow(DeleteFromRow {})),
             }],
-        })
-        .await?;
-    Ok(())
+        };
+        let response = bigtable
+            .clone()
+            .check_and_mutate_row(request)
+            .await
+            .map_err(inspect_grpc_error)?
+            .into_inner();
+        if !response.predicate_matched {
+            warn!("terminated lease had already been deleted");
+        }
+        Ok(())
+    };
+
+    Retry::new("terminating lease")
+        .with(bigtable_retries)
+        .with_metrics(metrics, "store_client.terminate_lease", metrics::NO_TAGS)
+        .retry(run, retry_logging!())
+        .await
 }

@@ -12,7 +12,11 @@ hyper = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-core = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+expect-test = { workspace = true }

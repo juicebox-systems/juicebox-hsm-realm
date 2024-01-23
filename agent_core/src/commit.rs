@@ -26,7 +26,8 @@ use observability::logging::TracingSource;
 use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
 use service_core::http::ReqwestClientMetrics;
-use store::{LogRow, StoreClient};
+use store::log::LogRow;
+use store::StoreClient;
 
 /// Returned by [`Agent::commit_maybe`] and its helper [`Agent::do_commit`].
 #[derive(Debug, Eq, PartialEq)]

@@ -12,12 +12,13 @@ use hsm_core::merkle::Tree;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::types::RealmId;
 use observability::metrics;
+use observability::retry_loop::RetryError;
 use store::log::testing::{new_log_row, read_log_entry, ReadLogEntryError, TOMBSTONE_WINDOW_SIZE};
+use store::log::{LogEntriesIterError, LogRow, ReadLastLogEntryFatal};
 use store::tenants::UserAccounting;
-use store::AppendError::LogPrecondition;
 use store::{
-    self, discovery, tenants, ExtendLeaseError, LeaseKey, LeaseType, LogEntriesIterError,
-    ReadLastLogEntryError, ServiceKind, StoreAdminClient, StoreClient,
+    discovery, tenants, AppendError, ExtendLeaseError, LeaseKey, LeaseType, ServiceKind,
+    StoreAdminClient, StoreClient,
 };
 use testing::exec::bigtable::emulator;
 use testing::exec::{bigtable::BigtableRunner, PortIssuer};
@@ -208,7 +209,9 @@ async fn test_read_log_entry() {
     // Log should start empty.
     assert!(matches!(
         data.read_last_log_entry(&REALM, &GROUP_2).await,
-        Err(ReadLastLogEntryError::EmptyLog)
+        Err(RetryError::Fatal {
+            error: ReadLastLogEntryFatal::EmptyLog
+        })
     ));
     assert!(matches!(
         read_log_entry(&data, &REALM, &GROUP_2, LogIndex::FIRST).await,
@@ -274,7 +277,9 @@ async fn test_read_log_entry() {
     ));
     assert!(matches!(
         data.read_last_log_entry(&REALM, &GROUP_1).await,
-        Err(ReadLastLogEntryError::EmptyLog)
+        Err(RetryError::Fatal {
+            error: ReadLastLogEntryFatal::EmptyLog
+        })
     ));
     assert!(matches!(
         read_log_entry(&data, &REALM, &GROUP_3, LogIndex(1)).await,
@@ -282,7 +287,9 @@ async fn test_read_log_entry() {
     ));
     assert!(matches!(
         data.read_last_log_entry(&REALM, &GROUP_3).await,
-        Err(ReadLastLogEntryError::EmptyLog)
+        Err(RetryError::Fatal {
+            error: ReadLastLogEntryFatal::EmptyLog
+        })
     ));
 }
 
@@ -295,7 +302,9 @@ async fn test_last_log_entry_does_not_cross_groups() {
     for g in &[GROUP_1, GROUP_2, GROUP_3] {
         assert!(matches!(
             data.read_last_log_entry(&REALM, g).await,
-            Err(ReadLastLogEntryError::EmptyLog)
+            Err(RetryError::Fatal {
+                error: ReadLastLogEntryFatal::EmptyLog
+            })
         ));
     }
     let entry1 = LogEntry {
@@ -318,7 +327,9 @@ async fn test_last_log_entry_does_not_cross_groups() {
     for g in [GROUP_2, GROUP_3] {
         assert!(matches!(
             data.read_last_log_entry(&REALM, &g).await,
-            Err(ReadLastLogEntryError::EmptyLog)
+            Err(RetryError::Fatal {
+                error: ReadLastLogEntryFatal::EmptyLog
+            })
         ));
     }
 
@@ -336,7 +347,9 @@ async fn test_last_log_entry_does_not_cross_groups() {
         .expect("should have appended log entry");
     assert!(matches!(
         data.read_last_log_entry(&REALM, &GROUP_2).await,
-        Err(ReadLastLogEntryError::EmptyLog)
+        Err(RetryError::Fatal {
+            error: ReadLastLogEntryFatal::EmptyLog
+        })
     ));
     assert_eq!(
         data.read_last_log_entry(&REALM, &GROUP_1).await.unwrap(),
@@ -494,13 +507,23 @@ async fn read_log_entries_compacted_assertions(data: &StoreClient, batches: &[&[
 
     let r = it.next().await;
     assert!(
-        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(11)))),
+        matches!(
+            r,
+            Err(RetryError::Fatal {
+                error: LogEntriesIterError::Compacted(LogIndex(11))
+            })
+        ),
         "should have returned that index 11 is compacted, got {r:?}",
     );
     // same error if we retry
     let r = it.next().await;
     assert!(
-        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(11)))),
+        matches!(
+            r,
+            Err(RetryError::Fatal {
+                error: LogEntriesIterError::Compacted(LogIndex(11))
+            })
+        ),
         "should have returned that index 11 is compacted, got {r:?}",
     );
 
@@ -515,7 +538,12 @@ async fn read_log_entries_compacted_assertions(data: &StoreClient, batches: &[&[
     let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(11), 20);
     let r = it.next().await;
     assert!(
-        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(11)))),
+        matches!(
+            r,
+            Err(RetryError::Fatal {
+                error: LogEntriesIterError::Compacted(LogIndex(11))
+            })
+        ),
         "should have returned that index 11 is compacted, got {r:?}",
     );
 
@@ -523,7 +551,12 @@ async fn read_log_entries_compacted_assertions(data: &StoreClient, batches: &[&[
     let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(12), 20);
     let r = it.next().await;
     assert!(
-        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(12)))),
+        matches!(
+            r,
+            Err(RetryError::Fatal {
+                error: LogEntriesIterError::Compacted(LogIndex(12))
+            })
+        ),
         "should have returned that index 12 is compacted, got {r:?}",
     );
 
@@ -531,7 +564,12 @@ async fn read_log_entries_compacted_assertions(data: &StoreClient, batches: &[&[
     let mut it = data.read_log_entries_iter(REALM, GROUP_1, LogIndex(15), 20);
     let r = it.next().await;
     assert!(
-        matches!(r, Err(LogEntriesIterError::Compacted(LogIndex(15)))),
+        matches!(
+            r,
+            Err(RetryError::Fatal {
+                error: LogEntriesIterError::Compacted(LogIndex(15))
+            })
+        ),
         "should have returned that index 15 is compacted, got {r:?}",
     );
 }
@@ -542,7 +580,7 @@ async fn test_list_log_rows_end_of_log() {
     let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
 
     assert_eq!(
-        Vec::<store::LogRow>::new(),
+        Vec::<LogRow>::new(),
         data.list_log_rows(&REALM, &GROUP_1, LogIndex(u64::MAX))
             .await
             .unwrap()
@@ -670,7 +708,7 @@ async fn test_list_log_rows_compacted() {
                 .cloned()
         )
         .chain(rows[(TOMBSTONE_WINDOW_SIZE * 2 + 19)..].iter().cloned())
-        .collect::<Vec<store::LogRow>>(),
+        .collect::<Vec<LogRow>>(),
         data.list_log_rows(&REALM, &GROUP_1, LogIndex(u64::MAX))
             .await
             .unwrap()
@@ -760,7 +798,7 @@ async fn test_append_log_precondition() {
     assert!(matches!(
         data.append(&REALM, &GROUP_1, &entries, StoreDelta::default())
             .await,
-        Err(LogPrecondition),
+        Err(AppendError::LogPrecondition),
     ));
 
     let entry = LogEntry {
@@ -778,14 +816,14 @@ async fn test_append_log_precondition() {
     assert!(matches!(
         data.append(&REALM, &GROUP_1, &entries, StoreDelta::default())
             .await,
-        Err(LogPrecondition),
+        Err(AppendError::LogPrecondition),
     ));
 
     // can't append if the entry is already in the store.
     assert!(matches!(
         data.append(&REALM, &GROUP_1, &[entry], StoreDelta::default())
             .await,
-        Err(LogPrecondition)
+        Err(AppendError::LogPrecondition)
     ));
 }
 
@@ -806,7 +844,7 @@ async fn test_append_log_precondition_row_boundary() {
     assert!(matches!(
         data.append(&REALM, &GROUP_1, &entries[1..5], StoreDelta::default())
             .await,
-        Err(LogPrecondition)
+        Err(AppendError::LogPrecondition)
     ));
 
     // Although the preceding entry exists at the end of a row, it's not the
@@ -814,7 +852,7 @@ async fn test_append_log_precondition_row_boundary() {
     assert!(matches!(
         data.append(&REALM, &GROUP_1, &entries[2..5], StoreDelta::default())
             .await,
-        Err(LogPrecondition)
+        Err(AppendError::LogPrecondition)
     ));
 }
 
@@ -1094,7 +1132,9 @@ async fn test_lease() {
     assert!(matches!(
         data.extend_lease(alice_lease_b, Duration::from_secs(5), SystemTime::now())
             .await,
-        Err(ExtendLeaseError::NotOwner)
+        Err(RetryError::Fatal {
+            error: ExtendLeaseError::NotOwner
+        })
     ));
 }
 

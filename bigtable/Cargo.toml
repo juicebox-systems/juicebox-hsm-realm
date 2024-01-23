@@ -10,6 +10,7 @@ version.workspace = true
 gcp_auth = { workspace = true }
 google = { workspace = true }
 observability = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }

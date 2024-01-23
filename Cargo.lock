@@ -302,6 +302,7 @@ dependencies = [
  "gcp_auth",
  "google",
  "observability",
+ "thiserror",
  "tokio",
  "tonic 0.10.2",
  "tracing",
@@ -642,6 +643,7 @@ dependencies = [
  "hsm_api",
  "juicebox_networking",
  "juicebox_realm_api",
+ "observability",
  "service_core",
  "store",
  "thiserror",
@@ -2272,10 +2274,12 @@ name = "observability"
 version = "0.2.3"
 dependencies = [
  "dogstatsd",
+ "expect-test",
  "hyper 1.1.0",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "tokio",
  "tracing",
  "tracing-core",
  "tracing-opentelemetry",

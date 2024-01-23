@@ -6,10 +6,13 @@ use google::bigtable::v2::row_range::StartKey::{StartKeyClosed, StartKeyOpen};
 use google::bigtable::v2::ReadRowsRequest;
 use std::fmt;
 use std::marker::PhantomData;
-use std::time::Duration;
+use tokio::sync::Mutex;
 use tonic::codegen::{Body, Bytes, StdError};
-use tonic::Code;
-use tracing::{instrument, trace, warn, Span};
+use tracing::{instrument, Span};
+
+use super::inspect_grpc_error;
+use observability::retry_logging;
+use observability::retry_loop::{Retry, RetryError};
 
 #[derive(Clone, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub struct RowKey(pub Vec<u8>);
@@ -55,7 +58,7 @@ pub struct Reader<T>(PhantomData<T>);
 
 impl<T> Reader<T>
 where
-    T: tonic::client::GrpcService<tonic::body::BoxBody>,
+    T: tonic::client::GrpcService<tonic::body::BoxBody> + Clone,
     T::Error: Into<StdError>,
     T::ResponseBody: Body<Data = Bytes> + Send + 'static,
     <T::ResponseBody as Body>::Error: Into<StdError> + Send,
@@ -67,10 +70,14 @@ where
     /// [`Self::read_cell`] to return only the first cell of the first row.
     pub async fn read_rows(
         bigtable: &mut BigtableClient<T>,
+        retry: Retry<'_>,
         request: ReadRowsRequest,
-    ) -> Result<Vec<(RowKey, Vec<Cell>)>, tonic::Status> {
+    ) -> Result<Vec<(RowKey, Vec<Cell>)>, RetryError<tonic::Status>> {
         let mut rows = Vec::new();
-        Self::read_rows_stream(bigtable, request, |key, cells| rows.push((key, cells))).await?;
+        Self::read_rows_stream(bigtable, retry, request, |key, cells| {
+            rows.push((key, cells))
+        })
+        .await?;
         Ok(rows)
     }
 
@@ -80,10 +87,11 @@ where
     /// only one cell per row.
     pub async fn read_column(
         bigtable: &mut BigtableClient<T>,
+        retry: Retry<'_>,
         request: ReadRowsRequest,
-    ) -> Result<Vec<(RowKey, Cell)>, tonic::Status> {
+    ) -> Result<Vec<(RowKey, Cell)>, RetryError<tonic::Status>> {
         let mut rows = Vec::new();
-        Self::read_rows_stream(bigtable, request, |key, cells| {
+        Self::read_rows_stream(bigtable, retry, request, |key, cells| {
             let cell = cells.into_iter().next().unwrap();
             rows.push((key, cell))
         })
@@ -97,10 +105,11 @@ where
     /// only one row.
     pub async fn read_row(
         bigtable: &mut BigtableClient<T>,
+        retry: Retry<'_>,
         request: ReadRowsRequest,
-    ) -> Result<Option<(RowKey, Vec<Cell>)>, tonic::Status> {
+    ) -> Result<Option<(RowKey, Vec<Cell>)>, RetryError<tonic::Status>> {
         let mut row = None;
-        Self::read_rows_stream(bigtable, request, |key, cells| {
+        Self::read_rows_stream(bigtable, retry, request, |key, cells| {
             row.get_or_insert((key, cells));
         })
         .await?;
@@ -113,10 +122,11 @@ where
     /// only one row and one cell.
     pub async fn read_cell(
         bigtable: &mut BigtableClient<T>,
+        retry: Retry<'_>,
         request: ReadRowsRequest,
-    ) -> Result<Option<(RowKey, Cell)>, tonic::Status> {
+    ) -> Result<Option<(RowKey, Cell)>, RetryError<tonic::Status>> {
         let mut row = None;
-        Self::read_rows_stream(bigtable, request, |key, cells| {
+        Self::read_rows_stream(bigtable, retry, request, |key, cells| {
             let cell = cells.into_iter().next().unwrap();
             row.get_or_insert((key, cell));
         })
@@ -137,9 +147,10 @@ where
     )]
     pub async fn read_rows_stream<F>(
         bigtable: &mut BigtableClient<T>,
+        mut retry: Retry<'_>,
         request: ReadRowsRequest,
-        mut row_fn: F,
-    ) -> Result<(), tonic::Status>
+        row_fn: F,
+    ) -> Result<(), RetryError<tonic::Status>>
     where
         F: FnMut(RowKey, Vec<Cell>),
     {
@@ -152,76 +163,82 @@ where
             },
         );
 
-        let mut retry_count = 0;
-        let mut last_completed_row: Option<RowKey> = None;
-        let mut num_rows: usize = 0;
-        let mut num_response_chunks: usize = 0;
-        let mut num_response_messages: usize = 0;
-        'outer: loop {
-            let mut stream = bigtable.read_rows(request.clone()).await?.into_inner();
+        // The future below needs access to some mutable state. The future
+        // won't outlive the retry loop, but Rust doesn't know that. See
+        // <https://rust-lang.github.io/async-fundamentals-initiative/roadmap/async_closures.html>
+        // and
+        // <https://smallcultfollowing.com/babysteps/blog/2023/03/29/thoughts-on-async-closures/>.
+        // A Mutex works around the problem.
+        struct State<F> {
+            row_fn: F,
+            last_completed_row: Option<RowKey>,
+            num_rows: usize,
+            num_response_chunks: usize,
+            num_response_messages: usize,
+        }
+        let state = Mutex::new(State {
+            row_fn,
+            last_completed_row: None,
+            num_rows: 0,
+            num_response_chunks: 0,
+            num_response_messages: 0,
+        });
+
+        let run = |_| async {
+            let mut state = state.lock().await;
+            let mut stream = bigtable
+                .clone()
+                .read_rows(request.clone())
+                .await
+                .map_err(inspect_grpc_error)?
+                .into_inner();
+
             let mut active_row: Option<RowBuffer> = None;
-            loop {
-                match stream.message().await {
-                    Err(e) => {
-                        // TODO, this seems to be a bug in hyper, in that it doesn't handle RST properly
-                        // https://github.com/hyperium/hyper/issues/2872
-                        warn!(?e, code=?e.code(), "stream.message error during read_rows");
-                        if e.code() == Code::Internal {
-                            tokio::time::sleep(Duration::from_millis(1)).await;
-                            trace!("retrying read_rows");
-                            retry_count += 1;
-                            continue 'outer;
-                        } else {
-                            return Err(e);
-                        }
-                    }
-
-                    Ok(None) => {
-                        assert!(
-                            active_row.is_none(),
-                            "ReadRowsResponse missing chunks: last row didn't complete",
-                        );
-                        break 'outer;
-                    }
-
-                    Ok(Some(message)) => {
-                        num_response_messages += 1;
-                        num_response_chunks += message.chunks.len();
-                        for chunk in message.chunks {
-                            let complete_row;
-                            (active_row, complete_row) = process_read_chunk(chunk, active_row);
-                            if let Some((key, row)) = complete_row {
-                                // On a retry, we ask for the same row ranges
-                                // and get back duplicate results (or even rows
-                                // that weren't there the first time or changed
-                                // since then). We skip those result rows here.
-                                // (We could be smarter about filtering down
-                                // the requested row ranges instead, but that
-                                // would add some complexity.)
-                                let is_duplicate =
-                                    last_completed_row.as_ref().is_some_and(|completed| {
-                                        if request.reversed {
-                                            key >= *completed
-                                        } else {
-                                            key <= *completed
-                                        }
-                                    });
-                                if !is_duplicate {
-                                    num_rows += 1;
-                                    row_fn(key.clone(), row);
-                                    last_completed_row = Some(key);
+            while let Some(message) = stream.message().await.map_err(inspect_grpc_error)? {
+                state.num_response_messages += 1;
+                state.num_response_chunks += message.chunks.len();
+                for chunk in message.chunks {
+                    let complete_row;
+                    (active_row, complete_row) = process_read_chunk(chunk, active_row);
+                    if let Some((key, row)) = complete_row {
+                        // On a retry, we ask for the same row ranges and get
+                        // back duplicate results (or even rows that weren't
+                        // there the first time or changed since then). We skip
+                        // those result rows here. (We could be smarter about
+                        // filtering down the requested row ranges instead, but
+                        // that would add some complexity.)
+                        let is_duplicate =
+                            state.last_completed_row.as_ref().is_some_and(|completed| {
+                                if request.reversed {
+                                    key >= *completed
+                                } else {
+                                    key <= *completed
                                 }
-                            }
+                            });
+                        if !is_duplicate {
+                            state.num_rows += 1;
+                            (state.row_fn)(key.clone(), row);
+                            state.last_completed_row = Some(key);
                         }
                     }
                 }
             }
-        }
-        Span::current().record("num_response_chunks", num_response_chunks);
-        Span::current().record("num_response_messages", num_response_messages);
-        Span::current().record("num_response_rows", num_rows);
-        Span::current().record("retry_count", retry_count);
-        return Ok(());
+            assert!(
+                active_row.is_none(),
+                "ReadRowsResponse missing chunks: last row didn't complete",
+            );
+            Ok(())
+        };
+
+        let result = retry.retry(run, retry_logging!()).await;
+
+        let state = state.into_inner();
+        let span = Span::current();
+        span.record("num_response_chunks", state.num_response_chunks);
+        span.record("num_response_messages", state.num_response_messages);
+        span.record("num_response_rows", state.num_rows);
+
+        result
     }
 }
 

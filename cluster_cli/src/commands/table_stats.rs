@@ -6,6 +6,7 @@ use tracing::warn;
 use bigtable::read::Reader;
 use hsm_api::{GroupId, LogIndex};
 use juicebox_sdk::RealmId;
+use observability::retry_loop::Retry;
 use store::log::testing::{log_table, parse_log_key};
 use store::StoreClient;
 
@@ -79,7 +80,7 @@ pub(crate) async fn print_log_stats(realm: RealmId, store: &StoreClient) -> anyh
 
     let mut last: Option<LogAccumulator> = None;
 
-    Reader::read_rows_stream(&mut bigtable, request, |key, cells| {
+    Reader::read_rows_stream(&mut bigtable, Retry::disabled(), request, |key, cells| {
         match parse_log_key(&key) {
             Err(_generic) => {
                 warn!("failed to parse log row key: {key:?}");
@@ -134,7 +135,8 @@ pub(crate) async fn print_log_stats(realm: RealmId, store: &StoreClient) -> anyh
             }
         }
     })
-    .await?;
+    .await
+    .map_err(|err| err.last().unwrap())?;
     flush(&stdout, last).unwrap();
 
     Ok(())
