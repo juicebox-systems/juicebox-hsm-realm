@@ -13,6 +13,7 @@ use std::time::Duration;
 use testing::exec::pubsub;
 use tracing::{info, warn};
 
+use cluster_core::TransferRequest;
 use hsm_api::{OwnedRange, RecordId};
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_process_group::ProcessGroup;
@@ -89,7 +90,7 @@ async fn main() {
         .connect_data(
             None,
             store::Options {
-                metrics,
+                metrics: metrics.clone(),
                 ..store::Options::default()
             },
         )
@@ -198,60 +199,81 @@ async fn main() {
         destination = ?groups[1],
         "transferring ownership of entire uid-space"
     );
-    cluster_core::transfer(realm_id, groups[0], groups[1], OwnedRange::full(), &store)
-        .await
-        .unwrap();
+    cluster_core::transfer(
+        &store,
+        metrics.clone(),
+        TransferRequest {
+            realm: realm_id,
+            source: groups[0],
+            destination: groups[1],
+            range: OwnedRange::full(),
+        },
+    )
+    .await
+    .unwrap();
 
     info!("growing the cluster to 4 partitions");
     cluster_core::transfer(
-        realm_id,
-        groups[1],
-        groups[2],
-        OwnedRange {
-            start: RecordId::min_id(),
-            end: RecordId([0x80; RecordId::NUM_BYTES]),
-        },
         &store,
+        metrics.clone(),
+        TransferRequest {
+            realm: realm_id,
+            source: groups[1],
+            destination: groups[2],
+            range: OwnedRange {
+                start: RecordId::min_id(),
+                end: RecordId([0x80; RecordId::NUM_BYTES]),
+            },
+        },
     )
     .await
     .unwrap();
 
     cluster_core::transfer(
-        realm_id,
-        groups[1],
-        groups[0],
-        OwnedRange {
-            start: RecordId([0x80; RecordId::NUM_BYTES]).next().unwrap(),
-            end: RecordId([0xA0; RecordId::NUM_BYTES]),
-        },
         &store,
+        metrics.clone(),
+        TransferRequest {
+            realm: realm_id,
+            source: groups[1],
+            destination: groups[0],
+            range: OwnedRange {
+                start: RecordId([0x80; RecordId::NUM_BYTES]).next().unwrap(),
+                end: RecordId([0xA0; RecordId::NUM_BYTES]),
+            },
+        },
     )
     .await
     .unwrap();
 
     cluster_core::transfer(
-        realm_id,
-        groups[2],
-        groups[3],
-        OwnedRange {
-            start: RecordId([0x40; RecordId::NUM_BYTES]),
-            end: RecordId([0x80; RecordId::NUM_BYTES]),
-        },
         &store,
+        metrics.clone(),
+        TransferRequest {
+            realm: realm_id,
+            source: groups[2],
+            destination: groups[3],
+            range: OwnedRange {
+                start: RecordId([0x40; RecordId::NUM_BYTES]),
+                end: RecordId([0x80; RecordId::NUM_BYTES]),
+            },
+        },
     )
     .await
     .unwrap();
 
     // moving part of a partition to another group.
     cluster_core::transfer(
-        realm_id,
-        groups[2],
-        groups[3],
-        OwnedRange {
-            start: RecordId([0x30; RecordId::NUM_BYTES]),
-            end: RecordId([0x40; RecordId::NUM_BYTES]).prev().unwrap(),
-        },
         &store,
+        metrics,
+        TransferRequest {
+            realm: realm_id,
+            source: groups[2],
+            destination: groups[3],
+            range: OwnedRange {
+                start: RecordId([0x30; RecordId::NUM_BYTES]),
+                end: RecordId([0x40; RecordId::NUM_BYTES]).prev().unwrap(),
+            },
+        },
     )
     .await
     .unwrap();

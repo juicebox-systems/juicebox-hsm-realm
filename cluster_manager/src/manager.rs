@@ -47,6 +47,7 @@ struct ManagerInner {
     name: String,
     store: StoreClient,
     agents: ReqwestClientMetrics,
+    metrics: metrics::Client,
     // Set when the initial registration in service discovery completes
     // successfully.
     registered: AtomicBool,
@@ -169,7 +170,8 @@ impl Manager {
         let m = Self(Arc::new(ManagerInner {
             name,
             store,
-            agents: ReqwestClientMetrics::new(metrics, ClientOptions::default()),
+            agents: ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default()),
+            metrics,
             registered: AtomicBool::new(false),
         }));
         let manager = m.clone();

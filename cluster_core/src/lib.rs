@@ -21,7 +21,7 @@ pub mod workload;
 
 pub use leader::{discover_hsm_ids, find_leaders};
 pub use realm::{join_realm, new_group, new_realm, JoinRealmError, NewGroupError, NewRealmError};
-pub use transfer::{transfer, TransferError};
+pub use transfer::{transfer, TransferError, TransferRequest};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

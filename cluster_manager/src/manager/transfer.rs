@@ -22,14 +22,7 @@ impl Manager {
         match ManagementGrant::obtain(self.clone(), ManagementLeaseKey::Ownership(req.realm)).await
         {
             Ok(Some(_grant)) => {
-                cluster_core::transfer(
-                    req.realm,
-                    req.source,
-                    req.destination,
-                    req.range,
-                    &self.0.store,
-                )
-                .await?;
+                cluster_core::transfer(&self.0.store, self.0.metrics.clone(), req).await?;
                 Ok(TransferSuccess {})
             }
             Ok(None) => Err(TransferError::ManagerBusy),

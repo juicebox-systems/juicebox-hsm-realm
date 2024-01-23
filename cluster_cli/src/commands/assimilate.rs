@@ -4,10 +4,12 @@ use reqwest::Url;
 use std::cmp::min;
 use std::collections::HashSet;
 
+use cluster_api::TransferRequest;
 use hsm_api::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
 use juicebox_marshalling::to_be4;
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
+use observability::metrics;
 use store::StoreClient;
 
 use crate::get_hsm_statuses;
@@ -135,7 +137,17 @@ pub async fn assimilate(
                     transfer = format_owned_range(&transfer)
                 );
 
-                cluster_core::transfer(realm, old_group, new_group, transfer, store).await?;
+                cluster_core::transfer(
+                    store,
+                    metrics::Client::NONE,
+                    TransferRequest {
+                        realm,
+                        source: old_group,
+                        destination: new_group,
+                        range: transfer,
+                    },
+                )
+                .await?;
             }
 
             if end == &new_range.end {

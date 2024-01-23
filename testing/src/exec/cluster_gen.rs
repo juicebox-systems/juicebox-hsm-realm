@@ -15,7 +15,7 @@ use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator};
 use super::{pubsub, PortIssuer};
 use agent_api::StatusRequest;
-use cluster_core::{self, NewRealmError};
+use cluster_core::{self, NewRealmError, TransferRequest};
 use google::{auth, GrpcConnectionOptions};
 use hsm_api::{GroupId, OwnedRange, PublicKey};
 use juicebox_networking::reqwest;
@@ -374,11 +374,14 @@ async fn create_realm(
                 // Transfer everything from the original group to the next one,
                 // because the original group isn't fault-tolerant.
                 cluster_core::transfer(
-                    res.realm,
-                    res.groups[0],
-                    res.groups[1],
-                    OwnedRange::full(),
                     store,
+                    metrics::Client::NONE,
+                    TransferRequest {
+                        realm: res.realm,
+                        source: res.groups[0],
+                        destination: res.groups[1],
+                        range: OwnedRange::full(),
+                    },
                 )
                 .await
                 .unwrap();
