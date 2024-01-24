@@ -266,17 +266,12 @@ fn pubsub_retries(retry: Retry) -> Retry {
 }
 
 /// Classifies a gRPC error as retryable and extracts its tags.
-///
-/// TODO: This is a fork of `bigtable::inspect_grpc_error`. Should they be
-/// combined?
 fn inspect_grpc_error(error: tonic::Status) -> AttemptError<tonic::Status> {
+    // This is a fork of `bigtable::inspect_grpc_error`. Consider changing that
+    // if you change this.
     let may_retry = matches!(
         error.code(),
         Code::DeadlineExceeded |
-            // TODO: this seemed to be a bug in hyper, in that it didn't handle RST
-            // properly. That was fixed according to
-            // <https://github.com/hyperium/hyper/issues/2872>. Does this happen
-            // anymore?
             Code::Internal |
             Code::ResourceExhausted |
             // Bad Gateway is reported as:
