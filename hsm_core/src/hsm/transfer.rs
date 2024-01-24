@@ -553,7 +553,7 @@ impl<P: Platform> Hsm<P> {
         let entry = LogEntryBuilder {
             hsm: self.persistent.id,
             realm: request.realm,
-            group: request.source,
+            group: request.destination,
             index: last_entry.index.next(),
             partition: last_entry.partition.clone(),
             transferring: None,
