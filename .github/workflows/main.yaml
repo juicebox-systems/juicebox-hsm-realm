@@ -111,9 +111,9 @@ jobs:
         timeout-minutes: 20
         strategy:
           matrix:
-            # Transfer Protocol (PR #392, `fcd2bfd...`) added/changed many of the requests
-            # related to ownership transfer.
-            hsm_version: ["fcd2bfdd78103d79670e66f3238d23b02930b1bb"]
+            # Cancel Prepared Transfer (PR #395) fixes cancel_prepare which'll fail on
+            # older versions of the code.
+            hsm_version: ["e1e3713604de42713477026ad55dc392455f3100"]
         steps:
         - name: Check out sources
           uses: actions/checkout@v4

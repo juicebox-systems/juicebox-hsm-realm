@@ -1515,6 +1515,71 @@ fn transfer_protocol_dest_leadership_changes() {
     t.do_transfer();
 }
 
+#[test]
+fn test_cancel_prepare_transfer() {
+    let mut cluster = TestCluster::new(3);
+    let mut metrics = Metrics::new("test", MetricsAction::Skip, TestPlatform::default());
+    let source = cluster.group;
+    let destination = cluster.new_group();
+    let range = OwnedRange {
+        start: RecordId([0; 32]),
+        end: RecordId([45; 32]),
+    };
+    let mut t = OwnershipTransfer::new(&mut cluster, source, destination, range.clone(), true);
+    match t.prepare() {
+        PrepareTransferResponse::Ok { .. } => {}
+        other => panic!("prepare transfer failed {other:?}"),
+    }
+    match t.cancel_prepare() {
+        CancelPreparedTransferResponse::Ok { .. } => {}
+        other => panic!("cancel prepare transfer failed {other:?}"),
+    }
+    match t.prepare() {
+        PrepareTransferResponse::Ok { .. } => {}
+        other => panic!("prepare transfer failed {other:?}"),
+    }
+    // can't cancel a different transfer
+    match t
+        .cluster
+        .leader(t.destination)
+        .unwrap()
+        .hsm
+        .handle_cancel_prepared_transfer(
+            &mut metrics,
+            CancelPreparedTransferRequest {
+                realm: t.realm,
+                source,
+                destination,
+                range: OwnedRange::full(),
+            },
+        ) {
+        CancelPreparedTransferResponse::NotPrepared => {}
+        other => panic!("cancel prepare transfer failed {other:?}"),
+    }
+    match t.transfer_out() {
+        TransferOutResponse::Ok { .. } => {}
+        other => panic!("transfer out failed {other:?}"),
+    }
+    // cancel prepared shouldn't touch the transferOut
+    match t
+        .cluster
+        .leader(t.source)
+        .unwrap()
+        .hsm
+        .handle_cancel_prepared_transfer(
+            &mut metrics,
+            CancelPreparedTransferRequest {
+                realm: t.realm,
+                source,
+                destination,
+                range: OwnedRange::full(),
+            },
+        ) {
+        CancelPreparedTransferResponse::NotPrepared => {}
+        other => panic!("cancel prepare transfer failed {other:?}"),
+    }
+}
+
 fn unpack_app_response(r: &AppResponse) -> (LogEntry, StoreDelta<DataHash>) {
     if let AppResponse::Ok { entry, delta } = r {
         (entry.clone(), delta.clone())
@@ -2139,7 +2204,7 @@ impl<'a, 'b> OwnershipTransfer<'a, 'b> {
         if let CancelPreparedTransferResponse::Ok { entry, clock } = &result {
             self.cluster
                 .store
-                .append(self.source, entry.clone(), StoreDelta::default());
+                .append(self.destination, entry.clone(), StoreDelta::default());
             if self.auto_commit {
                 self.cluster.capture_next_and_commit_group(self.source);
             }

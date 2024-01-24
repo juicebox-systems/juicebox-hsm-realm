@@ -1,5 +1,10 @@
+use agent_api::{
+    CancelPreparedTransferRequest, CancelPreparedTransferResponse, PrepareTransferRequest,
+    PrepareTransferResponse,
+};
 use futures::future::join_all;
 use futures::FutureExt;
+use juicebox_networking::rpc;
 use once_cell::sync::Lazy;
 use std::iter::zip;
 use std::path::PathBuf;
@@ -42,6 +47,7 @@ async fn transfer() {
         .await
         .unwrap();
 
+    let realm = cluster.realms[0].realm;
     let agent_client = reqwest::Client::new(ClientOptions::default());
     split_merge_empty_cluster(&agent_client, &cluster).await;
 
@@ -62,24 +68,19 @@ async fn transfer() {
     .await;
 
     // create some more groups.
-    let group_ids: Vec<GroupId> = join_all((1..5).map(|_| {
-        new_group(
-            &agent_client,
-            cluster.realms[0].realm,
-            &cluster.realms[0].agents,
-        )
-    }))
-    .await
-    .into_iter()
-    .collect::<Result<Vec<_>, _>>()
-    .unwrap();
+    let group_ids: Vec<GroupId> =
+        join_all((1..5).map(|_| new_group(&agent_client, realm, &cluster.realms[0].agents)))
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
 
     // repartition across the new groups.
     let partitions =
         [(0x00, 0x3F), (0x40, 0x7F), (0x80, 0xBF), (0xC0, 0xFF)].map(|p| make_range(p.0, p.1));
     for (group, partition) in zip(&group_ids, &partitions) {
         cluster_core::transfer(
-            cluster.realms[0].realm,
+            realm,
             *cluster.realms[0].groups.last().unwrap(),
             *group,
             partition.clone(),
@@ -111,7 +112,7 @@ async fn transfer() {
 
     // merge some partitions back into larger ones
     cluster_core::transfer(
-        cluster.realms[0].realm,
+        realm,
         group_ids[0],
         group_ids[1],
         partitions[0].clone(),
@@ -120,7 +121,7 @@ async fn transfer() {
     .await
     .unwrap();
     cluster_core::transfer(
-        cluster.realms[0].realm,
+        realm,
         group_ids[3],
         group_ids[2],
         partitions[3].clone(),
@@ -128,6 +129,57 @@ async fn transfer() {
     )
     .await
     .unwrap();
+
+    // do some recovers
+    for (r, expected) in join_all(clients.iter().map(|(client, expected)| {
+        client
+            .recover(&pin, &user_info)
+            .map(|result| (result, expected.clone()))
+    }))
+    .await
+    {
+        assert_eq!(r.unwrap().expose_secret(), expected.expose_secret());
+    }
+
+    // prepare & then cancel a transfer out.
+    let leader = cluster_core::find_leaders(&cluster.store, &agent_client)
+        .await
+        .unwrap()
+        .get(&(cluster.realms[0].realm, group_ids[0]))
+        .unwrap()
+        .1
+        .clone();
+
+    assert!(matches!(
+        rpc::send(
+            &agent_client,
+            &leader,
+            PrepareTransferRequest {
+                realm,
+                source: group_ids[1],
+                destination: group_ids[0],
+                range: partitions[0].clone(),
+            },
+        )
+        .await
+        .unwrap(),
+        PrepareTransferResponse::Ok { .. }
+    ));
+    assert!(matches!(
+        rpc::send(
+            &agent_client,
+            &leader,
+            CancelPreparedTransferRequest {
+                realm,
+                source: group_ids[1],
+                destination: group_ids[0],
+                range: partitions[0].clone(),
+            },
+        )
+        .await
+        .unwrap(),
+        CancelPreparedTransferResponse::Ok
+    ));
 
     // do some recovers
     for (r, expected) in join_all(clients.iter().map(|(client, expected)| {
