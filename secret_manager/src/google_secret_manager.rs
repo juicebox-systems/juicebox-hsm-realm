@@ -155,7 +155,7 @@ impl Client {
             .await?
             .into_inner()
             .payload
-            .map(|payload| Secret::from(payload.data)))
+            .map(|payload| Secret::from_json_or_raw(payload.data)))
     }
 }
 

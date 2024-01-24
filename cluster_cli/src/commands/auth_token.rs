@@ -16,11 +16,10 @@ pub async fn mint_auth_token(
         return Err(anyhow!("tenant must start with 'test-'"));
     }
 
-    let (auth_key_version, auth_key) = secret_manager
+    let (secret_version, secret) = secret_manager
         .get_latest_secret_version(&tenant_secret_name(&tenant))
         .await
         .context("failed to get test tenant auth key")?
-        .map(|(version, secret)| (version.into(), secret.into()))
         .ok_or_else(|| anyhow!("tenant has no secrets"))?;
 
     let auth_token = create_token(
@@ -30,8 +29,8 @@ pub async fn mint_auth_token(
             audience: realm,
             scope: Some(scope),
         },
-        &auth_key,
-        auth_key_version,
+        &secret.try_into()?,
+        secret_version.into(),
     );
 
     println!("{}", auth_token.expose_secret());

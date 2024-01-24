@@ -44,7 +44,9 @@ use observability::logging::TracingSource;
 use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
 use observability::tracing::TracingMiddleware;
-use secret_manager::{record_id_randomization_key_name, tenant_secret_name, SecretManager};
+use secret_manager::{
+    record_id_randomization_key_name, tenant_secret_name, Secret, SecretAlgorithm, SecretManager,
+};
 use service_core::http::ReqwestClientMetrics;
 use store::{ServiceKind, StoreClient};
 
@@ -60,7 +62,7 @@ struct State {
     metrics: metrics::Client,
     semver: Version,
     svc_mgr: ServiceManager,
-    record_id_randomization_key: SecretBytesArray<32>,
+    record_id_randomization_key: RecordIdRandomizationKey,
 }
 
 impl LoadBalancer {
@@ -71,23 +73,19 @@ impl LoadBalancer {
         metrics: metrics::Client,
         svc_cfg: ManagerOptions,
     ) -> Result<Self, anyhow::Error> {
-        let (_version, record_id_randomization_key) = secret_manager
+        let (_version, secret) = secret_manager
             .get_latest_secret_version(&record_id_randomization_key_name())
             .await?
             .ok_or_else(|| anyhow!("missing secret: {}", record_id_randomization_key_name().0))?;
-        let record_id_randomization_key = SecretBytesArray::try_from(record_id_randomization_key.0)
-            .map_err(|_| {
-                anyhow!(
-                    "secret {:?} has invalid length: need 32 bytes",
-                    record_id_randomization_key_name().0
-                )
-            })?;
 
         Ok(Self(Arc::new(State {
             name,
             store,
             secret_manager,
-            record_id_randomization_key,
+            record_id_randomization_key: secret.try_into().context(format!(
+                "failed to convert secret to key: {}",
+                record_id_randomization_key_name().0
+            ))?,
             agent_client: ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
             metrics: metrics.clone(),
@@ -473,7 +471,7 @@ async fn handle_client_request(
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
-    record_id_randomization_key: &SecretBytesArray<32>,
+    record_id_randomization_key: &RecordIdRandomizationKey,
     agent_client: &ReqwestClientMetrics,
     metrics: &metrics::Client,
 ) -> ClientResponse {
@@ -516,7 +514,7 @@ async fn handle_client_request_inner(
     name: &str,
     realms: &HashMap<RealmId, Vec<Partition>>,
     secret_manager: &dyn SecretManager,
-    record_id_randomization_key: &SecretBytesArray<32>,
+    record_id_randomization_key: &RecordIdRandomizationKey,
     agent_client: &ReqwestClientMetrics,
     request_tags: &mut Vec<Tag>,
 ) -> ClientResponse {
@@ -534,9 +532,15 @@ async fn handle_client_request_inner(
         .get_secret_version(&tenant_secret_name(&tenant), version.into())
         .await
     {
-        Ok(Some(key)) => match validator.validate(&request.auth_token, &key.into()) {
-            Ok(claims) => claims,
-            Err(_) => return Response::InvalidAuth,
+        Ok(Some(secret)) => match secret.try_into() {
+            Ok(key) => match validator.validate(&request.auth_token, &key) {
+                Ok(claims) => claims,
+                Err(_) => return Response::InvalidAuth,
+            },
+            Err(err) => {
+                warn!(?tenant, ?version, ?err, "invalid secret data");
+                return Response::InvalidAuth;
+            }
         },
         Ok(None) => return Response::InvalidAuth,
         Err(err) => {
@@ -614,6 +618,28 @@ async fn handle_client_request_inner(
     Response::Unavailable
 }
 
+#[derive(Debug)]
+pub struct RecordIdRandomizationKey(SecretBytesArray<32>);
+
+impl RecordIdRandomizationKey {
+    pub fn expose_secret(&self) -> &[u8] {
+        self.0.expose_secret()
+    }
+}
+
+impl TryFrom<Secret> for RecordIdRandomizationKey {
+    type Error = anyhow::Error;
+    fn try_from(value: Secret) -> Result<Self, Self::Error> {
+        match value.algorithm {
+            SecretAlgorithm::Blake2sMac256 => Ok(RecordIdRandomizationKey(
+                SecretBytesArray::try_from(value.data.expose_secret())
+                    .map_err(|_| anyhow!("invalid secret length: need 32 bytes"))?,
+            )),
+            _ => Err(anyhow!("invalid secret algorithm: need Blake2sMac256")),
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct RecordIdBuilder<'a> {
     tenant: &'a str,
@@ -626,7 +652,7 @@ struct RecordIdBuilder<'a> {
 // TODO: we may need a way to enumerate all the users for a given tenant if
 // that tenant wanted to delete all their data.
 impl<'a> RecordIdBuilder<'a> {
-    fn build(&self, randomization_key: &SecretBytesArray<32>) -> RecordId {
+    fn build(&self, randomization_key: &RecordIdRandomizationKey) -> RecordId {
         let mut h = Blake2sMac256::new(randomization_key.expose_secret().into());
         ciborium::ser::into_writer(self, DigestWriter(&mut h))
             .expect("failed to serialize RecordIdBuilder");

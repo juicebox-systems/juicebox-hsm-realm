@@ -1,10 +1,11 @@
+use anyhow::anyhow;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use tokio::fs;
 
-use super::{periodic::BulkLoad, Error, Secret, SecretName, SecretVersion};
+use super::{periodic::BulkLoad, Error, Secret, SecretJSON, SecretName, SecretVersion};
 
 /// An error message.
 #[derive(Debug)]
@@ -28,13 +29,10 @@ impl std::error::Error for StringError {}
 ///
 /// ```json
 /// {
-///     "tenant-a": ["key1"],
-///     "tenant-b": ["key2", "key3"],
+///     "tenant-a": {"1": "key1", "2": "key2"},
+///     "tenant-b": {"5": "key5", "12": "key12"},
 /// }
 /// ```
-///
-/// Secrets in the arrays are assigned version numbers sequentially, starting
-/// from 1.
 #[derive(Clone, Debug)]
 pub struct SecretsFile {
     path: PathBuf,
@@ -56,7 +54,7 @@ impl BulkLoad for SecretsFile {
             ))
         })?;
 
-        let secrets: HashMap<SecretName, Vec<String>> =
+        let secrets: HashMap<SecretName, HashMap<SecretVersion, SecretJSON>> =
             serde_json::from_slice(&contents).map_err(|e| {
                 StringError(format!(
                     "failed to read secrets from {path:?}: {e}",
@@ -67,17 +65,19 @@ impl BulkLoad for SecretsFile {
         Ok(secrets
             .into_iter()
             .map(|(name, secrets)| {
-                let versioned: HashMap<SecretVersion, Secret> = (1u64..)
-                    .map(SecretVersion)
-                    .zip(
-                        secrets
-                            .into_iter()
-                            .map(|secret| Secret::from(secret.into_bytes())),
-                    )
-                    .collect();
-                (name, versioned)
+                let versioned: HashMap<SecretVersion, Secret> = secrets
+                    .into_iter()
+                    .map(|(version, json)| {
+                        Ok((
+                            version,
+                            json.try_into()
+                                .map_err(|e| anyhow!("failed to parse json secret: {e:?}"))?,
+                        ))
+                    })
+                    .collect::<Result<_, Error>>()?;
+                Ok((name, versioned))
             })
-            .collect())
+            .collect::<Result<_, Error>>()?)
     }
 }
 
@@ -91,11 +91,35 @@ mod tests {
         let file = NamedTempFile::new().unwrap();
         std::fs::write(
             file.path(),
-            b"{
-                \"a\": [\"one\"],
-                \"b\": [\"one\", \"two\", \"three\"],
-                \"c\": []
-          }",
+            r#"
+            {
+                "a": {
+                    "1": {
+                      "data": "one",
+                      "encoding": "UTF8",
+                      "algorithm": "HmacSha256"
+                    }
+                  },
+                "b": {
+                    "1": {
+                        "data": "one",
+                        "encoding": "UTF8",
+                        "algorithm": "HmacSha256"
+                    },
+                    "2": {
+                        "data": "two",
+                        "encoding": "UTF8",
+                        "algorithm": "HmacSha256"
+                    },
+                    "3": {
+                        "data": "three",
+                        "encoding": "UTF8",
+                        "algorithm": "HmacSha256"
+                    }
+                },
+                "c": {}
+            }
+            "#,
         )
         .unwrap();
 
@@ -111,11 +135,20 @@ mod tests {
         assert_eq!(a.len(), 1);
         assert_eq!(b.len(), 3);
         assert_eq!(c.len(), 0);
-        assert_eq!(a.get(&SecretVersion(1)).unwrap().0.expose_secret(), b"one");
-        assert_eq!(b.get(&SecretVersion(1)).unwrap().0.expose_secret(), b"one");
-        assert_eq!(b.get(&SecretVersion(2)).unwrap().0.expose_secret(), b"two");
         assert_eq!(
-            b.get(&SecretVersion(3)).unwrap().0.expose_secret(),
+            a.get(&SecretVersion(1)).unwrap().data.expose_secret(),
+            b"one"
+        );
+        assert_eq!(
+            b.get(&SecretVersion(1)).unwrap().data.expose_secret(),
+            b"one"
+        );
+        assert_eq!(
+            b.get(&SecretVersion(2)).unwrap().data.expose_secret(),
+            b"two"
+        );
+        assert_eq!(
+            b.get(&SecretVersion(3)).unwrap().data.expose_secret(),
             b"three"
         );
     }
