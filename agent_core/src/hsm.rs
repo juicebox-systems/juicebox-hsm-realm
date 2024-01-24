@@ -8,15 +8,17 @@ use tracing::{instrument, span::Span};
 use hsm_api::rpc::{HsmRequestContainer, HsmResponseContainer, HsmRpc, MetricsAction};
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use observability::{metrics, metrics_tag as tag};
+use retry_loop::AttemptError;
 
 pub trait Transport: fmt::Debug + Send + Sync {
-    type Error: fmt::Debug + From<SerializationError> + From<DeserializationError> + Send;
+    type FatalError: fmt::Debug + From<SerializationError> + From<DeserializationError> + Send;
+    type RetryableError: fmt::Debug + Send;
 
     fn send_rpc_msg(
         &self,
         msg_name: &'static str,
         msg: Vec<u8>,
-    ) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<u8>, AttemptError<Self::FatalError, Self::RetryableError>>> + Send;
 }
 
 pub struct HsmClient<T>(Arc<HsmClientInner<T>>);
@@ -58,7 +60,10 @@ impl<T: Transport> HsmClient<T> {
         skip(r),
         fields(req_name, req_len, resp_len, rpc_dur)
     )]
-    pub async fn send<RPC: HsmRpc + Send>(&self, r: RPC) -> Result<RPC::Response, T::Error> {
+    pub async fn send<RPC: HsmRpc + Send>(
+        &self,
+        r: RPC,
+    ) -> Result<RPC::Response, AttemptError<T::FatalError, T::RetryableError>> {
         let hsm_req = r.to_req();
         let req_name = hsm_req.name();
         Span::current().record("req_name", req_name);
@@ -66,6 +71,10 @@ impl<T: Transport> HsmClient<T> {
         let req_bytes = marshalling::to_vec(&HsmRequestContainer {
             req: hsm_req,
             metrics: MetricsAction::Record,
+        })
+        .map_err(|error| AttemptError::Fatal {
+            error: T::FatalError::from(error),
+            tags: vec![tag!("kind": "agent_serialization")],
         })?;
         Span::current().record("req_len", req_bytes.len());
 
@@ -76,7 +85,11 @@ impl<T: Transport> HsmClient<T> {
         Span::current().record("resp_len", res_bytes.len());
         Span::current().record("rpc_dur", format!("{dur:?}"));
 
-        let response: HsmResponseContainer<RPC::Response> = marshalling::from_slice(&res_bytes)?;
+        let response: HsmResponseContainer<RPC::Response> = marshalling::from_slice(&res_bytes)
+            .map_err(|error| AttemptError::Fatal {
+                error: T::FatalError::from(error),
+                tags: vec![tag!("kind": "agent_deserialization")],
+            })?;
         if !response.metrics.is_empty() {
             for (k, dur) in response.metrics {
                 self.0.dd_metrics.timing(

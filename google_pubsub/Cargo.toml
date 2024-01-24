@@ -13,6 +13,7 @@ google = { workspace = true }
 juicebox_realm_api = { workspace = true }
 observability = { workspace = true }
 pubsub_api = { workspace = true }
+retry_loop = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }

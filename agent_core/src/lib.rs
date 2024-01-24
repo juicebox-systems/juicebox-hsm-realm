@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 use tracing::{debug, info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
@@ -59,10 +59,10 @@ use juicebox_realm_api::types::RealmId;
 use observability::logging::TracingSource;
 use observability::{metrics, metrics_tag as tag};
 use pubsub_api::{Message, Publisher};
-use retry_loop::RetryError;
+use retry_loop::{retry_logging, retry_logging_debug, AttemptError, Retry, RetryError};
 use service_core::rpc::{handle_rpc, HandlerError};
 use store::log::{LogEntriesIter, LogEntriesIterError, LogRow, ReadLastLogEntryFatal};
-use store::{discovery, ServiceKind};
+use store::{discovery, store_retries, ServiceKind};
 use tenants::UserAccountingWriter;
 
 #[derive(Debug)]
@@ -212,6 +212,13 @@ impl std::hash::Hash for HashableEntryMac {
     }
 }
 
+fn hsm_retries(retry: Retry) -> Retry {
+    retry
+        .with_exponential_backoff(Duration::from_millis(1), 2.0, Duration::from_secs(1))
+        .with_max_attempts(usize::MAX)
+        .with_timeout(Duration::from_secs(60))
+}
+
 /// Error type returned by [`Agent::watch_log_one`].
 #[derive(Debug)]
 enum WatchingError {
@@ -256,42 +263,45 @@ impl<T: Transport + 'static> Agent<T> {
 
     /// Called at service startup, start watching for any groups that the HSM is already a member of.
     async fn restart_watching(&self) {
-        loop {
-            match self.0.hsm.send(hsm_api::StatusRequest {}).await {
-                Err(err) => {
-                    warn!(?err, "failed to get HSM status, log watching delayed");
-                    sleep(Duration::from_secs(1)).await
-                }
-                Ok(sr) => {
-                    if let Some(realm) = sr.realm {
-                        {
-                            let mut locked = self.0.state.lock().unwrap();
-                            locked.groups = realm
-                                .groups
-                                .iter()
-                                .map(|g| {
-                                    (
-                                        (realm.id, g.id),
-                                        GroupState {
-                                            configuration: g.configuration.clone(),
-                                            role: g.role.clone(),
-                                            leader: None,
-                                        },
-                                    )
-                                })
-                                .collect();
-                        }
-                        for g in realm.groups {
-                            let idx = match g.captured {
-                                Some((index, _)) => index.next(),
-                                None => LogIndex::FIRST,
-                            };
-                            self.start_watching(realm.id, g.id, idx);
-                        }
-                    }
-                    return;
-                }
-            }
+        let status = Retry::new("getting HSM status to start watching logs")
+            .with(hsm_retries)
+            .with_metrics(&self.0.metrics, "agent.restart_watching.hsm_status", &[])
+            .retry(
+                |_| self.0.hsm.send(hsm_api::StatusRequest {}),
+                retry_logging_debug!(),
+            )
+            .await
+            .expect("failed to get HSM status");
+
+        let Some(realm) = status.realm else {
+            warn!("HSM does not have a realm");
+            return;
+        };
+
+        {
+            let mut locked = self.0.state.lock().unwrap();
+            locked.groups = realm
+                .groups
+                .iter()
+                .map(|g| {
+                    (
+                        (realm.id, g.id),
+                        GroupState {
+                            configuration: g.configuration.clone(),
+                            role: g.role.clone(),
+                            leader: None,
+                        },
+                    )
+                })
+                .collect();
+        }
+
+        for g in realm.groups {
+            let idx = match g.captured {
+                Some((index, _)) => index.next(),
+                None => LogIndex::FIRST,
+            };
+            self.start_watching(realm.id, g.id, idx);
         }
     }
 
@@ -407,23 +417,51 @@ impl<T: Transport + 'static> Agent<T> {
         configuration: &[HsmId],
         past: LogIndex,
     ) -> LogIndex {
+        #[derive(Debug, thiserror::Error)]
+        enum FatalError<T: Transport> {
+            #[error("HSM transport error: {0:?}")]
+            HsmTransport(T::FatalError),
+        }
+
+        #[derive(Debug, thiserror::Error)]
+        enum RetryableError<T: Transport> {
+            #[error("failed to discover peer agents to catch up from: {0}")]
+            Discovery(RetryError<tonic::Status>),
+            #[error("no peer agent returned usable capture to jump forward to")]
+            NoUsableCapture,
+            #[error("HSM transport error: {0:?}")]
+            HsmTransport(T::RetryableError),
+            #[error("HSM was not a witness but has been stepped down")]
+            NotWitness,
+        }
+
+        impl<T: Transport> From<RetryableError<T>> for AttemptError<FatalError<T>, RetryableError<T>> {
+            fn from(error: RetryableError<T>) -> Self {
+                let kind = match error {
+                    RetryableError::Discovery(_) => "discovery",
+                    RetryableError::NoUsableCapture => "no_usable_capture",
+                    RetryableError::HsmTransport(_) => "hsm_transport",
+                    RetryableError::NotWitness => "not_witness",
+                };
+                AttemptError::Retryable {
+                    error,
+                    tags: vec![tag!(kind)],
+                }
+            }
+        }
+
         let local_hsm_id: Option<HsmId> = self.0.state.lock().unwrap().hsm_id;
 
-        loop {
+        let run = |_| async {
             // TODO: There's some code duplication between this and the commit
             // path.
-            let urls: Vec<Url> = match discover_hsm_ids(&self.0.store, &self.0.peer_client).await {
-                Ok(it) => it
-                    .filter(|(hsm, _)| Some(hsm) != local_hsm_id.as_ref())
-                    .filter(|(hsm, _)| configuration.contains(hsm))
-                    .map(|(_, url)| url)
-                    .collect(),
-                Err(err) => {
-                    warn!(?err, "failed to discover peer agents to catch up from");
-                    sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-            };
+            let urls: Vec<Url> = discover_hsm_ids(&self.0.store, &self.0.peer_client)
+                .await
+                .map_err(RetryableError::<T>::Discovery)?
+                .filter(|(hsm, _)| Some(hsm) != local_hsm_id.as_ref())
+                .filter(|(hsm, _)| configuration.contains(hsm))
+                .map(|(_, url)| url)
+                .collect();
 
             let captures = join_all(urls.iter().map(|url| {
                 rpc::send_with_options(
@@ -443,15 +481,15 @@ impl<T: Transport + 'static> Agent<T> {
             .filter(|captured| captured.index > past);
 
             let Some(jump) = captures.max_by_key(|captured| captured.index) else {
-                warn!("no peer agent returned usable capture to jump forward to");
-                sleep(Duration::from_millis(500)).await;
-                continue;
+                return Err(RetryableError::NoUsableCapture.into());
             };
 
             let jump_index = jump.index;
             match self.0.hsm.send(CaptureJumpRequest { jump }).await {
-                Err(err) => todo!("{err:?}"),
-                Ok(CaptureJumpResponse::Ok) => return jump_index,
+                Err(err) => Err(err
+                    .map_fatal_err(FatalError::HsmTransport)
+                    .map_retryable_err(RetryableError::HsmTransport)),
+                Ok(CaptureJumpResponse::Ok) => Ok(jump_index),
                 Ok(CaptureJumpResponse::NotWitness(role)) => {
                     // We don't expect to get here because:
                     // - As a leader, we don't compact entries that beyond our
@@ -469,10 +507,30 @@ impl<T: Transport + 'static> Agent<T> {
                         normally happen. Forcing HSM to step down."
                     );
                     self.force_stepdown(realm, group).await;
-                    continue;
+                    Err(RetryableError::NotWitness.into())
                 }
-                Ok(r) => todo!("{r:#?}"),
-            };
+                Ok(
+                    r @ (CaptureJumpResponse::InvalidRealm
+                    | CaptureJumpResponse::InvalidGroup
+                    | CaptureJumpResponse::InvalidStatement
+                    | CaptureJumpResponse::StaleIndex),
+                ) => panic!("unexpected CaptureJump response: {r:?}"),
+            }
+        };
+
+        match Retry::new("catching up HSM from a peer")
+            .with(store_retries)
+            .with_timeout(Duration::from_secs(30))
+            .with_metrics(
+                &self.0.metrics,
+                "agent.catchup",
+                &[tag!(?realm), tag!(?group)],
+            )
+            .retry(run, retry_logging!())
+            .await
+        {
+            Ok(jump_index) => jump_index,
+            Err(error) => panic!("failed to catch up HSM from a peer: {error}"),
         }
     }
 
@@ -650,10 +708,7 @@ impl<T: Transport + 'static> Agent<T> {
         }
         // now wait til we're done stepping down.
         info!("Waiting for leadership stepdown(s) to complete.");
-        loop {
-            if get_leading().is_empty() {
-                return;
-            }
+        while !get_leading().is_empty() {
             sleep(Duration::from_millis(20)).await;
         }
     }
@@ -694,18 +749,17 @@ impl<T: Transport + 'static> Agent<T> {
     fn start_service_registration(&self, url: Url) {
         let agent = self.0.clone();
         tokio::spawn(async move {
-            let fn_hsm_id = || async {
-                loop {
-                    match agent.hsm.send(hsm_api::StatusRequest {}).await {
-                        Err(e) => {
-                            warn!(err=?e, "failed to connect to HSM");
-                            sleep(Duration::from_millis(10)).await;
-                        }
-                        Ok(hsm_api::StatusResponse { id, .. }) => return id,
-                    }
-                }
-            };
-            let hsm_id = fn_hsm_id().await;
+            let hsm_api::StatusResponse { id: hsm_id, .. } =
+                Retry::new("getting HSM status to start service registration")
+                    .with(hsm_retries)
+                    .with_metrics(&agent.metrics, "agent.service_registration.hsm_status", &[])
+                    .retry(
+                        |_| agent.hsm.send(hsm_api::StatusRequest {}),
+                        retry_logging_debug!(),
+                    )
+                    .await
+                    .expect("failed to get HSM status");
+
             agent.state.lock().unwrap().hsm_id = Some(hsm_id);
 
             info!(hsm=?hsm_id, %url, "registering agent with service discovery");
@@ -1116,97 +1170,98 @@ impl<T: Transport + 'static> Agent<T> {
             last=?request.last,
             "requested to become leader",
         );
-        match timeout(
-            Duration::from_secs(5),
-            self.handle_become_leader_inner(&request),
-        )
-        .await
-        {
-            Ok(r) => r,
-            Err(_) => {
-                warn!(
-                    realm=?request.realm,
-                    group=?request.group,
-                    last=?request.last,
-                    "timeout trying to become leader",
-                );
-                Ok(BecomeLeaderResponse::Timeout)
-            }
-        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        Ok(self.handle_become_leader_inner(&request, deadline).await)
     }
 
     async fn handle_become_leader_inner(
         &self,
         request: &BecomeLeaderRequest,
-    ) -> Result<BecomeLeaderResponse, HandlerError> {
+        deadline: Instant,
+    ) -> BecomeLeaderResponse {
         type Response = BecomeLeaderResponse;
         type HsmResponse = hsm_api::BecomeLeaderResponse;
 
         let hsm = &self.0.hsm;
         let store = &self.0.store;
+        let tags = [tag!("realm": ?request.realm), tag!("group": ?request.group)];
 
         if self.0.state.lock().unwrap().hsm_id.is_none() {
             // The HSM should be up by now, and we don't want to start
             // leadership without knowing its ID.
-            return Ok(Response::NoHsm);
+            return Response::NoHsm;
         }
 
-        // TODO: replace ad hoc retry loop with `retry_loop`.
-        // TODO: need a bound on this retry loop.
-        let last_entry: LogEntry = loop {
-            let entry = match store
+        let read_log_entry = |_| async {
+            let entry = store
                 .read_last_log_entry(&request.realm, &request.group)
                 .await
-            {
-                Ok(entry) => entry,
-                Err(RetryError::Fatal { error }) => {
-                    panic!(
-                        "error reading last log entry for realm {:?}, group {:?}: {error}",
-                        request.realm, request.group
+                .map_err(|_| {
+                    // read_last_log_entry already logged a warning
+                    AttemptError::Fatal {
+                        error: Response::NoStore,
+                        tags: vec![tag!("kind": "no_store")],
+                    }
+                })?;
+
+            let Some(expected) = request.last else {
+                return Ok(entry);
+            };
+
+            // If the cluster manager is doing a coordinated leadership
+            // handoff, it knows what the last log index of the stepping
+            // down leader owned.
+            match entry.index.cmp(&expected) {
+                Ordering::Less => {
+                    // The last leader probably hasn't quite written the
+                    // entry to the store yet. Wait for it.
+                    Err(AttemptError::Retryable {
+                        error: Response::FutureIndex,
+                        tags: vec![tag!("kind": "future_index")],
+                    })
+                }
+                Ordering::Equal => Ok(entry),
+                Ordering::Greater => {
+                    // The log is beyond this point, so a new leader
+                    // starting here would be unable to append anything.
+                    warn!(
+                        found = %entry.index,
+                        %expected,
+                        "found log entry beyond BecomeLeaderRequest index",
                     );
+                    Err(AttemptError::Fatal {
+                        error: Response::StaleIndex,
+                        tags: vec![tag!("kind": "stale_index")],
+                    })
                 }
-                Err(err @ RetryError::Exhausted { .. }) => {
-                    warn!(?err, "failed to read last log entry from store");
-                    return Ok(Response::NoStore);
-                }
-            };
-
-            break match request.last {
-                None => entry,
-
-                // If the cluster manager is doing a coordinated leadership
-                // handoff, it knows what the last log index of the stepping
-                // down leader owned.
-                Some(expected) => match entry.index.cmp(&expected) {
-                    Ordering::Less => {
-                        // The last leader probably hasn't quite written the
-                        // entry to the store yet. Wait for it.
-                        sleep(Duration::from_millis(2)).await;
-                        continue;
-                    }
-                    Ordering::Equal => entry,
-                    Ordering::Greater => {
-                        // The log is beyond this point, so a new leader
-                        // starting here would be unable to append anything.
-                        warn!(
-                            found = %entry.index,
-                            %expected,
-                            "found log entry beyond BecomeLeaderRequest index",
-                        );
-                        return Ok(Response::StaleIndex);
-                    }
-                },
-            };
+            }
         };
 
-        let last_entry_index = last_entry.index;
+        let last_entry: LogEntry = match Retry::new("reading log entry to become leader")
+            .with(store_retries)
+            .with_deadline(Some(deadline))
+            .with_metrics(
+                &self.0.metrics,
+                "agent.handle_become_leader.read_log_entry",
+                &tags,
+            )
+            .retry(read_log_entry, retry_logging_debug!())
+            .await
+        {
+            Ok(entry) => entry,
+            Err(RetryError::Exhausted {
+                last: Some(response),
+            }) => return response,
+            Err(RetryError::Exhausted { last: None }) => return Response::Timeout,
+            Err(RetryError::Fatal { error: response }) => return response,
+        };
+
         info!(
-            index=?last_entry_index,
+            index=?last_entry.index,
             "read log entry, asking HSM to become leader"
         );
-        // TODO: replace ad hoc retry loop with `retry_loop`.
-        // TODO: need a bound on this retry loop.
-        loop {
+
+        let hsm_become_leader = |_| async {
             match hsm
                 .send(hsm_api::BecomeLeaderRequest {
                     realm: request.realm,
@@ -1215,13 +1270,22 @@ impl<T: Transport + 'static> Agent<T> {
                 })
                 .await
             {
-                Err(_) => return Ok(Response::NoHsm),
+                Err(_) => Err(AttemptError::Fatal {
+                    error: Response::NoHsm,
+                    tags: vec![tag!("kind": "no_hsm")],
+                }),
                 Ok(HsmResponse::Ok { role }) => {
                     self.maybe_role_changed(request.realm, request.group, role);
-                    return Ok(Response::Ok);
+                    Ok(Response::Ok)
                 }
-                Ok(HsmResponse::InvalidRealm) => return Ok(Response::InvalidRealm),
-                Ok(HsmResponse::InvalidGroup) => return Ok(Response::InvalidGroup),
+                Ok(HsmResponse::InvalidRealm) => Err(AttemptError::Fatal {
+                    error: Response::InvalidRealm,
+                    tags: vec![tag!("kind": "invalid_realm")],
+                }),
+                Ok(HsmResponse::InvalidGroup) => Err(AttemptError::Fatal {
+                    error: Response::InvalidGroup,
+                    tags: vec![tag!("kind": "invalid_group")],
+                }),
                 Ok(HsmResponse::StepdownInProgress) => {
                     info!(
                         realm=?request.realm,
@@ -1229,10 +1293,13 @@ impl<T: Transport + 'static> Agent<T> {
                         state=?self.0.state.lock().unwrap(),
                         "didn't become leader because still stepping down",
                     );
-                    return Ok(Response::StepdownInProgress);
+                    Err(AttemptError::Fatal {
+                        error: Response::StepdownInProgress,
+                        tags: vec![tag!("kind": "stepdown_in_progress")],
+                    })
                 }
-                Ok(HsmResponse::InvalidMac) => panic!(),
-                Ok(HsmResponse::NotCaptured { have }) => match have {
+                Ok(HsmResponse::InvalidMac) => panic!("invalid MAC found in log"),
+                Ok(HsmResponse::NotCaptured { have }) => {
                     // On an active group it's possible that the index that the
                     // HSM has captured up to is behind the log entry we just
                     // read. Wait around a little to let it catch up.
@@ -1240,15 +1307,37 @@ impl<T: Transport + 'static> Agent<T> {
                     // better to wait slightly here so that the selected agent
                     // becomes leader, rather then ending up trying to undo the
                     // leadership move.
-                    Some(have_idx)
-                        if LogIndex(have_idx.0.saturating_add(1000)) >= last_entry_index =>
-                    {
-                        // Its close, give it chance to catch up.
-                        sleep(Duration::from_millis(5)).await;
+                    let error = Response::NotCaptured { have };
+                    let tags = vec![tag!("kind": "not_captured")];
+                    let is_close = have.is_some_and(|have| {
+                        LogIndex(have.0.saturating_add(1000)) >= last_entry.index
+                    });
+                    if is_close {
+                        Err(AttemptError::Retryable { error, tags })
+                    } else {
+                        Err(AttemptError::Fatal { error, tags })
                     }
-                    Some(_) | None => return Ok(Response::NotCaptured { have }),
-                },
+                }
             }
+        };
+
+        match Retry::new("requesting HSM to become leader")
+            .with(hsm_retries)
+            .with_deadline(Some(deadline))
+            .with_metrics(
+                &self.0.metrics,
+                "agent.handle_become_leader.hsm_request",
+                &tags,
+            )
+            .retry(hsm_become_leader, retry_logging_debug!())
+            .await
+        {
+            Ok(response) => response,
+            Err(RetryError::Exhausted {
+                last: Some(response),
+            }) => response,
+            Err(RetryError::Exhausted { last: None }) => Response::Timeout,
+            Err(RetryError::Fatal { error: response }) => response,
         }
     }
 
@@ -1374,15 +1463,7 @@ impl<T: Transport + 'static> Agent<T> {
         let user = request.user.clone();
         let record_id = request.record_id.clone();
 
-        let start_result = self
-            .0
-            .metrics
-            .async_time("agent.start_app_request.time", &tags, || {
-                self.start_app_request(request, &tags)
-            })
-            .await;
-
-        match start_result {
+        match self.start_app_request(request, &tags).await {
             Err(response) => Ok(response),
             Ok(append_request) => {
                 let has_delta = !append_request.delta.is_empty();
@@ -1488,14 +1569,74 @@ impl<T: Transport + 'static> Agent<T> {
         type HsmResponse = hsm_api::AppResponse;
         type Response = AppResponse;
 
-        for attempt in 0..100 {
+        #[derive(Debug, thiserror::Error)]
+        enum FatalError<T: Transport> {
+            // These ultimately map to NO_HSM, but it's useful to separate them
+            // out so that more detailed warnings are logged.
+            #[error("HSM transport error: {0:?}")]
+            HsmTransport(T::FatalError),
+            #[error("{0:?}")]
+            Other(AppResponse),
+        }
+
+        #[derive(Debug, thiserror::Error)]
+        enum RetryableError<T: Transport> {
+            #[error("Merkle node was missing (likely deleted before we read it)")]
+            MissingNode,
+            #[error("HSM transport error: {0:?}")]
+            HsmTransport(T::RetryableError),
+            #[error("HSM rejected stale proof. This agent will get a fresh one. Tree root hash was from log index {}", .index.0)]
+            StaleProof { index: LogIndex },
+        }
+
+        impl<T: Transport> From<FatalError<T>> for AttemptError<FatalError<T>, RetryableError<T>> {
+            fn from(error: FatalError<T>) -> Self {
+                let kind = match &error {
+                    FatalError::HsmTransport(_) => "hsm_transport",
+                    FatalError::Other(response) => match response {
+                        AppResponse::Ok(_) => "ok_error", // shouldn't happen
+                        AppResponse::NoHsm => "no_hsm",
+                        AppResponse::NoStore => "no_store",
+                        AppResponse::NoPubSub => "no_pub_sub",
+                        AppResponse::InvalidRealm => "invalid_realm",
+                        AppResponse::InvalidGroup => "invalid_group",
+                        AppResponse::NotLeader => "not_leader",
+                        AppResponse::InvalidProof => "invalid_proof",
+                        AppResponse::MissingSession => "missing_session",
+                        AppResponse::SessionError => "session_error",
+                        AppResponse::DecodingError => "decoding_error",
+                    },
+                };
+                AttemptError::Fatal {
+                    error,
+                    tags: vec![tag!(kind)],
+                }
+            }
+        }
+        impl<T: Transport> From<RetryableError<T>> for AttemptError<FatalError<T>, RetryableError<T>> {
+            fn from(error: RetryableError<T>) -> Self {
+                let kind = match &error {
+                    RetryableError::HsmTransport(_) => "hsm_transport",
+                    RetryableError::MissingNode => "missing_node",
+                    RetryableError::StaleProof { .. } => "stale_proof",
+                };
+                AttemptError::Retryable {
+                    error,
+                    tags: vec![tag!(kind)],
+                }
+            }
+        }
+
+        let run = |_| async {
             let cached_entry: Option<LogEntry> = {
                 let locked = self.0.state.lock().unwrap();
                 let Some(leader) = group_state(&locked.groups, request.realm, request.group)
                     .leader
                     .as_ref()
                 else {
-                    return Err(Response::NotLeader);
+                    return Err(AttemptError::from(FatalError::<T>::Other(
+                        Response::NotLeader,
+                    )));
                 };
                 leader.last_appended.clone()
             };
@@ -1511,16 +1652,16 @@ impl<T: Transport + 'static> Agent<T> {
                     Ok(entry) => entry,
                     Err(RetryError::Fatal {
                         error: ReadLastLogEntryFatal::EmptyLog,
-                    }) => return Err(Response::InvalidGroup),
-                    Err(_) => return Err(Response::NoStore),
+                    }) => return Err(FatalError::Other(Response::InvalidGroup).into()),
+                    Err(_) => return Err(FatalError::Other(Response::NoStore).into()),
                 },
             };
 
             let Some(partition) = entry.partition else {
-                return Err(Response::NotLeader);
+                return Err(FatalError::Other(Response::NotLeader).into());
             };
 
-            let proof = match merkle::read(
+            let proof = merkle::read(
                 &request.realm,
                 &self.0.store,
                 &partition.range,
@@ -1530,22 +1671,15 @@ impl<T: Transport + 'static> Agent<T> {
                 tags,
             )
             .await
-            {
-                Ok(proof) => proof,
-                Err(TreeStoreError::MissingNode) => {
-                    warn!(
-                        agent = self.0.name,
-                        attempt,
-                        index = ?entry.index,
-                        "missing node, retrying"
-                    );
-                    continue;
+            .map_err(|error| -> AttemptError<_, _> {
+                match error {
+                    TreeStoreError::MissingNode => RetryableError::MissingNode.into(),
+                    TreeStoreError::Network(_) => {
+                        warn!(?error, "start_app_request: error reading proof");
+                        FatalError::Other(Response::NoStore).into()
+                    }
                 }
-                Err(TreeStoreError::Network(e)) => {
-                    warn!(error = ?e, "start_app_request: error reading proof");
-                    return Err(Response::NoStore);
-                }
-            };
+            })?;
 
             match self
                 .0
@@ -1561,28 +1695,39 @@ impl<T: Transport + 'static> Agent<T> {
                 })
                 .await
             {
-                Err(_) => return Err(Response::NoHsm),
-                Ok(HsmResponse::InvalidRealm) => return Err(Response::InvalidRealm),
-                Ok(HsmResponse::InvalidGroup) => return Err(Response::InvalidGroup),
+                Err(error) => Err(error
+                    .map_fatal_err(FatalError::HsmTransport)
+                    .map_retryable_err(RetryableError::HsmTransport)),
+                Ok(HsmResponse::InvalidRealm) => {
+                    Err(FatalError::Other(Response::InvalidRealm).into())
+                }
+                Ok(HsmResponse::InvalidGroup) => {
+                    Err(FatalError::Other(Response::InvalidGroup).into())
+                }
                 Ok(HsmResponse::StaleProof) => {
-                    warn!(
-                        agent = self.0.name,
-                        attempt, index = ?entry.index,
-                        "stale proof, retrying"
-                    );
-                    continue;
+                    Err(RetryableError::StaleProof { index: entry.index }.into())
                 }
                 Ok(HsmResponse::NotLeader(role)) => {
                     self.maybe_role_changed(request.realm, request.group, role);
-                    return Err(Response::NotLeader);
+                    Err(FatalError::Other(Response::NotLeader).into())
                 }
-                Ok(HsmResponse::NotOwner) => return Err(Response::NotLeader),
-                Ok(HsmResponse::InvalidProof) => return Err(Response::InvalidProof),
+                Ok(HsmResponse::NotOwner) => Err(FatalError::Other(Response::NotLeader).into()),
+                Ok(HsmResponse::InvalidProof) => {
+                    Err(FatalError::Other(Response::InvalidProof).into())
+                }
                 // TODO, is this right? if we can't decrypt the leaf, then the proof is likely bogus.
-                Ok(HsmResponse::InvalidRecordData) => return Err(Response::InvalidProof),
-                Ok(HsmResponse::MissingSession) => return Err(Response::MissingSession),
-                Ok(HsmResponse::SessionError) => return Err(Response::SessionError),
-                Ok(HsmResponse::DecodingError) => return Err(Response::DecodingError),
+                Ok(HsmResponse::InvalidRecordData) => {
+                    Err(FatalError::Other(Response::InvalidProof).into())
+                }
+                Ok(HsmResponse::MissingSession) => {
+                    Err(FatalError::Other(Response::MissingSession).into())
+                }
+                Ok(HsmResponse::SessionError) => {
+                    Err(FatalError::Other(Response::SessionError).into())
+                }
+                Ok(HsmResponse::DecodingError) => {
+                    Err(FatalError::Other(Response::DecodingError).into())
+                }
 
                 Ok(HsmResponse::Ok { entry, delta }) => {
                     trace!(
@@ -1591,11 +1736,25 @@ impl<T: Transport + 'static> Agent<T> {
                         ?delta,
                         "got new log entry and data updates from HSM"
                     );
-                    return Ok(Append { entry, delta });
+                    Ok(Append { entry, delta })
                 }
-            };
+            }
+        };
+        match Retry::new("handling app request")
+            .with(store_retries)
+            .with_metrics(&self.0.metrics, "agent.start_app_request", tags)
+            .retry(run, retry_logging!())
+            .await
+        {
+            Ok(append) => Ok(append),
+            Err(RetryError::Fatal {
+                error: FatalError::HsmTransport(_),
+            }) => return Err(Response::NoHsm),
+            Err(RetryError::Fatal {
+                error: FatalError::Other(response),
+            }) => return Err(response),
+            Err(err @ RetryError::Exhausted { .. }) => panic!("failed to start app request: {err}"),
         }
-        panic!("too slow to make progress");
     }
 
     fn maybe_role_changed(&self, realm: RealmId, group: GroupId, role_now: RoleStatus) {

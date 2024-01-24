@@ -9,9 +9,7 @@ use google::pubsub::v1::{
 use google::GrpcConnectionOptions;
 use std::collections::HashMap;
 use std::error::Error;
-use std::future::Future;
 use std::time::Duration;
-use tokio::time::sleep;
 use tonic::transport::{Endpoint, Uri};
 use tonic::{Code, Status};
 use tracing::{info, instrument, warn};
@@ -19,6 +17,7 @@ use tracing::{info, instrument, warn};
 use juicebox_realm_api::types::RealmId;
 use observability::{metrics, metrics_tag as tag};
 use pubsub_api::Message;
+use retry_loop::{retry_logging, AttemptError, Retry, RetryError};
 
 pub struct Publisher {
     project: String,
@@ -82,24 +81,21 @@ impl pubsub_api::Publisher for Publisher {
                 ordering_key: String::from(""),
             }],
         };
-        self.metrics
-            .async_time("pubsub.publish.time", [tag!(?realm)], || async {
-                match self.publish_msg(pub_req.clone()).await {
-                    Err(err) if err.code() == Code::NotFound => {
-                        warn!(
-                            ?realm,
-                            ?tenant,
-                            "tenant topic not found, attempting to create it"
-                        );
-                        self.create_topic_and_sub(realm, tenant).await?;
-                        self.publish_msg(pub_req).await
-                    }
-                    Err(err) => Err(err),
-                    Ok(res) => Ok(res),
-                }
-            })
-            .await?;
-        Ok(())
+        let tags = [tag!(?realm)];
+        match self.publish_msg(pub_req.clone(), &tags).await {
+            Err(RetryError::Fatal { error }) if error.code() == Code::NotFound => {
+                warn!(
+                    ?realm,
+                    ?tenant,
+                    "tenant topic not found, attempting to create it"
+                );
+                self.create_topic_and_sub(realm, tenant, &tags).await?;
+                self.publish_msg(pub_req, &tags).await?;
+                Ok(())
+            }
+            Err(err) => Err(err.into()),
+            Ok(_) => Ok(()),
+        }
     }
 }
 
@@ -118,43 +114,62 @@ impl Publisher {
     async fn publish_msg(
         &self,
         req: PublishRequest,
-    ) -> Result<tonic::Response<PublishResponse>, Status> {
-        retry_op(
-            || async {
-                let mut pc = self.pub_client.clone();
-                pc.publish(req.clone()).await
-            },
-            retry_bad_gateway,
-            3,
-        )
-        .await
+        tags: &[metrics::Tag],
+    ) -> Result<PublishResponse, RetryError<Status>> {
+        Retry::new("publishing to Google PubSub")
+            .with(pubsub_retries)
+            .with_metrics(&self.metrics, "pubsub.publish_msg", tags)
+            .retry(
+                |_| async {
+                    let mut pc = self.pub_client.clone();
+                    match pc.publish(req.clone()).await {
+                        Ok(response) => Ok(response.into_inner()),
+                        Err(err) => Err(inspect_grpc_error(err)),
+                    }
+                },
+                retry_logging!(),
+            )
+            .await
     }
 
-    async fn create_topic(&self, topic: Topic) -> Result<tonic::Response<Topic>, Status> {
-        retry_op(
-            || async {
-                let mut pc = self.pub_client.clone();
-                pc.create_topic(topic.clone()).await
-            },
-            retry_bad_gateway,
-            3,
-        )
-        .await
+    async fn create_topic(
+        &self,
+        topic: Topic,
+        tags: &[metrics::Tag],
+    ) -> Result<tonic::Response<Topic>, RetryError<Status>> {
+        Retry::new("creating topic in Google PubSub")
+            .with(pubsub_retries)
+            .with_metrics(&self.metrics, "pubsub.create_topic", tags)
+            .retry(
+                |_| async {
+                    let mut pc = self.pub_client.clone();
+                    pc.create_topic(topic.clone())
+                        .await
+                        .map_err(inspect_grpc_error)
+                },
+                retry_logging!(),
+            )
+            .await
     }
 
     async fn create_subscription(
         &self,
         sub: Subscription,
-    ) -> Result<tonic::Response<Subscription>, Status> {
-        retry_op(
-            || async {
-                let mut sc = self.sub_client.clone();
-                sc.create_subscription(sub.clone()).await
-            },
-            retry_bad_gateway,
-            3,
-        )
-        .await
+        tags: &[metrics::Tag],
+    ) -> Result<tonic::Response<Subscription>, RetryError<Status>> {
+        Retry::new("creating subscription in Google PubSub")
+            .with(pubsub_retries)
+            .with_metrics(&self.metrics, "pubsub.create_subscription", tags)
+            .retry(
+                |_| async {
+                    let mut sc = self.sub_client.clone();
+                    sc.create_subscription(sub.clone())
+                        .await
+                        .map_err(inspect_grpc_error)
+                },
+                retry_logging!(),
+            )
+            .await
     }
 
     #[instrument(level = "trace", skip(self))]
@@ -162,29 +177,33 @@ impl Publisher {
         &self,
         realm: RealmId,
         tenant: &str,
-    ) -> Result<(), tonic::Status> {
+        tags: &[metrics::Tag],
+    ) -> Result<(), RetryError<Status>> {
         let labels = HashMap::from([
             (String::from("realm"), format!("{realm:?}")),
             (String::from("tenant"), tenant.to_owned()),
         ]);
         match self
-            .create_topic(Topic {
-                name: topic_name(&self.project, realm, tenant),
-                labels: labels.clone(),
-                message_storage_policy: None,
-                kms_key_name: String::from(""),
-                schema_settings: None,
-                satisfies_pzs: false,
-                message_retention_duration: None,
-            })
+            .create_topic(
+                Topic {
+                    name: topic_name(&self.project, realm, tenant),
+                    labels: labels.clone(),
+                    message_storage_policy: None,
+                    kms_key_name: String::from(""),
+                    schema_settings: None,
+                    satisfies_pzs: false,
+                    message_retention_duration: None,
+                },
+                tags,
+            )
             .await
         {
-            Err(err) if err.code() == Code::AlreadyExists => {
+            Err(RetryError::Fatal { error }) if error.code() == Code::AlreadyExists => {
                 // We can end up concurrently trying to create the same topic, that's ok.
                 info!(?realm, ?tenant, "topic for tenant already exists");
             }
             Err(err) => {
-                warn!(?realm, ?tenant, ?err, "failed to create topic for tenant");
+                // retry loop already warned
                 return Err(err);
             }
             Ok(_) => {
@@ -193,38 +212,41 @@ impl Publisher {
         }
 
         match self
-            .create_subscription(Subscription {
-                name: subscription_name(&self.project, realm, tenant),
-                topic: topic_name(&self.project, realm, tenant),
-                push_config: None,
-                bigquery_config: None,
-                cloud_storage_config: None,
-                ack_deadline_seconds: 10,
-                retain_acked_messages: false,
-                message_retention_duration: None,
-                labels,
-                enable_message_ordering: false,
-                expiration_policy: Some(ExpirationPolicy { ttl: None }),
-                filter: String::from(""),
-                dead_letter_policy: None,
-                retry_policy: None,
-                detached: false,
-                enable_exactly_once_delivery: true,
-                // These 2 fields are output only, it doesn't matter what
-                // they're set to here.
-                topic_message_retention_duration: None,
-                state: 0,
-            })
+            .create_subscription(
+                Subscription {
+                    name: subscription_name(&self.project, realm, tenant),
+                    topic: topic_name(&self.project, realm, tenant),
+                    push_config: None,
+                    bigquery_config: None,
+                    cloud_storage_config: None,
+                    ack_deadline_seconds: 10,
+                    retain_acked_messages: false,
+                    message_retention_duration: None,
+                    labels,
+                    enable_message_ordering: false,
+                    expiration_policy: Some(ExpirationPolicy { ttl: None }),
+                    filter: String::from(""),
+                    dead_letter_policy: None,
+                    retry_policy: None,
+                    detached: false,
+                    enable_exactly_once_delivery: true,
+                    // These 2 fields are output only, it doesn't matter what
+                    // they're set to here.
+                    topic_message_retention_duration: None,
+                    state: 0,
+                },
+                tags,
+            )
             .await
         {
-            Err(err) if err.code() == Code::AlreadyExists => {
+            Err(RetryError::Fatal { error }) if error.code() == Code::AlreadyExists => {
                 // We can end up concurrently trying to create the same
                 // subscription, that's ok.
                 info!(?realm, ?tenant, "subscription for tenant already exists");
                 Ok(())
             }
             Err(err) => {
-                warn!(?realm, ?tenant, ?err, "failed to create topic subscription");
+                // retry loop already warned
                 Err(err)
             }
             Ok(_) => {
@@ -235,32 +257,35 @@ impl Publisher {
     }
 }
 
-// Bad Gateway is reported as
-//"err":"Status { code: Unavailable, message: \"502:Bad Gateway\" // bunch of useless stuff }
-fn retry_bad_gateway(s: &Status) -> bool {
-    // the Pub/Sub docs explictly say to retry 502 errors.
-    s.code() == Code::Unavailable && s.message().starts_with("502:")
+/// Configures a retry loop with reasonable defaults for PubSub requests.
+fn pubsub_retries(retry: Retry) -> Retry {
+    retry
+        .with_exponential_backoff(Duration::from_millis(50), 2.0, Duration::from_secs(2))
+        .with_max_attempts(50)
+        .with_timeout(Duration::from_secs(30))
 }
 
-async fn retry_op<F, Fut, R, T>(
-    mut op: F,
-    should_retry: R,
-    mut attempts_left: isize,
-) -> Result<T, Status>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, Status>>,
-    R: Fn(&Status) -> bool,
-{
-    loop {
-        match op().await {
-            Ok(r) => return Ok(r),
-            Err(err) if should_retry(&err) && attempts_left > 0 => {
-                sleep(Duration::from_secs(1)).await;
-                attempts_left -= 1;
-                continue;
-            }
-            Err(err) => return Err(err),
-        }
+/// Classifies a gRPC error as retryable and extracts its tags.
+fn inspect_grpc_error(error: tonic::Status) -> AttemptError<tonic::Status> {
+    // This is a fork of `bigtable::inspect_grpc_error`. Consider changing that
+    // if you change this.
+    let may_retry = matches!(
+        error.code(),
+        Code::DeadlineExceeded |
+            Code::Internal |
+            Code::ResourceExhausted |
+            // Bad Gateway is reported as:
+            // ```
+            // "err":"Status { code: Unavailable, message: \"502:Bad Gateway\" // bunch of useless stuff }
+            // ```
+            // The Pub/Sub docs explictly say to retry 502 errors.
+            Code::Unavailable |
+            Code::Unknown
+    );
+    let tags = vec![tag!("kind": "grpc"), tag!("grpc_code": error.code())];
+    if may_retry {
+        AttemptError::Retryable { error, tags }
+    } else {
+        AttemptError::Fatal { error, tags }
     }
 }

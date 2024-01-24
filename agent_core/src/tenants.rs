@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use tokio::sync::mpsc;
-use tokio::time::sleep;
-use tracing::{trace, warn};
+use tracing::trace;
 
 use hsm_api::RecordId;
 use juicebox_realm_api::types::RealmId;
@@ -36,24 +35,9 @@ impl UserAccountingWriter {
                 metrics.gauge("agent.accounting.batch_size", count, metrics::NO_TAGS);
 
                 for (realm, events) in records {
-                    for retries in 0..3 {
-                        trace!(len = events.len(), ?realm, "writing user accounting batch");
-                        match metrics
-                            .async_time("agent.accounting.write_time", metrics::NO_TAGS, || {
-                                store.write_user_accounting(&realm, events.clone())
-                            })
-                            .await
-                        {
-                            Ok(_) => break,
-                            Err(err) => {
-                                warn!(
-                                    ?err,
-                                    ?retries,
-                                    "error writing to tenant user table in bigtable"
-                                );
-                                sleep(Duration::from_millis(25)).await;
-                            }
-                        }
+                    trace!(len = events.len(), ?realm, "writing user accounting batch");
+                    if store.write_user_accounting(&realm, events).await.is_err() {
+                        // write_user_accounting already warned
                     }
                 }
             }

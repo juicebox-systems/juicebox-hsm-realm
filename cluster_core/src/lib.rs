@@ -38,6 +38,7 @@ async fn wait_for_commit(
     agent_client: &Client,
 ) -> Result<(), RpcError> {
     debug!(?realm, group = ?group_id, "waiting for first log entry to commit");
+    // TODO: replace ad hoc retry loop with retry_loop::Retry
     loop {
         let status = rpc::send(agent_client, leader, StatusRequest {}).await?;
         let Some(hsm) = status.hsm else { continue };

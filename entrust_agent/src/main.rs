@@ -31,6 +31,7 @@ use entrust_nfast::{
 };
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use observability::{metrics, metrics_tag as tag};
+use retry_loop::AttemptError;
 use service_core::future_task::FutureTask;
 
 /// A host agent for use with an Entrust nCipherXC HSM.
@@ -137,6 +138,36 @@ impl From<SerializationError> for SeeError {
 impl From<NFastError> for SeeError {
     fn from(v: NFastError) -> Self {
         Self::NFast(v)
+    }
+}
+
+impl From<SeeError> for AttemptError<SeeError> {
+    fn from(error: SeeError) -> Self {
+        match error {
+            SeeError::Serialization(_) => AttemptError::Fatal {
+                error,
+                tags: vec![tag!("kind": "serialization")],
+            },
+            SeeError::Deserialization(_) => AttemptError::Fatal {
+                error,
+                tags: vec![tag!("kind": "deserialization")],
+            },
+            SeeError::NFast(_) => AttemptError::Fatal {
+                error,
+                tags: vec![tag!("kind": "nfast")],
+            },
+            SeeError::SeeWorldFailed => {
+                // A retry might succeed after this restarts the world.
+                AttemptError::Retryable {
+                    error,
+                    tags: vec![tag!("kind": "nfast")],
+                }
+            }
+            SeeError::HsmMarshallingError(_) => AttemptError::Fatal {
+                error,
+                tags: vec![tag!("kind": "hsm_marshalling")],
+            },
+        }
     }
 }
 
@@ -275,19 +306,20 @@ struct TransportInner {
 unsafe impl Send for TransportInner {}
 
 impl Transport for EntrustSeeTransport {
-    type Error = SeeError;
+    type FatalError = SeeError;
+    type RetryableError = SeeError;
 
     async fn send_rpc_msg(
         &self,
         msg_name: &'static str,
         msg: Vec<u8>,
-    ) -> Result<Vec<u8>, Self::Error> {
+    ) -> Result<Vec<u8>, AttemptError<SeeError>> {
         let (sender, receiver) = oneshot::channel();
         self.0
             .send(WorkerRequest::new(msg_name, msg, sender))
             .await
             .expect("HSM Transport worker task appears to be gone");
-        receiver.await.unwrap()
+        receiver.await.unwrap().map_err(AttemptError::from)
     }
 }
 

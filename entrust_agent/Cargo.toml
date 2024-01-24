@@ -15,6 +15,7 @@ entrust_api = { workspace = true }
 entrust_nfast = { workspace = true }
 juicebox_marshalling = { workspace = true }
 observability = { workspace = true }
+retry_loop = { workspace = true }
 service_core = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

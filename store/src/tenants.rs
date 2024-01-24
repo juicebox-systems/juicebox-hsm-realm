@@ -18,11 +18,13 @@ use thiserror::Error;
 use tracing::warn;
 
 use super::{BigtableTableAdminClient, Instance, StoreClient};
+use bigtable::bigtable_retries;
 use bigtable::mutate::{mutate_rows, MutateRowsError};
 use bigtable::read::Reader;
 use hsm_api::RecordId;
 use juicebox_realm_api::types::RealmId;
-use retry_loop::Retry;
+use observability::metrics_tag as tag;
+use retry_loop::{retry_logging, AttemptError, Retry, RetryError};
 
 const FAMILY: &str = "f";
 const EVENT_COL: &[u8] = b"e";
@@ -138,37 +140,48 @@ impl StoreClient {
         &self,
         realm: &RealmId,
         mut records: Vec<UserAccounting>,
-    ) -> Result<(), MutateRowsError> {
+    ) -> Result<(), RetryError<MutateRowsError>> {
         // Sort the records by timestamp so that if there are multiple records
         // for the same record id, they are applied in timestamp order.
         records.sort_by_key(|e| e.when);
 
-        // Each tenant+recordId gets their own row. There's a cell in the row
-        // for each event, with a timestamp that is rounded down to midnight.
-        // (to stop lots of cells potentially accumulating).
-        let mut bigtable = self.bigtable.clone();
-        mutate_rows(
-            &mut bigtable,
-            MutateRowsRequest {
-                table_name: tenant_user_table(&self.instance, realm),
-                app_profile_id: String::from(""),
-                entries: records
-                    .iter()
-                    .map(|u| Entry {
-                        row_key: make_row_key(&u.tenant, &u.id),
-                        mutations: vec![Mutation {
-                            mutation: Some(mutation::Mutation::SetCell(SetCell {
-                                family_name: FAMILY.to_string(),
-                                column_qualifier: EVENT_COL.to_vec(),
-                                timestamp_micros: to_day_micros(u.when),
-                                value: u.event.as_bytes(),
-                            })),
-                        }],
-                    })
-                    .collect(),
-            },
-        )
-        .await
+        let run = |_| async {
+            // Each tenant+recordId gets their own row. There's a cell in the row
+            // for each event, with a timestamp that is rounded down to midnight.
+            // (to stop lots of cells potentially accumulating).
+            mutate_rows(
+                &mut self.bigtable.clone(),
+                MutateRowsRequest {
+                    table_name: tenant_user_table(&self.instance, realm),
+                    app_profile_id: String::from(""),
+                    entries: records
+                        .iter()
+                        .map(|u| Entry {
+                            row_key: make_row_key(&u.tenant, &u.id),
+                            mutations: vec![Mutation {
+                                mutation: Some(mutation::Mutation::SetCell(SetCell {
+                                    family_name: FAMILY.to_string(),
+                                    column_qualifier: EVENT_COL.to_vec(),
+                                    timestamp_micros: to_day_micros(u.when),
+                                    value: u.event.as_bytes(),
+                                })),
+                            }],
+                        })
+                        .collect(),
+                },
+            )
+            .await
+            .map_err(AttemptError::from)
+        };
+        Retry::new("writing user accounting events")
+            .with(bigtable_retries)
+            .with_metrics(
+                &self.metrics,
+                "store_client.write_user_accounting",
+                &[tag!(?realm)],
+            )
+            .retry(run, retry_logging!())
+            .await
     }
 
     // Returns a count of active users by tenant for the specified realm and
