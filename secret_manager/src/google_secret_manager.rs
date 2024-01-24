@@ -130,7 +130,6 @@ impl Client {
     }
 
     // To go beyond the 25,000 maximum, this would have to deal with pagination.
-    // TODO: use retry_loop
     async fn list_secret_versions(
         &self,
         secret: &SecretResource,
