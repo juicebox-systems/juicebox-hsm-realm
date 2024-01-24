@@ -1,10 +1,11 @@
+use anyhow::anyhow;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use tokio::fs;
 
-use super::{periodic::BulkLoad, Error, Secret, SecretName, SecretVersion};
+use super::{periodic::BulkLoad, Error, Secret, SecretJSON, SecretName, SecretVersion};
 
 /// An error message.
 #[derive(Debug)]
@@ -53,7 +54,7 @@ impl BulkLoad for SecretsFile {
             ))
         })?;
 
-        let secrets: HashMap<SecretName, HashMap<String, String>> =
+        let secrets: HashMap<SecretName, HashMap<SecretVersion, SecretJSON>> =
             serde_json::from_slice(&contents).map_err(|e| {
                 StringError(format!(
                     "failed to read secrets from {path:?}: {e}",
@@ -66,10 +67,11 @@ impl BulkLoad for SecretsFile {
             .map(|(name, secrets)| {
                 let versioned: HashMap<SecretVersion, Secret> = secrets
                     .into_iter()
-                    .map(|(version, key)| {
+                    .map(|(version, json)| {
                         Ok((
-                            SecretVersion(version.parse::<u64>()?),
-                            Secret::from_json_or_raw(key.into_bytes()),
+                            version,
+                            json.try_into()
+                                .map_err(|e| anyhow!("failed to parse json secret: {e:?}"))?,
                         ))
                     })
                     .collect::<Result<_, Error>>()?;
@@ -91,8 +93,30 @@ mod tests {
             file.path(),
             r#"
             {
-                "a": {"1":"one"},
-                "b": {"1":"one", "2":"two", "3":"three"},
+                "a": {
+                    "1": {
+                      "data": "one",
+                      "encoding": "UTF8",
+                      "algorithm": "HmacSha256"
+                    }
+                  },
+                "b": {
+                    "1": {
+                        "data": "one",
+                        "encoding": "UTF8",
+                        "algorithm": "HmacSha256"
+                    },
+                    "2": {
+                        "data": "two",
+                        "encoding": "UTF8",
+                        "algorithm": "HmacSha256"
+                    },
+                    "3": {
+                        "data": "three",
+                        "encoding": "UTF8",
+                        "algorithm": "HmacSha256"
+                    }
+                },
                 "c": {}
             }
             "#,

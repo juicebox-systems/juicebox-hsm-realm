@@ -82,9 +82,10 @@ impl LoadBalancer {
             name,
             store,
             secret_manager,
-            record_id_randomization_key: secret
-                .try_into()
-                .context(record_id_randomization_key_name().0)?,
+            record_id_randomization_key: secret.try_into().context(format!(
+                "failed to convert secret to key: {}",
+                record_id_randomization_key_name().0
+            ))?,
             agent_client: ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default()),
             realms: Mutex::new(Arc::new(HashMap::new())),
             metrics: metrics.clone(),

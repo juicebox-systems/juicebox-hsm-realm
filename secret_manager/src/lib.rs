@@ -53,28 +53,35 @@ pub enum SecretParsingError {
     InvalidJSON,
 }
 
+impl TryFrom<SecretJSON> for Secret {
+    type Error = SecretParsingError;
+
+    fn try_from(value: SecretJSON) -> Result<Self, Self::Error> {
+        Ok(Secret {
+            data: match value.encoding {
+                SecretDataEncoding::Hex => match hex::decode(value.data) {
+                    Ok(vec) => vec,
+                    Err(_) => return Err(SecretParsingError::InvalidDataForEncoding),
+                },
+                SecretDataEncoding::UTF8 => value.data.into_bytes(),
+            }
+            .into(),
+            algorithm: value.algorithm,
+        })
+    }
+}
+
 impl Secret {
     pub fn from_json(slice: &[u8]) -> Result<Self, SecretParsingError> {
-        if let Ok(json) = serde_json::from_slice::<SecretJSON>(slice) {
-            Ok(Secret {
-                data: match json.encoding {
-                    SecretDataEncoding::Hex => match hex::decode(json.data) {
-                        Ok(vec) => vec,
-                        Err(_) => return Err(SecretParsingError::InvalidDataForEncoding),
-                    },
-                    SecretDataEncoding::UTF8 => json.data.as_bytes().to_vec(),
-                }
-                .into(),
-                algorithm: json.algorithm,
-            })
-        } else {
-            Err(SecretParsingError::InvalidJSON)
-        }
+        serde_json::from_slice::<SecretJSON>(slice)
+            .map_err(|_| SecretParsingError::InvalidJSON)?
+            .try_into()
     }
 
     /// Attempts to treat the provided `slice` as JSON data, but if
     /// it cannot successfully be parsed falls back to using it directly
     /// as data for an HmacSha256 Secret value.
+    // TODO: remove this once we've migrated all the secrets to the JSON encoding.
     pub fn from_json_or_raw(data: Vec<u8>) -> Self {
         match Self::from_json(&data) {
             Ok(secret) => secret,
