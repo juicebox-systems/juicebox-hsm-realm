@@ -3049,6 +3049,7 @@ dependencies = [
  "juicebox_realm_api",
  "juicebox_realm_auth",
  "observability",
+ "retry_loop",
  "serde",
  "serde_json",
  "tempfile",
