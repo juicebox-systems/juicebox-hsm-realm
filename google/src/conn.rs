@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::future::Future;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -5,7 +6,7 @@ use tonic::body::BoxBody;
 use tower_service::Service;
 use tracing::info;
 
-use retry_loop::{retry_logging, AttemptError, NoFatalErrors, Retry};
+use retry_loop::{retry_logging, AttemptError, Retry};
 
 pub struct MaxConnectionLifetime<C> {
     // The 'C' instance that was driven to ready by the poll() needs to be the
@@ -43,12 +44,12 @@ impl<C: Service<http::Request<BoxBody>> + Send + Sync + Clone + 'static> MaxConn
                 tokio::time::sleep(max_age).await;
 
                 let make_new_conn = |_| async {
-                    conn_factory().await.map_err(|error| {
-                        AttemptError::<NoFatalErrors, E>::Retryable {
+                    conn_factory()
+                        .await
+                        .map_err(|error| AttemptError::<Infallible, E>::Retryable {
                             error,
                             tags: vec![],
-                        }
-                    })
+                        })
                 };
 
                 match Retry::new("creating new connection to Google Cloud")
