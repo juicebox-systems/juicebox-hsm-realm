@@ -9,7 +9,6 @@ use hsm_api::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
 use juicebox_marshalling::to_be4;
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
-use observability::metrics;
 use store::StoreClient;
 
 use crate::get_hsm_statuses;
@@ -137,9 +136,10 @@ pub async fn assimilate(
                     transfer = format_owned_range(&transfer)
                 );
 
+                // TODO: should use cluster manager.
                 cluster_core::transfer(
                     store,
-                    metrics::Client::NONE,
+                    agents_client,
                     TransferRequest {
                         realm,
                         source: old_group,

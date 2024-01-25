@@ -385,6 +385,10 @@ impl OwnedRange {
         record_id >= &self.start && record_id <= &self.end
     }
 
+    pub fn overlaps(&self, other: &OwnedRange) -> bool {
+        self.contains(&other.start) || self.contains(&other.end)
+    }
+
     /// Returns the single range resulting from merging `self` and `other`, or
     /// returns `None` if the two are not adjacent.
     pub fn join(&self, other: &OwnedRange) -> Option<Self> {
@@ -793,6 +797,16 @@ pub struct LeaderStatus {
     /// have the same index. Multiple uncommitted log entries may compete to be
     /// committed at a particular log index.
     pub committed: Option<LogIndex>,
+
+    /// The last known log index. This is either the index of the log entry
+    /// provided during begin_leader, or the index or the most recently generated
+    /// log entry while leader.
+    ///
+    /// # Warning
+    ///
+    /// This log index may not be committed yet. The specific log entry generated
+    /// by the leader at this index may never commit.
+    pub last: LogIndex,
 
     /// A partition of users that this HSM believes this group is responsible
     /// for.

@@ -317,6 +317,30 @@ pub enum TransferInResponse {
     CommitTimeout,
 }
 
+impl Rpc<AgentService> for GroupOwnsRangeRequest {
+    const PATH: &'static str = "transfer/owns";
+    type Response = GroupOwnsRangeResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GroupOwnsRangeRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+    pub range: OwnedRange,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum GroupOwnsRangeResponse {
+    Ok,
+    NotOwned { has: Option<OwnedRange> },
+    NoHsm,
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+    TimedOut,
+    TransferInProgress,
+}
+
 impl Rpc<AgentService> for CompleteTransferRequest {
     const PATH: &'static str = "transfer/complete";
     type Response = CompleteTransferResponse;

@@ -7,11 +7,15 @@ use super::{group_state, merkle, Agent, Transport};
 use agent_api::merkle::TreeStoreError;
 use agent_api::{
     CancelPreparedTransferRequest, CancelPreparedTransferResponse, CompleteTransferRequest,
-    CompleteTransferResponse, PrepareTransferRequest, PrepareTransferResponse, TransferInRequest,
-    TransferInResponse, TransferOutRequest, TransferOutResponse,
+    CompleteTransferResponse, GroupOwnsRangeRequest, GroupOwnsRangeResponse,
+    PrepareTransferRequest, PrepareTransferResponse, TransferInRequest, TransferInResponse,
+    TransferOutRequest, TransferOutResponse,
 };
 use hsm_api::merkle::{Dir, StoreDelta};
-use hsm_api::{GroupId, GroupMemberRole, LogIndex, RoleLogicalClock, TransferInProofs};
+use hsm_api::{
+    GroupId, GroupMemberRole, LogIndex, RealmStatus, RoleLogicalClock, StatusRequest,
+    StatusResponse, TransferInProofs,
+};
 use juicebox_realm_api::types::RealmId;
 use observability::metrics_tag as tag;
 use retry_loop::RetryError;
@@ -476,6 +480,58 @@ impl<T: Transport + 'static> Agent<T> {
                     WaitForCommitResult::Timeout => Ok(Response::CommitTimeout),
                 }
             }
+        }
+    }
+    pub(super) async fn handle_group_owns_range(
+        &self,
+        request: GroupOwnsRangeRequest,
+    ) -> Result<GroupOwnsRangeResponse, HandlerError> {
+        type Response = GroupOwnsRangeResponse;
+        let hsm = &self.0.hsm;
+
+        let (wait_for_index, role) = match hsm.send(StatusRequest {}).await {
+            Err(_) => return Ok(Response::NoHsm),
+            Ok(StatusResponse {
+                realm: Some(RealmStatus { id, groups, .. }),
+                ..
+            }) if id == request.realm => {
+                let Some(gs) = groups.into_iter().find(|gs| gs.id == request.group) else {
+                    return Ok(Response::InvalidGroup);
+                };
+                let Some(ls) = gs.leader else {
+                    return Ok(Response::NotLeader);
+                };
+                if ls.transferring.is_some() {
+                    return Ok(Response::TransferInProgress);
+                }
+                if !ls.owned_range.as_ref().is_some_and(|owned| {
+                    owned.contains(&request.range.start) && owned.contains(&request.range.end)
+                }) {
+                    return Ok(Response::NotOwned {
+                        has: ls.owned_range,
+                    });
+                }
+                if Some(ls.last) == ls.committed {
+                    return Ok(Response::Ok);
+                }
+                (ls.last, gs.role)
+            }
+            Ok(_) => return Ok(Response::InvalidRealm),
+        };
+
+        match self
+            .wait_for_commit(
+                request.realm,
+                request.group,
+                wait_for_index,
+                role.at,
+                Duration::from_secs(60),
+            )
+            .await
+        {
+            WaitForCommitResult::Committed => Ok(Response::Ok),
+            WaitForCommitResult::NotLeader => Ok(Response::NotLeader),
+            WaitForCommitResult::Timeout => Ok(Response::TimedOut),
         }
     }
 

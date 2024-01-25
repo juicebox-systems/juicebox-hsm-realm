@@ -36,11 +36,11 @@ mod transfer;
 use agent_api::merkle::TreeStoreError;
 use agent_api::{
     AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CancelPreparedTransferRequest, CompleteTransferRequest, HashedUserId, JoinGroupRequest,
-    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
-    NewRealmRequest, NewRealmResponse, PrepareTransferRequest, ReadCapturedRequest,
-    ReadCapturedResponse, StatusRequest, StatusResponse, StepDownRequest, StepDownResponse,
-    TransferInRequest, TransferOutRequest,
+    CancelPreparedTransferRequest, CompleteTransferRequest, GroupOwnsRangeRequest, HashedUserId,
+    JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest,
+    NewGroupResponse, NewRealmRequest, NewRealmResponse, PrepareTransferRequest,
+    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse, StepDownRequest,
+    StepDownResponse, TransferInRequest, TransferOutRequest,
 };
 use append::{Append, AppendingState};
 use build_info::BuildInfo;
@@ -848,6 +848,9 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                     }
                     CompleteTransferRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_complete_transfer).await
+                    }
+                    GroupOwnsRangeRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_group_owns_range).await
                     }
                     _ => Ok(Response::builder()
                         .status(hyper::StatusCode::NOT_FOUND)

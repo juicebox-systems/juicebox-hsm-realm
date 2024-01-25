@@ -1,3 +1,4 @@
+use juicebox_networking::http;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn};
@@ -8,28 +9,17 @@ use agent_api::{
     TransferInResponse, TransferOutRequest, TransferOutResponse,
 };
 pub use cluster_api::{TransferError, TransferRequest};
-use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::{self};
-use observability::metrics;
-use service_core::http::ReqwestClientMetrics;
 use store::StoreClient;
 
 use super::leader::find_leaders;
 
 pub async fn transfer(
     store: &StoreClient,
-    metrics: metrics::Client,
+    client: &impl http::Client,
     transfer: TransferRequest,
 ) -> Result<(), TransferError> {
     type Error = TransferError;
-
-    info!(
-        realm=?transfer.realm,
-        source=?transfer.source,
-        destination=?transfer.destination,
-        range=?transfer.range,
-        "transferring ownership"
-    );
 
     if transfer.source == transfer.destination {
         warn!(
@@ -39,18 +29,11 @@ pub async fn transfer(
         return Err(Error::InvalidGroup);
     }
 
-    let agent_client = ReqwestClientMetrics::new(metrics, ClientOptions::default());
-    // This will attempt to Cancel the prepared transfer at the destination group when dropped
-    // unless cancelable gets set to false.
-    let mut prepare_guard = CancelPrepareGuard {
-        transfer: &transfer,
-        store,
-        agents: &agent_client,
-        cancelable: true,
-    };
-
     let mut state = TransferState::Transferring;
     let mut last_error: Option<Error> = None;
+
+    // In the event of an unexpected path out of here, or a crash the transfer recovery checker will
+    // spot the transferring in and/or out entries and restart the transfer as appropriate.
 
     let mut tries = 0;
     loop {
@@ -62,7 +45,7 @@ pub async fn transfer(
             warn!(?state, ?last_error, "retrying transfer due to error");
         }
 
-        let leaders = find_leaders(store, &agent_client).await.unwrap_or_default();
+        let leaders = find_leaders(store, client).await.unwrap_or_default();
 
         let Some((_, source_leader)) = leaders.get(&(transfer.realm, transfer.source)) else {
             last_error = Some(Error::NoSourceLeader);
@@ -85,8 +68,9 @@ pub async fn transfer(
         // The Agents will not respond to these RPCs until the related log entry is
         // committed. (where protocol safety requires the log entry to commit).
         if state == TransferState::Transferring {
+            info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination, "starting PrepareTransfer");
             let (nonce, prepared_stmt) = match rpc::send(
-                &agent_client,
+                client,
                 dest_leader,
                 PrepareTransferRequest {
                     realm: transfer.realm,
@@ -131,8 +115,9 @@ pub async fn transfer(
                 }
             };
 
+            info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination, "transfer prepared, starting TransferOut");
             let (transferring_partition, transfer_stmt) = match rpc::send(
-                &agent_client,
+                client,
                 source_leader,
                 TransferOutRequest {
                     realm: transfer.realm,
@@ -148,20 +133,21 @@ pub async fn transfer(
                 Ok(TransferOutResponse::Ok {
                     transferring,
                     statement,
-                }) => {
-                    prepare_guard.cancelable = false;
-                    (transferring, statement)
+                }) => (transferring, statement),
+                Ok(TransferOutResponse::UnacceptableRange) => {
+                    cancel_prepared_transfer(client, store, transfer).await;
+                    return Err(Error::UnacceptableRange);
                 }
-                Ok(TransferOutResponse::UnacceptableRange) => return Err(Error::UnacceptableRange),
                 Ok(TransferOutResponse::InvalidGroup) => {
+                    cancel_prepared_transfer(client, store, transfer).await;
                     return Err(Error::InvalidGroup);
                 }
                 Ok(TransferOutResponse::OtherTransferPending) => {
+                    cancel_prepared_transfer(client, store, transfer).await;
                     return Err(Error::OtherTransferPending);
                 }
                 Ok(TransferOutResponse::CommitTimeout) => {
                     // This might still commit, so we shouldn't cancel the prepare.
-                    prepare_guard.cancelable = false;
                     return Err(Error::CommitTimeout);
                 }
                 Ok(TransferOutResponse::NoStore) => return Err(Error::NoStore),
@@ -194,8 +180,9 @@ pub async fn transfer(
                 }
             };
 
+            info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination, "transfer out completed, starting TransferIn");
             match rpc::send(
-                &agent_client,
+                client,
                 dest_leader,
                 TransferInRequest {
                     realm: transfer.realm,
@@ -250,8 +237,12 @@ pub async fn transfer(
         if state == TransferState::Completing {
             // the TransferIn agent RPC waits for the log entry to commit, so
             // its safe to call CompleteTransfer now.
+            info!(realm=?transfer.realm, source=?transfer.source, 
+                destination=?transfer.destination, 
+                "transfer in completed, starting CompleteTransfer");
+
             match rpc::send(
-                &agent_client,
+                client,
                 source_leader,
                 CompleteTransferRequest {
                     realm: transfer.realm,
@@ -295,29 +286,10 @@ enum TransferState {
     Completing,
 }
 
-struct CancelPrepareGuard<'a> {
-    transfer: &'a TransferRequest,
-    store: &'a StoreClient,
-    agents: &'a ReqwestClientMetrics,
-    cancelable: bool,
-}
-
-impl<'a> Drop for CancelPrepareGuard<'a> {
-    fn drop(&mut self) {
-        if self.cancelable {
-            tokio::runtime::Handle::current().block_on(cancel_prepared_transfer(
-                self.agents,
-                self.store,
-                self.transfer,
-            ));
-        }
-    }
-}
-
 async fn cancel_prepared_transfer(
-    client: &ReqwestClientMetrics,
+    client: &impl http::Client,
     store: &StoreClient,
-    t: &TransferRequest,
+    t: TransferRequest,
 ) {
     let leaders = find_leaders(store, client).await.unwrap_or_default();
 
@@ -325,6 +297,7 @@ async fn cancel_prepared_transfer(
         warn!(group=?t.destination, "couldn't find a leader for the group");
         return;
     };
+    info!(realm=?t.realm, source=?t.source, destination=?t.destination, "cancelling preparedTransfer");
 
     match rpc::send(
         client,
@@ -339,13 +312,13 @@ async fn cancel_prepared_transfer(
     .await
     {
         Ok(CancelPreparedTransferResponse::Ok) => {
-            info!(destination=?t.destination, "canceled previously prepared transfer");
+            info!(realm=?t.realm, source=?t.source, destination=?t.destination, "canceled previously prepared transfer");
         }
         Ok(other) => {
-            warn!(?other, "CancelPreparedTransfer failed");
+            warn!(result=?other, realm=?t.realm, source=?t.source, destination=?t.destination, "CancelPreparedTransfer failed");
         }
         Err(err) => {
-            warn!(%err, "RPC error while trying to cancel prepared transfer");
+            warn!(%err,realm=?t.realm, source=?t.source, destination=?t.destination, "RPC error while trying to cancel prepared transfer");
         }
     }
 }

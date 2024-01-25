@@ -754,6 +754,7 @@ impl<P: Platform> Hsm<P> {
                                     let last = &leader.log.last().entry;
                                     Some(LeaderStatus {
                                         committed: leader.committed,
+                                        last: last.index,
                                         owned_range: last
                                             .partition
                                             .as_ref()

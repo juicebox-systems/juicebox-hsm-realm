@@ -1,17 +1,19 @@
 use anyhow::Context;
 use bytes::Bytes;
+use cluster_core::get_hsm_statuses;
 use http_body_util::Full;
 use hyper::http;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use hyper_util::rt::TokioIo;
+use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -19,7 +21,7 @@ use tracing::{info, span, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
-use hsm_api::GroupId;
+use hsm_api::{GroupId, HsmId};
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::Rpc;
 use juicebox_realm_api::types::RealmId;
@@ -47,10 +49,10 @@ struct ManagerInner {
     name: String,
     store: StoreClient,
     agents: ReqwestClientMetrics,
-    metrics: metrics::Client,
     // Set when the initial registration in service discovery completes
     // successfully.
     registered: AtomicBool,
+    status: HsmStatusCache,
 }
 
 /// When drop'd will remove the lease from the store.
@@ -167,16 +169,21 @@ impl Manager {
         rebalance_interval: Duration,
         metrics: metrics::Client,
     ) -> Self {
+        let agents = ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default());
+        let hsm_status = HsmStatusCache::new(store.clone(), agents.clone());
+
         let m = Self(Arc::new(ManagerInner {
             name,
-            store,
-            agents: ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default()),
-            metrics,
+            store: store.clone(),
+            agents,
             registered: AtomicBool::new(false),
+            status: hsm_status,
         }));
         let manager = m.clone();
+
         tokio::spawn(async move {
             let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+
             loop {
                 sleep(update_interval).await;
 
@@ -184,7 +191,13 @@ impl Manager {
                 span.set_parent(cx.clone());
 
                 if let Err(err) = manager.ensure_groups_have_leader().await {
-                    warn!(?err, "Error while checking all groups have a leader")
+                    warn!(?err, "Error while checking all groups have a leader");
+                }
+                if let Err(err) = manager.ensure_transfers_finished().await {
+                    warn!(
+                        ?err,
+                        "Error while checking that ownership transfers are completed"
+                    );
                 }
             }
         });
@@ -330,6 +343,85 @@ impl Manager {
                 ))))
                 .unwrap()
         }
+    }
+}
+
+type HsmsStatus = HashMap<HsmId, (hsm_api::StatusResponse, Url)>;
+
+fn find_leader(status: &HsmsStatus, realm: RealmId, group: GroupId) -> Option<(HsmId, Url)> {
+    for (hsm, (status, url)) in status {
+        if let Some(rs) = &status.realm {
+            if rs.id == realm {
+                for gs in &rs.groups {
+                    if gs.leader.is_some() && gs.id == group {
+                        return Some((*hsm, url.clone()));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[derive(Clone)]
+struct HsmStatusCache {
+    state: Arc<Mutex<HsmStatusCacheInner>>,
+    store: StoreClient,
+    agent_client: ReqwestClientMetrics,
+}
+
+struct HsmStatusCacheInner {
+    cache: HsmsStatus,
+    updated: Option<Instant>,
+}
+
+impl HsmStatusCache {
+    fn new(store: StoreClient, agent_client: ReqwestClientMetrics) -> Self {
+        HsmStatusCache {
+            state: Arc::new(Mutex::new(HsmStatusCacheInner {
+                cache: HashMap::new(),
+                updated: None,
+            })),
+            store,
+            agent_client,
+        }
+    }
+
+    async fn status(&self, freshness: Duration) -> Result<HsmsStatus, RetryError<tonic::Status>> {
+        let cached = {
+            let locked = self.state.lock().unwrap();
+            if locked
+                .updated
+                .is_some_and(|last_updated| Instant::now().duration_since(last_updated) < freshness)
+            {
+                Some(locked.cache.clone())
+            } else {
+                None
+            }
+        };
+        match cached {
+            None => self.refresh().await,
+            Some(c) => Ok(c),
+        }
+    }
+
+    async fn refresh(&self) -> Result<HsmsStatus, RetryError<tonic::Status>> {
+        let addresses = self.store.get_addresses(Some(ServiceKind::Agent)).await?;
+        let status = get_hsm_statuses(
+            &self.agent_client,
+            addresses.iter().map(|(url, _)| url),
+            Some(Duration::from_secs(5)),
+        )
+        .await;
+        let result = status.clone();
+        let mut locked = self.state.lock().unwrap();
+        locked.cache = status;
+        locked.updated = Some(Instant::now());
+        Ok(result)
+    }
+
+    fn mark_dirty(&self) {
+        self.state.lock().unwrap().updated = None;
     }
 }
 

@@ -2,28 +2,20 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{info, instrument, trace, warn};
-use url::Url;
 
-use super::{ManagementGrant, Manager};
+use super::{HsmsStatus, ManagementGrant, Manager};
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse};
 use cluster_core::workload::{HsmWorkload, WorkAmount};
-use cluster_core::{get_hsm_statuses, Error};
+use cluster_core::Error;
 use hsm_api::{GroupId, HsmId, LogIndex};
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
 use service_core::http::ReqwestClientMetrics;
-use store::ServiceKind;
 
 impl Manager {
     #[instrument(level = "trace", skip(self))]
     pub(super) async fn ensure_groups_have_leader(&self) -> Result<(), Error> {
-        let addresses = self.0.store.get_addresses(Some(ServiceKind::Agent)).await?;
-        let hsm_status = get_hsm_statuses(
-            &self.0.agents,
-            addresses.iter().map(|(url, _)| url),
-            Some(Duration::from_secs(5)),
-        )
-        .await;
+        let hsm_status = self.0.status.status(Duration::from_millis(20)).await?;
 
         let mut groups: HashMap<(RealmId, GroupId), Option<HsmId>> = HashMap::new();
         for (hsm, _url) in hsm_status.values() {
@@ -60,10 +52,11 @@ impl Manager {
                         group_id,
                         &grant,
                         None,
-                        &hsm_status,
+                        &self.0.status.status(Duration::from_millis(50)).await?,
                         None,
                     )
                     .await?;
+                    self.0.status.mark_dirty();
                 }
                 Err(err) => {
                     warn!(?err, "GRPC error trying to obtain lease");
@@ -83,7 +76,7 @@ pub(super) async fn assign_group_a_leader(
     group: GroupId,
     _: &ManagementGrant,
     skipping: Option<HsmId>,
-    hsm_status: &HashMap<HsmId, (hsm_api::StatusResponse, Url)>,
+    hsm_status: &HsmsStatus,
     last: Option<LogIndex>,
 ) -> Result<Option<HsmId>, RpcError> {
     // We calculate a score for each group member based on how much work we

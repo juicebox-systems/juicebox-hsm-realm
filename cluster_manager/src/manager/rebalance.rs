@@ -6,12 +6,10 @@ use url::Url;
 use super::Manager;
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse, StepDownRequest, StepDownResponse};
 use cluster_api::{RebalanceError, RebalanceSuccess, RebalancedLeader};
-use cluster_core::get_hsm_statuses;
 use cluster_core::workload::{HsmWorkload, WorkAmount};
 use hsm_api::HsmId;
 use juicebox_networking::rpc::{self};
 use service_core::rpc::HandlerError;
-use store::ServiceKind;
 
 impl Manager {
     pub(super) async fn handle_rebalance(
@@ -29,19 +27,12 @@ impl Manager {
     /// it handles the leadership handoff between the two HSMs. See
     /// [`next_rebalance()`] for more details on how it determines what to move.
     pub(super) async fn rebalance_work(&self) -> Result<RebalanceSuccess, RebalanceError> {
-        let addresses = self
+        let hsm_status = self
             .0
-            .store
-            .get_addresses(Some(ServiceKind::Agent))
+            .status
+            .status(Duration::from_millis(20))
             .await
             .map_err(|_| RebalanceError::NoStore)?;
-
-        let hsm_status = get_hsm_statuses(
-            &self.0.agents,
-            addresses.iter().map(|(url, _)| url),
-            Some(Duration::from_secs(5)),
-        )
-        .await;
 
         let hsm_urls: HashMap<HsmId, Url> = hsm_status
             .iter()
@@ -79,6 +70,7 @@ impl Manager {
             {
                 StepDownResponse::Ok { last } => {
                     info!(?realm, ?group, last=?last, "leader stepped down, asking the target to become leader");
+                    self.0.status.mark_dirty();
                     match rpc::send(
                         &self.0.agents,
                         &hsm_urls[&rebalance.to],

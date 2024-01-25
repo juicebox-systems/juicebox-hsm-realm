@@ -1,7 +1,6 @@
 use agent_api::{PrepareTransferResponse, TransferOutResponse};
 use cluster_api::TransferRequest;
 use juicebox_networking::rpc;
-use observability::metrics;
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 
@@ -100,9 +99,9 @@ async fn transfer_retry() {
     // At this point the transfer coordinator crashes. The transfer should be
     // recoverable by running through all the steps again, even though some of
     // them are already done.
-    assert!(cluster_core::transfer(
-        &cluster.store,
-        metrics::Client::NONE,
+    assert!(rpc::send(
+        &client,
+        &cluster.cluster_managers[0],
         TransferRequest {
             realm,
             source,
@@ -111,6 +110,7 @@ async fn transfer_retry() {
         }
     )
     .await
+    .unwrap()
     .is_ok());
 
     processes.kill();

@@ -238,7 +238,7 @@ pub async fn create_cluster(
             &args.bigtable,
             pubsub_url.clone(),
             args.path_to_target.clone(),
-            &store,
+            &cluster_managers,
         )
         .await;
         realms.push(res);
@@ -332,7 +332,7 @@ async fn create_realm(
     bigtable: &store::BigtableArgs,
     pubsub_url: Option<Uri>,
     path_to_target: PathBuf,
-    store: &StoreClient,
+    cluster_managers: &[Url],
 ) -> RealmResult {
     assert_ne!(r.hsms, 0);
 
@@ -373,9 +373,9 @@ async fn create_realm(
             if r.groups > 0 {
                 // Transfer everything from the original group to the next one,
                 // because the original group isn't fault-tolerant.
-                cluster_core::transfer(
-                    store,
-                    metrics::Client::NONE,
+                rpc::send(
+                    &agents_client,
+                    &cluster_managers[0],
                     TransferRequest {
                         realm: res.realm,
                         source: res.groups[0],
@@ -384,6 +384,7 @@ async fn create_realm(
                     },
                 )
                 .await
+                .unwrap()
                 .unwrap();
 
                 // TODO, transfer ranges to the other new groups

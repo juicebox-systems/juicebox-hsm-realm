@@ -199,23 +199,13 @@ async fn main() {
         destination = ?groups[1],
         "transferring ownership of entire uid-space"
     );
-    cluster_core::transfer(
-        &store,
-        metrics.clone(),
-        TransferRequest {
-            realm: realm_id,
-            source: groups[0],
-            destination: groups[1],
-            range: OwnedRange::full(),
-        },
-    )
-    .await
-    .unwrap();
 
     info!("growing the cluster to 4 partitions");
+    // TODO: should use cluster manager
+    // TODO: should use cluster_gen.
     cluster_core::transfer(
         &store,
-        metrics.clone(),
+        &agents_client,
         TransferRequest {
             realm: realm_id,
             source: groups[1],
@@ -231,7 +221,7 @@ async fn main() {
 
     cluster_core::transfer(
         &store,
-        metrics.clone(),
+        &agents_client,
         TransferRequest {
             realm: realm_id,
             source: groups[1],
@@ -247,7 +237,7 @@ async fn main() {
 
     cluster_core::transfer(
         &store,
-        metrics.clone(),
+        &agents_client,
         TransferRequest {
             realm: realm_id,
             source: groups[2],
@@ -264,7 +254,7 @@ async fn main() {
     // moving part of a partition to another group.
     cluster_core::transfer(
         &store,
-        metrics,
+        &agents_client,
         TransferRequest {
             realm: realm_id,
             source: groups[2],

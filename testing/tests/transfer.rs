@@ -16,7 +16,6 @@ use hsm_core::merkle::testing::rec_id;
 use juicebox_networking::reqwest::{self, Client, ClientOptions};
 use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::{Pin, Policy, UserInfo, UserSecret};
-use observability::metrics;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, ClusterResult, RealmConfig};
 use testing::exec::hsm_gen::Entrust;
@@ -81,9 +80,9 @@ async fn transfer() {
     let partitions =
         [(0x00, 0x3F), (0x40, 0x7F), (0x80, 0xBF), (0xC0, 0xFF)].map(|p| make_range(p.0, p.1));
     for (group, partition) in zip(&group_ids, &partitions) {
-        cluster_core::transfer(
-            &cluster.store,
-            metrics::Client::NONE,
+        rpc::send(
+            &agent_client,
+            &cluster.cluster_managers[0],
             TransferRequest {
                 realm,
                 source: *cluster.realms[0].groups.last().unwrap(),
@@ -92,6 +91,7 @@ async fn transfer() {
             },
         )
         .await
+        .unwrap()
         .unwrap();
     }
 
@@ -116,9 +116,9 @@ async fn transfer() {
     .await;
 
     // merge some partitions back into larger ones
-    cluster_core::transfer(
-        &cluster.store,
-        metrics::Client::NONE,
+    rpc::send(
+        &agent_client,
+        &cluster.cluster_managers[0],
         TransferRequest {
             realm,
             source: group_ids[0],
@@ -127,11 +127,12 @@ async fn transfer() {
         },
     )
     .await
+    .unwrap()
     .unwrap();
 
-    cluster_core::transfer(
-        &cluster.store,
-        metrics::Client::NONE,
+    rpc::send(
+        &agent_client,
+        &cluster.cluster_managers[0],
         TransferRequest {
             realm,
             source: group_ids[3],
@@ -140,6 +141,7 @@ async fn transfer() {
         },
     )
     .await
+    .unwrap()
     .unwrap();
 
     // do some recovers
@@ -218,9 +220,9 @@ async fn split_merge_empty_cluster(agent_client: &Client, cluster: &ClusterResul
     .unwrap();
     let src_group = cluster.realms[0].groups.last().copied().unwrap();
     // move some to the new group.
-    cluster_core::transfer(
-        &cluster.store,
-        metrics::Client::NONE,
+    rpc::send(
+        agent_client,
+        &cluster.cluster_managers[0],
         TransferRequest {
             realm: cluster.realms[0].realm,
             source: src_group,
@@ -232,11 +234,13 @@ async fn split_merge_empty_cluster(agent_client: &Client, cluster: &ClusterResul
         },
     )
     .await
+    .unwrap()
     .unwrap();
+
     // move part of it back.
-    cluster_core::transfer(
-        &cluster.store,
-        metrics::Client::NONE,
+    rpc::send(
+        agent_client,
+        &cluster.cluster_managers[0],
         TransferRequest {
             realm: cluster.realms[0].realm,
             source: new_group_id,
@@ -248,11 +252,13 @@ async fn split_merge_empty_cluster(agent_client: &Client, cluster: &ClusterResul
         },
     )
     .await
+    .unwrap()
     .unwrap();
+
     // move the rest of it back
-    cluster_core::transfer(
-        &cluster.store,
-        metrics::Client::NONE,
+    rpc::send(
+        agent_client,
+        &cluster.cluster_managers[0],
         TransferRequest {
             realm: cluster.realms[0].realm,
             source: new_group_id,
@@ -264,6 +270,7 @@ async fn split_merge_empty_cluster(agent_client: &Client, cluster: &ClusterResul
         },
     )
     .await
+    .unwrap()
     .unwrap();
 }
 
