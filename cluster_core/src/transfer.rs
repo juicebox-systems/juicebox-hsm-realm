@@ -1,5 +1,6 @@
+use retry_loop::{retry_logging_debug, AttemptError, RetryError};
 use std::time::Duration;
-use tokio::time::sleep;
+use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use super::{find_leaders, ManagementGrant, ManagementLeaseKey};
@@ -55,7 +56,7 @@ pub async fn perform_transfer(
     grant: &ManagementGrant,
     chaos: Option<TransferChaos>,
     transfer: TransferRequest,
-) -> Result<TransferSuccess, TransferError> {
+) -> Result<TransferSuccess, RetryError<TransferError>> {
     type Error = TransferError;
 
     if transfer.source == transfer.destination {
@@ -63,7 +64,9 @@ pub async fn perform_transfer(
             group=?transfer.source,
             "cannot transfer ownership to the same group (unsupported)"
         );
-        return Err(Error::InvalidGroup);
+        return Err(RetryError::Fatal {
+            error: Error::InvalidGroup,
+        });
     }
 
     // check the caller supplied grant.
@@ -72,32 +75,22 @@ pub async fn perform_transfer(
     };
     assert_eq!(*grant_realm, transfer.realm);
 
-    let mut state = TransferState::Transferring;
-    let mut last_error: Option<Error> = None;
-
     // In the event of an unexpected path out of here, or a crash the transfer recovery checker will
     // spot the transferring in and/or out entries and restart the transfer as appropriate.
+    let state = Mutex::new(TransferState::Transferring);
 
-    let mut tries = 0;
-    loop {
-        tries += 1;
-        if tries > 20 {
-            return Err(last_error.unwrap_or(Error::TooManyRetries));
-        } else if tries > 1 {
-            sleep(Duration::from_millis(25)).await;
-            warn!(?state, ?last_error, "retrying transfer due to error");
-        }
+    let run = |_| async {
+        let mut state = state.lock().await;
+        let transfer = transfer.clone();
 
-        let leaders = find_leaders(&store, client).await.unwrap_or_default();
+        let leaders = find_leaders(store, client).await.unwrap_or_default();
 
         let Some((_, source_leader)) = leaders.get(&(transfer.realm, transfer.source)) else {
-            last_error = Some(Error::NoSourceLeader);
-            continue;
+            return Err(classify(Error::NoSourceLeader));
         };
 
         let Some((_, dest_leader)) = leaders.get(&(transfer.realm, transfer.destination)) else {
-            last_error = Some(Error::NoDestinationLeader);
-            continue;
+            return Err(classify(Error::NoDestinationLeader));
         };
 
         // Once the source group commits the log entry that the range is
@@ -110,7 +103,7 @@ pub async fn perform_transfer(
 
         // The Agents will not respond to these RPCs until the related log entry is
         // committed. (where protocol safety requires the log entry to commit).
-        if state == TransferState::Transferring {
+        if *state == TransferState::Transferring {
             info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination, "starting PrepareTransfer");
             let (nonce, prepared_stmt) = match rpc::send(
                 client,
@@ -134,32 +127,32 @@ pub async fn perform_transfer(
                         transfer.destination, transfer.realm,
                     );
                 }
-                Ok(PrepareTransferResponse::InvalidGroup) => return Err(Error::InvalidGroup),
+                Ok(PrepareTransferResponse::InvalidGroup) => {
+                    return Err(classify(Error::InvalidGroup))
+                }
                 Ok(PrepareTransferResponse::OtherTransferPending) => {
-                    return Err(Error::OtherTransferPending)
+                    return Err(classify(Error::OtherTransferPending))
                 }
                 Ok(PrepareTransferResponse::UnacceptableRange) => {
-                    return Err(Error::UnacceptableRange)
+                    return Err(classify(Error::UnacceptableRange))
                 }
-                Ok(PrepareTransferResponse::CommitTimeout) => return Err(Error::CommitTimeout),
-                Ok(PrepareTransferResponse::NoStore) => return Err(Error::NoStore),
+                Ok(PrepareTransferResponse::CommitTimeout) => {
+                    return Err(classify(Error::CommitTimeout))
+                }
+                Ok(PrepareTransferResponse::NoStore) => return Err(classify(Error::NoStore)),
                 Ok(PrepareTransferResponse::NoHsm) => {
-                    last_error = Some(Error::NoDestinationLeader);
-                    continue;
+                    return Err(classify(Error::NoDestinationLeader));
                 }
                 Ok(PrepareTransferResponse::NotLeader) => {
-                    last_error = Some(Error::NoDestinationLeader);
-                    continue;
+                    return Err(classify(Error::NoDestinationLeader));
                 }
                 Err(error) => {
-                    warn!(%error, "RPC error with destination leader during PrepareTransfer");
-                    last_error = Some(Error::RpcError(error));
-                    continue;
+                    return Err(classify(Error::RpcError(error)));
                 }
             };
 
             if chaos == Some(TransferChaos::StopAfterPrepare) {
-                return Err(Error::TooManyRetries);
+                return Err(classify(Error::Timeout));
             }
 
             info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination, "transfer prepared, starting TransferOut");
@@ -182,29 +175,28 @@ pub async fn perform_transfer(
                     statement,
                 }) => (transferring, statement),
                 Ok(TransferOutResponse::UnacceptableRange) => {
-                    cancel_prepared_transfer(client, &store, transfer).await;
-                    return Err(Error::UnacceptableRange);
+                    cancel_prepared_transfer(client, store, transfer).await;
+                    return Err(classify(Error::UnacceptableRange));
                 }
                 Ok(TransferOutResponse::InvalidGroup) => {
-                    cancel_prepared_transfer(client, &store, transfer).await;
-                    return Err(Error::InvalidGroup);
+                    cancel_prepared_transfer(client, store, transfer).await;
+                    return Err(classify(Error::InvalidGroup));
                 }
                 Ok(TransferOutResponse::OtherTransferPending) => {
-                    cancel_prepared_transfer(client, &store, transfer).await;
-                    return Err(Error::OtherTransferPending);
+                    cancel_prepared_transfer(client, store, transfer).await;
+                    return Err(classify(Error::OtherTransferPending));
                 }
                 Ok(TransferOutResponse::CommitTimeout) => {
                     // This might still commit, so we shouldn't cancel the prepare.
-                    return Err(Error::CommitTimeout);
+                    return Err(classify(Error::CommitTimeout));
                 }
-                Ok(TransferOutResponse::NoStore) => return Err(Error::NoStore),
+                Ok(TransferOutResponse::NoStore) => return Err(classify(Error::NoStore)),
                 Ok(
                     TransferOutResponse::NotOwner
                     | TransferOutResponse::NoHsm
                     | TransferOutResponse::NotLeader,
                 ) => {
-                    last_error = Some(Error::NoSourceLeader);
-                    continue;
+                    return Err(classify(Error::NoSourceLeader));
                 }
                 Ok(TransferOutResponse::InvalidProof) => {
                     panic!("TransferOut reported invalid proof");
@@ -221,14 +213,12 @@ pub async fn perform_transfer(
                 );
                 }
                 Err(error) => {
-                    warn!(%error, "RPC error with source leader during TransferOut");
-                    last_error = Some(Error::RpcError(error));
-                    continue;
+                    return Err(classify(Error::RpcError(error)));
                 }
             };
 
             if chaos == Some(TransferChaos::StopAfterTransferOut) {
-                return Err(Error::TooManyRetries);
+                return Err(classify(Error::Timeout));
             }
 
             info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination, "transfer out completed, starting TransferIn");
@@ -247,9 +237,11 @@ pub async fn perform_transfer(
             .await
             {
                 Ok(TransferInResponse::Ok) => {
-                    state = TransferState::Completing;
+                    *state = TransferState::Completing;
                 }
-                Ok(TransferInResponse::CommitTimeout) => return Err(Error::CommitTimeout),
+                Ok(TransferInResponse::CommitTimeout) => {
+                    return Err(classify(Error::CommitTimeout))
+                }
                 Ok(TransferInResponse::NotPrepared) => {
                     unreachable!(
                         "TransferIn reported Not Prepared, but we just called prepareTransfer"
@@ -262,76 +254,84 @@ pub async fn perform_transfer(
                     unreachable!("Only a buggy coordinator can get these errors by this point in the process. Got {r:?}");
                 }
                 Ok(TransferInResponse::InvalidNonce) => {
-                    last_error = Some(Error::InvalidNonce);
-                    continue;
+                    return Err(classify(Error::InvalidNonce));
                 }
                 Ok(TransferInResponse::NoStore) => {
-                    last_error = Some(Error::NoStore);
-                    continue;
+                    return Err(classify(Error::NoStore));
                 }
                 Ok(
                     TransferInResponse::NoHsm
                     | TransferInResponse::NotLeader
                     | TransferInResponse::NotOwner,
                 ) => {
-                    last_error = Some(Error::NoDestinationLeader);
-                    continue;
+                    return Err(classify(Error::NoDestinationLeader));
                 }
                 Err(error) => {
-                    warn!(%error, "RPC Error reported while calling TransferIn");
-                    last_error = Some(Error::RpcError(error));
-                    continue;
+                    return Err(classify(Error::RpcError(error)));
                 }
             };
         }
 
         if chaos == Some(TransferChaos::StopBeforeComplete) {
-            return Err(Error::TooManyRetries);
+            return Err(classify(Error::Timeout));
         }
 
-        if state == TransferState::Completing {
-            // the TransferIn agent RPC waits for the log entry to commit, so
-            // its safe to call CompleteTransfer now.
-            info!(realm=?transfer.realm, source=?transfer.source,
+        // the TransferIn agent RPC waits for the log entry to commit, so
+        // its safe to call CompleteTransfer now.
+        info!(realm=?transfer.realm, source=?transfer.source,
                 destination=?transfer.destination,
                 "transfer in completed, starting CompleteTransfer");
 
-            match rpc::send(
-                client,
-                source_leader,
-                CompleteTransferRequest {
-                    realm: transfer.realm,
-                    source: transfer.source,
-                    destination: transfer.destination,
-                    range: transfer.range.clone(),
-                },
-            )
-            .await
-            {
-                Ok(CompleteTransferResponse::Ok) => return Ok(TransferSuccess {}),
-                Ok(CompleteTransferResponse::CommitTimeout) => return Err(Error::CommitTimeout),
-                Ok(CompleteTransferResponse::NoHsm | CompleteTransferResponse::NotLeader) => {
-                    last_error = Some(Error::NoSourceLeader);
-                    continue;
-                }
-                Ok(
-                    CompleteTransferResponse::InvalidRealm | CompleteTransferResponse::InvalidGroup,
-                ) => {
-                    unreachable!();
-                }
-                Ok(CompleteTransferResponse::NotTransferring) => {
-                    warn!("got NotTransferring during complete transfer");
-                    // This could happen if retried for a transient error but the request
-                    // had actually succeeded (e.g. commit timeout)
-                    return Ok(TransferSuccess {});
-                }
-                Err(error) => {
-                    warn!(%error, "RPC error during CompleteTransfer request");
-                    last_error = Some(Error::RpcError(error));
-                    continue;
-                }
+        match rpc::send(
+            client,
+            source_leader,
+            CompleteTransferRequest {
+                realm: transfer.realm,
+                source: transfer.source,
+                destination: transfer.destination,
+                range: transfer.range.clone(),
+            },
+        )
+        .await
+        {
+            Ok(CompleteTransferResponse::Ok) => Ok(TransferSuccess {}),
+            Ok(CompleteTransferResponse::CommitTimeout) => Err(classify(Error::CommitTimeout)),
+            Ok(CompleteTransferResponse::NoHsm | CompleteTransferResponse::NotLeader) => {
+                Err(classify(Error::NoSourceLeader))
             }
+            Ok(CompleteTransferResponse::InvalidRealm | CompleteTransferResponse::InvalidGroup) => {
+                unreachable!();
+            }
+            Ok(CompleteTransferResponse::NotTransferring) => {
+                warn!("got NotTransferring during complete transfer");
+                // This could happen if retried for a transient error but the request
+                // had actually succeeded (e.g. commit timeout)
+                Ok(TransferSuccess {})
+            }
+            Err(error) => Err(classify(Error::RpcError(error))),
         }
+    };
+
+    retry_loop::Retry::new("run cluster transfer process")
+        .with_exponential_backoff(Duration::from_millis(10), 1.1, Duration::from_millis(500))
+        .retry(run, retry_logging_debug!())
+        .await
+}
+
+fn classify(e: TransferError) -> AttemptError<TransferError> {
+    let tags = Vec::new();
+    match e {
+        error @ TransferError::NoSourceLeader => AttemptError::Retryable { error, tags },
+        error @ TransferError::NoDestinationLeader => AttemptError::Retryable { error, tags },
+        error @ TransferError::ManagerBusy => AttemptError::Fatal { error, tags },
+        error @ TransferError::InvalidGroup => AttemptError::Fatal { error, tags },
+        error @ TransferError::UnacceptableRange => AttemptError::Fatal { error, tags },
+        error @ TransferError::OtherTransferPending => AttemptError::Fatal { error, tags },
+        error @ TransferError::NoStore => AttemptError::Retryable { error, tags },
+        error @ TransferError::Timeout => AttemptError::Fatal { error, tags },
+        error @ TransferError::CommitTimeout => AttemptError::Fatal { error, tags },
+        error @ TransferError::InvalidNonce => AttemptError::Retryable { error, tags },
+        error @ TransferError::RpcError(_) => AttemptError::Retryable { error, tags },
     }
 }
 

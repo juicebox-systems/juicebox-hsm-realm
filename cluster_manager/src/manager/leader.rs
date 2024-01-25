@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{info, instrument, trace, warn};
 
-use super::{HsmsStatus, ManagementGrant, Manager};
+use super::{ManagementGrant, Manager};
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse};
 use cluster_core::workload::{HsmWorkload, WorkAmount};
-use cluster_core::Error;
+use cluster_core::{Error, HsmsStatus};
 use hsm_api::{GroupId, HsmId, LogIndex};
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;

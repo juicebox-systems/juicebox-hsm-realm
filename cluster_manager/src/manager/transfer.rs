@@ -2,13 +2,13 @@ use futures::future::join_all;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use super::{find_leader, HsmsStatus, ManagementGrant, ManagementLeaseKey, Manager};
+use super::{ManagementGrant, ManagementLeaseKey, Manager};
 use agent_api::{
     CompleteTransferRequest, CompleteTransferResponse, GroupOwnsRangeRequest,
     GroupOwnsRangeResponse,
 };
 use cluster_api::{TransferError, TransferRequest, TransferSuccess};
-use cluster_core::{perform_transfer, range_owners};
+use cluster_core::{find_leader, perform_transfer, range_owners, HsmsStatus};
 use hsm_api::{GroupId, LeaderStatus, OwnedRange, Transferring, TransferringIn, TransferringOut};
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
@@ -28,9 +28,9 @@ impl Manager {
         )
         .await
         {
-            Ok(Some(grant)) => {
-                perform_transfer(&self.0.store, &self.0.agents, &grant, None, req).await
-            }
+            Ok(Some(grant)) => perform_transfer(&self.0.store, &self.0.agents, &grant, None, req)
+                .await
+                .map_err(|e| e.last().unwrap_or(TransferError::Timeout)),
             Ok(None) => Err(TransferError::ManagerBusy),
             Err(err) => {
                 warn!(?err, "failed to get management lease");

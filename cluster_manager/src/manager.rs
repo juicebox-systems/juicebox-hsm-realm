@@ -1,6 +1,6 @@
 use anyhow::Context;
 use bytes::Bytes;
-use cluster_core::{get_hsm_statuses, ManagementGrant, ManagementLeaseKey};
+use cluster_core::{get_hsm_statuses, HsmsStatus, ManagementGrant, ManagementLeaseKey};
 use http_body_util::Full;
 use hyper::http;
 use hyper::server::conn::http1;
@@ -21,7 +21,7 @@ use tracing::{info, span, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use url::Url;
 
-use hsm_api::{GroupId, HsmId};
+use hsm_api::GroupId;
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::Rpc;
 use juicebox_realm_api::types::RealmId;
@@ -86,6 +86,19 @@ impl Manager {
                 if let Err(err) = manager.ensure_groups_have_leader().await {
                     warn!(?err, "Error while checking all groups have a leader");
                 }
+            }
+        });
+
+        let manager = m.clone();
+        tokio::spawn(async move {
+            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+
+            loop {
+                sleep(update_interval).await;
+
+                let span = span!(Level::TRACE, "ensure_transfers_finished");
+                span.set_parent(cx.clone());
+
                 if let Err(err) = manager.ensure_transfers_finished().await {
                     warn!(
                         ?err,
@@ -242,23 +255,6 @@ impl Manager {
                 .unwrap()
         }
     }
-}
-
-type HsmsStatus = HashMap<HsmId, (hsm_api::StatusResponse, Url)>;
-
-fn find_leader(status: &HsmsStatus, realm: RealmId, group: GroupId) -> Option<(HsmId, Url)> {
-    for (hsm, (status, url)) in status {
-        if let Some(rs) = &status.realm {
-            if rs.id == realm {
-                for gs in &rs.groups {
-                    if gs.leader.is_some() && gs.id == group {
-                        return Some((*hsm, url.clone()));
-                    }
-                }
-            }
-        }
-    }
-    None
 }
 
 #[derive(Clone)]

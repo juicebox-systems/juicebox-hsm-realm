@@ -135,8 +135,8 @@ pub enum TransferError {
     OtherTransferPending,
     #[error("failed to read or write to the store")]
     NoStore,
-    #[error("there were too many retries trying to perform the transfer")]
-    TooManyRetries,
+    #[error("timed out trying to perform the transfer")]
+    Timeout,
     #[error("an agent timed out waiting to commit a log entry")]
     CommitTimeout,
     #[error("the nonce in the transfer to the destination wasn't what the leader was expecting")]

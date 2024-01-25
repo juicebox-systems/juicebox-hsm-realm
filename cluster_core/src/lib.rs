@@ -174,7 +174,7 @@ async fn wait_for_commit(
     }
 }
 
-type HsmsStatus = HashMap<HsmId, (hsm_api::StatusResponse, Url)>;
+pub type HsmsStatus = HashMap<HsmId, (hsm_api::StatusResponse, Url)>;
 
 pub async fn get_hsm_statuses(
     agents: &impl http::Client,

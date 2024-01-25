@@ -13,7 +13,7 @@ use hsm_api::{GroupId, LeaderStatus, OwnedRange, RecordId};
 use juicebox_networking::reqwest::{self, ClientOptions};
 use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::RealmId;
-use retry_loop::{retry_logging_debug, AttemptError};
+use retry_loop::{retry_logging_debug, AttemptError, RetryError};
 use store::StoreClient;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
@@ -120,6 +120,8 @@ enum GrantError {
     Busy,
     Rpc,
 }
+
+#[allow(clippy::too_many_arguments)]
 async fn check_transfer_recovery(
     store: Arc<StoreClient>,
     client: &reqwest::Client,
@@ -173,7 +175,9 @@ async fn check_transfer_recovery(
             )
             .await,
             // TooManyRetries is return when stopped short by the TransferChaos setting.
-            Err(TransferError::TooManyRetries)
+            Err(RetryError::Fatal {
+                error: TransferError::Timeout
+            })
         ));
     }
 
