@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 use reqwest::Url;
 use std::fmt;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
@@ -38,7 +39,7 @@ fn cluster_args() -> ClusterConfig {
         local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
-        path_to_target: PathBuf::from(".."),
+        path_to_target: fs::canonicalize("..").unwrap(),
     }
 }
 

@@ -1,4 +1,5 @@
 use once_cell::sync::Lazy;
+use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
 use testing::background::{BackgroundClientRequests, WorkerReq};
@@ -32,7 +33,7 @@ async fn cluster_rebalance() {
         local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
-        path_to_target: PathBuf::from(".."),
+        path_to_target: fs::canonicalize("..").unwrap(),
     };
 
     let cluster = create_cluster(cluster_args, &mut processes, 3000)

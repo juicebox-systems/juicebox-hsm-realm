@@ -1,5 +1,6 @@
 use clap::Parser;
 use futures::StreamExt;
+use std::env::current_dir;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -91,7 +92,7 @@ async fn main() {
         local_pubsub: args.pubsub_emulator,
         secrets_file: args.secrets_file,
         entrust: Entrust(args.entrust),
-        path_to_target: PathBuf::new(),
+        path_to_target: current_dir().unwrap(),
     };
 
     let cluster = create_cluster(config, &mut process_group, 4000)

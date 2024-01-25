@@ -2,6 +2,7 @@ use futures::future::join_all;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use rand_core::{OsRng, RngCore};
+use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -46,7 +47,7 @@ async fn leader_battle() {
         local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
-        path_to_target: PathBuf::from(".."),
+        path_to_target: fs::canonicalize("..").unwrap(),
     };
 
     let cluster = create_cluster(cluster_args, &mut processes, PORT.clone())

@@ -1,6 +1,7 @@
 use clap::Parser;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::env::current_dir;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 use std::thread::sleep;
@@ -75,7 +76,7 @@ async fn main() {
         local_pubsub: true,
         secrets_file: Some(args.secrets_file),
         entrust: Entrust(false),
-        path_to_target: PathBuf::from("."),
+        path_to_target: current_dir().unwrap(),
     };
 
     let cluster = create_cluster(cluster_args, &mut process_group, PORT.clone())

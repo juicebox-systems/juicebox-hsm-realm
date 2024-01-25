@@ -2,6 +2,7 @@ use google::bigtable::v2::read_rows_request::RequestStatsView;
 use google::bigtable::v2::ReadRowsRequest;
 use google::GrpcConnectionOptions;
 use once_cell::sync::Lazy;
+use std::fs;
 use std::panic;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -40,7 +41,7 @@ async fn user_accounting() {
         local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
-        path_to_target: PathBuf::from(".."),
+        path_to_target: fs::canonicalize("..").unwrap(),
     };
 
     let cluster = create_cluster(cluster_args, &mut processes, PORT.clone())

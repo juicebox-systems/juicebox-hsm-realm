@@ -41,7 +41,12 @@ pub struct ClusterConfig {
     pub local_pubsub: bool,
     pub secrets_file: Option<PathBuf>,
     pub entrust: Entrust,
-    // relative path from $PWD to the directory containing the target directory.
+    /// Path to the top-level juicebox-hsm-realm directory containing the
+    /// target directory.
+    ///
+    /// An absolute path is recommended for clearer log and error messages, and
+    /// for passing to other programs that may have a different working
+    /// directory.
     pub path_to_target: PathBuf,
 }
 
