@@ -1,3 +1,4 @@
+use futures::future::join_all;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -7,7 +8,7 @@ use agent_api::{
     GroupOwnsRangeResponse,
 };
 use cluster_api::{TransferError, TransferRequest, TransferSuccess};
-use futures::future::join_all;
+use cluster_core::perform_transfer;
 use hsm_api::{GroupId, LeaderStatus, OwnedRange, Transferring, TransferringIn, TransferringOut};
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
@@ -20,27 +21,16 @@ impl Manager {
         req: cluster_api::TransferRequest,
     ) -> Result<Result<TransferSuccess, TransferError>, HandlerError> {
         info!(?req, "starting ownership transfer");
-        let result = self.handle_transfer_inner(req).await;
+        let result = perform_transfer(
+            self.0.store.clone(),
+            self.0.name.clone(),
+            &self.0.agents,
+            req,
+            None,
+        )
+        .await;
         info!(?result, "ownership transfer done");
         Ok(result)
-    }
-
-    async fn handle_transfer_inner(
-        &self,
-        req: cluster_api::TransferRequest,
-    ) -> Result<TransferSuccess, TransferError> {
-        match ManagementGrant::obtain(self.clone(), ManagementLeaseKey::Ownership(req.realm)).await
-        {
-            Ok(Some(_grant)) => {
-                cluster_core::transfer(&self.0.store, &self.0.agents, req).await?;
-                Ok(TransferSuccess {})
-            }
-            Ok(None) => Err(TransferError::ManagerBusy),
-            Err(err) => {
-                warn!(?err, "failed to get management lease");
-                Err(TransferError::ManagerBusy)
-            }
-        }
     }
 
     pub(super) async fn ensure_transfers_finished(&self) -> Result<(), TransferError> {
@@ -61,7 +51,12 @@ impl Manager {
             .collect();
 
         for realm in realms_with_transfers {
-            match ManagementGrant::obtain(self.clone(), ManagementLeaseKey::Ownership(realm)).await
+            match ManagementGrant::obtain(
+                self.0.store.clone(),
+                self.0.name.clone(),
+                ManagementLeaseKey::Ownership(realm),
+            )
+            .await
             {
                 Ok(Some(grant)) => {
                     self.ensure_realm_transfers_finished(realm, grant).await?;

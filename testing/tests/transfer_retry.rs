@@ -48,6 +48,7 @@ async fn transfer_retry() {
         .unwrap();
     let source = *cluster.realms[0].groups.last().unwrap();
     println!("source: {source:?} dest: {destination:?}");
+
     let leaders = cluster_core::find_leaders(&cluster.store, &client)
         .await
         .unwrap();
