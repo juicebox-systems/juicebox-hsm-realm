@@ -55,7 +55,7 @@ async fn leader_battle() {
 
     // sanity check the cluster health.
     cluster
-        .client_for_user("presso".into())
+        .client_for_user("presso")
         .register(
             &b"1234".to_vec().into(),
             &b"secret".to_vec().into(),
@@ -101,7 +101,7 @@ async fn leader_battle() {
     // Should still be able to make a request via the LB fine.
     make_all_agents_leader(&agent_client, &cluster.realms[0]).await;
     cluster
-        .client_for_user("presso".into())
+        .client_for_user("presso")
         .register(
             &b"1234".to_vec().into(),
             &b"secret".to_vec().into(),
@@ -128,7 +128,7 @@ async fn leader_battle() {
 
     // Should still be able to make a request via the LB fine.
     cluster
-        .client_for_user("presso".into())
+        .client_for_user("presso")
         .register(
             &b"1234".to_vec().into(),
             &b"secret".to_vec().into(),

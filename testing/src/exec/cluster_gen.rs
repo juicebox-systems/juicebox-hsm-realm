@@ -92,12 +92,8 @@ impl ClusterResult {
         }
     }
 
-    pub fn client_for_user(
-        &self,
-        user_id: String,
-    ) -> Client<TokioSleeper, reqwest::Client, HashMap<RealmId, AuthToken>> {
-        let auth_tokens: HashMap<RealmId, AuthToken> = self
-            .realms
+    pub fn auth_tokens(&self, user_id: &str) -> HashMap<RealmId, AuthToken> {
+        self.realms
             .iter()
             .map(|realm| {
                 (
@@ -105,7 +101,7 @@ impl ClusterResult {
                     create_token(
                         &Claims {
                             issuer: self.tenant.clone(),
-                            subject: user_id.clone(),
+                            subject: user_id.to_owned(),
                             audience: realm.realm,
                             scope: Some(Scope::User),
                         },
@@ -114,11 +110,16 @@ impl ClusterResult {
                     ),
                 )
             })
-            .collect();
+            .collect()
+    }
 
+    pub fn client_for_user(
+        &self,
+        user_id: &str,
+    ) -> Client<TokioSleeper, reqwest::Client, HashMap<RealmId, AuthToken>> {
         ClientBuilder::new()
             .configuration(self.configuration())
-            .auth_token_manager(auth_tokens)
+            .auth_token_manager(self.auth_tokens(user_id))
             .tokio_sleeper()
             .reqwest_with_options(reqwest::ClientOptions {
                 additional_root_certs: vec![self.lb_cert()],

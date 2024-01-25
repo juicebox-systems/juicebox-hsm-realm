@@ -55,7 +55,7 @@ async fn transfer() {
     let clients: Vec<_> = (0..50)
         .map(|i| {
             (
-                cluster.client_for_user(format!("presso_{i}")),
+                cluster.client_for_user(&format!("presso_{i}")),
                 UserSecret::from(vec![4, 3, 2, 1, i]),
             )
         })

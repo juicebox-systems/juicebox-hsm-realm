@@ -39,7 +39,7 @@ async fn cluster_rebalance() {
         .await
         .unwrap();
 
-    let client = cluster.client_for_user(String::from("presso"));
+    let client = cluster.client_for_user("presso");
     let mut background_work = BackgroundClientRequests::spawn(client).await;
 
     let cluster_client = reqwest::Client::new(ClientOptions::default());

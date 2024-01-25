@@ -39,7 +39,7 @@ async fn leader_handover() {
         .await
         .unwrap();
 
-    let client = cluster.client_for_user(String::from("presso"));
+    let client = cluster.client_for_user("presso");
     let mut background_work = BackgroundClientRequests::spawn(client).await;
 
     // Wait til our background register/recover workers had made some requests.

@@ -55,7 +55,7 @@ async fn events() {
         realm: cluster.realms[0].realm,
     };
 
-    let client = cluster.client_for_user(String::from("bob"));
+    let client = cluster.client_for_user("bob");
     let pin = Pin::from(vec![1, 2, 3, 4]);
     let info = UserInfo::from(vec![4, 3, 2, 1]);
 

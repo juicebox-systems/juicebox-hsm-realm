@@ -47,7 +47,7 @@ async fn user_accounting() {
         .await
         .unwrap();
 
-    let client = cluster.client_for_user(String::from("bob"));
+    let client = cluster.client_for_user("bob");
     client
         .register(
             &Pin::from(vec![1, 2, 3, 4]),
@@ -96,7 +96,7 @@ async fn user_accounting() {
 
     client.delete().await.unwrap();
     // If a client calls delete when they had no secret to start with, that shouldn't write anything
-    let client = cluster.client_for_user(String::from("alice"));
+    let client = cluster.client_for_user("alice");
     client.delete().await.unwrap();
 
     // There should be one row in the -users table with 1 cell indicating that

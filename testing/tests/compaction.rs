@@ -56,7 +56,7 @@ async fn test_compaction_pause_witness() {
         .unwrap();
     let agents = &cluster.realms[0].agents;
 
-    let client = cluster.client_for_user(String::from("teyla"));
+    let client = cluster.client_for_user("teyla");
     let mut background_work = BackgroundClientRequests::spawn(client).await;
 
     // Wait til our background register/recover workers have made some requests.
@@ -103,7 +103,7 @@ async fn test_compaction_pause_leader() {
         .unwrap();
     let agents = &cluster.realms[0].agents;
 
-    let client = cluster.client_for_user(String::from("teyla"));
+    let client = cluster.client_for_user("teyla");
     let make_request = || async {
         let pin = Pin::from(vec![1, 2, 3, 4]);
         let info = UserInfo::from(vec![4, 3, 2, 1]);
