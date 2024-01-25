@@ -30,6 +30,10 @@ struct Args {
     #[arg(short, long, default_value = "false")]
     keep_alive: bool,
 
+    /// Run a smaller demo stack to use fewer resources.
+    #[arg(long, default_value_t = false)]
+    minimal: bool,
+
     /// Name of JSON file containing per-tenant keys for authentication.
     #[arg(long, default_value = "secrets-demo.json")]
     secrets_file: PathBuf,
@@ -47,18 +51,26 @@ async fn main() {
     let cluster_args = ClusterConfig {
         load_balancers: 1,
         cluster_managers: 1,
-        realms: vec![
-            RealmConfig {
-                hsms: 5,
-                groups: 2,
+        realms: if args.minimal {
+            vec![RealmConfig {
+                hsms: 1,
+                groups: 1,
                 state_dir: None,
-            },
-            RealmConfig {
-                hsms: 3,
-                groups: 2,
-                state_dir: None,
-            },
-        ],
+            }]
+        } else {
+            vec![
+                RealmConfig {
+                    hsms: 5,
+                    groups: 2,
+                    state_dir: None,
+                },
+                RealmConfig {
+                    hsms: 3,
+                    groups: 2,
+                    state_dir: None,
+                },
+            ]
+        },
         bigtable: emulator(PORT.next()),
         local_pubsub: true,
         secrets_file: Some(args.secrets_file),
