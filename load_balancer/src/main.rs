@@ -192,7 +192,7 @@ async fn main() {
                 new_google_secret_manager(
                     &args.bigtable.project,
                     auth_manager.unwrap(),
-                    Duration::from_secs(5),
+                    Duration::from_secs(60),
                     options,
                     metrics.clone(),
                 )
