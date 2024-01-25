@@ -4,13 +4,15 @@ use gcp_auth::AuthenticationManager;
 use http::Uri;
 use std::collections::HashMap;
 use std::fmt;
+use std::time::Duration;
 use tonic::transport::Endpoint;
 
 use super::{periodic::BulkLoad, Error, Secret, SecretName, SecretVersion};
 use google::auth::AuthMiddleware;
 use google::cloud::secretmanager::v1 as secretmanager;
 use google::GrpcConnectionOptions;
-use observability::metrics;
+use observability::{metrics, metrics_tag as tag};
+use retry_loop::{retry_logging, AttemptError, Retry, RetryError};
 use secretmanager::secret_manager_service_client::SecretManagerServiceClient;
 use secretmanager::{AccessSecretVersionRequest, ListSecretVersionsRequest, ListSecretsRequest};
 
@@ -60,6 +62,7 @@ pub struct Client {
     inner: SecretManagerServiceClient<AuthMiddleware>,
     project: ProjectResource,
     list_secrets_filter: String,
+    metrics: metrics::Client,
 }
 
 impl fmt::Debug for Client {
@@ -89,73 +92,103 @@ impl Client {
             channel,
             Some(auth_manager),
             &["https://www.googleapis.com/auth/cloud-platform"],
-            metrics,
+            metrics.clone(),
         );
         Ok(Self {
             inner: SecretManagerServiceClient::new(channel),
             project: ProjectResource::from_name(project),
             list_secrets_filter: list_secrets_filter.unwrap_or_default(),
+            metrics,
         })
     }
 
     // To go beyond the 25,000 maximum, this would have to deal with pagination.
-    // TODO: use retry_loop
-    async fn list_secrets(&self) -> Result<Vec<SecretResource>, Error> {
-        Ok(self
-            .inner
-            .clone()
-            .list_secrets(ListSecretsRequest {
-                parent: self.project.0.clone(),
-                page_size: 25000,
-                page_token: String::new(),
-                filter: self.list_secrets_filter.clone(),
-            })
-            .await?
-            .into_inner()
-            .secrets
-            .into_iter()
-            .map(|secret| SecretResource(secret.name))
-            .collect())
+    async fn list_secrets(&self) -> Result<Vec<SecretResource>, RetryError<tonic::Status>> {
+        let run = |_| async {
+            Ok(self
+                .inner
+                .clone()
+                .list_secrets(ListSecretsRequest {
+                    parent: self.project.0.clone(),
+                    page_size: 25000,
+                    page_token: String::new(),
+                    filter: self.list_secrets_filter.clone(),
+                })
+                .await
+                .map_err(inspect_grpc_error)?
+                .into_inner()
+                .secrets
+                .into_iter()
+                .map(|secret| SecretResource(secret.name))
+                .collect())
+        };
+        Retry::new("listing Google Secret Manager secrets")
+            .with(google_secrets_retries)
+            .with_metrics(&self.metrics, "secret_manager.google.list_secrets", &[])
+            .retry(run, retry_logging!())
+            .await
     }
 
     // To go beyond the 25,000 maximum, this would have to deal with pagination.
-    // TODO: use retry_loop
     async fn list_secret_versions(
         &self,
         secret: &SecretResource,
-    ) -> Result<Vec<VersionResource>, Error> {
-        Ok(self
-            .inner
-            .clone()
-            .list_secret_versions(ListSecretVersionsRequest {
-                parent: secret.0.clone(),
-                page_size: 25000,
-                page_token: String::new(),
-                filter: String::new(),
-            })
-            .await?
-            .into_inner()
-            .versions
-            .into_iter()
-            .map(|version| VersionResource(version.name))
-            .collect())
+    ) -> Result<Vec<VersionResource>, RetryError<tonic::Status>> {
+        let run = |_| async {
+            Ok(self
+                .inner
+                .clone()
+                .list_secret_versions(ListSecretVersionsRequest {
+                    parent: secret.0.clone(),
+                    page_size: 25000,
+                    page_token: String::new(),
+                    filter: String::new(),
+                })
+                .await
+                .map_err(inspect_grpc_error)?
+                .into_inner()
+                .versions
+                .into_iter()
+                .map(|version| VersionResource(version.name))
+                .collect())
+        };
+        Retry::new("listing Google Secret Manager secret versions")
+            .with(google_secrets_retries)
+            .with_metrics(
+                &self.metrics,
+                "secret_manager.google.list_secret_versions",
+                &[],
+            )
+            .retry(run, retry_logging!())
+            .await
     }
 
-    // TODO: use retry_loop
     async fn access_secret_version(
         &self,
         version: &VersionResource,
-    ) -> Result<Option<Secret>, Error> {
-        Ok(self
-            .inner
-            .clone()
-            .access_secret_version(AccessSecretVersionRequest {
-                name: version.0.clone(),
-            })
-            .await?
-            .into_inner()
-            .payload
-            .map(|payload| Secret::from_json_or_raw(payload.data)))
+    ) -> Result<Option<Secret>, RetryError<tonic::Status>> {
+        let run = |_| async {
+            Ok(self
+                .inner
+                .clone()
+                .access_secret_version(AccessSecretVersionRequest {
+                    name: version.0.clone(),
+                })
+                .await
+                .map_err(inspect_grpc_error)?
+                .into_inner()
+                .payload
+                .map(|payload| Secret::from_json_or_raw(payload.data)))
+        };
+        Retry::new("accessing Google Secret Manager secret version")
+            .with(google_secrets_retries)
+            .with_metrics(
+                &self.metrics,
+                "secret_manager.google.access_secret_version",
+                &[],
+            )
+            .retry(run, retry_logging!())
+            .await
     }
 }
 
@@ -193,6 +226,37 @@ impl BulkLoad for Client {
             .await?;
 
         Ok(secret_versions.into_iter().collect())
+    }
+}
+
+/// Configures a retry loop with reasonable defaults for Google Secret Manager
+/// requests.
+fn google_secrets_retries(retry: Retry) -> Retry {
+    retry
+        .with_exponential_backoff(Duration::from_millis(50), 2.0, Duration::from_secs(2))
+        .with_max_attempts(200)
+        .with_timeout(Duration::from_secs(120))
+}
+
+/// Classifies a gRPC error as retryable and extracts its tags.
+fn inspect_grpc_error(error: tonic::Status) -> AttemptError<tonic::Status> {
+    // This is a fork of `bigtable::inspect_grpc_error` and
+    // `google_pubsub::inspect_grpc_error`. Consider changing those if you
+    // change this.
+    use tonic::Code;
+    let may_retry = matches!(
+        error.code(),
+        Code::DeadlineExceeded
+            | Code::Internal
+            | Code::ResourceExhausted
+            | Code::Unavailable
+            | Code::Unknown
+    );
+    let tags = vec![tag!("kind": "grpc"), tag!("grpc_code": error.code())];
+    if may_retry {
+        AttemptError::Retryable { error, tags }
+    } else {
+        AttemptError::Fatal { error, tags }
     }
 }
 

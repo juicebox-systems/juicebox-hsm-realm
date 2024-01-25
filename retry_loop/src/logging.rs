@@ -136,7 +136,7 @@ macro_rules! _retry_logging {
                     last_attempt_duration,
                     tags,
                     description,
-                } => tracing::debug!(
+                } => tracing::trace!(
                     %num_attempts,
                     ?elapsed,
                     ?last_attempt_duration,

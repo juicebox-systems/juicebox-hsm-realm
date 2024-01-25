@@ -139,8 +139,9 @@ pub fn bigtable_retries(retry: Retry) -> Retry {
 
 /// Classifies a gRPC error as retryable and extracts its tags.
 pub fn inspect_grpc_error(error: tonic::Status) -> AttemptError<tonic::Status> {
-    // This is a fork of `google_pubsub::inspect_grpc_error`. Consider changing
-    // that if you change this.
+    // This is a fork of `google_pubsub::inspect_grpc_error` and
+    // `secret_manager::google_secret_manager::inspect_grpc_error`. Consider
+    // changing those if you change this.
     use tonic::Code;
     let may_retry = matches!(
         error.code(),
