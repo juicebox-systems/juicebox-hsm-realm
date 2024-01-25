@@ -94,18 +94,27 @@ async fn main() {
     let mut demo_status: Option<ExitStatus> = None;
 
     if let Some(demo) = args.demo {
-        info!(pid = std::process::id(), "runner: executing demo");
-        demo_status = Some(
-            Command::new(demo)
-                .arg("--tls-certificate")
-                .arg(cluster.certs.cert_file_der.clone())
-                .arg("--configuration")
-                .arg(configuration.to_json())
-                .arg("--auth-tokens")
-                .arg(serde_json::to_string(&jsonable_auth_tokens).unwrap())
-                .status()
-                .expect("Couldn't run demo executable"),
+        info!(
+            pid = std::process::id(),
+            program = ?demo,
+            tls_certificate = ?cluster.certs.cert_file_der,
+            "runner: executing demo"
         );
+        let mut child = Command::new(demo)
+            .arg("--tls-certificate")
+            .arg(cluster.certs.cert_file_der.clone())
+            .arg("--configuration")
+            .arg(configuration.to_json())
+            .arg("--auth-tokens")
+            .arg(serde_json::to_string(&jsonable_auth_tokens).unwrap())
+            .spawn()
+            .expect("couldn't run demo executable");
+        info!(
+            pid = std::process::id(),
+            child = child.id(),
+            "runner: started demo process"
+        );
+        demo_status = Some(child.wait().expect("couldn't wait on demo process"));
     }
 
     if args.keep_alive {
@@ -125,6 +134,8 @@ async fn main() {
     info!(pid = std::process::id(), "runner: exiting");
 
     if let Some(demo_status) = demo_status {
-        assert!(demo_status.success());
+        if !demo_status.success() {
+            panic!("demo process failed: {demo_status}");
+        }
     }
 }
