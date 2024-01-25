@@ -142,7 +142,7 @@ impl Client {
                     parent: secret.0.clone(),
                     page_size: 25000,
                     page_token: String::new(),
-                    filter: String::new(),
+                    filter: "state:ENABLED".to_string(),
                 })
                 .await
                 .map_err(inspect_grpc_error)?
