@@ -1,5 +1,6 @@
-use std::sync::Arc;
 use std::time::Duration;
+use tokio::time::sleep;
+use tracing::{info, warn};
 
 use super::{find_leaders, ManagementGrant, ManagementLeaseKey};
 use agent_api::{
@@ -11,12 +12,10 @@ use cluster_api::TransferSuccess;
 use juicebox_networking::http;
 use juicebox_networking::rpc::{self};
 use store::StoreClient;
-use tokio::time::sleep;
-use tracing::{info, warn};
 
 pub use cluster_api::{TransferError, TransferRequest};
 
-/// This is a helper stub that calls the cluster manager API to do an ownership transfer.
+// This is a helper stub that calls the transfer API on the cluster manager.
 pub async fn transfer(
     store: &StoreClient,
     client: &impl http::Client,
@@ -51,11 +50,11 @@ pub enum TransferChaos {
 // Performs an record id range ownership transfer between 2 groups. This is
 // exposed purely for testing use the cluster_manager RPC API for normal use.
 pub async fn perform_transfer(
-    store: Arc<StoreClient>,
-    lease_owner: String,
+    store: &StoreClient,
     client: &impl http::Client,
-    transfer: TransferRequest,
+    grant: &ManagementGrant,
     chaos: Option<TransferChaos>,
+    transfer: TransferRequest,
 ) -> Result<TransferSuccess, TransferError> {
     type Error = TransferError;
 
@@ -67,20 +66,11 @@ pub async fn perform_transfer(
         return Err(Error::InvalidGroup);
     }
 
-    let _grant: ManagementGrant = match ManagementGrant::obtain(
-        store.clone(),
-        lease_owner,
-        ManagementLeaseKey::Ownership(transfer.realm),
-    )
-    .await
-    {
-        Ok(Some(grant)) => grant,
-        Ok(None) => return Err(TransferError::ManagerBusy),
-        Err(err) => {
-            warn!(?err, "failed to get management lease");
-            return Err(TransferError::ManagerBusy);
-        }
+    // check the caller supplied grant.
+    let ManagementLeaseKey::Ownership(grant_realm) = &grant.key else {
+        panic!("supplied grant of wrong type/value {:?}", grant.key);
     };
+    assert_eq!(*grant_realm, transfer.realm);
 
     let mut state = TransferState::Transferring;
     let mut last_error: Option<Error> = None;

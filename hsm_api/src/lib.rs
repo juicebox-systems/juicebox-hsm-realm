@@ -389,6 +389,10 @@ impl OwnedRange {
         self.contains(&other.start) || self.contains(&other.end)
     }
 
+    pub fn contains_range(&self, other: &OwnedRange) -> bool {
+        self.contains(&other.start) && self.contains(&other.end)
+    }
+
     /// Returns the single range resulting from merging `self` and `other`, or
     /// returns `None` if the two are not adjacent.
     pub fn join(&self, other: &OwnedRange) -> Option<Self> {

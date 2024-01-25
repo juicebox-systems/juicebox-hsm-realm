@@ -1,5 +1,6 @@
 use futures::future::join_all;
 use futures::FutureExt;
+use juicebox_networking::http;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -9,12 +10,11 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 use agent_api::StatusRequest;
-use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex};
+use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange};
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError, SendOptions};
 use juicebox_realm_api::types::RealmId;
 use retry_loop::RetryError;
-use service_core::http::ReqwestClientMetrics;
 use store::{Lease, LeaseKey, LeaseType, StoreClient};
 
 mod leader;
@@ -24,7 +24,7 @@ pub mod workload;
 
 pub use leader::{discover_hsm_ids, find_leaders};
 pub use realm::{join_realm, new_group, new_realm, JoinRealmError, NewGroupError, NewRealmError};
-pub use transfer::{perform_transfer, transfer, TransferError, TransferRequest};
+pub use transfer::{perform_transfer, transfer, TransferChaos, TransferError, TransferRequest};
 
 const LEASE_DURATION: Duration = Duration::from_secs(3);
 
@@ -174,11 +174,13 @@ async fn wait_for_commit(
     }
 }
 
+type HsmsStatus = HashMap<HsmId, (hsm_api::StatusResponse, Url)>;
+
 pub async fn get_hsm_statuses(
-    agents: &ReqwestClientMetrics,
+    agents: &impl http::Client,
     agent_urls: impl Iterator<Item = &Url>,
     timeout: Option<Duration>,
-) -> HashMap<HsmId, (hsm_api::StatusResponse, Url)> {
+) -> HsmsStatus {
     join_all(agent_urls.map(|url| {
         rpc::send_with_options(
             agents,
@@ -197,9 +199,72 @@ pub async fn get_hsm_statuses(
     .collect()
 }
 
+pub fn find_leader(status: &HsmsStatus, realm: RealmId, group: GroupId) -> Option<(HsmId, Url)> {
+    for (hsm, (status, url)) in status {
+        if let Some(rs) = &status.realm {
+            if rs.id == realm {
+                for gs in &rs.groups {
+                    if gs.leader.is_some() && gs.id == group {
+                        return Some((*hsm, url.clone()));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+// Extracts the range owners from the provided StatusRequest results and returns
+// the set of owners that cover `range_to_check`. If `range_to_check` is not
+// fully covered None is returned.
+pub fn range_owners(
+    hsm_status: &HsmsStatus,
+    realm: RealmId,
+    range_to_check: &OwnedRange,
+) -> Option<Vec<(GroupId, OwnedRange)>> {
+    let ranges: Vec<(GroupId, OwnedRange)> = hsm_status
+        .values()
+        .filter_map(|(s, _)| s.realm.as_ref())
+        .filter(|rs| rs.id == realm)
+        .flat_map(|rs| rs.groups.iter())
+        .filter_map(|gs| {
+            gs.leader
+                .as_ref()
+                .and_then(|ls| ls.owned_range.as_ref().map(|r| (gs.id, r.clone())))
+        })
+        .collect();
+    range_is_covered(ranges, range_to_check)
+}
+
+// If the provided set of range owners fully cover the `range_to_check`, then
+// the range owners that own part of `range_to_check` are returned. If
+// `range_to_check` is not fully covered, then None is returned.
+//
+// This is broken out to simplify testing.
+fn range_is_covered(
+    mut owners: Vec<(GroupId, OwnedRange)>,
+    range_to_check: &OwnedRange,
+) -> Option<Vec<(GroupId, OwnedRange)>> {
+    owners.retain(|(_, r)| range_to_check.overlaps(r));
+    owners.sort_by(|a, b| a.1.start.cmp(&b.1.start));
+
+    if !owners.is_empty()
+        && owners
+            .windows(2)
+            .all(|pair| pair[0].1.end.next() == Some(pair[1].1.start.clone()))
+        && owners[0].1.start <= range_to_check.start
+        && owners.last().unwrap().1.end >= range_to_check.end
+    {
+        Some(owners)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hsm_api::{GroupId, OwnedRange, RecordId};
 
     #[test]
     fn lease_key() {
@@ -210,5 +275,85 @@ mod tests {
             "09090909090909090909090909090909-03030303030303030303030303030303".to_string(),
             k.1
         );
+    }
+
+    #[test]
+    fn test_range_is_covered() {
+        let gids: Vec<GroupId> = (0..3).map(|i| GroupId([i; 16])).collect();
+
+        assert!(
+            range_is_covered(vec![(gids[0], OwnedRange::full())], &OwnedRange::full()).is_some()
+        );
+        assert!(range_is_covered(vec![(gids[0], OwnedRange::full())], &mkrange(0, 15)).is_some());
+        assert!(
+            range_is_covered(vec![(gids[0], OwnedRange::full())], &mkrange(0xfe, 0xff)).is_some()
+        );
+        assert!(range_is_covered(
+            vec![(gids[0], mkrange(0, 15)), (gids[1], mkrange(16, 0xff))],
+            &OwnedRange::full()
+        )
+        .is_some());
+        // input not in order
+        assert!(range_is_covered(
+            vec![
+                (gids[0], mkrange(11, 15)),
+                (gids[1], mkrange(0, 10)),
+                (gids[2], mkrange(16, 0xff))
+            ],
+            &OwnedRange::full()
+        )
+        .is_some());
+        // hole in range, but not in the range we're checking
+        assert!(range_is_covered(
+            vec![
+                (gids[0], mkrange(11, 15)),
+                (gids[1], mkrange(0, 9)),
+                (gids[2], mkrange(16, 0xff))
+            ],
+            &mkrange(12, 22)
+        )
+        .is_some());
+
+        assert!(range_is_covered(
+            vec![(gids[0], mkrange(1, 15)), (gids[1], mkrange(16, 0xff))],
+            &OwnedRange::full()
+        )
+        .is_none());
+        assert!(range_is_covered(
+            vec![(gids[0], mkrange(0, 15)), (gids[1], mkrange(16, 0xfe))],
+            &OwnedRange::full()
+        )
+        .is_none());
+        assert!(range_is_covered(
+            vec![(gids[0], mkrange(0, 15)), (gids[1], mkrange(17, 0xff))],
+            &OwnedRange::full()
+        )
+        .is_none());
+        assert!(range_is_covered(
+            vec![
+                (gids[0], mkrange(11, 15)),
+                (gids[1], mkrange(0, 9)),
+                (gids[2], mkrange(16, 0xff))
+            ],
+            &OwnedRange::full()
+        )
+        .is_none());
+        assert!(range_is_covered(
+            vec![
+                (gids[0], mkrange(11, 15)),
+                (gids[1], mkrange(0, 9)),
+                (gids[2], mkrange(16, 0xff))
+            ],
+            &mkrange(5, 13)
+        )
+        .is_none());
+    }
+
+    fn mkrange(s: u8, e: u8) -> OwnedRange {
+        let mut start = RecordId::min_id();
+        start.0[0] = s;
+        let mut end = RecordId::max_id();
+        end.0[0] = e;
+        OwnedRange { start, end }
     }
 }
