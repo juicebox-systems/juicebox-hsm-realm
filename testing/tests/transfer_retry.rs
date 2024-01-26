@@ -96,7 +96,7 @@ async fn transfer_retry() {
         store,
         &client,
         &cluster.realms[0].agents,
-        TransferChaos::StopBeforeComplete,
+        TransferChaos::StopAfterTransferIn,
         realm,
         source,
         destination,

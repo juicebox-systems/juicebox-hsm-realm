@@ -45,7 +45,7 @@ pub async fn transfer(
 pub enum TransferChaos {
     StopAfterPrepare,
     StopAfterTransferOut,
-    StopBeforeComplete,
+    StopAfterTransferIn,
 }
 
 // Performs an record id range ownership transfer between 2 groups. This is
@@ -209,7 +209,7 @@ pub async fn perform_transfer(
                 }
                 Ok(TransferOutResponse::InvalidStatement) => {
                     panic!(
-                    "the destination group leader provided an invalid prepared transfer statement"
+                        "the destination group leader provided an invalid prepared transfer statement"
                 );
                 }
                 Err(error) => {
@@ -272,7 +272,7 @@ pub async fn perform_transfer(
             };
         }
 
-        if chaos == Some(TransferChaos::StopBeforeComplete) {
+        if chaos == Some(TransferChaos::StopAfterTransferIn) {
             return Err(classify(Error::Timeout));
         }
 
@@ -312,7 +312,7 @@ pub async fn perform_transfer(
         }
     };
 
-    retry_loop::Retry::new("run cluster transfer process")
+    retry_loop::Retry::new("transferring ownership of record ID range")
         .with_exponential_backoff(Duration::from_millis(10), 1.1, Duration::from_millis(500))
         .retry(run, retry_logging_debug!())
         .await
@@ -341,6 +341,8 @@ enum TransferState {
     Completing,
 }
 
+/// Cancel's a previously prepared transfer. The caller must ensure that the
+/// associated TransferOut has not been performed.
 async fn cancel_prepared_transfer(
     client: &impl http::Client,
     store: &StoreClient,
