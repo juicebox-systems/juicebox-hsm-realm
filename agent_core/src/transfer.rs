@@ -504,9 +504,11 @@ impl<T: Transport + 'static> Agent<T> {
                 if ls.transferring.is_some() {
                     return Ok(Response::TransferInProgress);
                 }
-                if !ls.owned_range.as_ref().is_some_and(|owned| {
-                    owned.contains(&request.range.start) && owned.contains(&request.range.end)
-                }) {
+                if !ls
+                    .owned_range
+                    .as_ref()
+                    .is_some_and(|owned| owned.contains_range(&request.range))
+                {
                     return Ok(Response::NotOwned {
                         has: ls.owned_range,
                     });

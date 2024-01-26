@@ -8,7 +8,10 @@ use agent_api::{
     GroupOwnsRangeResponse,
 };
 use cluster_api::{TransferError, TransferRequest, TransferSuccess};
-use cluster_core::{find_leader, perform_transfer, range_owners, HsmsStatus};
+use cluster_core::{
+    find_leader, perform_transfer, range_owners, wait_for_management_grant, HsmsStatus,
+    WaitForGrantError,
+};
 use hsm_api::{GroupId, LeaderStatus, OwnedRange, Transferring, TransferringIn, TransferringOut};
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
@@ -21,17 +24,23 @@ impl Manager {
         req: cluster_api::TransferRequest,
     ) -> Result<Result<TransferSuccess, TransferError>, HandlerError> {
         info!(?req, "starting ownership transfer");
-        let result = match ManagementGrant::obtain(
+
+        // As the management grants are dropped async, you can end up where
+        // doing a transfer followed by another one will fail because the grant
+        // is not available yet. So wait for a small amount of time for it to be
+        // available to simplify the callers.
+        let result = match wait_for_management_grant(
             self.0.store.clone(),
             self.0.name.clone(),
             ManagementLeaseKey::Ownership(req.realm),
+            Duration::from_secs(1),
         )
         .await
         {
-            Ok(Some(grant)) => perform_transfer(&self.0.store, &self.0.agents, &grant, None, req)
+            Ok(grant) => perform_transfer(&self.0.store, &self.0.agents, &grant, None, req)
                 .await
                 .map_err(|e| e.last().unwrap_or(TransferError::Timeout)),
-            Ok(None) => Err(TransferError::ManagerBusy),
+            Err(WaitForGrantError::Timeout) => Err(TransferError::ManagerBusy),
             Err(err) => {
                 warn!(?err, "failed to get management lease");
                 Err(TransferError::ManagerBusy)

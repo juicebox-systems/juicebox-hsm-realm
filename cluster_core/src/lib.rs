@@ -14,7 +14,7 @@ use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange};
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError, SendOptions};
 use juicebox_realm_api::types::RealmId;
-use retry_loop::RetryError;
+use retry_loop::{retry_logging_debug, AttemptError, RetryError};
 use store::{Lease, LeaseKey, LeaseType, StoreClient};
 
 mod leader;
@@ -108,6 +108,43 @@ impl Drop for ManagementGrant {
             }
         });
     }
+}
+
+#[derive(Debug)]
+pub enum WaitForGrantError {
+    Timeout,
+    Rpc(RetryError<tonic::Status>),
+}
+
+// Waits for up to 'timeout' to try and obtain the specified management grant.
+pub async fn wait_for_management_grant(
+    store: Arc<StoreClient>,
+    owner: String,
+    key: ManagementLeaseKey,
+    timeout: Duration,
+) -> Result<ManagementGrant, WaitForGrantError> {
+    retry_loop::Retry::new("get/wait for management grant")
+        .with_timeout(timeout)
+        .with_exponential_backoff(Duration::from_millis(10), 2.0, Duration::from_millis(100))
+        .retry(
+            |_| async {
+                match ManagementGrant::obtain(store.clone(), owner.clone(), key.clone()).await {
+                    Ok(Some(grant)) => Ok(grant),
+                    Ok(None) => Err(AttemptError::Retryable {
+                        error: WaitForGrantError::Timeout,
+                        tags: vec![],
+                    }),
+                    Err(err) => Err(AttemptError::Fatal {
+                        // the store already retried errors getting the lease.
+                        error: WaitForGrantError::Rpc(err),
+                        tags: Vec::new(),
+                    }),
+                }
+            },
+            retry_logging_debug!(),
+        )
+        .await
+        .map_err(|e| e.last().unwrap_or(WaitForGrantError::Timeout))
 }
 
 #[derive(Clone, Debug)]

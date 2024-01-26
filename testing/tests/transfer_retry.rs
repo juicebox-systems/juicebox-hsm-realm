@@ -6,14 +6,14 @@ use url::Url;
 
 use cluster_api::{TransferError, TransferRequest};
 use cluster_core::{
-    get_hsm_statuses, new_group, perform_transfer, range_owners, ManagementGrant,
+    get_hsm_statuses, new_group, perform_transfer, range_owners, wait_for_management_grant,
     ManagementLeaseKey, TransferChaos,
 };
 use hsm_api::{GroupId, LeaderStatus, OwnedRange, RecordId};
 use juicebox_networking::reqwest::{self, ClientOptions};
 use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::RealmId;
-use retry_loop::{retry_logging_debug, AttemptError, RetryError};
+use retry_loop::{retry_logging_debug, RetryError};
 use store::StoreClient;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
@@ -115,12 +115,6 @@ async fn transfer_retry() {
     processes.kill();
 }
 
-#[derive(Debug)]
-enum GrantError {
-    Busy,
-    Rpc,
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn check_transfer_recovery(
     store: Arc<StoreClient>,
@@ -133,32 +127,14 @@ async fn check_transfer_recovery(
     range: OwnedRange,
 ) {
     {
-        let grant = retry_loop::Retry::new("get management grant")
-            .with_timeout(Duration::from_secs(5))
-            .retry(
-                |_| async {
-                    match ManagementGrant::obtain(
-                        store.clone(),
-                        String::from("test"),
-                        ManagementLeaseKey::Ownership(realm),
-                    )
-                    .await
-                    {
-                        Ok(Some(grant)) => Ok(grant),
-                        Ok(None) => Err(AttemptError::Retryable {
-                            error: GrantError::Busy,
-                            tags: vec![],
-                        }),
-                        Err(_) => Err(AttemptError::Fatal {
-                            error: GrantError::Rpc,
-                            tags: vec![],
-                        }),
-                    }
-                },
-                retry_logging_debug!(),
-            )
-            .await
-            .unwrap();
+        let grant = wait_for_management_grant(
+            store.clone(),
+            String::from("test"),
+            ManagementLeaseKey::Ownership(realm),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
 
         assert!(matches!(
             perform_transfer(
