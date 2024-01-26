@@ -200,7 +200,7 @@ impl Manager {
             match range_owners(&hsms_status, realm, &t_out.partition.range) {
                 None => {
                     warn!(?realm, source=?source, ?destination, range=?t_out.partition.range,
-                        "found TransferOut with no matching PreparedTransfer. range is not fully owned! doing nothing");
+                        "found TransferOut with no matching PreparedTransfer. range is not fully owned! doing nothing. Will retry later");
                     continue;
                 }
                 Some(owners) => {
@@ -216,23 +216,23 @@ impl Manager {
                     {
                         // confirm_range_owner logged all the individual results.
                         warn!(?realm, ?source, ?destination, range=?t_out.partition.range,
-                            "failed to verify range ownership, doing nothing");
+                            "failed to verify range ownership, doing nothing. Will retry later");
                         continue;
                     }
                     info!(?realm, ?source, ?destination, range=?t_out.partition.range,
-                        "found TransferOut with no matching PreparedTransfer. Transferred range is fully owned, marking it complete");
+                        "found TransferOut with no matching PreparedTransfer. Transferred range is fully owned. Marking it complete");
                     if let Err(err) = self
                         .complete_transfer(
                             &hsms_status,
                             realm,
                             source,
                             destination,
-                            t_out.partition.range,
+                            t_out.partition.range.clone(),
                         )
                         .await
                     {
                         warn!(
-                            ?err,
+                            ?err, ?realm, ?source, ?destination, range=?t_out.partition.range,
                             "failed to complete transfer for existing partial transfer"
                         );
                     }
@@ -317,6 +317,8 @@ impl Manager {
                 Err(TransferError::NoSourceLeader)
             }
             Ok(CompleteTransferResponse::NotTransferring) => {
+                // This shouldn't be possible if the caller verified that the
+                // source has a transferOut while holding the management grant.
                 warn!("CompleteTransfer on pending transfer failed with NotTransferring");
                 Ok(())
             }
