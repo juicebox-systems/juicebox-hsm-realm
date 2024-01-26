@@ -1,4 +1,3 @@
-use retry_loop::{retry_logging_debug, AttemptError, RetryError};
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -10,8 +9,8 @@ use agent_api::{
     TransferInResponse, TransferOutRequest, TransferOutResponse,
 };
 use cluster_api::TransferSuccess;
-use juicebox_networking::http;
-use juicebox_networking::rpc;
+use juicebox_networking::{http, rpc};
+use retry_loop::{retry_logging, AttemptError, RetryError};
 use store::StoreClient;
 
 pub use cluster_api::{TransferError, TransferRequest};
@@ -314,7 +313,7 @@ pub async fn perform_transfer(
 
     retry_loop::Retry::new("transferring ownership of record ID range")
         .with_exponential_backoff(Duration::from_millis(10), 1.1, Duration::from_millis(500))
-        .retry(run, retry_logging_debug!())
+        .retry(run, retry_logging!())
         .await
 }
 
