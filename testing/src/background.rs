@@ -3,7 +3,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use async_util::ScopedTask;
-use juicebox_networking::reqwest::{self};
+use juicebox_networking::reqwest;
 use juicebox_sdk::{AuthToken, Client, Policy, RealmId, TokioSleeper};
 
 pub type JbClient = Client<TokioSleeper, reqwest::Client, HashMap<RealmId, AuthToken>>;

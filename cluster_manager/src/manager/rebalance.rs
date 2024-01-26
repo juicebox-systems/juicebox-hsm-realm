@@ -8,7 +8,7 @@ use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse, StepDownRequest, Step
 use cluster_api::{RebalanceError, RebalanceSuccess, RebalancedLeader};
 use cluster_core::workload::{HsmWorkload, WorkAmount};
 use hsm_api::HsmId;
-use juicebox_networking::rpc::{self};
+use juicebox_networking::rpc;
 use service_core::rpc::HandlerError;
 
 impl Manager {

@@ -11,7 +11,7 @@ use agent_api::{
 };
 use cluster_api::TransferSuccess;
 use juicebox_networking::http;
-use juicebox_networking::rpc::{self};
+use juicebox_networking::rpc;
 use store::StoreClient;
 
 pub use cluster_api::{TransferError, TransferRequest};

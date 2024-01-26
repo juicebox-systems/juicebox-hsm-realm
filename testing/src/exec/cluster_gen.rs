@@ -19,7 +19,7 @@ use cluster_core::{self, NewRealmError, TransferRequest};
 use google::{auth, GrpcConnectionOptions};
 use hsm_api::{GroupId, OwnedRange, PublicKey};
 use juicebox_networking::reqwest;
-use juicebox_networking::rpc::{self};
+use juicebox_networking::rpc;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_auth::creation::create_token;
 use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
