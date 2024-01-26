@@ -111,9 +111,8 @@ jobs:
         timeout-minutes: 20
         strategy:
           matrix:
-            # Cancel Prepared Transfer (PR #395) fixes cancel_prepare which'll fail on
-            # older versions of the code.
-            hsm_version: ["e1e3713604de42713477026ad55dc392455f3100"]
+            # Transfer Coordinator (PR #401) changes hsm_api::StatusResponse.
+            hsm_version: ["fdd7caafd95724ca6449af84f7658a9d92660cd5"]
         steps:
         - name: Check out sources
           uses: actions/checkout@v4
