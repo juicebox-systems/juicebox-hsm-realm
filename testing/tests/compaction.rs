@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 use reqwest::Url;
 use std::fmt;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
@@ -38,7 +39,7 @@ fn cluster_args() -> ClusterConfig {
         local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
-        path_to_target: PathBuf::from(".."),
+        path_to_target: fs::canonicalize("..").unwrap(),
     }
 }
 
@@ -56,7 +57,7 @@ async fn test_compaction_pause_witness() {
         .unwrap();
     let agents = &cluster.realms[0].agents;
 
-    let client = cluster.client_for_user(String::from("teyla"));
+    let client = cluster.client_for_user("teyla");
     let mut background_work = BackgroundClientRequests::spawn(client).await;
 
     // Wait til our background register/recover workers have made some requests.
@@ -103,7 +104,7 @@ async fn test_compaction_pause_leader() {
         .unwrap();
     let agents = &cluster.realms[0].agents;
 
-    let client = cluster.client_for_user(String::from("teyla"));
+    let client = cluster.client_for_user("teyla");
     let make_request = || async {
         let pin = Pin::from(vec![1, 2, 3, 4]);
         let info = UserInfo::from(vec![4, 3, 2, 1]);

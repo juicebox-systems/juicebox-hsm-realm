@@ -2,6 +2,7 @@ use futures::future::join_all;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use rand_core::{OsRng, RngCore};
+use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -46,7 +47,7 @@ async fn leader_battle() {
         local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
-        path_to_target: PathBuf::from(".."),
+        path_to_target: fs::canonicalize("..").unwrap(),
     };
 
     let cluster = create_cluster(cluster_args, &mut processes, PORT.clone())
@@ -55,7 +56,7 @@ async fn leader_battle() {
 
     // sanity check the cluster health.
     cluster
-        .client_for_user("presso".into())
+        .client_for_user("presso")
         .register(
             &b"1234".to_vec().into(),
             &b"secret".to_vec().into(),
@@ -101,7 +102,7 @@ async fn leader_battle() {
     // Should still be able to make a request via the LB fine.
     make_all_agents_leader(&agent_client, &cluster.realms[0]).await;
     cluster
-        .client_for_user("presso".into())
+        .client_for_user("presso")
         .register(
             &b"1234".to_vec().into(),
             &b"secret".to_vec().into(),
@@ -128,7 +129,7 @@ async fn leader_battle() {
 
     // Should still be able to make a request via the LB fine.
     cluster
-        .client_for_user("presso".into())
+        .client_for_user("presso")
         .register(
             &b"1234".to_vec().into(),
             &b"secret".to_vec().into(),

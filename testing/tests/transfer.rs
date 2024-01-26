@@ -6,6 +6,7 @@ use futures::future::join_all;
 use futures::FutureExt;
 use juicebox_networking::rpc;
 use once_cell::sync::Lazy;
+use std::fs;
 use std::iter::zip;
 use std::path::PathBuf;
 
@@ -41,7 +42,7 @@ async fn transfer() {
         local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
-        path_to_target: PathBuf::from(".."),
+        path_to_target: fs::canonicalize("..").unwrap(),
     };
 
     let cluster = create_cluster(cluster_args, &mut processes, PORT.clone())
@@ -56,7 +57,7 @@ async fn transfer() {
     let clients: Vec<_> = (0..50)
         .map(|i| {
             (
-                cluster.client_for_user(format!("presso_{i}")),
+                cluster.client_for_user(&format!("presso_{i}")),
                 UserSecret::from(vec![4, 3, 2, 1, i]),
             )
         })

@@ -1,5 +1,6 @@
 use clap::Parser;
 use futures::StreamExt;
+use std::env::current_dir;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -91,7 +92,7 @@ async fn main() {
         local_pubsub: args.pubsub_emulator,
         secrets_file: args.secrets_file,
         entrust: Entrust(args.entrust),
-        path_to_target: PathBuf::new(),
+        path_to_target: current_dir().unwrap(),
     };
 
     let cluster = create_cluster(config, &mut process_group, 4000)
@@ -100,7 +101,7 @@ async fn main() {
 
     info!(clients = args.concurrency, "creating clients");
     let clients: Vec<Arc<Mutex<Client<_, reqwest::Client, _>>>> = (0..args.concurrency)
-        .map(|i| Arc::new(Mutex::new(cluster.client_for_user(format!("mario{i}")))))
+        .map(|i| Arc::new(Mutex::new(cluster.client_for_user(&format!("mario{i}")))))
         .collect();
 
     info!("main: Running test register");

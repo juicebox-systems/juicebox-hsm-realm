@@ -2,6 +2,7 @@ use google::bigtable::v2::read_rows_request::RequestStatsView;
 use google::bigtable::v2::ReadRowsRequest;
 use google::GrpcConnectionOptions;
 use once_cell::sync::Lazy;
+use std::fs;
 use std::panic;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -40,14 +41,14 @@ async fn user_accounting() {
         local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
-        path_to_target: PathBuf::from(".."),
+        path_to_target: fs::canonicalize("..").unwrap(),
     };
 
     let cluster = create_cluster(cluster_args, &mut processes, PORT.clone())
         .await
         .unwrap();
 
-    let client = cluster.client_for_user(String::from("bob"));
+    let client = cluster.client_for_user("bob");
     client
         .register(
             &Pin::from(vec![1, 2, 3, 4]),
@@ -96,7 +97,7 @@ async fn user_accounting() {
 
     client.delete().await.unwrap();
     // If a client calls delete when they had no secret to start with, that shouldn't write anything
-    let client = cluster.client_for_user(String::from("alice"));
+    let client = cluster.client_for_user("alice");
     client.delete().await.unwrap();
 
     // There should be one row in the -users table with 1 cell indicating that

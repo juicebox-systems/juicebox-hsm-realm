@@ -218,7 +218,7 @@ jobs:
 
     - name: Run demo
       run: |
-        RUST_BACKTRACE=1 target/debug/demo_runner --demo sdk/swift/demo/.build/debug/demo
+        RUST_BACKTRACE=1 target/debug/demo_runner --minimal --demo sdk/swift/demo/.build/debug/demo
       shell: bash
 
   lint_and_test:
