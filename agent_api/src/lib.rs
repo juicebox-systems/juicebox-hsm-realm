@@ -187,7 +187,7 @@ impl Rpc<AgentService> for PrepareTransferRequest {
     type Response = PrepareTransferResponse;
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PrepareTransferRequest {
     pub realm: RealmId,
     pub source: GroupId,
@@ -247,7 +247,7 @@ impl Rpc<AgentService> for TransferOutRequest {
     type Response = TransferOutResponse;
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TransferOutRequest {
     pub realm: RealmId,
     pub source: GroupId,
@@ -346,7 +346,7 @@ impl Rpc<AgentService> for CompleteTransferRequest {
     type Response = CompleteTransferResponse;
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CompleteTransferRequest {
     pub realm: RealmId,
     pub source: GroupId,

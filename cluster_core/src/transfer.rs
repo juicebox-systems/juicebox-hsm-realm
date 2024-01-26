@@ -1,6 +1,7 @@
-use std::time::Duration;
-use tokio::sync::Mutex;
+use hsm_api::{Partition, PreparedTransferStatement, TransferNonce, TransferStatement};
+use std::time::{Duration, Instant};
 use tracing::{info, warn};
+use url::Url;
 
 use super::{find_leaders, ManagementGrant, ManagementLeaseKey};
 use agent_api::{
@@ -76,12 +77,8 @@ pub async fn perform_transfer(
 
     // In the event of an unexpected path out of here, or a crash the transfer recovery checker will
     // spot the transferring in and/or out entries and restart the transfer as appropriate.
-    let state = Mutex::new(TransferState::Transferring);
 
-    let run = |_| async {
-        let mut state = state.lock().await;
-        let transfer = transfer.clone();
-
+    let run_transfer = |_| async {
         let leaders = find_leaders(store, client).await.unwrap_or_default();
 
         let Some((_, source_leader)) = leaders.get(&(transfer.realm, transfer.source)) else {
@@ -102,186 +99,92 @@ pub async fn perform_transfer(
 
         // The Agents will not respond to these RPCs until the related log entry is
         // committed. (where protocol safety requires the log entry to commit).
-        if *state == TransferState::Transferring {
-            info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination, "starting PrepareTransfer");
-            let (nonce, prepared_stmt) = match rpc::send(
-                client,
-                dest_leader,
-                PrepareTransferRequest {
-                    realm: transfer.realm,
-                    source: transfer.source,
-                    destination: transfer.destination,
-                    range: transfer.range.clone(),
-                },
-            )
-            .await
-            {
-                Ok(PrepareTransferResponse::Ok { nonce, statement }) => (nonce, statement),
-                Ok(PrepareTransferResponse::InvalidRealm) => {
-                    // In theory you should never be able to get here, as the checks
-                    // to find the leaders wouldn't find any leaders for an unknown
-                    // realm/group
-                    unreachable!(
-                        "PrepareTransfer to group:{:?} in realm:{:?} failed with InvalidRealm",
-                        transfer.destination, transfer.realm,
-                    );
-                }
-                Ok(PrepareTransferResponse::InvalidGroup) => {
-                    return Err(classify(Error::InvalidGroup))
-                }
-                Ok(PrepareTransferResponse::OtherTransferPending) => {
-                    return Err(classify(Error::OtherTransferPending))
-                }
-                Ok(PrepareTransferResponse::UnacceptableRange) => {
-                    return Err(classify(Error::UnacceptableRange))
-                }
-                Ok(PrepareTransferResponse::CommitTimeout) => {
-                    return Err(classify(Error::CommitTimeout))
-                }
-                Ok(PrepareTransferResponse::NoStore) => return Err(classify(Error::NoStore)),
-                Ok(PrepareTransferResponse::NoHsm) => {
-                    return Err(classify(Error::NoDestinationLeader));
-                }
-                Ok(PrepareTransferResponse::NotLeader) => {
-                    return Err(classify(Error::NoDestinationLeader));
-                }
-                Err(error) => {
-                    return Err(classify(Error::RpcError(error)));
-                }
-            };
 
-            if chaos == Some(TransferChaos::StopAfterPrepare) {
-                return Err(classify(Error::Timeout));
-            }
+        info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination,
+            "starting PrepareTransfer");
+        let (nonce, prepared_stmt) = prepare_transfer(
+            client,
+            dest_leader,
+            PrepareTransferRequest {
+                realm: transfer.realm,
+                source: transfer.source,
+                destination: transfer.destination,
+                range: transfer.range.clone(),
+            },
+        )
+        .await
+        .map_err(classify)?;
 
-            info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination, "transfer prepared, starting TransferOut");
-            let (transferring_partition, transfer_stmt) = match rpc::send(
-                client,
-                source_leader,
-                TransferOutRequest {
-                    realm: transfer.realm,
-                    source: transfer.source,
-                    destination: transfer.destination,
-                    range: transfer.range.clone(),
-                    nonce,
-                    statement: prepared_stmt.clone(),
-                },
-            )
-            .await
-            {
-                Ok(TransferOutResponse::Ok {
-                    transferring,
-                    statement,
-                }) => (transferring, statement),
-                Ok(TransferOutResponse::UnacceptableRange) => {
-                    cancel_prepared_transfer(client, store, transfer).await;
-                    return Err(classify(Error::UnacceptableRange));
-                }
-                Ok(TransferOutResponse::InvalidGroup) => {
-                    cancel_prepared_transfer(client, store, transfer).await;
-                    return Err(classify(Error::InvalidGroup));
-                }
-                Ok(TransferOutResponse::OtherTransferPending) => {
-                    cancel_prepared_transfer(client, store, transfer).await;
-                    return Err(classify(Error::OtherTransferPending));
-                }
-                Ok(TransferOutResponse::CommitTimeout) => {
-                    // This might still commit, so we shouldn't cancel the prepare.
-                    return Err(classify(Error::CommitTimeout));
-                }
-                Ok(TransferOutResponse::NoStore) => return Err(classify(Error::NoStore)),
-                Ok(
-                    TransferOutResponse::NotOwner
-                    | TransferOutResponse::NoHsm
-                    | TransferOutResponse::NotLeader,
-                ) => {
-                    return Err(classify(Error::NoSourceLeader));
-                }
-                Ok(TransferOutResponse::InvalidProof) => {
-                    panic!("TransferOut reported invalid proof");
-                }
-                Ok(TransferOutResponse::InvalidRealm) => {
-                    unreachable!(
-                        "TransferOut reported invalid realm for realm:{:?}",
-                        transfer.realm
-                    )
-                }
-                Ok(TransferOutResponse::InvalidStatement) => {
-                    panic!(
-                        "the destination group leader provided an invalid prepared transfer statement"
-                );
-                }
-                Err(error) => {
-                    return Err(classify(Error::RpcError(error)));
-                }
-            };
-
-            if chaos == Some(TransferChaos::StopAfterTransferOut) {
-                return Err(classify(Error::Timeout));
-            }
-
-            info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination, "transfer out completed, starting TransferIn");
-            match rpc::send(
-                client,
-                dest_leader,
-                TransferInRequest {
-                    realm: transfer.realm,
-                    source: transfer.source,
-                    destination: transfer.destination,
-                    transferring: transferring_partition.clone(),
-                    nonce,
-                    statement: transfer_stmt.clone(),
-                },
-            )
-            .await
-            {
-                Ok(TransferInResponse::Ok) => {
-                    *state = TransferState::Completing;
-                }
-                Ok(TransferInResponse::CommitTimeout) => {
-                    return Err(classify(Error::CommitTimeout))
-                }
-                Ok(TransferInResponse::NotPrepared) => {
-                    unreachable!(
-                        "TransferIn reported Not Prepared, but we just called prepareTransfer"
-                    );
-                }
-                Ok(TransferInResponse::InvalidStatement) => {
-                    panic!("TransferIn reported an invalid transfer statement");
-                }
-                Ok(r @ TransferInResponse::InvalidGroup | r @ TransferInResponse::InvalidRealm) => {
-                    unreachable!("Only a buggy coordinator can get these errors by this point in the process. Got {r:?}");
-                }
-                Ok(TransferInResponse::InvalidNonce) => {
-                    return Err(classify(Error::InvalidNonce));
-                }
-                Ok(TransferInResponse::NoStore) => {
-                    return Err(classify(Error::NoStore));
-                }
-                Ok(
-                    TransferInResponse::NoHsm
-                    | TransferInResponse::NotLeader
-                    | TransferInResponse::NotOwner,
-                ) => {
-                    return Err(classify(Error::NoDestinationLeader));
-                }
-                Err(error) => {
-                    return Err(classify(Error::RpcError(error)));
-                }
-            };
-        }
-
-        if chaos == Some(TransferChaos::StopAfterTransferIn) {
+        if chaos == Some(TransferChaos::StopAfterPrepare) {
             return Err(classify(Error::Timeout));
         }
 
-        // the TransferIn agent RPC waits for the log entry to commit, so
-        // its safe to call CompleteTransfer now.
-        info!(realm=?transfer.realm, source=?transfer.source,
-                destination=?transfer.destination,
-                "transfer in completed, starting CompleteTransfer");
+        info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination,
+            "transfer prepared, starting TransferOut");
+        let (transferring_partition, transfer_stmt) = transfer_out(
+            client,
+            source_leader,
+            dest_leader,
+            TransferOutRequest {
+                realm: transfer.realm,
+                source: transfer.source,
+                destination: transfer.destination,
+                range: transfer.range.clone(),
+                nonce,
+                statement: prepared_stmt.clone(),
+            },
+        )
+        .await
+        .map_err(classify)?;
 
-        match rpc::send(
+        if chaos == Some(TransferChaos::StopAfterTransferOut) {
+            return Err(classify(Error::Timeout));
+        }
+
+        info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination,
+            "transfer out completed, starting TransferIn");
+        transfer_in(
+            client,
+            dest_leader,
+            TransferInRequest {
+                realm: transfer.realm,
+                source: transfer.source,
+                destination: transfer.destination,
+                transferring: transferring_partition.clone(),
+                nonce,
+                statement: transfer_stmt.clone(),
+            },
+        )
+        .await
+        .map_err(classify)
+    };
+
+    let deadline = Instant::now() + Duration::from_secs(60 * 2);
+
+    retry_loop::Retry::new("transferring ownership of record ID range")
+        .with_deadline(Some(deadline))
+        .with_exponential_backoff(Duration::from_millis(10), 1.1, Duration::from_millis(500))
+        .retry(run_transfer, retry_logging!())
+        .await?;
+
+    if chaos == Some(TransferChaos::StopAfterTransferIn) {
+        return Err(RetryError::Fatal {
+            error: Error::Timeout,
+        });
+    }
+
+    let run_complete = |_| async {
+        // Its not ideal that we have to go do all the discovery again to get
+        // the source group leader. But the transferred partition is live at the
+        // destination and can service requests. So if this step takes longer
+        // all it's blocking are other transfers.
+        let leaders = find_leaders(store, client).await.unwrap_or_default();
+
+        let Some((_, source_leader)) = leaders.get(&(transfer.realm, transfer.source)) else {
+            return Err(classify(Error::NoSourceLeader));
+        };
+
+        complete_transfer(
             client,
             source_leader,
             CompleteTransferRequest {
@@ -292,29 +195,154 @@ pub async fn perform_transfer(
             },
         )
         .await
-        {
-            Ok(CompleteTransferResponse::Ok) => Ok(TransferSuccess {}),
-            Ok(CompleteTransferResponse::CommitTimeout) => Err(classify(Error::CommitTimeout)),
-            Ok(CompleteTransferResponse::NoHsm | CompleteTransferResponse::NotLeader) => {
-                Err(classify(Error::NoSourceLeader))
-            }
-            Ok(CompleteTransferResponse::InvalidRealm | CompleteTransferResponse::InvalidGroup) => {
-                unreachable!();
-            }
-            Ok(CompleteTransferResponse::NotTransferring) => {
-                warn!("got NotTransferring during complete transfer");
-                // This could happen if retried for a transient error but the request
-                // had actually succeeded (e.g. commit timeout)
-                Ok(TransferSuccess {})
-            }
-            Err(error) => Err(classify(Error::RpcError(error))),
-        }
+        .map_err(classify)
     };
 
-    retry_loop::Retry::new("transferring ownership of record ID range")
-        .with_exponential_backoff(Duration::from_millis(10), 1.1, Duration::from_millis(500))
-        .retry(run, retry_logging!())
+    info!(realm=?transfer.realm, source=?transfer.source,
+        destination=?transfer.destination,
+        "transfer in completed, starting CompleteTransfer");
+
+    retry_loop::Retry::new("completing transfer of ownership of record ID range")
+        .with_deadline(Some(deadline))
+        .with_exponential_backoff(Duration::from_millis(10), 2.0, Duration::from_secs(1))
+        .retry(run_complete, retry_logging!())
         .await
+}
+
+async fn prepare_transfer(
+    client: &impl http::Client,
+    dest_leader: &Url,
+    transfer: PrepareTransferRequest,
+) -> Result<(TransferNonce, PreparedTransferStatement), TransferError> {
+    type Error = TransferError;
+
+    match rpc::send(client, dest_leader, transfer.clone()).await {
+        Ok(PrepareTransferResponse::Ok { nonce, statement }) => Ok((nonce, statement)),
+        Ok(PrepareTransferResponse::InvalidRealm) => {
+            // In theory you should never be able to get here, as the checks
+            // to find the leaders wouldn't find any leaders for an unknown
+            // realm/group
+            unreachable!(
+                "PrepareTransfer to group:{:?} in realm:{:?} failed with InvalidRealm",
+                transfer.destination, transfer.realm,
+            );
+        }
+        Ok(PrepareTransferResponse::InvalidGroup) => Err(Error::InvalidGroup),
+        Ok(PrepareTransferResponse::OtherTransferPending) => Err(Error::OtherTransferPending),
+        Ok(PrepareTransferResponse::UnacceptableRange) => Err(Error::UnacceptableRange),
+        Ok(PrepareTransferResponse::CommitTimeout) => Err(Error::CommitTimeout),
+        Ok(PrepareTransferResponse::NoStore) => Err(Error::NoStore),
+        Ok(PrepareTransferResponse::NoHsm) => Err(Error::NoDestinationLeader),
+        Ok(PrepareTransferResponse::NotLeader) => Err(Error::NoDestinationLeader),
+        Err(error) => Err(Error::RpcError(error)),
+    }
+}
+
+async fn transfer_out(
+    client: &impl http::Client,
+    source_leader: &Url,
+    dest_leader: &Url,
+    transfer: TransferOutRequest,
+) -> Result<(Partition, TransferStatement), TransferError> {
+    type Error = TransferError;
+
+    match rpc::send(client, source_leader, transfer.clone()).await {
+        Ok(TransferOutResponse::Ok {
+            transferring,
+            statement,
+        }) => Ok((transferring, statement)),
+        Ok(TransferOutResponse::UnacceptableRange) => {
+            cancel_prepared_transfer(client, dest_leader, transfer).await;
+            Err(Error::UnacceptableRange)
+        }
+        Ok(TransferOutResponse::InvalidGroup) => {
+            cancel_prepared_transfer(client, dest_leader, transfer).await;
+            Err(Error::InvalidGroup)
+        }
+        Ok(TransferOutResponse::OtherTransferPending) => {
+            cancel_prepared_transfer(client, dest_leader, transfer).await;
+            Err(Error::OtherTransferPending)
+        }
+        Ok(TransferOutResponse::CommitTimeout) => {
+            // This might still commit, so we shouldn't cancel the prepare.
+            Err(Error::CommitTimeout)
+        }
+        Ok(TransferOutResponse::NoStore) => Err(Error::NoStore),
+        Ok(
+            TransferOutResponse::NotOwner
+            | TransferOutResponse::NoHsm
+            | TransferOutResponse::NotLeader,
+        ) => Err(Error::NoSourceLeader),
+        Ok(TransferOutResponse::InvalidProof) => {
+            panic!("TransferOut reported invalid proof");
+        }
+        Ok(TransferOutResponse::InvalidRealm) => {
+            unreachable!(
+                "TransferOut reported invalid realm for realm:{:?}",
+                transfer.realm
+            )
+        }
+        Ok(TransferOutResponse::InvalidStatement) => {
+            panic!("the destination group leader provided an invalid prepared transfer statement");
+        }
+        Err(error) => Err(Error::RpcError(error)),
+    }
+}
+
+async fn transfer_in(
+    client: &impl http::Client,
+    dest_leader: &Url,
+    transfer: TransferInRequest,
+) -> Result<(), TransferError> {
+    type Error = TransferError;
+
+    match rpc::send(client, dest_leader, transfer).await {
+        Ok(TransferInResponse::Ok) => Ok(()),
+        Ok(TransferInResponse::CommitTimeout) => Err(Error::CommitTimeout),
+        Ok(TransferInResponse::NotPrepared) => {
+            unreachable!("TransferIn reported Not Prepared, but we just called prepareTransfer");
+        }
+        Ok(TransferInResponse::InvalidStatement) => {
+            panic!("TransferIn reported an invalid transfer statement");
+        }
+        Ok(r @ TransferInResponse::InvalidGroup | r @ TransferInResponse::InvalidRealm) => {
+            unreachable!("Only a buggy coordinator can get these errors by this point in the process. Got {r:?}");
+        }
+        Ok(TransferInResponse::InvalidNonce) => Err(Error::InvalidNonce),
+        Ok(TransferInResponse::NoStore) => Err(Error::NoStore),
+        Ok(
+            TransferInResponse::NoHsm
+            | TransferInResponse::NotLeader
+            | TransferInResponse::NotOwner,
+        ) => Err(Error::NoDestinationLeader),
+        Err(error) => Err(Error::RpcError(error)),
+    }
+}
+
+async fn complete_transfer(
+    client: &impl http::Client,
+    source_leader: &Url,
+    transfer: CompleteTransferRequest,
+) -> Result<TransferSuccess, TransferError> {
+    type Error = TransferError;
+
+    match rpc::send(client, source_leader, transfer.clone()).await {
+        Ok(CompleteTransferResponse::Ok) => Ok(TransferSuccess {}),
+        Ok(CompleteTransferResponse::CommitTimeout) => Err(Error::CommitTimeout),
+        Ok(CompleteTransferResponse::NoHsm | CompleteTransferResponse::NotLeader) => {
+            Err(Error::NoSourceLeader)
+        }
+        Ok(CompleteTransferResponse::InvalidRealm | CompleteTransferResponse::InvalidGroup) => {
+            unreachable!();
+        }
+        Ok(CompleteTransferResponse::NotTransferring) => {
+            warn!("got NotTransferring during complete transfer");
+            // This could happen if retried for a transient error but the request
+            // had actually succeeded (e.g. commit timeout)
+            Ok(TransferSuccess {})
+        }
+        Err(error) => Err(Error::RpcError(error)),
+    }
 }
 
 fn classify(e: TransferError) -> AttemptError<TransferError> {
@@ -356,25 +384,13 @@ fn classify(e: TransferError) -> AttemptError<TransferError> {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
-enum TransferState {
-    Transferring,
-    Completing,
-}
-
 /// Cancel's a previously prepared transfer. The caller must ensure that the
 /// associated TransferOut has not been performed.
 async fn cancel_prepared_transfer(
     client: &impl http::Client,
-    store: &StoreClient,
-    t: TransferRequest,
+    dest_leader: &Url,
+    t: TransferOutRequest,
 ) {
-    let leaders = find_leaders(store, client).await.unwrap_or_default();
-
-    let Some((_, dest_leader)) = leaders.get(&(t.realm, t.destination)) else {
-        warn!(group=?t.destination, "couldn't find a leader for the group");
-        return;
-    };
     info!(realm=?t.realm, source=?t.source, destination=?t.destination, "cancelling preparedTransfer");
 
     match rpc::send(
