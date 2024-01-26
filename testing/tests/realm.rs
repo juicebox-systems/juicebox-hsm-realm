@@ -2,6 +2,7 @@ use ::reqwest::ClientBuilder;
 use futures::future::join_all;
 use http::StatusCode;
 use once_cell::sync::Lazy;
+use std::fs;
 use std::path::PathBuf;
 
 use cluster_core::{JoinRealmError, NewRealmError};
@@ -33,7 +34,7 @@ async fn realm() {
         local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
-        path_to_target: PathBuf::from(".."),
+        path_to_target: fs::canonicalize("..").unwrap(),
     };
 
     let cluster = create_cluster(cluster_args, &mut processes, PORT.clone())

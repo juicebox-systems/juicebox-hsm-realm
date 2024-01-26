@@ -7,6 +7,7 @@ use once_cell::sync::Lazy;
 use serde_json::json;
 use sha2::Sha256;
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 use tonic::transport::{Channel, Endpoint};
 
@@ -37,7 +38,7 @@ async fn events() {
         local_pubsub: true,
         secrets_file: Some(PathBuf::from("../secrets-demo.json")),
         entrust: Entrust(false),
-        path_to_target: PathBuf::from(".."),
+        path_to_target: fs::canonicalize("..").unwrap(),
     };
 
     let cluster = create_cluster(cluster_args, &mut processes, PORT.clone())
@@ -55,7 +56,7 @@ async fn events() {
         realm: cluster.realms[0].realm,
     };
 
-    let client = cluster.client_for_user(String::from("bob"));
+    let client = cluster.client_for_user("bob");
     let pin = Pin::from(vec![1, 2, 3, 4]);
     let info = UserInfo::from(vec![4, 3, 2, 1]);
 
