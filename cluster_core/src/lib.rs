@@ -211,13 +211,13 @@ async fn wait_for_commit(
     }
 }
 
-pub type HsmsStatus = HashMap<HsmId, (hsm_api::StatusResponse, Url)>;
+pub type HsmStatuses = HashMap<HsmId, (hsm_api::StatusResponse, Url)>;
 
 pub async fn get_hsm_statuses(
     agents: &impl http::Client,
     agent_urls: impl Iterator<Item = &Url>,
     timeout: Option<Duration>,
-) -> HsmsStatus {
+) -> HsmStatuses {
     join_all(agent_urls.map(|url| {
         rpc::send_with_options(
             agents,
@@ -236,7 +236,7 @@ pub async fn get_hsm_statuses(
     .collect()
 }
 
-pub fn find_leader(status: &HsmsStatus, realm: RealmId, group: GroupId) -> Option<(HsmId, Url)> {
+pub fn find_leader(status: &HsmStatuses, realm: RealmId, group: GroupId) -> Option<(HsmId, Url)> {
     for (hsm, (status, url)) in status {
         if let Some(rs) = &status.realm {
             if rs.id == realm {
@@ -253,9 +253,10 @@ pub fn find_leader(status: &HsmsStatus, realm: RealmId, group: GroupId) -> Optio
 
 // Extracts the range owners from the provided StatusRequest results and returns
 // the set of owners that cover `range_to_check`. If `range_to_check` is not
-// fully covered None is returned.
+// fully covered None is returned. This is used to help verify ownership of all
+// or a subset of the recordId range during transfer recovery.
 pub fn range_owners(
-    hsm_status: &HsmsStatus,
+    hsm_status: &HsmStatuses,
     realm: RealmId,
     range_to_check: &OwnedRange,
 ) -> Option<Vec<(GroupId, OwnedRange)>> {
@@ -270,7 +271,7 @@ pub fn range_owners(
                 .and_then(|ls| ls.owned_range.as_ref().map(|r| (gs.id, r.clone())))
         })
         .collect();
-    range_is_covered(ranges, range_to_check)
+    verify_range_owners(ranges, range_to_check)
 }
 
 // If the provided set of range owners fully cover the `range_to_check`, then
@@ -278,7 +279,7 @@ pub fn range_owners(
 // `range_to_check` is not fully covered, then None is returned.
 //
 // This is broken out to simplify testing.
-fn range_is_covered(
+fn verify_range_owners(
     mut owners: Vec<(GroupId, OwnedRange)>,
     range_to_check: &OwnedRange,
 ) -> Option<Vec<(GroupId, OwnedRange)>> {
@@ -319,19 +320,22 @@ mod tests {
         let gids: Vec<GroupId> = (0..3).map(|i| GroupId([i; 16])).collect();
 
         assert!(
-            range_is_covered(vec![(gids[0], OwnedRange::full())], &OwnedRange::full()).is_some()
+            verify_range_owners(vec![(gids[0], OwnedRange::full())], &OwnedRange::full()).is_some()
         );
-        assert!(range_is_covered(vec![(gids[0], OwnedRange::full())], &mkrange(0, 15)).is_some());
         assert!(
-            range_is_covered(vec![(gids[0], OwnedRange::full())], &mkrange(0xfe, 0xff)).is_some()
+            verify_range_owners(vec![(gids[0], OwnedRange::full())], &mkrange(0, 15)).is_some()
         );
-        assert!(range_is_covered(
+        assert!(
+            verify_range_owners(vec![(gids[0], OwnedRange::full())], &mkrange(0xfe, 0xff))
+                .is_some()
+        );
+        assert!(verify_range_owners(
             vec![(gids[0], mkrange(0, 15)), (gids[1], mkrange(16, 0xff))],
             &OwnedRange::full()
         )
         .is_some());
         // input not in order
-        assert!(range_is_covered(
+        assert!(verify_range_owners(
             vec![
                 (gids[0], mkrange(11, 15)),
                 (gids[1], mkrange(0, 10)),
@@ -341,7 +345,7 @@ mod tests {
         )
         .is_some());
         // hole in range, but not in the range we're checking
-        assert!(range_is_covered(
+        assert!(verify_range_owners(
             vec![
                 (gids[0], mkrange(11, 15)),
                 (gids[1], mkrange(0, 9)),
@@ -351,22 +355,22 @@ mod tests {
         )
         .is_some());
 
-        assert!(range_is_covered(
+        assert!(verify_range_owners(
             vec![(gids[0], mkrange(1, 15)), (gids[1], mkrange(16, 0xff))],
             &OwnedRange::full()
         )
         .is_none());
-        assert!(range_is_covered(
+        assert!(verify_range_owners(
             vec![(gids[0], mkrange(0, 15)), (gids[1], mkrange(16, 0xfe))],
             &OwnedRange::full()
         )
         .is_none());
-        assert!(range_is_covered(
+        assert!(verify_range_owners(
             vec![(gids[0], mkrange(0, 15)), (gids[1], mkrange(17, 0xff))],
             &OwnedRange::full()
         )
         .is_none());
-        assert!(range_is_covered(
+        assert!(verify_range_owners(
             vec![
                 (gids[0], mkrange(11, 15)),
                 (gids[1], mkrange(0, 9)),
@@ -375,7 +379,7 @@ mod tests {
             &OwnedRange::full()
         )
         .is_none());
-        assert!(range_is_covered(
+        assert!(verify_range_owners(
             vec![
                 (gids[0], mkrange(11, 15)),
                 (gids[1], mkrange(0, 9)),

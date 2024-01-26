@@ -1,6 +1,6 @@
 use anyhow::Context;
 use bytes::Bytes;
-use cluster_core::{get_hsm_statuses, HsmsStatus, ManagementGrant, ManagementLeaseKey};
+use cluster_core::{get_hsm_statuses, HsmStatuses, ManagementGrant, ManagementLeaseKey};
 use http_body_util::Full;
 use hyper::http;
 use hyper::server::conn::http1;
@@ -265,7 +265,7 @@ struct HsmStatusCache {
 }
 
 struct HsmStatusCacheInner {
-    cache: HsmsStatus,
+    cache: HsmStatuses,
     updated: Option<Instant>,
 }
 
@@ -281,7 +281,7 @@ impl HsmStatusCache {
         }
     }
 
-    async fn status(&self, freshness: Duration) -> Result<HsmsStatus, RetryError<tonic::Status>> {
+    async fn status(&self, freshness: Duration) -> Result<HsmStatuses, RetryError<tonic::Status>> {
         let cached = {
             let locked = self.state.lock().unwrap();
             if locked
@@ -299,7 +299,7 @@ impl HsmStatusCache {
         }
     }
 
-    async fn refresh(&self) -> Result<HsmsStatus, RetryError<tonic::Status>> {
+    async fn refresh(&self) -> Result<HsmStatuses, RetryError<tonic::Status>> {
         let addresses = self.store.get_addresses(Some(ServiceKind::Agent)).await?;
         let status = get_hsm_statuses(
             &self.agent_client,

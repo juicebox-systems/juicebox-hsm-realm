@@ -9,7 +9,7 @@ use agent_api::{
 };
 use cluster_api::{TransferError, TransferRequest, TransferSuccess};
 use cluster_core::{
-    find_leader, perform_transfer, range_owners, wait_for_management_grant, HsmsStatus,
+    find_leader, perform_transfer, range_owners, wait_for_management_grant, HsmStatuses,
     WaitForGrantError,
 };
 use hsm_api::{GroupId, LeaderStatus, OwnedRange, Transferring, TransferringIn, TransferringOut};
@@ -244,7 +244,7 @@ impl Manager {
 
     async fn confirm_range_owner(
         &self,
-        hsms_status: &HsmsStatus,
+        hsms_status: &HsmStatuses,
         realm: RealmId,
         group: GroupId,
         range: OwnedRange,
@@ -287,7 +287,7 @@ impl Manager {
 
     async fn complete_transfer(
         &self,
-        s: &HsmsStatus,
+        s: &HsmStatuses,
         realm: RealmId,
         source: GroupId,
         destination: GroupId,

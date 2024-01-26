@@ -823,7 +823,7 @@ pub struct LeaderStatus {
     /// of date.
     pub owned_range: Option<OwnedRange>,
 
-    /// An pending transfer into or out of the group.
+    /// A pending transfer into or out of the group.
     ///
     /// ## Warning
     ///

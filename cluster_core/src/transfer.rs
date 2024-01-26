@@ -37,9 +37,9 @@ pub async fn transfer(
         .map(|_| ())
 }
 
-// To simplify testing, callers to transfer can indicate different ways to leave
-// the transfer in a partial state, simulating a coordinator crash, or an error
-// that persists past the retry limits etc.
+/// To simplify testing, callers to [`perform_transfer`] can indicate different
+/// ways to leave the transfer in a partial state, simulating a coordinator
+/// crash, or an error that persists past the retry limits etc.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[allow(clippy::enum_variant_names)]
 pub enum TransferChaos {
@@ -49,7 +49,7 @@ pub enum TransferChaos {
 }
 
 // Performs an record id range ownership transfer between 2 groups. This is
-// exposed purely for testing use the cluster_manager RPC API for normal use.
+// exposed purely for testing. Use the cluster_manager RPC API for normal use.
 pub async fn perform_transfer(
     store: &StoreClient,
     client: &impl http::Client,

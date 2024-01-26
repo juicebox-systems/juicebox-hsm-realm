@@ -6,7 +6,7 @@ use tracing::{info, instrument, trace, warn};
 use super::{ManagementGrant, Manager};
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse};
 use cluster_core::workload::{HsmWorkload, WorkAmount};
-use cluster_core::{Error, HsmsStatus};
+use cluster_core::{Error, HsmStatuses};
 use hsm_api::{GroupId, HsmId, LogIndex};
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
@@ -76,7 +76,7 @@ pub(super) async fn assign_group_a_leader(
     group: GroupId,
     _: &ManagementGrant,
     skipping: Option<HsmId>,
-    hsm_status: &HsmsStatus,
+    hsm_status: &HsmStatuses,
     last: Option<LogIndex>,
 ) -> Result<Option<HsmId>, RpcError> {
     // We calculate a score for each group member based on how much work we
