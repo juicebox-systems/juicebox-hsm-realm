@@ -151,7 +151,7 @@ async fn check_transfer_recovery(
                 },
             )
             .await,
-            // TooManyRetries is return when stopped short by the TransferChaos setting.
+            // Timeout is return when stopped short by the TransferChaos setting.
             Err(RetryError::Fatal {
                 error: TransferError::Timeout
             })

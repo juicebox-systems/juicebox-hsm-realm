@@ -319,19 +319,41 @@ pub async fn perform_transfer(
 }
 
 fn classify(e: TransferError) -> AttemptError<TransferError> {
+    // Classify an error as retryable or not for the retry loop. When the loop
+    // is executed the management grant is already held.
     let tags = Vec::new();
     match e {
+        // These can happen at any time, the cluster manager should be dealing
+        // with assigning a new leader, so retry to try and find it.
         error @ TransferError::NoSourceLeader => AttemptError::Retryable { error, tags },
         error @ TransferError::NoDestinationLeader => AttemptError::Retryable { error, tags },
-        error @ TransferError::ManagerBusy => AttemptError::Fatal { error, tags },
+        // This is expected if the destination leader changed between prepare transfer and transfer in.
+        error @ TransferError::InvalidNonce => AttemptError::Retryable { error, tags },
+        // Transient RPC errors to the leader agents.
+        error @ TransferError::RpcError(_) => AttemptError::Retryable { error, tags },
+        // Likely transient error dealing with bigtable.
+        error @ TransferError::NoStore => AttemptError::Retryable { error, tags },
+
+        // The requested transfer is invalid, and retrying isn't going to fix that.
         error @ TransferError::InvalidGroup => AttemptError::Fatal { error, tags },
         error @ TransferError::UnacceptableRange => AttemptError::Fatal { error, tags },
         error @ TransferError::OtherTransferPending => AttemptError::Fatal { error, tags },
-        error @ TransferError::NoStore => AttemptError::Retryable { error, tags },
-        error @ TransferError::Timeout => AttemptError::Fatal { error, tags },
+
+        // This happens if the agent has a timeout waiting for a log entry to
+        // commit. Hitting this very generous timeout indicates a more serious
+        // issue going on with the cluster.
         error @ TransferError::CommitTimeout => AttemptError::Fatal { error, tags },
-        error @ TransferError::InvalidNonce => AttemptError::Retryable { error, tags },
-        error @ TransferError::RpcError(_) => AttemptError::Retryable { error, tags },
+
+        // Timeout is only hit inside the retry loop if the transfer chaos is enabled.
+        error @ TransferError::Timeout => AttemptError::Fatal { error, tags },
+
+        // This should never happen inside the retry loop as the caller needs to
+        // provide the management grant. It's here as an artifact of the fact
+        // that the RPC TransferError is reused as the error type inside the
+        // retry loop.
+        TransferError::ManagerBusy => unreachable!(
+            "The management grant is already owned when the transfer retry loop is executed"
+        ),
     }
 }
 
