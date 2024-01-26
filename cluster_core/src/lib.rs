@@ -286,12 +286,11 @@ fn verify_range_owners(
     owners.retain(|(_, r)| range_to_check.overlaps(r));
     owners.sort_by(|a, b| a.1.start.cmp(&b.1.start));
 
-    if !owners.is_empty()
+    if owners.first()?.1.start <= range_to_check.start
+        && owners.last()?.1.end >= range_to_check.end
         && owners
             .windows(2)
             .all(|pair| pair[0].1.end.next() == Some(pair[1].1.start.clone()))
-        && owners[0].1.start <= range_to_check.start
-        && owners.last().unwrap().1.end >= range_to_check.end
     {
         Some(owners)
     } else {
@@ -316,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn test_range_is_covered() {
+    fn test_verify_range_owners() {
         let gids: Vec<GroupId> = (0..3).map(|i| GroupId([i; 16])).collect();
 
         assert!(
