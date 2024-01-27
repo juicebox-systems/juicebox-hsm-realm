@@ -14,7 +14,7 @@ use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError, SendOptions};
 use juicebox_realm_api::types::RealmId;
 use retry_loop::{retry_logging_debug, AttemptError, RetryError};
-use store::{Lease, LeaseKey, LeaseType, StoreClient};
+use store::{Lease, LeaseKey, LeaseType, ServiceKind, StoreClient};
 
 mod leader;
 mod realm;
@@ -211,6 +211,19 @@ async fn wait_for_commit(
 }
 
 pub type HsmStatuses = HashMap<HsmId, (hsm_api::StatusResponse, Url)>;
+
+pub async fn discover_hsm_statuses(
+    store: &StoreClient,
+    client: &impl http::Client,
+) -> Result<HsmStatuses, RetryError<tonic::Status>> {
+    let addresses = store.get_addresses(Some(ServiceKind::Agent)).await?;
+    Ok(get_hsm_statuses(
+        client,
+        addresses.iter().map(|(url, _)| url),
+        Some(Duration::from_secs(5)),
+    )
+    .await)
+}
 
 pub async fn get_hsm_statuses(
     agents: &impl http::Client,

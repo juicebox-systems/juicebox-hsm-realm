@@ -9,8 +9,8 @@ use agent_api::{
 };
 use cluster_api::{TransferError, TransferRequest, TransferSuccess};
 use cluster_core::{
-    find_leader, perform_transfer, range_owners, wait_for_management_grant, HsmStatuses,
-    WaitForGrantError,
+    discover_hsm_statuses, find_leader, perform_transfer, range_owners, wait_for_management_grant,
+    HsmStatuses, WaitForGrantError,
 };
 use hsm_api::{GroupId, LeaderStatus, OwnedRange, Transferring, TransferringIn, TransferringOut};
 use juicebox_networking::rpc::{self, RpcError};
@@ -51,12 +51,11 @@ impl Manager {
     }
 
     pub(super) async fn ensure_transfers_finished(&self) -> Result<(), TransferError> {
-        let realms_with_transfers: HashSet<RealmId> = self
-            .0
-            .status
-            .status(Duration::from_millis(20))
+        let hsm_statuses = discover_hsm_statuses(&self.0.store, &self.0.agents)
             .await
-            .map_err(|_| TransferError::NoStore)?
+            .map_err(|_| TransferError::NoStore)?;
+
+        let realms_with_transfers: HashSet<RealmId> = hsm_statuses
             .into_values()
             .filter_map(|(s, _)| s.realm)
             .flat_map(|rs| {
@@ -77,7 +76,6 @@ impl Manager {
             {
                 Ok(Some(grant)) => {
                     self.ensure_realm_transfers_finished(realm, grant).await?;
-                    self.0.status.mark_dirty();
                 }
                 Ok(None) => {
                     debug!(
@@ -99,10 +97,7 @@ impl Manager {
         grant: ManagementGrant,
     ) -> Result<(), TransferError> {
         // now we have the lease, get a fresh set of status's / transfers
-        let hsms_status = self
-            .0
-            .status
-            .refresh()
+        let hsms_status = discover_hsm_statuses(&self.0.store, &self.0.agents)
             .await
             .map_err(|_| TransferError::NoStore)?;
 

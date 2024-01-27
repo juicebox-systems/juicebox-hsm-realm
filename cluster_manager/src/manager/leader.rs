@@ -1,12 +1,11 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::time::Duration;
 use tracing::{info, instrument, trace, warn};
 
 use super::{ManagementGrant, Manager};
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse};
 use cluster_core::workload::{HsmWorkload, WorkAmount};
-use cluster_core::{Error, HsmStatuses};
+use cluster_core::{discover_hsm_statuses, Error, HsmStatuses};
 use hsm_api::{GroupId, HsmId, LogIndex};
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
@@ -15,7 +14,7 @@ use service_core::http::ReqwestClientMetrics;
 impl Manager {
     #[instrument(level = "trace", skip(self))]
     pub(super) async fn ensure_groups_have_leader(&self) -> Result<(), Error> {
-        let hsm_status = self.0.status.status(Duration::from_millis(20)).await?;
+        let hsm_status = discover_hsm_statuses(&self.0.store, &self.0.agents).await?;
 
         let mut groups: HashMap<(RealmId, GroupId), Option<HsmId>> = HashMap::new();
         for (hsm, _url) in hsm_status.values() {
@@ -36,6 +35,7 @@ impl Manager {
             groups.into_iter().filter(|(_, leader)| leader.is_none())
         {
             info!(?group_id, ?realm_id, "Group has no leader");
+            // TODO: hsm_status is out of date after the first assignment.
             match self.mark_as_busy(realm_id, group_id).await {
                 Ok(None) => {
                     info!(
@@ -52,11 +52,10 @@ impl Manager {
                         group_id,
                         &grant,
                         None,
-                        &self.0.status.status(Duration::from_millis(50)).await?,
+                        &hsm_status,
                         None,
                     )
                     .await?;
-                    self.0.status.mark_dirty();
                 }
                 Err(err) => {
                     warn!(?err, "GRPC error trying to obtain lease");

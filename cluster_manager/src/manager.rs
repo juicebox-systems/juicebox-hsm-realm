@@ -1,19 +1,18 @@
 use anyhow::Context;
 use bytes::Bytes;
-use cluster_core::{get_hsm_statuses, HsmStatuses, ManagementGrant, ManagementLeaseKey};
+use cluster_core::{ManagementGrant, ManagementLeaseKey};
 use http_body_util::Full;
 use hyper::http;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use hyper_util::rt::TokioIo;
-use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -50,7 +49,6 @@ struct ManagerInner {
     // Set when the initial registration in service discovery completes
     // successfully.
     registered: AtomicBool,
-    status: HsmStatusCache,
 }
 
 impl Manager {
@@ -62,14 +60,12 @@ impl Manager {
         metrics: metrics::Client,
     ) -> Self {
         let agents = ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default());
-        let hsm_status = HsmStatusCache::new(store.clone(), agents.clone());
 
         let m = Self(Arc::new(ManagerInner {
             name,
             store,
             agents,
             registered: AtomicBool::new(false),
-            status: hsm_status,
         }));
         let manager = m.clone();
 
@@ -253,68 +249,6 @@ impl Manager {
                 ))))
                 .unwrap()
         }
-    }
-}
-
-#[derive(Clone)]
-struct HsmStatusCache {
-    state: Arc<Mutex<HsmStatusCacheInner>>,
-    store: StoreClient,
-    agent_client: ReqwestClientMetrics,
-}
-
-struct HsmStatusCacheInner {
-    cache: HsmStatuses,
-    updated: Option<Instant>,
-}
-
-impl HsmStatusCache {
-    fn new(store: StoreClient, agent_client: ReqwestClientMetrics) -> Self {
-        HsmStatusCache {
-            state: Arc::new(Mutex::new(HsmStatusCacheInner {
-                cache: HashMap::new(),
-                updated: None,
-            })),
-            store,
-            agent_client,
-        }
-    }
-
-    async fn status(&self, freshness: Duration) -> Result<HsmStatuses, RetryError<tonic::Status>> {
-        let cached = {
-            let locked = self.state.lock().unwrap();
-            if locked
-                .updated
-                .is_some_and(|last_updated| Instant::now().duration_since(last_updated) < freshness)
-            {
-                Some(locked.cache.clone())
-            } else {
-                None
-            }
-        };
-        match cached {
-            None => self.refresh().await,
-            Some(c) => Ok(c),
-        }
-    }
-
-    async fn refresh(&self) -> Result<HsmStatuses, RetryError<tonic::Status>> {
-        let addresses = self.store.get_addresses(Some(ServiceKind::Agent)).await?;
-        let status = get_hsm_statuses(
-            &self.agent_client,
-            addresses.iter().map(|(url, _)| url),
-            Some(Duration::from_secs(5)),
-        )
-        .await;
-        let result = status.clone();
-        let mut locked = self.state.lock().unwrap();
-        locked.cache = status;
-        locked.updated = Some(Instant::now());
-        Ok(result)
-    }
-
-    fn mark_dirty(&self) {
-        self.state.lock().unwrap().updated = None;
     }
 }
 

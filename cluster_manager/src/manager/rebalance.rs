@@ -1,5 +1,5 @@
+use cluster_core::discover_hsm_statuses;
 use std::collections::HashMap;
-use std::time::Duration;
 use tracing::{info, warn};
 use url::Url;
 
@@ -27,10 +27,7 @@ impl Manager {
     /// it handles the leadership handoff between the two HSMs. See
     /// [`next_rebalance()`] for more details on how it determines what to move.
     pub(super) async fn rebalance_work(&self) -> Result<RebalanceSuccess, RebalanceError> {
-        let hsm_status = self
-            .0
-            .status
-            .status(Duration::from_millis(20))
+        let hsm_status = discover_hsm_statuses(&self.0.store, &self.0.agents)
             .await
             .map_err(|_| RebalanceError::NoStore)?;
 
@@ -70,7 +67,6 @@ impl Manager {
             {
                 StepDownResponse::Ok { last } => {
                     info!(?realm, ?group, last=?last, "leader stepped down, asking the target to become leader");
-                    self.0.status.mark_dirty();
                     match rpc::send(
                         &self.0.agents,
                         &hsm_urls[&rebalance.to],
