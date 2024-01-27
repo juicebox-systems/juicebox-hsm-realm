@@ -45,7 +45,7 @@ pub struct Manager(Arc<ManagerInner>);
 struct ManagerInner {
     // Name to use as owner in leases.
     name: String,
-    store: Arc<StoreClient>,
+    store: StoreClient,
     agents: ReqwestClientMetrics,
     // Set when the initial registration in service discovery completes
     // successfully.
@@ -61,13 +61,12 @@ impl Manager {
         rebalance_interval: Duration,
         metrics: metrics::Client,
     ) -> Self {
-        let store = Arc::new(store);
         let agents = ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default());
         let hsm_status = HsmStatusCache::new(store.clone(), agents.clone());
 
         let m = Self(Arc::new(ManagerInner {
             name,
-            store: store.clone(),
+            store,
             agents,
             registered: AtomicBool::new(false),
             status: hsm_status,
@@ -260,7 +259,7 @@ impl Manager {
 #[derive(Clone)]
 struct HsmStatusCache {
     state: Arc<Mutex<HsmStatusCacheInner>>,
-    store: Arc<StoreClient>,
+    store: StoreClient,
     agent_client: ReqwestClientMetrics,
 }
 
@@ -270,7 +269,7 @@ struct HsmStatusCacheInner {
 }
 
 impl HsmStatusCache {
-    fn new(store: Arc<StoreClient>, agent_client: ReqwestClientMetrics) -> Self {
+    fn new(store: StoreClient, agent_client: ReqwestClientMetrics) -> Self {
         HsmStatusCache {
             state: Arc::new(Mutex::new(HsmStatusCacheInner {
                 cache: HashMap::new(),

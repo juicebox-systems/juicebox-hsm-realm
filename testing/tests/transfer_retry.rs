@@ -71,7 +71,7 @@ async fn transfer_retry() {
         end: RecordId([99; 32]),
     };
     check_transfer_recovery(
-        store.clone(),
+        &store,
         &client,
         &cluster.realms[0].agents,
         TransferChaos::StopAfterPrepare,
@@ -82,7 +82,7 @@ async fn transfer_retry() {
     )
     .await;
     check_transfer_recovery(
-        store.clone(),
+        &store,
         &client,
         &cluster.realms[0].agents,
         TransferChaos::StopAfterTransferOut,
@@ -93,7 +93,7 @@ async fn transfer_retry() {
     )
     .await;
     check_transfer_recovery(
-        store,
+        &store,
         &client,
         &cluster.realms[0].agents,
         TransferChaos::StopAfterTransferIn,
@@ -118,7 +118,7 @@ async fn transfer_retry() {
 
 #[allow(clippy::too_many_arguments)]
 async fn check_transfer_recovery(
-    store: Arc<StoreClient>,
+    store: &StoreClient,
     client: &reqwest::Client,
     agents: &[Url],
     chaos: TransferChaos,
@@ -139,7 +139,7 @@ async fn check_transfer_recovery(
 
         assert!(matches!(
             perform_transfer(
-                &store,
+                store,
                 client,
                 &grant,
                 Some(chaos),

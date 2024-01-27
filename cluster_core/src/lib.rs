@@ -2,7 +2,6 @@ use futures::future::join_all;
 use futures::FutureExt;
 use juicebox_networking::http;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -35,7 +34,7 @@ pub struct ManagementGrant {
 }
 
 struct ManagementGrantInner {
-    store: Arc<StoreClient>,
+    store: StoreClient,
     lease: Lease,
     renewer: JoinHandle<()>,
 }
@@ -52,7 +51,7 @@ impl ManagementGrant {
     /// across all cluster managers using the same store, not just this
     /// instance.
     pub async fn obtain(
-        store: Arc<StoreClient>,
+        store: StoreClient,
         owner: String,
         key: ManagementLeaseKey,
     ) -> Result<Option<Self>, RetryError<tonic::Status>> {
@@ -65,7 +64,7 @@ impl ManagementGrant {
             }))
     }
 
-    fn new(store: Arc<StoreClient>, key: ManagementLeaseKey, lease: Lease) -> Self {
+    fn new(store: StoreClient, key: ManagementLeaseKey, lease: Lease) -> Self {
         let store2 = store.clone();
         let lease2 = lease.clone();
         // This task gets aborted when the ManagementGrant is dropped.
@@ -118,7 +117,7 @@ pub enum WaitForGrantError {
 
 // Waits for up to 'timeout' to try and obtain the specified management grant.
 pub async fn wait_for_management_grant(
-    store: Arc<StoreClient>,
+    store: StoreClient,
     owner: String,
     key: ManagementLeaseKey,
     timeout: Duration,
