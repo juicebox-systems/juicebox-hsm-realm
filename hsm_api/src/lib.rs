@@ -2077,6 +2077,30 @@ mod tests {
     }
 
     #[test]
+    fn owned_range_contains_range() {
+        let r1 = mkrange(10, 20);
+        assert!(r1.contains_range(&r1));
+        assert!(r1.contains_range(&mkrange(10, 20)));
+        assert!(r1.contains_range(&mkrange(15, 16)));
+        assert!(r1.contains_range(&mkrange(10, 11)));
+        assert!(r1.contains_range(&mkrange(19, 20)));
+        assert!(!r1.contains_range(&mkrange(9, 15)));
+        assert!(!r1.contains_range(&mkrange(15, 21)));
+        assert!(!r1.contains_range(&OwnedRange::full()));
+    }
+
+    #[test]
+    fn owned_range_overlaps() {
+        let r1 = mkrange(100, 200);
+        assert!(r1.overlaps(&r1));
+        assert!(r1.overlaps(&mkrange(50, 101)));
+        assert!(r1.overlaps(&mkrange(199, 201)));
+        assert!(r1.overlaps(&mkrange(150, 160)));
+        assert!(!r1.overlaps(&mkrange(0, 99)));
+        assert!(!r1.overlaps(&mkrange(201, 222)));
+    }
+
+    #[test]
     fn owned_range_join_split() {
         let a = OwnedRange {
             start: RecordId([33; RecordId::NUM_BYTES]),
@@ -2154,5 +2178,13 @@ mod tests {
             marshalling::to_vec(&typical_entry).unwrap().len(),
             "typical entry serialized size"
         );
+    }
+
+    fn mkrange(s: u8, e: u8) -> OwnedRange {
+        let mut start = RecordId::min_id();
+        start.0[0] = s;
+        let mut end = RecordId::max_id();
+        end.0[0] = e;
+        OwnedRange { start, end }
     }
 }
