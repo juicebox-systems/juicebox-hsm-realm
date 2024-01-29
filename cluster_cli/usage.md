@@ -165,6 +165,9 @@ This is marked experimental because it does not currently handle all scenarios. 
 Usage: cluster experimental assimilate [OPTIONS]
 
 Options:
+  -c, --cluster <CLUSTER>
+          URL to a cluster manager, which will execute the transfer requests. By default it will find a cluster manager using service discovery
+
       --group-size <GROUP_SIZE>
           The target number of HSMs per group (and also the number of groups each HSM is a member of).
           

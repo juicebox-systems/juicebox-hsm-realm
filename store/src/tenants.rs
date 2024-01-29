@@ -150,9 +150,9 @@ impl StoreClient {
             // for each event, with a timestamp that is rounded down to midnight.
             // (to stop lots of cells potentially accumulating).
             mutate_rows(
-                &mut self.bigtable.clone(),
+                &mut self.0.bigtable.clone(),
                 MutateRowsRequest {
-                    table_name: tenant_user_table(&self.instance, realm),
+                    table_name: tenant_user_table(&self.0.instance, realm),
                     app_profile_id: String::from(""),
                     entries: records
                         .iter()
@@ -176,7 +176,7 @@ impl StoreClient {
         Retry::new("writing user accounting events")
             .with(bigtable_retries)
             .with_metrics(
-                &self.metrics,
+                &self.0.metrics,
                 "store_client.write_user_accounting",
                 &[tag!(?realm)],
             )
@@ -270,7 +270,7 @@ impl StoreClient {
             ],
         });
         let read_req = ReadRowsRequest {
-            table_name: tenant_user_table(&self.instance, realm),
+            table_name: tenant_user_table(&self.0.instance, realm),
             app_profile_id: String::new(),
             rows: None,
             filter: Some(RowFilter { filter: Some(f) }),
@@ -278,7 +278,7 @@ impl StoreClient {
             request_stats_view: RequestStatsNone.into(),
             reversed: false,
         };
-        let mut bigtable = self.bigtable.clone();
+        let mut bigtable = self.0.bigtable.clone();
         let mut results = Vec::new();
         match Reader::read_rows_stream(&mut bigtable, Retry::disabled(), read_req, |key, _cells| {
             if let Some(t) = parse_tenant(&key.0) {

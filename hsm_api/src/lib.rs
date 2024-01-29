@@ -385,6 +385,14 @@ impl OwnedRange {
         record_id >= &self.start && record_id <= &self.end
     }
 
+    pub fn overlaps(&self, other: &OwnedRange) -> bool {
+        self.contains(&other.start) || self.contains(&other.end)
+    }
+
+    pub fn contains_range(&self, other: &OwnedRange) -> bool {
+        self.contains(&other.start) && self.contains(&other.end)
+    }
+
     /// Returns the single range resulting from merging `self` and `other`, or
     /// returns `None` if the two are not adjacent.
     pub fn join(&self, other: &OwnedRange) -> Option<Self> {
@@ -794,6 +802,16 @@ pub struct LeaderStatus {
     /// committed at a particular log index.
     pub committed: Option<LogIndex>,
 
+    /// The last known log index. This is either the index of the log entry
+    /// provided during begin_leader, or the index or the most recently generated
+    /// log entry while leader.
+    ///
+    /// # Warning
+    ///
+    /// This log index may not be committed yet. The specific log entry generated
+    /// by the leader at this index may never commit.
+    pub last: LogIndex,
+
     /// A partition of users that this HSM believes this group is responsible
     /// for.
     ///
@@ -804,6 +822,16 @@ pub struct LeaderStatus {
     /// be committed yet, and it may never become committed. It may also be out
     /// of date.
     pub owned_range: Option<OwnedRange>,
+
+    /// A pending transfer into or out of the group.
+    ///
+    /// ## Warning
+    ///
+    /// Generally, this value changes very infrequently as the cluster's load
+    /// is rebalanced across groups. However, the value returned here might not
+    /// be committed yet, and it may never become committed. It may also be out
+    /// of date.
+    pub transferring: Option<Transferring>,
 }
 
 /// Request type for the HSM NewRealm RPC (see [`NewRealmResponse`]). Creates a
@@ -2049,6 +2077,30 @@ mod tests {
     }
 
     #[test]
+    fn owned_range_contains_range() {
+        let r1 = mkrange(10, 20);
+        assert!(r1.contains_range(&r1));
+        assert!(r1.contains_range(&mkrange(10, 20)));
+        assert!(r1.contains_range(&mkrange(15, 16)));
+        assert!(r1.contains_range(&mkrange(10, 11)));
+        assert!(r1.contains_range(&mkrange(19, 20)));
+        assert!(!r1.contains_range(&mkrange(9, 15)));
+        assert!(!r1.contains_range(&mkrange(15, 21)));
+        assert!(!r1.contains_range(&OwnedRange::full()));
+    }
+
+    #[test]
+    fn owned_range_overlaps() {
+        let r1 = mkrange(100, 200);
+        assert!(r1.overlaps(&r1));
+        assert!(r1.overlaps(&mkrange(50, 101)));
+        assert!(r1.overlaps(&mkrange(199, 201)));
+        assert!(r1.overlaps(&mkrange(150, 160)));
+        assert!(!r1.overlaps(&mkrange(0, 99)));
+        assert!(!r1.overlaps(&mkrange(201, 222)));
+    }
+
+    #[test]
     fn owned_range_join_split() {
         let a = OwnedRange {
             start: RecordId([33; RecordId::NUM_BYTES]),
@@ -2126,5 +2178,13 @@ mod tests {
             marshalling::to_vec(&typical_entry).unwrap().len(),
             "typical entry serialized size"
         );
+    }
+
+    fn mkrange(s: u8, e: u8) -> OwnedRange {
+        let mut start = RecordId::min_id();
+        start.0[0] = s;
+        let mut end = RecordId::max_id();
+        end.0[0] = e;
+        OwnedRange { start, end }
     }
 }

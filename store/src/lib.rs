@@ -219,11 +219,13 @@ impl StoreAdminClient {
 }
 
 #[derive(Clone)]
-pub struct StoreClient {
+pub struct StoreClient(Arc<StoreClientInner>);
+
+struct StoreClientInner {
     // https://cloud.google.com/bigtable/docs/reference/data/rpc/google.bigtable.v2
     bigtable: BigtableClient,
     instance: Instance,
-    last_write: Arc<Mutex<LastWriteCache>>,
+    last_write: Mutex<LastWriteCache>,
     metrics: metrics::Client,
     merkle_cache: merkle::Cache,
     warmer: TablesReadWarmer,
@@ -235,7 +237,7 @@ type LastWriteCache = HashMap<(RealmId, GroupId), (LogIndex, EntryMac)>;
 impl fmt::Debug for StoreClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StoreClient")
-            .field("instance", &self.instance)
+            .field("instance", &self.0.instance)
             .finish_non_exhaustive()
     }
 }
@@ -308,14 +310,14 @@ impl StoreClient {
             warmer.clone(),
         )
         .await?;
-        Ok(Self {
+        Ok(Self(Arc::new(StoreClientInner {
             bigtable,
             instance,
-            last_write: Arc::new(Mutex::new(HashMap::new())),
+            last_write: Mutex::new(HashMap::new()),
             metrics: options.metrics,
             merkle_cache: merkle::Cache::new(options.merkle_cache_nodes_limit.unwrap_or(1)),
             warmer,
-        })
+        })))
     }
 
     #[instrument(
@@ -394,11 +396,11 @@ impl StoreClient {
 
         // Append the new entries but only if no other writer has appended.
         let append_start = Instant::now();
-        let mut bigtable = self.bigtable.clone();
+        let mut bigtable = self.0.bigtable.clone();
         let appended_row = self
             .log_append(&mut bigtable, realm, group, entries)
             .await?;
-        self.metrics.timing(
+        self.0.metrics.timing(
             "store_client.append_log.time",
             append_start.elapsed(),
             [tag!(?realm), tag!(?group)],
@@ -412,7 +414,7 @@ impl StoreClient {
         // the last_write info doesn't apply to that append.
         {
             let last = entries.last().unwrap();
-            let mut locked = self.last_write.lock().unwrap();
+            let mut locked = self.0.last_write.lock().unwrap();
             locked.insert((*realm, *group), (last.index, last.entry_mac.clone()));
         }
 
@@ -434,7 +436,7 @@ impl StoreClient {
         };
 
         let dur = start.elapsed();
-        self.metrics.timing(
+        self.0.metrics.timing(
             "store_client.append_inner.time",
             dur,
             [tag!(?realm), tag!(?group)],
@@ -462,7 +464,7 @@ impl StoreClient {
 
         // Check `last_write` cache.
         {
-            let locked = self.last_write.lock().unwrap();
+            let locked = self.0.last_write.lock().unwrap();
             if let Some((last_index, last_mac)) = locked.get(&(*realm, *group)) {
                 if *last_index == prev_index {
                     // Cache hit.
@@ -574,10 +576,10 @@ impl StoreClient {
         kind: Option<ServiceKind>,
     ) -> Result<Vec<(Url, ServiceKind)>, RetryError<tonic::Status>> {
         discovery::get_addresses(
-            self.bigtable.clone(),
-            &self.instance,
+            self.0.bigtable.clone(),
+            &self.0.instance,
             kind,
-            self.metrics.clone(),
+            self.0.metrics.clone(),
         )
         .await
     }
@@ -591,12 +593,12 @@ impl StoreClient {
         timestamp: SystemTime,
     ) -> Result<(), RetryError<tonic::Status>> {
         discovery::set_address(
-            &self.bigtable,
-            &self.instance,
+            &self.0.bigtable,
+            &self.0.instance,
             address,
             kind,
             timestamp,
-            self.metrics.clone(),
+            self.0.metrics.clone(),
         )
         .await
     }
@@ -612,13 +614,13 @@ impl StoreClient {
         timestamp: SystemTime,
     ) -> Result<Option<Lease>, RetryError<tonic::Status>> {
         lease::obtain(
-            &self.bigtable,
-            &self.instance,
+            &self.0.bigtable,
+            &self.0.instance,
             key.into(),
             owner,
             dur,
             timestamp,
-            &self.metrics,
+            &self.0.metrics,
         )
         .await
     }
@@ -630,18 +632,18 @@ impl StoreClient {
         timestamp: SystemTime,
     ) -> Result<Lease, RetryError<ExtendLeaseError, tonic::Status>> {
         lease::extend(
-            &self.bigtable,
-            &self.instance,
+            &self.0.bigtable,
+            &self.0.instance,
             lease,
             dur,
             timestamp,
-            &self.metrics,
+            &self.0.metrics,
         )
         .await
     }
 
     pub async fn terminate_lease(&self, lease: Lease) -> Result<(), RetryError<tonic::Status>> {
-        lease::terminate(&self.bigtable, &self.instance, lease, &self.metrics).await
+        lease::terminate(&self.0.bigtable, &self.0.instance, lease, &self.0.metrics).await
     }
 }
 
@@ -699,11 +701,11 @@ pub mod testing {
     use super::*;
 
     pub fn get_connection(client: &StoreClient) -> BigtableClient {
-        client.bigtable.clone()
+        client.0.bigtable.clone()
     }
 
     pub fn get_instance(client: &StoreClient) -> Instance {
-        client.instance.clone()
+        client.0.instance.clone()
     }
 }
 

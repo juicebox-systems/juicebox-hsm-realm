@@ -15,11 +15,11 @@ use super::certs::{create_localhost_key_and_cert, Certificates};
 use super::hsm_gen::{Entrust, HsmGenerator};
 use super::{pubsub, PortIssuer};
 use agent_api::StatusRequest;
-use cluster_core::{self, NewRealmError};
+use cluster_core::{self, NewRealmError, TransferRequest};
 use google::{auth, GrpcConnectionOptions};
 use hsm_api::{GroupId, OwnedRange, PublicKey};
 use juicebox_networking::reqwest;
-use juicebox_networking::rpc::{self};
+use juicebox_networking::rpc;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_auth::creation::create_token;
 use juicebox_realm_auth::{AuthKey, AuthKeyVersion, Claims, Scope};
@@ -244,7 +244,7 @@ pub async fn create_cluster(
             &args.bigtable,
             pubsub_url.clone(),
             args.path_to_target.clone(),
-            &store,
+            &cluster_managers,
         )
         .await;
         realms.push(res);
@@ -338,7 +338,7 @@ async fn create_realm(
     bigtable: &store::BigtableArgs,
     pubsub_url: Option<Uri>,
     path_to_target: PathBuf,
-    store: &StoreClient,
+    cluster_managers: &[Url],
 ) -> RealmResult {
     assert_ne!(r.hsms, 0);
 
@@ -379,14 +379,18 @@ async fn create_realm(
             if r.groups > 0 {
                 // Transfer everything from the original group to the next one,
                 // because the original group isn't fault-tolerant.
-                cluster_core::transfer(
-                    res.realm,
-                    res.groups[0],
-                    res.groups[1],
-                    OwnedRange::full(),
-                    store,
+                rpc::send(
+                    &agents_client,
+                    &cluster_managers[0],
+                    TransferRequest {
+                        realm: res.realm,
+                        source: res.groups[0],
+                        destination: res.groups[1],
+                        range: OwnedRange::full(),
+                    },
                 )
                 .await
+                .unwrap()
                 .unwrap();
 
                 // TODO, transfer ranges to the other new groups

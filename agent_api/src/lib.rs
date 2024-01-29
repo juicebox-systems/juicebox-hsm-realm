@@ -187,7 +187,7 @@ impl Rpc<AgentService> for PrepareTransferRequest {
     type Response = PrepareTransferResponse;
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PrepareTransferRequest {
     pub realm: RealmId,
     pub source: GroupId,
@@ -247,7 +247,7 @@ impl Rpc<AgentService> for TransferOutRequest {
     type Response = TransferOutResponse;
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TransferOutRequest {
     pub realm: RealmId,
     pub source: GroupId,
@@ -317,12 +317,36 @@ pub enum TransferInResponse {
     CommitTimeout,
 }
 
+impl Rpc<AgentService> for GroupOwnsRangeRequest {
+    const PATH: &'static str = "transfer/owns";
+    type Response = GroupOwnsRangeResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GroupOwnsRangeRequest {
+    pub realm: RealmId,
+    pub group: GroupId,
+    pub range: OwnedRange,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum GroupOwnsRangeResponse {
+    Ok,
+    NotOwned { has: Option<OwnedRange> },
+    NoHsm,
+    InvalidRealm,
+    InvalidGroup,
+    NotLeader,
+    TimedOut,
+    TransferInProgress,
+}
+
 impl Rpc<AgentService> for CompleteTransferRequest {
     const PATH: &'static str = "transfer/complete";
     type Response = CompleteTransferResponse;
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CompleteTransferRequest {
     pub realm: RealmId,
     pub source: GroupId,

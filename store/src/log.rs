@@ -347,7 +347,7 @@ impl StoreClient {
         match Retry::new("appending log entries")
             .with(bigtable_retries)
             .with_metrics(
-                &self.metrics,
+                &self.0.metrics,
                 "store_client.log_append",
                 &[tag!(?realm), tag!(?group)],
             )
@@ -397,7 +397,7 @@ impl StoreClient {
         }
 
         let request = CheckAndMutateRowRequest {
-            table_name: log_table(&self.instance, realm),
+            table_name: log_table(&self.0.instance, realm),
             app_profile_id: String::new(),
             row_key: log_key(group, entries[0].index),
             predicate_filter: None, // check for any value, including tombstones
@@ -527,7 +527,7 @@ impl StoreClient {
 
         let run = |_| async {
             let request = ReadRowsRequest {
-                table_name: log_table(&self.instance, realm),
+                table_name: log_table(&self.0.instance, realm),
                 app_profile_id: String::new(),
                 rows: Some(RowSet {
                     row_keys: Vec::new(),
@@ -547,7 +547,7 @@ impl StoreClient {
             // Don't do retries on the inner read since this is already in a
             // tight retry loop.
             let (row_index, cell) =
-                match Reader::read_cell(&mut self.bigtable.clone(), Retry::disabled(), request)
+                match Reader::read_cell(&mut self.0.bigtable.clone(), Retry::disabled(), request)
                     .await
                     .map_err(|error| {
                         inspect_grpc_error(error.last().unwrap())
@@ -588,7 +588,7 @@ impl StoreClient {
         Retry::new("reading last log entry")
             .with(bigtable_retries)
             .with_metrics(
-                &self.metrics,
+                &self.0.metrics,
                 "store_client.read_last_log_entry",
                 &[tag!(?realm), tag!(?group)],
             )
@@ -610,8 +610,8 @@ impl StoreClient {
         max_entries: u16,
     ) -> LogEntriesIter {
         assert!(max_entries > 0);
-        self.warmer.add(realm);
-        let table_name = log_table(&self.instance, &realm);
+        self.0.warmer.add(realm);
+        let table_name = log_table(&self.0.instance, &realm);
         LogEntriesIter {
             realm,
             group,
@@ -619,7 +619,7 @@ impl StoreClient {
             max_entries: u64::from(max_entries),
             client: self.clone(),
             table_name,
-            metrics: self.metrics.clone(),
+            metrics: self.0.metrics.clone(),
         }
     }
 
@@ -673,9 +673,11 @@ impl StoreClient {
         }
 
         let tags = [tag!(?realm), tag!(?group)];
-        self.metrics
+        self.0
+            .metrics
             .timing("store_client.list_log_rows.time", start.elapsed(), &tags);
-        self.metrics
+        self.0
+            .metrics
             .distribution("store_client.list_log_rows.count", rows.len(), &tags);
 
         Ok(rows)
@@ -698,7 +700,7 @@ impl StoreClient {
         let tags = [tag!(?realm), tag!(?group)];
 
         let request = ReadRowsRequest {
-            table_name: log_table(&self.instance, realm),
+            table_name: log_table(&self.0.instance, realm),
             app_profile_id: String::new(),
             rows: Some(RowSet {
                 row_keys: Vec::new(),
@@ -747,11 +749,11 @@ impl StoreClient {
         };
 
         let rows: Vec<LogRow> = Reader::read_column(
-            &mut self.bigtable.clone(),
+            &mut self.0.bigtable.clone(),
             Retry::new("listing a page of log rows")
                 .with(bigtable_retries)
                 .with_metrics(
-                    &self.metrics,
+                    &self.0.metrics,
                     "store_client.list_log_rows_page",
                     &[tag!(?realm), tag!(?group)],
                 ),
@@ -774,13 +776,14 @@ impl StoreClient {
         let more =
             More(rows.len() == TOMBSTONE_WINDOW_SIZE && !rows.iter().all(|row| row.is_tombstone));
 
-        self.metrics
+        self.0
+            .metrics
             .distribution("store_client.list_log_rows_page.count", rows.len(), &tags);
         Span::current().record("rows", rows.len());
         if let Some(lowest) = rows.first() {
             Span::current().record("lowest", lowest.index.0);
             Span::current().record("highest", rows.last().unwrap().index.0);
-            self.metrics.gauge(
+            self.0.metrics.gauge(
                 "store_client.list_log_rows_page.lowest",
                 lowest.index.0,
                 &tags,
@@ -838,12 +841,12 @@ impl StoreClient {
 
         Span::current().record("chunks", num_chunks);
         let tags = [tag!(?realm), tag!(?group)];
-        self.metrics.timing(
+        self.0.metrics.timing(
             "store_client.replace_oldest_rows_with_tombstones.time",
             start.elapsed(),
             &tags,
         );
-        self.metrics.distribution(
+        self.0.metrics.distribution(
             "store_client.replace_oldest_rows_with_tombstones.rows",
             rows.len(),
             &tags,
@@ -871,10 +874,10 @@ impl StoreClient {
         }
 
         let run = |_| async {
-            let mut bigtable = self.bigtable.clone();
+            let mut bigtable = self.0.bigtable.clone();
 
             let request = MutateRowsRequest {
-                table_name: log_table(&self.instance, realm),
+                table_name: log_table(&self.0.instance, realm),
                 app_profile_id: String::new(),
                 entries: rows
                     .iter()
@@ -910,20 +913,20 @@ impl StoreClient {
         Retry::new("writing a chunk of log tombstones")
             .with(bigtable_retries)
             .with_metrics(
-                &self.metrics,
+                &self.0.metrics,
                 "store_client.replace_chunk_with_tombstones",
                 &tags,
             )
             .retry(run, retry_logging!())
             .await?;
 
-        self.metrics.distribution(
+        self.0.metrics.distribution(
             "store_client.replace_chunk_with_tombstones.rows",
             rows.iter().filter(|row| !row.is_tombstone).count(),
             &tags,
         );
         if let Some(highest) = rows.iter().rev().find(|row| !row.is_tombstone) {
-            self.metrics.gauge(
+            self.0.metrics.gauge(
                 "store_client.replace_chunk_with_tombstones.highest",
                 highest.index.0,
                 &tags,
@@ -1105,7 +1108,7 @@ impl LogEntriesIter {
         };
 
         match Reader::read_row(
-            &mut self.client.bigtable.clone(),
+            &mut self.client.0.bigtable.clone(),
             Retry::new("reading first row for log entry iterator")
                 .with(bigtable_retries)
                 .with_metrics(
@@ -1165,7 +1168,7 @@ impl LogEntriesIter {
             reversed: false,
         };
         Reader::read_rows(
-            &mut self.client.bigtable.clone(),
+            &mut self.client.0.bigtable.clone(),
             Retry::new("reading rows for log entry iterator")
                 .with(bigtable_retries)
                 .with_metrics(
@@ -1266,7 +1269,7 @@ pub mod testing {
         ];
 
         let request = ReadRowsRequest {
-            table_name: log_table(&store.instance, realm),
+            table_name: log_table(&store.0.instance, realm),
             app_profile_id: String::new(),
             rows: Some(RowSet {
                 row_keys: Vec::new(),
@@ -1284,7 +1287,7 @@ pub mod testing {
         };
 
         let Some((key, cell)) =
-            Reader::read_cell(&mut store.bigtable.clone(), Retry::disabled(), request).await?
+            Reader::read_cell(&mut store.0.bigtable.clone(), Retry::disabled(), request).await?
         else {
             return Err(ReadLogEntryError::NotFound);
         };
@@ -1319,9 +1322,9 @@ pub mod testing {
         row: LogIndex,
     ) -> Result<(), MutateRowsError> {
         mutate_rows(
-            &mut store.bigtable.clone(),
+            &mut store.0.bigtable.clone(),
             MutateRowsRequest {
-                table_name: log_table(&store.instance, realm),
+                table_name: log_table(&store.0.instance, realm),
                 app_profile_id: String::new(),
                 entries: vec![mutate_rows_request::Entry {
                     row_key: log_key(group, row),

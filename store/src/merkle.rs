@@ -139,11 +139,11 @@ impl StoreClient {
                     }],
                 })
                 .collect::<Vec<_>>();
-            let mut bigtable = self.bigtable.clone();
+            let mut bigtable = self.0.bigtable.clone();
             mutate_rows(
                 &mut bigtable,
                 MutateRowsRequest {
-                    table_name: merkle_table(&self.instance, realm),
+                    table_name: merkle_table(&self.0.instance, realm),
                     app_profile_id: String::new(),
                     entries,
                 },
@@ -156,12 +156,12 @@ impl StoreClient {
 
         Retry::new("writing merkle tree nodes")
             .with(bigtable_retries)
-            .with_metrics(&self.metrics, "store_client.write_merkle_nodes", &tags)
+            .with_metrics(&self.0.metrics, "store_client.write_merkle_nodes", &tags)
             .retry(run, retry_logging!())
             .await?;
 
         let cache_stats = {
-            let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+            let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
             for (key, value) in add {
                 locked_cache.insert(
                     StoreKey::from(key),
@@ -170,7 +170,7 @@ impl StoreClient {
             }
             locked_cache.stats()
         };
-        report_cache_stats(&self.metrics, &tags, cache_stats);
+        report_cache_stats(&self.0.metrics, &tags, cache_stats);
         Ok(())
     }
 
@@ -187,11 +187,11 @@ impl StoreClient {
 
         let start = Instant::now();
 
-        let mut bigtable = self.bigtable.clone();
+        let mut bigtable = self.0.bigtable.clone();
         let result = mutate_rows(
             &mut bigtable,
             MutateRowsRequest {
-                table_name: merkle_table(&self.instance, realm),
+                table_name: merkle_table(&self.0.instance, realm),
                 app_profile_id: String::new(),
                 entries: remove
                     .iter()
@@ -209,7 +209,7 @@ impl StoreClient {
         .await;
 
         let cache_stats = {
-            let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+            let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
             for key in remove {
                 locked_cache.remove(&StoreKey::from(key));
             }
@@ -217,8 +217,8 @@ impl StoreClient {
         };
 
         let tags = [tag!(?realm), tag!(?group)];
-        report_cache_stats(&self.metrics, &tags, cache_stats);
-        self.metrics.timing(
+        report_cache_stats(&self.0.metrics, &tags, cache_stats);
+        self.0.metrics.timing(
             "store_client.remove_merkle_nodes.time",
             start.elapsed(),
             &tags,
@@ -299,15 +299,15 @@ impl TreeStoreReader<DataHash> for StoreClient {
         // Read as much as possible from the cache.
         let (cached_nodes, next) = {
             let result = {
-                let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+                let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
                 cached_path_lookup(record_id, root_hash, &mut locked_cache)
             };
-            self.metrics.distribution(
+            self.0.metrics.distribution(
                 "store_client.path_lookup.cached_nodes_read",
                 result.nodes.len() as i64,
                 tags,
             );
-            self.metrics.distribution(
+            self.0.metrics.distribution(
                 "store_client.path_lookup.full_path_cache_hits",
                 result.next.is_none() as i64,
                 tags,
@@ -318,7 +318,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
                     // This was a full path cache hit. For `bigtable_nodes_read`
                     // to be comparable with `cached_nodes_read`, it seems more
                     // fair to record a zero value here.
-                    self.metrics.distribution(
+                    self.0.metrics.distribution(
                         "store_client.path_lookup.bigtable_nodes_read",
                         0,
                         tags,
@@ -331,12 +331,12 @@ impl TreeStoreReader<DataHash> for StoreClient {
 
         // Read the rest from Bigtable.
         let rows = Reader::read_rows(
-            &mut self.bigtable.clone(),
+            &mut self.0.bigtable.clone(),
             Retry::new("merkle tree path lookup")
                 .with(bigtable_retries)
-                .with_metrics(&self.metrics, "store_client.path_lookup", tags),
+                .with_metrics(&self.0.metrics, "store_client.path_lookup", tags),
             ReadRowsRequest {
-                table_name: merkle_table(&self.instance, realm),
+                table_name: merkle_table(&self.0.instance, realm),
                 app_profile_id: String::new(),
                 rows: Some(RowSet {
                     row_keys: Vec::new(),
@@ -378,7 +378,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
             })
             .collect();
 
-        self.metrics.distribution(
+        self.0.metrics.distribution(
             "store_client.path_lookup.bigtable_nodes_read",
             read_values.len(),
             tags,
@@ -387,7 +387,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
         // This is heavy-weight but useful for understanding how deep into the
         // tree extraneous reads are occurring.
         for (key, _) in &read_values {
-            self.metrics.distribution(
+            self.0.metrics.distribution(
                 "store_client.path_lookup.bigtable_node.key_len",
                 key.as_slice().len(),
                 tags,
@@ -406,13 +406,13 @@ impl TreeStoreReader<DataHash> for StoreClient {
         // Update the cache with newly read values.
         if !read_values.is_empty() {
             let cache_stats = {
-                let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+                let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
                 for (key, value) in read_values {
                     locked_cache.insert(key, value);
                 }
                 locked_cache.stats()
             };
-            report_cache_stats(&self.metrics, tags, cache_stats);
+            report_cache_stats(&self.0.metrics, tags, cache_stats);
         }
 
         Span::current().record("num_result_nodes", nodes.len());
@@ -431,7 +431,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
 
         // Check the Merkle node cache first.
         {
-            let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+            let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
             if let Some(value) = locked_cache.get(&store_key) {
                 let node: Node<DataHash> = marshalling::from_slice(value).expect("TODO");
                 return Ok(node);
@@ -440,12 +440,12 @@ impl TreeStoreReader<DataHash> for StoreClient {
 
         // Read from Bigtable.
         let rows = Reader::read_rows(
-            &mut self.bigtable.clone(),
+            &mut self.0.bigtable.clone(),
             Retry::new("read merkle tree node")
                 .with(bigtable_retries)
-                .with_metrics(&self.metrics, "store_client.read_node", tags),
+                .with_metrics(&self.0.metrics, "store_client.read_node", tags),
             ReadRowsRequest {
-                table_name: merkle_table(&self.instance, realm),
+                table_name: merkle_table(&self.0.instance, realm),
                 app_profile_id: String::new(),
                 rows: Some(RowSet {
                     row_keys: vec![store_key.clone().into_bytes()],
@@ -472,11 +472,11 @@ impl TreeStoreReader<DataHash> for StoreClient {
                 let node: Node<DataHash> = marshalling::from_slice(&cell.value).expect("TODO");
                 trace!(?realm, ?key, "read_node completed");
                 let cache_stats = {
-                    let mut locked_cache = self.merkle_cache.0.lock().unwrap();
+                    let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
                     locked_cache.insert(store_key, cell.value);
                     locked_cache.stats()
                 };
-                report_cache_stats(&self.metrics, tags, cache_stats);
+                report_cache_stats(&self.0.metrics, tags, cache_stats);
                 Ok(node)
             }
 

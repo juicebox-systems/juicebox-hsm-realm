@@ -127,5 +127,20 @@ pub enum TransferError {
     NoDestinationLeader,
     #[error("cluster manager failed to obtain management lease")]
     ManagerBusy,
-    // more error cases hidden in todo!()s.
+    #[error("the source or destination group is invalid, or the same group was specified for both source and destination")]
+    InvalidGroup,
+    #[error("the source or destination group cannot handle the provided key range")]
+    UnacceptableRange,
+    #[error("the source or destination group is busy with a different transfer")]
+    OtherTransferPending,
+    #[error("failed to read or write to the store")]
+    NoStore,
+    #[error("timed out trying to perform the transfer")]
+    Timeout,
+    #[error("an agent timed out waiting to commit a log entry")]
+    CommitTimeout,
+    #[error("the nonce in the transfer to the destination wasn't what the leader was expecting")]
+    InvalidNonce,
+    #[error("an RPC error occurred to one of the leaders: {0}")]
+    RpcError(RpcError),
 }

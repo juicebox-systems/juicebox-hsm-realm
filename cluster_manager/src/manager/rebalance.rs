@@ -1,17 +1,15 @@
+use cluster_core::discover_hsm_statuses;
 use std::collections::HashMap;
-use std::time::Duration;
 use tracing::{info, warn};
 use url::Url;
 
 use super::Manager;
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse, StepDownRequest, StepDownResponse};
 use cluster_api::{RebalanceError, RebalanceSuccess, RebalancedLeader};
-use cluster_core::get_hsm_statuses;
 use cluster_core::workload::{HsmWorkload, WorkAmount};
 use hsm_api::HsmId;
-use juicebox_networking::rpc::{self};
+use juicebox_networking::rpc;
 use service_core::rpc::HandlerError;
-use store::ServiceKind;
 
 impl Manager {
     pub(super) async fn handle_rebalance(
@@ -29,19 +27,9 @@ impl Manager {
     /// it handles the leadership handoff between the two HSMs. See
     /// [`next_rebalance()`] for more details on how it determines what to move.
     pub(super) async fn rebalance_work(&self) -> Result<RebalanceSuccess, RebalanceError> {
-        let addresses = self
-            .0
-            .store
-            .get_addresses(Some(ServiceKind::Agent))
+        let hsm_status = discover_hsm_statuses(&self.0.store, &self.0.agents)
             .await
             .map_err(|_| RebalanceError::NoStore)?;
-
-        let hsm_status = get_hsm_statuses(
-            &self.0.agents,
-            addresses.iter().map(|(url, _)| url),
-            Some(Duration::from_secs(5)),
-        )
-        .await;
 
         let hsm_urls: HashMap<HsmId, Url> = hsm_status
             .iter()

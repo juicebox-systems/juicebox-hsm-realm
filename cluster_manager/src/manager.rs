@@ -1,5 +1,6 @@
 use anyhow::Context;
 use bytes::Bytes;
+use cluster_core::{ManagementGrant, ManagementLeaseKey};
 use http_body_util::Full;
 use hyper::http;
 use hyper::server::conn::http1;
@@ -30,14 +31,12 @@ use retry_loop::RetryError;
 use service_core::http::ReqwestClientMetrics;
 use service_core::rpc::handle_rpc;
 use store::discovery::{REGISTER_FAILURE_DELAY, REGISTER_INTERVAL};
-use store::{Lease, LeaseKey, LeaseType, ServiceKind, StoreClient};
+use store::{ServiceKind, StoreClient};
 
 mod leader;
 mod rebalance;
 mod stepdown;
 mod transfer;
-
-const LEASE_DURATION: Duration = Duration::from_secs(3);
 
 #[derive(Clone)]
 pub struct Manager(Arc<ManagerInner>);
@@ -52,112 +51,6 @@ struct ManagerInner {
     registered: AtomicBool,
 }
 
-/// When drop'd will remove the lease from the store.
-pub struct ManagementGrant {
-    key: ManagementLeaseKey,
-    inner: Option<ManagementGrantInner>,
-}
-
-struct ManagementGrantInner {
-    mgr: Manager, // Manager is cheap to clone.
-    lease: Lease,
-    renewer: JoinHandle<()>,
-}
-
-impl ManagementGrant {
-    /// Takes a lease out for some management operation that should block
-    /// conflicting management operations.
-    ///
-    /// Returns None if the lease has already been taken by some other task.
-    /// When the returned `ManagementGrant` is dropped, the lease will be
-    /// terminated.
-    ///
-    /// The grant uses a lease managed by the bigtable store. The grant applies
-    /// across all cluster managers using the same store, not just this
-    /// instance.
-    async fn obtain(
-        mgr: Manager,
-        key: ManagementLeaseKey,
-    ) -> Result<Option<Self>, RetryError<tonic::Status>> {
-        Ok(mgr
-            .0
-            .store
-            .obtain_lease(
-                key.clone(),
-                mgr.0.name.clone(),
-                LEASE_DURATION,
-                SystemTime::now(),
-            )
-            .await?
-            .map(|lease| {
-                info!(?key, "obtained lease for active management");
-                ManagementGrant::new(mgr, key, lease)
-            }))
-    }
-
-    fn new(mgr: Manager, key: ManagementLeaseKey, lease: Lease) -> Self {
-        let mgr2 = mgr.clone();
-        let lease2 = lease.clone();
-        // This task gets aborted when the ManagementGrant is dropped.
-        let renewer = tokio::spawn(async move {
-            let mut lease = lease2;
-            loop {
-                sleep(LEASE_DURATION / 3).await;
-                let now = SystemTime::now();
-                let expires = lease.until();
-                lease = tokio::select! {
-                    result = mgr2
-                    .0
-                    .store
-                    .extend_lease(lease, LEASE_DURATION, now) => result.expect("failed to extend lease"),
-                    _ = sleep(expires.duration_since(now).unwrap()) => panic!("didn't renew lease in time")
-                }
-            }
-        });
-        ManagementGrant {
-            key,
-            inner: Some(ManagementGrantInner {
-                mgr,
-                lease,
-                renewer,
-            }),
-        }
-    }
-}
-
-impl Drop for ManagementGrant {
-    fn drop(&mut self) {
-        let inner = self.inner.take().unwrap();
-        info!(
-            key = ?self.key,
-            "management task completed. dropping lease"
-        );
-        inner.renewer.abort();
-        tokio::spawn(async move {
-            _ = inner.renewer.await;
-            if let Err(err) = inner.mgr.0.store.terminate_lease(inner.lease).await {
-                warn!(?err, "gRPC error while trying to terminate lease");
-            }
-        });
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum ManagementLeaseKey {
-    RealmGroup(RealmId, GroupId),
-    Ownership(RealmId),
-}
-
-impl From<ManagementLeaseKey> for LeaseKey {
-    fn from(value: ManagementLeaseKey) -> Self {
-        let k = match value {
-            ManagementLeaseKey::RealmGroup(r, g) => format!("{r:?}-{g:?}"),
-            ManagementLeaseKey::Ownership(r) => format!("{r:?}-ownership"),
-        };
-        LeaseKey(LeaseType::ClusterManagement, k)
-    }
-}
-
 impl Manager {
     pub fn new(
         name: String,
@@ -166,15 +59,19 @@ impl Manager {
         rebalance_interval: Duration,
         metrics: metrics::Client,
     ) -> Self {
+        let agents = ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default());
+
         let m = Self(Arc::new(ManagerInner {
             name,
             store,
-            agents: ReqwestClientMetrics::new(metrics, ClientOptions::default()),
+            agents,
             registered: AtomicBool::new(false),
         }));
         let manager = m.clone();
+
         tokio::spawn(async move {
             let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+
             loop {
                 sleep(update_interval).await;
 
@@ -182,7 +79,26 @@ impl Manager {
                 span.set_parent(cx.clone());
 
                 if let Err(err) = manager.ensure_groups_have_leader().await {
-                    warn!(?err, "Error while checking all groups have a leader")
+                    warn!(?err, "Error while checking all groups have a leader");
+                }
+            }
+        });
+
+        let manager = m.clone();
+        tokio::spawn(async move {
+            let cx = opentelemetry::Context::new().with_value(TracingSource::BackgroundJob);
+
+            loop {
+                sleep(update_interval).await;
+
+                let span = span!(Level::TRACE, "ensure_transfers_finished");
+                span.set_parent(cx.clone());
+
+                if let Err(err) = manager.ensure_transfers_finished().await {
+                    warn!(
+                        ?err,
+                        "Error while checking that ownership transfers are completed"
+                    );
                 }
             }
         });
@@ -307,7 +223,12 @@ impl Manager {
         realm: RealmId,
         group: GroupId,
     ) -> Result<Option<ManagementGrant>, RetryError<tonic::Status>> {
-        ManagementGrant::obtain(self.clone(), ManagementLeaseKey::RealmGroup(realm, group)).await
+        ManagementGrant::obtain(
+            self.0.store.clone(),
+            self.0.name.clone(),
+            ManagementLeaseKey::RealmGroup(realm, group),
+        )
+        .await
     }
 
     fn handle_livez(&self) -> Response<Full<Bytes>> {
@@ -341,19 +262,9 @@ mod tests {
 
     static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8222));
 
-    #[test]
-    fn lease_key() {
-        let lk = ManagementLeaseKey::RealmGroup(RealmId([9; 16]), GroupId([3; 16]));
-        let k: LeaseKey = lk.into();
-        assert_eq!(LeaseType::ClusterManagement, k.0);
-        assert_eq!(
-            "09090909090909090909090909090909-03030303030303030303030303030303".to_string(),
-            k.1
-        );
-    }
-
     #[tokio::test]
     async fn management_grant() {
+        // TODO: rewrite to use obtain and move to cluster_core
         let mut pg = ProcessGroup::new();
         let bt_args = emulator(PORT.next());
         BigtableRunner::run(&mut pg, &bt_args).await;

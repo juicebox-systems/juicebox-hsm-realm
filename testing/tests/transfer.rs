@@ -10,6 +10,7 @@ use std::fs;
 use std::iter::zip;
 use std::path::PathBuf;
 
+use cluster_api::TransferRequest;
 use cluster_core::new_group;
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use hsm_core::merkle::testing::rec_id;
@@ -80,14 +81,18 @@ async fn transfer() {
     let partitions =
         [(0x00, 0x3F), (0x40, 0x7F), (0x80, 0xBF), (0xC0, 0xFF)].map(|p| make_range(p.0, p.1));
     for (group, partition) in zip(&group_ids, &partitions) {
-        cluster_core::transfer(
-            realm,
-            *cluster.realms[0].groups.last().unwrap(),
-            *group,
-            partition.clone(),
-            &cluster.store,
+        rpc::send(
+            &agent_client,
+            &cluster.cluster_managers[0],
+            TransferRequest {
+                realm,
+                source: *cluster.realms[0].groups.last().unwrap(),
+                destination: *group,
+                range: partition.clone(),
+            },
         )
         .await
+        .unwrap()
         .unwrap();
     }
 
@@ -112,23 +117,32 @@ async fn transfer() {
     .await;
 
     // merge some partitions back into larger ones
-    cluster_core::transfer(
-        realm,
-        group_ids[0],
-        group_ids[1],
-        partitions[0].clone(),
-        &cluster.store,
+    rpc::send(
+        &agent_client,
+        &cluster.cluster_managers[0],
+        TransferRequest {
+            realm,
+            source: group_ids[0],
+            destination: group_ids[1],
+            range: partitions[0].clone(),
+        },
     )
     .await
+    .unwrap()
     .unwrap();
-    cluster_core::transfer(
-        realm,
-        group_ids[3],
-        group_ids[2],
-        partitions[3].clone(),
-        &cluster.store,
+
+    rpc::send(
+        &agent_client,
+        &cluster.cluster_managers[0],
+        TransferRequest {
+            realm,
+            source: group_ids[3],
+            destination: group_ids[2],
+            range: partitions[3].clone(),
+        },
     )
     .await
+    .unwrap()
     .unwrap();
 
     // do some recovers
@@ -207,43 +221,57 @@ async fn split_merge_empty_cluster(agent_client: &Client, cluster: &ClusterResul
     .unwrap();
     let src_group = cluster.realms[0].groups.last().copied().unwrap();
     // move some to the new group.
-    cluster_core::transfer(
-        cluster.realms[0].realm,
-        src_group,
-        new_group_id,
-        OwnedRange {
-            start: RecordId::min_id(),
-            end: rec_id(&[5]),
+    rpc::send(
+        agent_client,
+        &cluster.cluster_managers[0],
+        TransferRequest {
+            realm: cluster.realms[0].realm,
+            source: src_group,
+            destination: new_group_id,
+            range: OwnedRange {
+                start: RecordId::min_id(),
+                end: rec_id(&[5]),
+            },
         },
-        &cluster.store,
     )
     .await
+    .unwrap()
     .unwrap();
+
     // move part of it back.
-    cluster_core::transfer(
-        cluster.realms[0].realm,
-        new_group_id,
-        src_group,
-        OwnedRange {
-            start: rec_id(&[1]),
-            end: rec_id(&[5]),
+    rpc::send(
+        agent_client,
+        &cluster.cluster_managers[0],
+        TransferRequest {
+            realm: cluster.realms[0].realm,
+            source: new_group_id,
+            destination: src_group,
+            range: OwnedRange {
+                start: rec_id(&[1]),
+                end: rec_id(&[5]),
+            },
         },
-        &cluster.store,
     )
     .await
+    .unwrap()
     .unwrap();
+
     // move the rest of it back
-    cluster_core::transfer(
-        cluster.realms[0].realm,
-        new_group_id,
-        src_group,
-        OwnedRange {
-            start: RecordId::min_id(),
-            end: rec_id(&[1]).prev().unwrap(),
+    rpc::send(
+        agent_client,
+        &cluster.cluster_managers[0],
+        TransferRequest {
+            realm: cluster.realms[0].realm,
+            source: new_group_id,
+            destination: src_group,
+            range: OwnedRange {
+                start: RecordId::min_id(),
+                end: rec_id(&[1]).prev().unwrap(),
+            },
         },
-        &cluster.store,
     )
     .await
+    .unwrap()
     .unwrap();
 }
 

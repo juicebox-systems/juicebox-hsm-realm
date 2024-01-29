@@ -750,16 +750,18 @@ impl<P: Platform> Hsm<P> {
                             configuration: group.configuration.to_vec(),
                             captured: group.captured.clone(),
                             leader: match &role.state {
-                                RoleVolatileState::Leader(leader) => Some(LeaderStatus {
-                                    committed: leader.committed,
-                                    owned_range: leader
-                                        .log
-                                        .last()
-                                        .entry
-                                        .partition
-                                        .as_ref()
-                                        .map(|p| p.range.clone()),
-                                }),
+                                RoleVolatileState::Leader(leader) => {
+                                    let last = &leader.log.last().entry;
+                                    Some(LeaderStatus {
+                                        committed: leader.committed,
+                                        last: last.index,
+                                        owned_range: last
+                                            .partition
+                                            .as_ref()
+                                            .map(|p| p.range.clone()),
+                                        transferring: last.transferring.clone(),
+                                    })
+                                }
                                 _ => None,
                             },
                             role: role.status(),
