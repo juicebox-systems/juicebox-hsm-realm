@@ -269,7 +269,7 @@ fn create_load_balancers(
     port: &PortIssuer,
 ) -> (Vec<Url>, Certificates) {
     println!("{:?}", env::current_dir());
-    let certificates = create_localhost_key_and_cert(args.path_to_target.join("target"))
+    let certificates = create_localhost_key_and_cert(args.path_to_target.join("target"), false)
         .expect("Failed to create TLS key/cert for load balancer");
 
     info!("creating load balancer(s)");
