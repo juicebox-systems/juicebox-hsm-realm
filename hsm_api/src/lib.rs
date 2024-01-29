@@ -164,7 +164,7 @@ impl fmt::Display for RecordId {
             self.0.len()
         };
         if t < self.0.len() - 3 {
-            for byte in &self.0[..t + 1] {
+            for byte in &self.0[..=t] {
                 write!(f, "{byte:02x}")?;
             }
             write!(f, "...")?;
