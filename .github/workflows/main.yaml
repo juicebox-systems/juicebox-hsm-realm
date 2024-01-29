@@ -343,7 +343,7 @@ jobs:
 
   entrust:
     name: Build Entrust
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest-m
     timeout-minutes: 20
     steps:
     - name: Check out sources
@@ -399,6 +399,12 @@ jobs:
         command: test
       env:
         RUST_BACKTRACE: '1'
+
+    - name: Run release build
+      uses: actions-rs/cargo@v1
+      with:
+        args: --all --release
+        command: build
 
     - name: Run cargo build (PPC entrust_hsm.elf)
       run: ./entrust_hsm/compile_linux.sh
