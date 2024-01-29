@@ -147,6 +147,36 @@ impl fmt::Debug for RecordId {
     }
 }
 
+impl fmt::Display for RecordId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // replace trailing runs of 00 or FF with ...
+        write!(f, "0x")?;
+        let last = *self.0.last().unwrap();
+        let t = if last == 0 || last == 255 {
+            self.0.len()
+                - self
+                    .0
+                    .iter()
+                    .rev()
+                    .position(|b| *b != last)
+                    .unwrap_or(self.0.len())
+        } else {
+            self.0.len()
+        };
+        if t < self.0.len() - 3 {
+            for byte in &self.0[..=t] {
+                write!(f, "{byte:02x}")?;
+            }
+            write!(f, "...")?;
+        } else {
+            for byte in &self.0 {
+                write!(f, "{byte:02x}")?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// A sequential number for an entry in a log (see [`LogEntry`]).
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct LogIndex(pub u64);
@@ -370,6 +400,12 @@ pub struct OwnedRange {
 impl fmt::Debug for OwnedRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{:?}-{:?}]", &self.start, &self.end)
+    }
+}
+
+impl fmt::Display for OwnedRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}-{}]", &self.start, &self.end)
     }
 }
 
@@ -1966,6 +2002,7 @@ pub struct GuessState {
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
     use core::mem::size_of;
     use subtle::ConstantTimeEq;
 
@@ -2023,6 +2060,33 @@ mod tests {
     }
 
     #[test]
+    fn record_id_display() {
+        assert_eq!("0x00...", format!("{}", RecordId::min_id()));
+        assert_eq!("0xff...", format!("{}", RecordId::max_id()));
+        assert_eq!(
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            format!("{}", RecordId([0xAA; 32]))
+        );
+        let mut r = RecordId::min_id();
+        r.0[0] = 0x55;
+        r.0[1] = 0x33;
+        r.0[2] = 0x22;
+        assert_eq!("0x55332200...", format!("{}", r));
+        r = RecordId::min_id();
+        r.0[29] = 0xAA;
+        assert_eq!(
+            "0x0000000000000000000000000000000000000000000000000000000000aa0000",
+            format!("{}", r)
+        );
+        r = RecordId::min_id();
+        r.0[27] = 0xAA;
+        assert_eq!(
+            "0x000000000000000000000000000000000000000000000000000000aa00...",
+            format!("{}", r)
+        );
+    }
+
+    #[test]
     fn data_hash_marshalling() {
         let h = DataHash::from_slice(&[200u8; 32]).unwrap();
         let m = marshalling::to_vec(&h).unwrap();
@@ -2050,6 +2114,12 @@ mod tests {
         assert!(bool::from(z.ct_eq(&z)));
         let notz = CtBytes([42; 8]);
         assert!(!bool::from(z.ct_eq(&notz)));
+    }
+
+    #[test]
+    fn owned_range_display() {
+        assert_eq!("[0x00...-0xff...]", format!("{}", OwnedRange::full()));
+        assert_eq!("[0x0100...-0x01ff...]", format!("{}", &mkrange(1, 1)));
     }
 
     #[test]
