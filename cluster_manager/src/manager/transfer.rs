@@ -12,7 +12,7 @@ use cluster_core::{
     discover_hsm_statuses, find_leader, perform_transfer, range_owners, wait_for_management_grant,
     HsmStatuses, WaitForGrantError,
 };
-use hsm_api::{GroupId, LeaderStatus, OwnedRange, Transferring, TransferringIn, TransferringOut};
+use hsm_api::{GroupId, OwnedRange, Transferring, TransferringIn, TransferringOut};
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
 use service_core::rpc::HandlerError;
@@ -103,48 +103,42 @@ impl Manager {
 
         // A list of groups with Prepared Transfers. The groupId is the
         // destination group.
-        type TransferringIns = Vec<Option<(GroupId, TransferringIn)>>;
-        // A list of groups that have uncompleted TransferOuts. The groupId is
-        // the source group.
-        type TransferringOuts = Vec<Option<(GroupId, TransferringOut)>>;
+        let mut transfer_ins: Vec<(GroupId, TransferringIn)> = Vec::new();
+        // Groups that have uncompleted TransferOuts. The groupId is the source
+        // group.
+        let mut transfer_outs: HashMap<GroupId, TransferringOut> = HashMap::new();
+        for (sr, _) in hsms_status.values() {
+            if let Some(rs) = sr.realm.as_ref() {
+                if rs.id == realm {
+                    for gs in rs.groups.iter() {
+                        if let Some(ls) = gs.leader.as_ref() {
+                            match ls.transferring.as_ref() {
+                                Some(Transferring::In(tin)) if ls.committed >= Some(tin.at) => {
+                                    transfer_ins.push((gs.id, tin.clone()));
+                                }
+                                Some(Transferring::Out(tout)) if ls.committed >= Some(tout.at) => {
+                                    transfer_outs.insert(gs.id, tout.clone());
+                                }
+                                Some(_) | None => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-        let (transfer_ins, transfer_outs): (TransferringIns, TransferringOuts) = hsms_status
-            .clone()
-            .into_values()
-            .filter_map(|(s, _)| s.realm)
-            .filter(|rs| rs.id == realm)
-            .flat_map(|rs| {
-                rs.groups.into_iter().filter_map(|gs| match gs.leader {
-                    Some(LeaderStatus {
-                        committed,
-                        transferring: Some(Transferring::Out(tout)),
-                        ..
-                    }) if committed >= Some(tout.at) => Some((None, Some((gs.id, tout)))),
-
-                    Some(LeaderStatus {
-                        committed,
-                        transferring: Some(Transferring::In(tin)),
-                        ..
-                    }) if committed >= Some(tin.at) => Some((Some((gs.id, tin)), None)),
-                    Some(_) | None => None,
-                })
-            })
-            .unzip();
-
-        let mut transfer_outs: HashMap<GroupId, TransferringOut> =
-            transfer_outs.into_iter().flatten().collect();
-
-        for (destination, t_in) in transfer_ins.iter().flatten() {
+        for (destination, t_in) in transfer_ins {
             let source = t_in.source;
             // ensure the status's we're looking at include both the source & destination leaders.
-            if find_leader(&hsms_status, realm, *destination).is_none()
+            if find_leader(&hsms_status, realm, destination).is_none()
                 || find_leader(&hsms_status, realm, source).is_none()
             {
                 warn!(
                     ?realm,
                     ?source,
                     ?destination,
-                    "skipping resolving pending transfer due to missing leader(s)"
+                    range=?t_in.range,
+                    "skipping resolving pending transfer due to missing leader(s), will retry later"
                 );
                 continue;
             }
@@ -159,7 +153,7 @@ impl Manager {
                 TransferRequest {
                     realm,
                     source,
-                    destination: *destination,
+                    destination,
                     range: t_in.range.clone(),
                 },
             )
@@ -170,6 +164,7 @@ impl Manager {
                     ?realm,
                     ?source,
                     ?destination,
+                    range = ?t_in.range,
                     "transfer failed while attempting to complete existing partial transfer"
                 );
             }
@@ -188,6 +183,7 @@ impl Manager {
                     ?realm,
                     ?source,
                     ?destination,
+                    range=?t_out.partition.range,
                     "skipping resolving pending transfer due to missing leader(s)"
                 );
                 continue;
