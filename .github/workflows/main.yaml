@@ -343,7 +343,7 @@ jobs:
 
   entrust:
     name: Build Entrust
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest-m
     timeout-minutes: 20
     steps:
     - name: Check out sources
