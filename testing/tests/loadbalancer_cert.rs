@@ -55,7 +55,7 @@ async fn sighup_reloads_cert() {
     assert_eq!(server_certs, server_certs2);
 
     // Generate a new key/certificate
-    let new_certificates = create_localhost_key_and_cert("../target".into())
+    let new_certificates = create_localhost_key_and_cert("../target".into(), true)
         .expect("Failed to create TLS key/cert for load balancer");
 
     // SIGHUP the lb to get it to re-load the key/cert

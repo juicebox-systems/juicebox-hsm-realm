@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 use testing::background::BackgroundClientRequests;
-use tokio::sync::Semaphore;
 use tokio::time::sleep;
 use tracing::info;
 
@@ -19,12 +18,6 @@ use testing::exec::PortIssuer;
 
 // rust runs the tests in parallel, so we need each test to get its own port.
 static PORT: Lazy<PortIssuer> = Lazy::new(|| PortIssuer::new(8333));
-
-// Only one cluster can be started at a time because the load balancer certs
-// are written out to a common filesystem path.
-//
-// TODO: fix that and remove this.
-static INIT_SEMAPHORE: Lazy<Semaphore> = Lazy::new(|| Semaphore::new(1));
 
 fn cluster_args() -> ClusterConfig {
     ClusterConfig {
@@ -50,8 +43,6 @@ async fn test_compaction_pause_witness() {
 
     let mut processes = ProcessGroup::new();
 
-    let init_permit = INIT_SEMAPHORE.acquire().await.unwrap();
-
     let cluster = create_cluster(cluster_args(), &mut processes, PORT.clone())
         .await
         .unwrap();
@@ -64,8 +55,6 @@ async fn test_compaction_pause_witness() {
     background_work
         .wait_for_progress(3, Duration::from_secs(5))
         .await;
-
-    drop(init_permit);
 
     signal_agent(&agents[1], Signal::Stop);
 
@@ -96,8 +85,6 @@ async fn test_compaction_pause_witness() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_compaction_pause_leader() {
-    let init_permit = INIT_SEMAPHORE.acquire().await.unwrap();
-
     let mut processes = ProcessGroup::new();
     let cluster = create_cluster(cluster_args(), &mut processes, PORT.clone())
         .await
@@ -119,7 +106,6 @@ async fn test_compaction_pause_leader() {
     };
 
     make_request().await.unwrap();
-    drop(init_permit);
 
     signal_agent(&agents[0], Signal::Stop);
 
