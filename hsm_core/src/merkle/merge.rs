@@ -33,7 +33,7 @@ impl<H: NodeHasher> Tree<H> {
             None => return Err(MergeError::NotAdjacentRanges),
             Some(p) => p,
         };
-        info!("merging trees {:?} and {:?}", mine.range, other.range);
+        info!("merging trees {} and {}", mine.range, other.range);
 
         let (left, right) = if mine.range.start < other.range.start {
             (&mine.path, &other.path)
@@ -149,7 +149,7 @@ impl<H: NodeHasher> Tree<H> {
                 hash
             }
         };
-        info!(?root_hash, ?new_range, "merged trees");
+        info!(?root_hash, %new_range, "merged trees");
         Ok(MergeResult {
             range: new_range,
             root_hash,

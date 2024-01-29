@@ -23,7 +23,8 @@ impl Manager {
         &self,
         req: cluster_api::TransferRequest,
     ) -> Result<Result<TransferSuccess, TransferError>, HandlerError> {
-        info!(?req, "starting ownership transfer");
+        info!(realm=?req.realm, source=?req.source, destination=?req.destination, range=%req.range,
+            "starting ownership transfer");
 
         // As the management grants are dropped async, you can end up where
         // doing a transfer followed by another one will fail because the grant
@@ -137,14 +138,14 @@ impl Manager {
                     ?realm,
                     ?source,
                     ?destination,
-                    range=?t_in.range,
+                    range=%t_in.range,
                     "skipping resolving pending transfer due to missing leader(s), will retry later"
                 );
                 continue;
             }
             // re-run the transfer to get it to completion.
             transfer_outs.remove(&source);
-            info!(?realm, ?source, ?destination, range=?t_in.range, "found PreparedTransfer, re-running transfer");
+            info!(?realm, ?source, ?destination, range=%t_in.range, "found PreparedTransfer, re-running transfer");
             if let Err(err) = cluster_core::perform_transfer(
                 &self.0.store,
                 &self.0.agents,
@@ -183,14 +184,14 @@ impl Manager {
                     ?realm,
                     ?source,
                     ?destination,
-                    range=?t_out.partition.range,
+                    range=%t_out.partition.range,
                     "skipping resolving pending transfer due to missing leader(s)"
                 );
                 continue;
             }
             match range_owners(&hsms_status, realm, &t_out.partition.range) {
                 None => {
-                    warn!(?realm, source=?source, ?destination, range=?t_out.partition.range,
+                    warn!(?realm, source=?source, ?destination, range=%t_out.partition.range,
                         "found TransferOut with no matching PreparedTransfer. range is not fully owned! doing nothing. Will retry later");
                     continue;
                 }
@@ -206,11 +207,11 @@ impl Manager {
                         .all(|r| matches!(r, Ok(GroupOwnsRangeResponse::Ok)))
                     {
                         // confirm_range_owner logged all the individual results.
-                        warn!(?realm, ?source, ?destination, range=?t_out.partition.range,
+                        warn!(?realm, ?source, ?destination, range=%t_out.partition.range,
                             "failed to verify range ownership, doing nothing. Will retry later");
                         continue;
                     }
-                    info!(?realm, ?source, ?destination, range=?t_out.partition.range,
+                    info!(?realm, ?source, ?destination, range=%t_out.partition.range,
                         "found TransferOut with no matching PreparedTransfer. Transferred range is fully owned. Marking it complete");
                     if let Err(err) = self
                         .complete_transfer(
@@ -223,7 +224,7 @@ impl Manager {
                         .await
                     {
                         warn!(
-                            ?err, ?realm, ?source, ?destination, range=?t_out.partition.range,
+                            ?err, ?realm, ?source, ?destination, range=%t_out.partition.range,
                             "failed to complete transfer for existing partial transfer"
                         );
                     }
@@ -256,16 +257,16 @@ impl Manager {
         .await;
         match &result {
             Err(err) => {
-                warn!(%err, ?realm, ?group, ?range, "RPC error while trying to confirm range ownership");
+                warn!(%err, ?realm, ?group, %range, "RPC error while trying to confirm range ownership");
             }
             Ok(resp) => {
                 if matches!(resp, GroupOwnsRangeResponse::Ok) {
-                    info!(?realm, ?group, ?range, %leader, "has confirmed ownership of range");
+                    info!(?realm, ?group, %range, %leader, "has confirmed ownership of range");
                 } else {
                     warn!(
                         ?realm,
                         ?group,
-                        ?range,
+                        %range,
                         %leader,
                         ?resp,
                         "did not confirm ownership of range"
