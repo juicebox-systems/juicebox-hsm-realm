@@ -1596,8 +1596,7 @@ fn finish_handshake(hs: Handshake, resp: &NoiseResponse) -> SecretsResponse {
         let app_res = hs.finish(result).unwrap();
         let padded_secrets_response: PaddedSecretsResponse =
             marshalling::from_slice(&app_res.1).unwrap();
-        let secrets_response = SecretsResponse::try_from(&padded_secrets_response).unwrap();
-        secrets_response
+        SecretsResponse::try_from(&padded_secrets_response).unwrap()
     } else {
         panic!("expected a NoiseResponse::Handshake but got {:?}", resp);
     }

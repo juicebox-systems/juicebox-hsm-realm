@@ -15,8 +15,8 @@ use juicebox_networking::rpc::{self, RpcError};
 use juicebox_noise::client::Handshake;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::requests::{
-    ClientRequestKind, NoiseRequest, NoiseResponse, Register1Response, SecretsRequest,
-    SecretsResponse,
+    ClientRequestKind, NoiseRequest, NoiseResponse, PaddedSecretsResponse, Register1Response,
+    SecretsRequest, SecretsResponse,
 };
 use juicebox_realm_api::types::SessionId;
 use juicebox_sdk::Policy;
@@ -182,8 +182,10 @@ async fn make_app_request_to_agents(
                 handshake: result, ..
             })) => {
                 let app_res = handshake.finish(&result).unwrap();
-                let secret_response: SecretsResponse = marshalling::from_slice(&app_res.1).unwrap();
-                Ok(secret_response)
+                let padded_secrets_response: PaddedSecretsResponse =
+                    marshalling::from_slice(&app_res.1).unwrap();
+                let secrets_response = SecretsResponse::try_from(&padded_secrets_response).unwrap();
+                Ok(secrets_response)
             }
             Ok(other_response) => Err(AgentAppRequestError::NotOk(other_response)),
             Err(err) => Err(AgentAppRequestError::Rpc(err)),
