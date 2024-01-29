@@ -1,0 +1,46 @@
+sequenceDiagram
+    participant SH as Source HSM
+    participant S as Source Agent
+    participant ST as Store
+    participant C as Cluster CLI
+    participant D as Destination
+    participant DH as Destination HSM
+    C->>+S: TransferOut (Source, Destination, Range)
+    S->>+ST: ReadLastLogEntry
+    ST-->>-S: Ok (LogEntry)
+    S->>+ST: ReadProof
+    ST-->>-S: Ok (Proof)
+    S->>+SH: TransferOut (Source, Destination, Range, Proof)
+    rect rgb(223, 223, 223)
+    note left of DH: Partition now unavailable until TransferIn completes
+    SH-->>-S: Ok (LogEntry, Delta)
+    S-->>S: Add To Append Queue (LogEntry, Delta)
+    note left of S: Once this log entry commits the transfer cannot be undone.
+    S-->>-C: Ok (Partition)
+    C->>+D: TransferNonce (Destination)
+    D->>+DH: TransferNonce (Destination)
+    DH-->>-D: (Nonce)
+    note left of DH: The nonce is used to ensure<br>that the transferIn/Statement is current.
+    D-->>-C: (Nonce)
+    C->>+S: TransferStatement (Source, Destination, Nonce)
+    S->>+SH: TransferStatement (Source, Destination, Nonce)
+    note right of SH: Check TransferOut Log Entry Committed
+    SH-->>-S: Ok (Statement)
+    S-->>-C: Ok (Statement)
+    C->>+D:TransferIn (Source, Destination, Range, Statement)
+    D->>+ST: ReadLastLogEntry
+    ST-->>-D: Ok (LogEntry)
+    D->>+ST: ReadProofs
+    ST-->>-D: Ok (Proofs)
+    D->>+DH: TransferIn (Destination, Partition, Nonce, Statement, Proofs)
+    end
+    DH-->>-D: Ok (LogEntry, Delta)
+    D-->>D: Add To Append Queue (LogEntry, Delta)
+    D-->>-C: Ok (LogIndex)
+    C->>+S: CompleteTransfer (Source, Destination, Range)
+    S->>+SH: CompleteTransfer (Source, Destination, Range)
+    SH-->>-S: Ok (LogEntry, Delta)
+    S-->>S: Add To Append Queue (LogEntry, Delta)
+    S-->>-C: Ok (LogIndex)
+    C->>C: Wait for Source LogIndex to appear in log
+    C->>C: Wait for Destination LogIndex to appear in log
