@@ -54,7 +54,10 @@ use hsm_api::{
 use juicebox_marshalling::{self as marshalling, bytes, DeserializationError};
 use juicebox_noise::server as noise;
 use juicebox_realm_api::{
-    requests::{NoiseRequest, NoiseResponse, SecretsRequest, SecretsResponse, BODY_SIZE_LIMIT},
+    requests::{
+        NoiseRequest, NoiseResponse, PaddedSecretsResponse, SecretsRequest, SecretsResponse,
+        BODY_SIZE_LIMIT,
+    },
     types::{RealmId, SessionId},
 };
 
@@ -1727,14 +1730,13 @@ impl NoiseHelper {
     }
 
     fn encode(self, response: SecretsResponse, sessions: &mut SessionCache) -> NoiseResponse {
-        // TODO: The SecretsResponse should probably be padded so that the
-        // agent doesn't learn from its encrypted length whether the client was
-        // successful.
-
         // It might not be safe to back out at this point, since some Merkle
         // state has already been modified. Since we don't expect to see
         // encoding and encryption errors, it's probably OK to panic here.
-        let response = marshalling::to_vec(&response).expect("SecretsResponse serialization error");
+        let response = marshalling::to_vec(
+            &PaddedSecretsResponse::try_from(&response).expect("SecretsResponse padding error"),
+        )
+        .expect("SecretsResponse serialization error");
         let (response, transport) = match self.state {
             NoiseHelperState::Handshake(handshake) => {
                 let (transport, handshake_response) = handshake
