@@ -1,4 +1,3 @@
-use hsm_api::{Partition, PreparedTransferStatement, TransferNonce, TransferStatement};
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
 use url::Url;
@@ -9,33 +8,11 @@ use agent_api::{
     CompleteTransferResponse, PrepareTransferRequest, PrepareTransferResponse, TransferInRequest,
     TransferInResponse, TransferOutRequest, TransferOutResponse,
 };
-use cluster_api::TransferSuccess;
+pub use cluster_api::{TransferError, TransferRequest, TransferSuccess};
+use hsm_api::{Partition, PreparedTransferStatement, TransferNonce, TransferStatement};
 use juicebox_networking::{http, rpc};
 use retry_loop::{retry_logging, AttemptError, RetryError};
 use store::StoreClient;
-
-pub use cluster_api::{TransferError, TransferRequest};
-
-// This is a helper stub that calls the transfer API on the cluster manager.
-pub async fn transfer(
-    store: &StoreClient,
-    client: &impl http::Client,
-    transfer: TransferRequest,
-) -> Result<(), TransferError> {
-    let cluster_managers = store
-        .get_addresses(Some(store::ServiceKind::ClusterManager))
-        .await
-        .map_err(|_| TransferError::NoStore)?;
-
-    if cluster_managers.is_empty() {
-        return Err(TransferError::NoSourceLeader);
-    }
-
-    rpc::send(client, &cluster_managers[0].0, transfer)
-        .await
-        .map_err(TransferError::RpcError)?
-        .map(|_| ())
-}
 
 /// To simplify testing, callers to [`perform_transfer`] can indicate different
 /// ways to leave the transfer in a partial state, simulating a coordinator

@@ -23,7 +23,7 @@ pub mod workload;
 
 pub use leader::{discover_hsm_ids, find_leaders};
 pub use realm::{join_realm, new_group, new_realm, JoinRealmError, NewGroupError, NewRealmError};
-pub use transfer::{perform_transfer, transfer, TransferChaos, TransferError, TransferRequest};
+pub use transfer::{perform_transfer, TransferChaos, TransferError, TransferRequest};
 
 const LEASE_DURATION: Duration = Duration::from_secs(3);
 
