@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use futures::future::try_join_all;
+use juicebox_networking::rpc;
 use reqwest::Url;
 use std::cmp::min;
 use std::collections::HashSet;
@@ -9,7 +10,7 @@ use hsm_api::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
 use juicebox_marshalling::to_be4;
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
-use store::StoreClient;
+use store::{ServiceKind, StoreClient};
 
 use crate::get_hsm_statuses;
 
@@ -18,8 +19,22 @@ pub async fn assimilate(
     group_size: usize,
     agents_client: &Client,
     store: &StoreClient,
+    cluster_url: &Option<Url>,
 ) -> anyhow::Result<()> {
     assert_ne!(group_size, 0);
+
+    let cluster_url = match cluster_url {
+        Some(url) => url.clone(),
+        None => {
+            let managers: Vec<(Url, _)> = store
+                .get_addresses(Some(ServiceKind::ClusterManager))
+                .await?;
+            if managers.is_empty() {
+                return Err(anyhow!("No cluster managers in service discovery, and no explicit cluster manager URL set."));
+            }
+            managers[0].0.clone()
+        }
+    };
 
     let get_checked_hsm_statuses = || async {
         let hsm_statuses = get_hsm_statuses(agents_client, store).await?;
@@ -136,10 +151,9 @@ pub async fn assimilate(
                     transfer = format_owned_range(&transfer)
                 );
 
-                // TODO: should use cluster manager.
-                cluster_core::transfer(
-                    store,
+                rpc::send(
                     agents_client,
+                    &cluster_url,
                     TransferRequest {
                         realm,
                         source: old_group,
@@ -147,7 +161,7 @@ pub async fn assimilate(
                         range: transfer,
                     },
                 )
-                .await?;
+                .await??;
             }
 
             if end == &new_range.end {

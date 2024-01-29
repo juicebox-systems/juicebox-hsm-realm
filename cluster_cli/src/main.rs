@@ -258,6 +258,11 @@ enum ExperimentalCommand {
     /// tool for development and testing purposes for scenarios it does
     /// support.
     Assimilate {
+        /// URL to a cluster manager, which will execute the transfer requests.
+        /// By default it will find a cluster manager using service discovery.
+        #[arg(short, long)]
+        cluster: Option<Url>,
+
         /// The target number of HSMs per group (and also the number of groups
         /// each HSM is a member of).
         ///
@@ -373,8 +378,19 @@ async fn run(args: Args) -> anyhow::Result<()> {
         }
 
         Command::Experimental { command } => match command {
-            ExperimentalCommand::Assimilate { realm, group_size } => {
-                commands::assimilate::assimilate(realm, group_size, &agents_client, &store).await
+            ExperimentalCommand::Assimilate {
+                cluster,
+                realm,
+                group_size,
+            } => {
+                commands::assimilate::assimilate(
+                    realm,
+                    group_size,
+                    &agents_client,
+                    &store,
+                    &cluster,
+                )
+                .await
             }
         },
 
