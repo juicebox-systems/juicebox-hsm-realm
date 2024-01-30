@@ -304,7 +304,7 @@ Print information about a Bigtable table
 Usage: cluster table-stats <TABLE> <REALM>
 
 Arguments:
-  <TABLE>  Only the "log" table is currently supported [possible values: log]
+  <TABLE>  Only the "log" and "merkle" tables are currently supported [possible values: log, merkle]
   <REALM>  Realm ID
 
 Options:

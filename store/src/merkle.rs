@@ -57,7 +57,7 @@ impl Cache {
     }
 }
 
-pub(crate) fn merkle_table(instance: &Instance, realm: &RealmId) -> String {
+pub fn merkle_table(instance: &Instance, realm: &RealmId) -> String {
     let mut buf = String::new();
     write!(
         buf,
