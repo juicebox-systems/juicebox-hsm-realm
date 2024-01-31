@@ -5,8 +5,8 @@ use std::time::{Duration, SystemTime};
 
 use agent_api::merkle::TreeStoreReader;
 use bitvec::BitVec;
-use hsm_api::merkle::{NodeKey, StoreDelta};
-use hsm_api::{EntryMac, GroupId, HsmId, LogEntry, LogIndex, OwnedRange, RecordId};
+use hsm_api::merkle::{Branch, DeltaBuilder, InteriorNode, Node, NodeKey, StoreDelta};
+use hsm_api::{DataHash, EntryMac, GroupId, HsmId, LogEntry, LogIndex, OwnedRange, RecordId};
 use hsm_core::hsm::MerkleHasher;
 use hsm_core::merkle::Tree;
 use juicebox_process_group::ProcessGroup;
@@ -968,6 +968,112 @@ async fn test_append_store_delta() {
     )
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn test_storedelta_delete_add() {
+    // During transfer or other tree operations where leaves don't change a node
+    // can end up having the same hash as it had earlier. e.g. If a transfer
+    // splits the source tree, and then its transferred back before any other
+    // tree changes then after the merge there will be nodes that existed prior
+    // to the split and were deleted. The deferred delete can then cause issues
+    // where the delay causes a [add a,delete b, add b, delete a] sequence to
+    // end up executed as [add a, add b, delete b, delete a]. And now a's gone.
+    // This test checks that the store handles this in a way that doesn't lead
+    // to a going away for ever.
+    use bitvec::bitvec;
+
+    let mut pg = ProcessGroup::new();
+    let (_, data) = init_bt(&mut pg, emulator(PORT.next())).await;
+    let entries = create_log_batch(LogIndex::FIRST, EntryMac::from([0; 32]), 10);
+    let (_, delta) = Tree::<MerkleHasher>::new_tree(&OwnedRange::full());
+
+    data.append(&REALM, &GROUP_3, &entries[0..4], delta)
+        .await
+        .unwrap();
+
+    let node_a = Node::Interior(InteriorNode::new(
+        Some(Branch::new(bitvec![0], DataHash([45; 32]))),
+        None,
+    ));
+    let node_b = Node::Interior(InteriorNode::new(
+        Some(Branch::new(bitvec![0], DataHash([42; 32]))),
+        None,
+    ));
+    let key_a = NodeKey::new(bitvec![0, 1], DataHash([12; 32]));
+    let key_b = NodeKey::new(bitvec![0, 1], DataHash([13; 32]));
+
+    // add 'a'
+    let mut d = DeltaBuilder::<DataHash>::new();
+    d.add(key_a.clone(), node_a.clone());
+    let (_, rx) = tokio::sync::oneshot::channel::<()>();
+    data.append_inner(&REALM, &GROUP_3, &entries[4..5], d.build(), rx)
+        .await
+        .unwrap();
+
+    // add 'b', delete 'a'
+    let mut d = DeltaBuilder::<DataHash>::new();
+    d.add(key_b.clone(), node_b.clone());
+    d.remove(key_a.clone());
+    let (tx_delete_a, rx_delete_a) = tokio::sync::oneshot::channel::<()>();
+    let (_, delete_a_handle) = data
+        .append_inner(&REALM, &GROUP_3, &entries[5..6], d.build(), rx_delete_a)
+        .await
+        .unwrap();
+
+    // add 'a', delete 'b'
+    let mut d = DeltaBuilder::<DataHash>::new();
+    d.add(key_a.clone(), node_a.clone());
+    d.remove(key_b.clone());
+    let (tx_delete_b, rx_delete_b) = tokio::sync::oneshot::channel::<()>();
+    let (_, delete_b_handle) = data
+        .append_inner(&REALM, &GROUP_3, &entries[6..7], d.build(), rx_delete_b)
+        .await
+        .unwrap();
+
+    // None of the deletes have actually happened yet, so we should be able to read 'a' & 'b'
+    assert_eq!(
+        node_a,
+        data.read_node(&REALM, key_a.clone(), metrics::NO_TAGS)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        node_b,
+        data.read_node(&REALM, key_b.clone(), metrics::NO_TAGS)
+            .await
+            .unwrap()
+    );
+    // let delete 'a' run
+    tx_delete_a.send(()).unwrap();
+    delete_a_handle.unwrap().await.unwrap();
+    // we should be able to still read 'a' because there was a 2nd write of it.
+    assert_eq!(
+        node_a,
+        data.read_node(&REALM, key_a.clone(), metrics::NO_TAGS)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        node_b,
+        data.read_node(&REALM, key_b.clone(), metrics::NO_TAGS)
+            .await
+            .unwrap()
+    );
+    // let delete 'b' run
+    tx_delete_b.send(()).unwrap();
+    delete_b_handle.unwrap().await.unwrap();
+    // there was only one write of b, so it should be gone.
+    data.read_node(&REALM, key_b, metrics::NO_TAGS)
+        .await
+        .expect_err("should have failed to find node");
+    // can still read 'a'
+    assert_eq!(
+        node_a,
+        data.read_node(&REALM, key_a, metrics::NO_TAGS)
+            .await
+            .unwrap()
+    );
 }
 
 fn create_log_batch(first_idx: LogIndex, prev_mac: EntryMac, count: usize) -> Vec<LogEntry> {
