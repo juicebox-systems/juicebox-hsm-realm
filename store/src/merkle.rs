@@ -1,15 +1,20 @@
 use google::bigtable::admin::v2::table::TimestampGranularity;
 use google::bigtable::admin::v2::{ColumnFamily, CreateTableRequest, GcRule, Table};
+use google::bigtable::v2::row_filter::Chain;
 use google::bigtable::v2::row_range::{EndKey::EndKeyOpen, StartKey::StartKeyClosed};
 use google::bigtable::v2::{
     mutate_rows_request, mutation, read_rows_request, row_filter, MutateRowsRequest, Mutation,
     ReadRowsRequest, RowFilter, RowRange, RowSet,
 };
+use rand_core::OsRng;
+use rand_core::RngCore;
 use std::collections::{hash_map, BTreeMap, BTreeSet, HashMap};
-use std::fmt::Write;
+use std::fmt::{Debug, Write};
+use std::iter;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tracing::{instrument, trace, Span};
+use tracing::{instrument, trace, warn, Span};
 
 use super::{base128, StoreClient};
 use agent_api::merkle::{TreeStoreError, TreeStoreReader};
@@ -45,7 +50,8 @@ impl lru_cache::Clock for MonotonicClock {
 type CacheStats = lru_cache::Stats<Instant>;
 
 /// Non-threadsafe Merkle node cache.
-type NodeCache = lru_cache::Cache<StoreKey, Vec<u8>, MonotonicClock, hash_map::RandomState>;
+type NodeCache =
+    lru_cache::Cache<StoreKey, NodeWithInstanceId, MonotonicClock, hash_map::RandomState>;
 
 /// Sharable and cheaply cloneable Merkle node cache.
 #[derive(Clone)]
@@ -124,17 +130,31 @@ impl StoreClient {
             return Ok(());
         }
 
+        let items: Vec<(StoreKey, NodeWithInstanceId)> =
+            iter::zip(add, self.0.merkle_ids.chunk(add.len()))
+                .map(|((key, value), instance_id)| {
+                    (
+                        StoreKey::from(key),
+                        NodeWithInstanceId {
+                            node: marshalling::to_vec(value).expect("TODO"),
+                            instance_id,
+                        },
+                    )
+                })
+                .collect();
+        assert_eq!(items.len(), add.len());
+
         let run = |_| async {
-            let entries = add
+            let entries = items
                 .iter()
                 .map(|(key, value)| mutate_rows_request::Entry {
-                    row_key: StoreKey::from(key).into_bytes(),
+                    row_key: key.0.clone(),
                     mutations: vec![Mutation {
                         mutation: Some(mutation::Mutation::SetCell(mutation::SetCell {
                             family_name: String::from("f"),
-                            column_qualifier: b"n".to_vec(),
+                            column_qualifier: value.instance_id.0.clone(),
                             timestamp_micros: -1,
-                            value: marshalling::to_vec(value).expect("TODO"),
+                            value: value.node.clone(),
                         })),
                     }],
                 })
@@ -162,11 +182,8 @@ impl StoreClient {
 
         let cache_stats = {
             let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
-            for (key, value) in add {
-                locked_cache.insert(
-                    StoreKey::from(key),
-                    marshalling::to_vec(&value).expect("TODO"),
-                )
+            for (key, value) in items {
+                locked_cache.insert(key, value)
             }
             locked_cache.stats()
         };
@@ -180,43 +197,150 @@ impl StoreClient {
         realm: &RealmId,
         group: &GroupId,
         remove: &BTreeSet<NodeKey<DataHash>>,
-    ) -> Result<(), MutateRowsError> {
+    ) -> Result<(), RetryError<MutateRowsError>> {
         if remove.is_empty() {
             return Ok(());
         }
 
+        let tags = [tag!(?realm), tag!(?group)];
         let start = Instant::now();
+        let mut to_fetch: HashMap<&StoreKey, &mut Option<InstanceId>> = HashMap::new();
+        let mut nodes_to_delete: Vec<(&NodeKey<DataHash>, StoreKey, Option<InstanceId>)> = remove
+            .iter()
+            .map(|nk| (nk, StoreKey::from(nk), None))
+            .collect();
 
-        let mut bigtable = self.0.bigtable.clone();
-        let result = mutate_rows(
-            &mut bigtable,
-            MutateRowsRequest {
-                table_name: merkle_table(&self.0.instance, realm),
-                app_profile_id: String::new(),
-                entries: remove
-                    .iter()
-                    .map(|k| mutate_rows_request::Entry {
-                        row_key: StoreKey::from(k).into_bytes(),
-                        mutations: vec![Mutation {
-                            mutation: Some(mutation::Mutation::DeleteFromRow(
-                                mutation::DeleteFromRow {},
-                            )),
-                        }],
-                    })
-                    .collect(),
-            },
-        )
-        .await;
+        {
+            // Grab the instance ids from the cache for the nodes we're going to delete.
+            let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
+            for (nk, sk, id) in nodes_to_delete.iter_mut() {
+                match locked_cache.get(sk) {
+                    Some(cached) => *id = Some(cached.instance_id.clone()),
+                    None => {
+                        // During transfer_in a HSM will learn about a root hash
+                        // that its agent didn't read, and so it won't be in the
+                        // cache. Otherwise as long as the agent's cache is
+                        // larger than the HSM tree overlay, it should find
+                        // everything in the cache.
+                        warn!(
+                            ?nk,
+                            ?realm,
+                            ?group,
+                            "merkle node not in cache, will read version from bigtable"
+                        );
+                        to_fetch.insert(sk, id);
+                    }
+                }
+            }
+        }
+        self.0.metrics.distribution(
+            "store_client.remove_merkle_nodes.versions_to_read",
+            to_fetch.len(),
+            &tags,
+        );
+
+        if !to_fetch.is_empty() {
+            // Read any missing instance ids from bigtable
+            let rows = Reader::read_rows(
+                &mut self.0.bigtable.clone(),
+                Retry::new("read merkle nodes instance_ids to delete")
+                    .with(bigtable_retries)
+                    .with_metrics(
+                        &self.0.metrics,
+                        "store_client.remove_merkle_nodes.read_versions",
+                        &tags,
+                    ),
+                ReadRowsRequest {
+                    table_name: merkle_table(&self.0.instance, realm),
+                    app_profile_id: String::new(),
+                    rows: Some(RowSet {
+                        row_keys: to_fetch.keys().map(|sk| sk.0.clone()).collect(),
+                        row_ranges: Vec::new(),
+                    }),
+                    filter: Some(RowFilter {
+                        filter: Some(row_filter::Filter::Chain(Chain {
+                            filters: vec![
+                                row_filter::Filter::CellsPerRowLimitFilter(1),
+                                row_filter::Filter::StripValueTransformer(true),
+                            ]
+                            .into_iter()
+                            .map(|f| RowFilter { filter: Some(f) })
+                            .collect(),
+                        })),
+                    }),
+                    rows_limit: 0,
+                    request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone
+                        .into(),
+                    reversed: false,
+                },
+            )
+            .await
+            .map_err(|err| err.map_err(MutateRowsError::Tonic))?;
+
+            // Extract the instance ids from the returned rows, and update the nodes_to_delete with it.
+            for (row_key, cells) in rows {
+                let sk = StoreKey::from(row_key.0);
+                let id = cells
+                    .into_iter()
+                    .find(|cell| cell.family == "f")
+                    .map(|cell| InstanceId(cell.qualifier))
+                    .expect("every Merkle row should contain at least one node cell");
+                let v = to_fetch
+                    .get_mut(&sk)
+                    .expect("shouldn't get rows we didn't ask for");
+                **v = Some(id);
+            }
+        }
+
+        let run_delete = |_| {
+            let mut bigtable = self.0.bigtable.clone();
+            let rows = nodes_to_delete.clone();
+            async move {
+                mutate_rows(
+                    &mut bigtable,
+                    MutateRowsRequest {
+                        table_name: merkle_table(&self.0.instance, realm),
+                        app_profile_id: String::new(),
+                        entries: rows
+                            .into_iter()
+                            .map(|(_, sk, v)| mutate_rows_request::Entry {
+                                row_key: sk.into_bytes(),
+                                mutations: vec![Mutation {
+                                    mutation: Some(mutation::Mutation::DeleteFromColumn(
+                                        mutation::DeleteFromColumn {
+                                            family_name: String::from("f"),
+                                            column_qualifier: v.unwrap().0.clone(),
+                                            time_range: None,
+                                        },
+                                    )),
+                                }],
+                            })
+                            .collect(),
+                    },
+                )
+                .await?;
+                Ok(())
+            }
+        };
+
+        let result = Retry::new("deleting merkle nodes")
+            .with(bigtable_retries)
+            .with_metrics(
+                &self.0.metrics,
+                "store_client.remove_merkle_nodes.delete",
+                &tags,
+            )
+            .retry(run_delete, retry_logging!())
+            .await;
 
         let cache_stats = {
             let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
-            for key in remove {
-                locked_cache.remove(&StoreKey::from(key));
+            for (_, key, _) in nodes_to_delete {
+                locked_cache.remove(&key);
             }
             locked_cache.stats()
         };
 
-        let tags = [tag!(?realm), tag!(?group)];
         report_cache_stats(&self.0.metrics, &tags, cache_stats);
         self.0.metrics.timing(
             "store_client.remove_merkle_nodes.time",
@@ -225,6 +349,42 @@ impl StoreClient {
         );
         result
     }
+}
+
+#[derive(Clone)]
+struct InstanceId(Vec<u8>);
+
+pub(super) struct InstanceIds {
+    rnd_term: [u8; 16],
+    seq: AtomicU64,
+}
+
+impl InstanceIds {
+    pub(super) fn new() -> InstanceIds {
+        let mut t = [0u8; 16];
+        OsRng.fill_bytes(&mut t);
+        Self {
+            rnd_term: t,
+            seq: AtomicU64::new(1),
+        }
+    }
+
+    fn chunk(&self, len: usize) -> impl Iterator<Item = InstanceId> + '_ {
+        assert!(len != 0);
+        let len = len.try_into().unwrap();
+        let base = self.seq.fetch_add(len, Ordering::Relaxed);
+        (0..len).map(move |i| {
+            let mut id = Vec::with_capacity(24);
+            id.extend_from_slice(&self.rnd_term);
+            id.extend_from_slice(&(base + i).to_be_bytes());
+            InstanceId(id)
+        })
+    }
+}
+
+struct NodeWithInstanceId {
+    node: Vec<u8>,
+    instance_id: InstanceId,
 }
 
 struct CachedPathLookupResult {
@@ -264,7 +424,7 @@ fn cached_path_lookup(
             }
 
             Some(value) => {
-                let node: Node<DataHash> = marshalling::from_slice(value).expect("TODO");
+                let node: Node<DataHash> = marshalling::from_slice(&value.node).expect("TODO");
 
                 if let Node::Interior(int) = &node {
                     if let Some(branch) = int.branch(Dir::from(full_key[key_pos])) {
@@ -353,7 +513,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
                         .collect(),
                 }),
                 filter: Some(RowFilter {
-                    filter: Some(row_filter::Filter::CellsPerColumnLimitFilter(1)),
+                    filter: Some(row_filter::Filter::CellsPerRowLimitFilter(1)),
                 }),
                 rows_limit: 0,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
@@ -364,16 +524,19 @@ impl TreeStoreReader<DataHash> for StoreClient {
         .map_err(|e| TreeStoreError::Network(e.to_string()))?;
 
         // Extract the serialized key-value pairs from the rows.
-        let read_values: Vec<(StoreKey, Vec<u8>)> = rows
+        let read_values: Vec<(StoreKey, NodeWithInstanceId)> = rows
             .into_iter()
             .map(|(row_key, cells)| {
                 (
                     StoreKey::from(row_key.0),
                     cells
                         .into_iter()
-                        .find(|cell| cell.family == "f" && cell.qualifier == b"n")
-                        .expect("every Merkle row should contain a node value")
-                        .value,
+                        .find(|cell| cell.family == "f")
+                        .map(|cell| NodeWithInstanceId {
+                            node: cell.value,
+                            instance_id: InstanceId(cell.qualifier),
+                        })
+                        .expect("every Merkle row should contain a node value"),
                 )
             })
             .collect();
@@ -398,7 +561,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
         let nodes: HashMap<DataHash, Node<DataHash>> = cached_nodes
             .chain(read_values.iter().map(|(key, value)| {
                 let (_, hash) = StoreKey::parse(key.as_slice()).expect("TODO");
-                let node: Node<DataHash> = marshalling::from_slice(value).expect("TODO");
+                let node: Node<DataHash> = marshalling::from_slice(&value.node).expect("TODO");
                 (hash, node)
             }))
             .collect();
@@ -433,7 +596,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
         {
             let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
             if let Some(value) = locked_cache.get(&store_key) {
-                let node: Node<DataHash> = marshalling::from_slice(value).expect("TODO");
+                let node: Node<DataHash> = marshalling::from_slice(&value.node).expect("TODO");
                 return Ok(node);
             }
         }
@@ -452,7 +615,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
                     row_ranges: Vec::new(),
                 }),
                 filter: Some(RowFilter {
-                    filter: Some(row_filter::Filter::CellsPerColumnLimitFilter(1)),
+                    filter: Some(row_filter::Filter::CellsPerRowLimitFilter(1)),
                 }),
                 rows_limit: 0,
                 request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
@@ -465,15 +628,20 @@ impl TreeStoreReader<DataHash> for StoreClient {
         match rows.into_iter().next().map(|(_key, cells)| {
             cells
                 .into_iter()
-                .find(|cell| cell.family == "f" && cell.qualifier == b"n")
+                .find(|cell| cell.family == "f")
                 .expect("every Merkle row should contain a node value")
         }) {
             Some(cell) => {
                 let node: Node<DataHash> = marshalling::from_slice(&cell.value).expect("TODO");
+                let to_cache = NodeWithInstanceId {
+                    node: cell.value,
+                    instance_id: InstanceId(cell.qualifier),
+                };
+
                 trace!(?realm, ?key, "read_node completed");
                 let cache_stats = {
                     let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
-                    locked_cache.insert(store_key, cell.value);
+                    locked_cache.insert(store_key, to_cache);
                     locked_cache.stats()
                 };
                 report_cache_stats(&self.0.metrics, tags, cache_stats);
@@ -506,7 +674,7 @@ fn report_cache_stats(metrics: &metrics::Client, tags: &[metrics::Tag], stats: C
 
 // The key value for a row in the key value store. Nodes are stored in the Store
 // using these keys.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StoreKey(Vec<u8>);
 
 impl<HO: HashOutput> From<NodeKey<HO>> for StoreKey {
@@ -518,6 +686,16 @@ impl<HO: HashOutput> From<NodeKey<HO>> for StoreKey {
 impl<HO: HashOutput> From<&NodeKey<HO>> for StoreKey {
     fn from(value: &NodeKey<HO>) -> Self {
         StoreKey::new(&value.prefix, &value.hash)
+    }
+}
+
+impl Debug for StoreKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0x")?;
+        for byte in &self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
     }
 }
 
