@@ -37,6 +37,7 @@ pub mod tenants;
 pub use bigtable::bigtable_retries as store_retries;
 use log::{LogRow, ReadLastLogEntryError, ReadLastLogEntryFatal};
 pub use merkle::merkle_table;
+use merkle::InstanceIds;
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct BigtableArgs {
@@ -229,6 +230,7 @@ struct StoreClientInner {
     last_write: Mutex<LastWriteCache>,
     metrics: metrics::Client,
     merkle_cache: merkle::Cache,
+    merkle_ids: InstanceIds,
     warmer: TablesReadWarmer,
 }
 
@@ -317,6 +319,7 @@ impl StoreClient {
             last_write: Mutex::new(HashMap::new()),
             metrics: options.metrics,
             merkle_cache: merkle::Cache::new(options.merkle_cache_nodes_limit.unwrap_or(1)),
+            merkle_ids: InstanceIds::new(),
             warmer,
         })))
     }
