@@ -6,11 +6,11 @@ use google::bigtable::v2::{
     mutate_rows_request, mutation, read_rows_request, row_filter, MutateRowsRequest, Mutation,
     ReadRowsRequest, RowFilter, RowRange, RowSet,
 };
-use rand_core::OsRng;
-use rand_core::RngCore;
+use rand_core::{OsRng, RngCore};
 use std::collections::{hash_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Debug, Write};
 use std::iter;
+use std::ops::DerefMut;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -382,50 +382,94 @@ impl InstanceIds {
     }
 }
 
+#[derive(Clone)]
 struct NodeWithInstanceId {
     node: Vec<u8>,
     instance_id: InstanceId,
 }
 
-struct CachedPathLookupResult {
-    /// Cached nodes read along the path.
+impl NodeWithInstanceId {
+    fn node(&self) -> Node<DataHash> {
+        marshalling::from_slice(&self.node).expect("TODO")
+    }
+}
+
+struct PathLookupResult {
+    /// Nodes read along the path.
     nodes: Vec<(NodeKey<DataHash>, Node<DataHash>)>,
-    /// - If None, the entire path was found in the cache. The returned `nodes`
-    /// either prove the existence of the record and contain the leaf record,
-    /// or they prove the non-existence of the record.
-    /// - If Some, a necessary node was not found in the cache. The record may
-    /// or may not exist in Bigtable.
+    /// - If None, the entire path was found. The returned `nodes` either prove
+    /// the existence of the record and contain the leaf record, or they prove
+    /// the non-existence of the record.
+    /// - If Some, a necessary node was not found.
     next: Option<NodeKey<DataHash>>,
 }
 
-/// Read from a given root towards a record in a Merkle node cache.
-fn cached_path_lookup(
+trait NodeLookup {
+    fn get(&mut self, k: &NodeKey<DataHash>) -> Option<Node<DataHash>>;
+}
+
+impl NodeLookup for NodeCache {
+    fn get(&mut self, k: &NodeKey<DataHash>) -> Option<Node<DataHash>> {
+        self.get(&StoreKey::from(k)).map(|v| v.node())
+    }
+}
+
+struct HashMapNodeLookup<'a> {
+    nodes: &'a HashMap<StoreKey, NodeWithInstanceId>,
+    used: Vec<(DataHash, StoreKey, NodeWithInstanceId)>,
+}
+impl<'a> HashMapNodeLookup<'a> {
+    fn new(n: &'a HashMap<StoreKey, NodeWithInstanceId>) -> Self {
+        Self {
+            nodes: n,
+            used: Vec::new(),
+        }
+    }
+}
+impl<'a> NodeLookup for HashMapNodeLookup<'a> {
+    fn get(&mut self, k: &NodeKey<DataHash>) -> Option<Node<DataHash>> {
+        let sk = StoreKey::from(k);
+        self.nodes.get(&sk).map(|v| {
+            self.used.push((k.hash, sk, v.clone()));
+            marshalling::from_slice(&v.node).expect("TODO")
+        })
+    }
+}
+
+/// Read from a given root towards a record in a Merkle tree.
+fn merkle_path_lookup(
     record_id: &RecordId,
     root_hash: &DataHash,
-    cache: &mut NodeCache,
-) -> CachedPathLookupResult {
+    lookup_node: &mut impl NodeLookup,
+) -> PathLookupResult {
+    merkle_path_lookup_from(record_id, root_hash, 0, lookup_node)
+}
+
+/// Read from part way down a tree towards a record in a Merkle tree.
+fn merkle_path_lookup_from(
+    record_id: &RecordId,
+    next: &DataHash,
+    mut key_pos: usize,
+    lookup_node: &mut impl NodeLookup,
+) -> PathLookupResult {
     let mut nodes = Vec::new();
 
     let full_key = record_id.to_bitvec();
-    let mut key_pos = 0;
-
-    let mut next_hash = root_hash.to_owned();
+    let mut next_hash = next.to_owned();
 
     loop {
         let key = NodeKey::new(full_key.slice(..key_pos).to_bitvec(), next_hash);
 
-        match cache.get(&StoreKey::from(&key)) {
+        match lookup_node.get(&key) {
             None => {
-                // Reached a cache miss.
-                return CachedPathLookupResult {
+                // Reached a miss.
+                return PathLookupResult {
                     nodes,
                     next: Some(key),
                 };
             }
 
-            Some(value) => {
-                let node: Node<DataHash> = marshalling::from_slice(&value.node).expect("TODO");
-
+            Some(node) => {
                 if let Node::Interior(int) = &node {
                     if let Some(branch) = int.branch(Dir::from(full_key[key_pos])) {
                         if full_key.slice(key_pos..).starts_with(&branch.prefix) {
@@ -441,7 +485,7 @@ fn cached_path_lookup(
 
                 // Reached a leaf or proved non-existence.
                 nodes.push((key, node));
-                return CachedPathLookupResult { nodes, next: None };
+                return PathLookupResult { nodes, next: None };
             }
         }
     }
@@ -460,7 +504,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
         let (cached_nodes, next) = {
             let result = {
                 let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
-                cached_path_lookup(record_id, root_hash, &mut locked_cache)
+                merkle_path_lookup(record_id, root_hash, locked_cache.deref_mut())
             };
             self.0.metrics.distribution(
                 "store_client.path_lookup.cached_nodes_read",
@@ -490,56 +534,52 @@ impl TreeStoreReader<DataHash> for StoreClient {
         };
 
         // Read the rest from Bigtable.
-        let rows = Reader::read_rows(
+        let read_req = ReadRowsRequest {
+            table_name: merkle_table(&self.0.instance, realm),
+            app_profile_id: String::new(),
+            rows: Some(RowSet {
+                row_keys: Vec::new(),
+                row_ranges: all_store_key_starts(record_id)
+                    // The first "key start" is 0 bits long, the second is
+                    // 1 bit long, etc. By skipping `next.prefix.len()`,
+                    // the Bigtable reads will return keys with at least
+                    // `next.prefix.len()` bits.
+                    .skip(next.prefix.len())
+                    .map(|prefix| RowRange {
+                        end_key: Some(EndKeyOpen(prefix.next().into_bytes())),
+                        start_key: Some(StartKeyClosed(prefix.into_bytes())),
+                    })
+                    .collect(),
+            }),
+            filter: Some(RowFilter {
+                filter: Some(row_filter::Filter::CellsPerRowLimitFilter(1)),
+            }),
+            rows_limit: 0,
+            request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+            reversed: false,
+        };
+        let mut read_values: HashMap<StoreKey, NodeWithInstanceId> = HashMap::new();
+        Reader::read_rows_stream(
             &mut self.0.bigtable.clone(),
             Retry::new("merkle tree path lookup")
                 .with(bigtable_retries)
                 .with_metrics(&self.0.metrics, "store_client.path_lookup", tags),
-            ReadRowsRequest {
-                table_name: merkle_table(&self.0.instance, realm),
-                app_profile_id: String::new(),
-                rows: Some(RowSet {
-                    row_keys: Vec::new(),
-                    row_ranges: all_store_key_starts(record_id)
-                        // The first "key start" is 0 bits long, the second is
-                        // 1 bit long, etc. By skipping `next.prefix.len()`,
-                        // the Bigtable reads will return keys with at least
-                        // `next.prefix.len()` bits.
-                        .skip(next.prefix.len())
-                        .map(|prefix| RowRange {
-                            end_key: Some(EndKeyOpen(prefix.next().into_bytes())),
-                            start_key: Some(StartKeyClosed(prefix.into_bytes())),
-                        })
-                        .collect(),
-                }),
-                filter: Some(RowFilter {
-                    filter: Some(row_filter::Filter::CellsPerRowLimitFilter(1)),
-                }),
-                rows_limit: 0,
-                request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
-                reversed: false,
+            read_req,
+            |row_key, cells| {
+                let k = StoreKey::from(row_key.0);
+                let n = cells
+                    .into_iter()
+                    .find(|cell| cell.family == "f")
+                    .map(|cell| NodeWithInstanceId {
+                        node: cell.value,
+                        instance_id: InstanceId(cell.qualifier),
+                    })
+                    .expect("every Merkle row should contain a node value");
+                read_values.insert(k, n);
             },
         )
         .await
         .map_err(|e| TreeStoreError::Network(e.to_string()))?;
-
-        // Extract the serialized key-value pairs from the rows.
-        let read_values: Vec<(StoreKey, NodeWithInstanceId)> = rows
-            .into_iter()
-            .map(|(row_key, cells)| {
-                (
-                    StoreKey::from(row_key.0),
-                    cells
-                        .into_iter()
-                        .find(|cell| cell.family == "f")
-                        .map(|cell| NodeWithInstanceId {
-                            node: cell.value,
-                            instance_id: InstanceId(cell.qualifier),
-                        })
-                        .expect("every Merkle row should contain a node value"),
-                )
-            })
-            .collect();
 
         self.0.metrics.distribution(
             "store_client.path_lookup.bigtable_nodes_read",
@@ -547,31 +587,32 @@ impl TreeStoreReader<DataHash> for StoreClient {
             tags,
         );
 
-        // This is heavy-weight but useful for understanding how deep into the
-        // tree extraneous reads are occurring.
-        for (key, _) in &read_values {
+        // Collect up the combined superset of nodes to return.
+        let mut lookup = HashMapNodeLookup::new(&read_values);
+        let nodes: HashMap<DataHash, Node<DataHash>> = if !read_values.is_empty() {
+            // read_values may have lots of orphaned nodes, we don't want to spam
+            // the cache or the caller with all of them just the ones actually
+            // needed to complete the path. [`HashMapLookup`] will keep track of the
+            // actual nodes read.
+            merkle_path_lookup_from(record_id, &next.hash, next.prefix.len(), &mut lookup);
             self.0.metrics.distribution(
-                "store_client.path_lookup.bigtable_node.key_len",
-                key.as_slice().len(),
+                "store_client.path_lookup.bigtable_nodes_used",
+                lookup.used.len(),
                 tags,
             );
-        }
+            cached_nodes
+                .chain(lookup.used.iter().map(|(hash, _sk, n)| (*hash, n.node())))
+                .collect()
+        } else {
+            cached_nodes.collect()
+        };
 
-        // Collect up the combined superset of nodes to return.
-        let nodes: HashMap<DataHash, Node<DataHash>> = cached_nodes
-            .chain(read_values.iter().map(|(key, value)| {
-                let (_, hash) = StoreKey::parse(key.as_slice()).expect("TODO");
-                let node: Node<DataHash> = marshalling::from_slice(&value.node).expect("TODO");
-                (hash, node)
-            }))
-            .collect();
-
-        // Update the cache with newly read values.
-        if !read_values.is_empty() {
+        // Update the cache with actually used newly read values.
+        if !lookup.used.is_empty() {
             let cache_stats = {
                 let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
-                for (key, value) in read_values {
-                    locked_cache.insert(key, value);
+                for (_nk, store_key, value) in lookup.used.into_iter() {
+                    locked_cache.insert(store_key, value);
                 }
                 locked_cache.stats()
             };
@@ -705,6 +746,7 @@ impl From<Vec<u8>> for StoreKey {
     }
 }
 
+#[allow(dead_code)]
 impl StoreKey {
     pub fn new<HO: HashOutput>(prefix: &KeyVec, hash: &HO) -> StoreKey {
         // encoded key consists of
