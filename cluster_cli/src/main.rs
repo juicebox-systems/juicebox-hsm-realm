@@ -156,7 +156,7 @@ enum Command {
 
     /// Print information about a Bigtable table.
     TableStats {
-        /// Only the "log" table is currently supported.
+        /// Only the "log" and "merkle" tables are currently supported.
         table: Table,
 
         /// Realm ID.
@@ -239,7 +239,8 @@ enum UserSummaryWhen {
 #[derive(Clone, Eq, PartialEq, ValueEnum)]
 enum Table {
     Log,
-    // Merkle and user tables are not yet supported.
+    Merkle,
+    // User table is not yet supported.
 }
 
 #[derive(Clone, ValueEnum)]
@@ -410,6 +411,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
             table: Table::Log,
             realm,
         } => commands::table_stats::print_log_stats(realm, &store).await,
+
+        Command::TableStats {
+            table: Table::Merkle,
+            realm,
+        } => commands::table_stats::print_merkle_stats(realm, &store).await,
 
         Command::Transfer {
             cluster,

@@ -1,4 +1,6 @@
+use chrono::{DateTime, Local};
 use google::bigtable::v2::{read_rows_request, ReadRowsRequest};
+use std::cmp::{max, min, Ordering};
 use std::io;
 use std::time::{Duration, SystemTime};
 use tracing::warn;
@@ -8,7 +10,7 @@ use hsm_api::{GroupId, LogIndex};
 use juicebox_sdk::RealmId;
 use retry_loop::Retry;
 use store::log::testing::{log_table, parse_log_key};
-use store::StoreClient;
+use store::{merkle_table, StoreClient};
 
 struct LogAccumulator {
     group: GroupId,
@@ -139,6 +141,113 @@ pub(crate) async fn print_log_stats(realm: RealmId, store: &StoreClient) -> anyh
     .map_err(|err| err.last().unwrap())?;
     flush(&stdout, last).unwrap();
 
+    Ok(())
+}
+
+pub(crate) async fn print_merkle_stats(realm: RealmId, store: &StoreClient) -> anyhow::Result<()> {
+    const NUM_ROWS_TO_SHOW: usize = 20;
+
+    let instance = store::testing::get_instance(store);
+    let mut bigtable = store::testing::get_connection(store);
+    let request = ReadRowsRequest {
+        table_name: merkle_table(&instance, &realm),
+        app_profile_id: String::new(),
+        rows: None,
+        filter: None,
+        rows_limit: 0,
+        request_stats_view: read_rows_request::RequestStatsView::RequestStatsNone.into(),
+        reversed: false,
+    };
+
+    #[derive(Clone, Default)]
+    struct PrefixStats {
+        prefix: Vec<u8>,
+        count: usize,
+        oldest: Option<i64>,
+        newest: Option<i64>,
+    }
+    let dt = |t: i64| {
+        DateTime::<Local>::from(
+            SystemTime::UNIX_EPOCH
+                .checked_add(Duration::from_micros(t.try_into().unwrap()))
+                .unwrap(),
+        )
+    };
+
+    let print_ps = |ps: &PrefixStats| {
+        println!(
+            "{}\t{}\t{}\t{}",
+            hex::encode(&ps.prefix),
+            ps.count,
+            dt(ps.oldest.unwrap()),
+            dt(ps.newest.unwrap())
+        )
+    };
+    let mut by_prefix: Vec<PrefixStats> = Vec::new();
+    let mut current = PrefixStats::default();
+    let mut total: usize = 0;
+
+    let mut flush_prefix = |ps: &PrefixStats| {
+        if ps.prefix.is_empty() {
+            return;
+        }
+        total += ps.count;
+        if by_prefix.len() < NUM_ROWS_TO_SHOW || ps.count > by_prefix.last().unwrap().count {
+            let r = by_prefix.binary_search_by(|probe| {
+                match probe.count.cmp(&ps.count) {
+                    Ordering::Equal => probe.oldest.cmp(&ps.oldest),
+                    Ordering::Less => Ordering::Less,
+                    Ordering::Greater => Ordering::Greater,
+                }
+                .reverse()
+            });
+            let idx = match r {
+                Ok(i) => i,
+                Err(i) => i,
+            };
+            by_prefix.insert(idx, ps.clone());
+            if by_prefix.len() > NUM_ROWS_TO_SHOW {
+                by_prefix.pop();
+            }
+        }
+    };
+
+    Reader::read_rows_stream(
+        &mut bigtable,
+        Retry::disabled(),
+        request,
+        |row_key, cells| {
+            let kl = row_key.0.len();
+            let prefix = &row_key.0[..kl - 32];
+            if current.prefix != prefix {
+                flush_prefix(&current);
+                current = PrefixStats {
+                    prefix: prefix.to_vec(),
+                    count: 0,
+                    oldest: None,
+                    newest: None,
+                };
+            }
+            current.count += cells.len();
+            for cell in cells {
+                current.oldest = Some(match current.oldest {
+                    None => cell.timestamp,
+                    Some(ts) => min(ts, cell.timestamp),
+                });
+                current.newest = max(current.newest, Some(cell.timestamp));
+            }
+        },
+    )
+    .await
+    .unwrap();
+    flush_prefix(&current);
+
+    println!("{} total nodes", commas(total as u64),);
+    println!("prefixes with the most nodes (generally this shouldn't exceed the number of groups)");
+    println!("encoded_prefix, count, oldest, newest");
+    for s in by_prefix {
+        print_ps(&s);
+    }
     Ok(())
 }
 

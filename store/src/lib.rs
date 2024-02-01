@@ -36,6 +36,7 @@ pub mod tenants;
 
 pub use bigtable::bigtable_retries as store_retries;
 use log::{LogRow, ReadLastLogEntryError, ReadLastLogEntryFatal};
+pub use merkle::merkle_table;
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct BigtableArgs {
