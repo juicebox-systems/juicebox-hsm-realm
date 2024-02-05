@@ -13,6 +13,7 @@ use google::{auth, GrpcConnectionOptions};
 use observability::{logging, metrics};
 use service_core::clap_parsers::{parse_duration, parse_listen};
 use service_core::future_task::FutureTask;
+use service_core::metrics::start_uptime_reporter;
 use service_core::panic;
 use service_core::term::install_termination_handler;
 
@@ -142,6 +143,7 @@ where
     info!(?args, "Parsed command-line args");
 
     let metrics = metrics::Client::new(service_name);
+    start_uptime_reporter(metrics.clone()).await;
 
     let auth_manager = if args.bigtable.needs_auth() || args.pubsub_url.is_none() {
         Some(

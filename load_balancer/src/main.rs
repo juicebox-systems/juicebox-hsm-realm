@@ -13,6 +13,7 @@ use observability::{logging, metrics};
 use secret_manager::{new_google_secret_manager, Periodic, SecretManager, SecretsFile};
 use server::ManagerOptions;
 use service_core::clap_parsers::{parse_duration, parse_listen};
+use service_core::metrics::start_uptime_reporter;
 use service_core::panic;
 use service_core::term::install_termination_handler;
 
@@ -128,6 +129,7 @@ async fn main() {
     );
     let name = args.name.unwrap_or_else(|| format!("lb{}", args.listen));
     let metrics = metrics::Client::new("load_balancer");
+    start_uptime_reporter(metrics.clone()).await;
 
     let certs = Arc::new(
         CertificateResolver::new(args.tls_key, args.tls_cert).expect("Failed to load TLS key/cert"),
