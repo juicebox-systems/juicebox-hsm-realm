@@ -1,3 +1,4 @@
+use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use core::fmt;
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,8 @@ impl<HO> NodeKey<HO> {
         Self { prefix, hash }
     }
 }
+
+pub type NodeKeySet<HO> = BTreeSet<NodeKey<HO>>;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Node<HO> {
@@ -149,7 +152,7 @@ pub struct ReadProof<HO> {
 mod private {
     extern crate alloc;
 
-    use super::{HashOutput, Node, NodeKey};
+    use super::{HashOutput, Node, NodeKey, NodeKeySet};
     use alloc::collections::{BTreeMap, BTreeSet};
     use serde::{Deserialize, Serialize};
 
@@ -162,7 +165,7 @@ mod private {
         /// New nodes to be added.
         add: BTreeMap<NodeKey<HO>, Node<HO>>,
         /// Existing nodes to be removed.
-        remove: BTreeSet<NodeKey<HO>>,
+        remove: NodeKeySet<HO>,
     }
 
     impl<HO: HashOutput> Default for StoreDelta<HO> {
@@ -179,7 +182,7 @@ mod private {
             &self.add
         }
 
-        pub fn removes(&self) -> &BTreeSet<NodeKey<HO>> {
+        pub fn removes(&self) -> &NodeKeySet<HO> {
             &self.remove
         }
 
@@ -199,12 +202,16 @@ mod private {
         pub fn is_empty(&self) -> bool {
             self.add.is_empty() && self.remove.is_empty()
         }
+
+        pub fn into_inner(self) -> (BTreeMap<NodeKey<HO>, Node<HO>>, NodeKeySet<HO>) {
+            (self.add, self.remove)
+        }
     }
 
     #[derive(Default)]
     pub struct DeltaBuilder<HO> {
         to_add: BTreeMap<NodeKey<HO>, Node<HO>>,
-        to_remove: BTreeSet<NodeKey<HO>>,
+        to_remove: NodeKeySet<HO>,
     }
     impl<HO: HashOutput> DeltaBuilder<HO> {
         pub fn new() -> Self {

@@ -127,7 +127,7 @@ where
 {
     logging::configure(service_name);
     panic::set_abort_on_panic();
-    let mut shutdown_tasks = install_termination_handler(Duration::from_secs(10));
+    let mut shutdown_tasks = install_termination_handler(Duration::from_secs(20));
 
     // This is the same logic as `AgentArgs::<SA>::parse()`, except this
     // injects the build info into the version string.

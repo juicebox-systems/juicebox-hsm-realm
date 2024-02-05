@@ -667,50 +667,51 @@ impl<T: Transport + 'static> Agent<T> {
         let leading = get_leading();
         if leading.is_empty() {
             // easy case, we're not leader, job done.
-            return;
-        }
-
-        // If there's a cluster manager available via service discovery, ask
-        // that to perform the step down. The cluster manager can handle the
-        // hand-off such that clients don't see an availability gap. If there
-        // isn't one we'll step down gracefully but there may be an availability
-        // gap until a new leader is appointed.
-        let maybe_hsm_id: Option<HsmId> = {
-            let locked = self.0.state.lock().unwrap();
-            locked.hsm_id
-        };
-        if let Some(hsm_id) = maybe_hsm_id {
-            info!(
-                ?hsm_id,
-                "Starting graceful agent shutdown with cluster manager"
-            );
-            self.stepdown_with_cluster_manager(hsm_id).await;
         } else {
-            info!("Starting graceful agent shutdown without cluster manager");
-        }
+            // If there's a cluster manager available via service discovery, ask
+            // that to perform the step down. The cluster manager can handle the
+            // hand-off such that clients don't see an availability gap. If there
+            // isn't one we'll step down gracefully but there may be an availability
+            // gap until a new leader is appointed.
+            let maybe_hsm_id: Option<HsmId> = {
+                let locked = self.0.state.lock().unwrap();
+                locked.hsm_id
+            };
+            if let Some(hsm_id) = maybe_hsm_id {
+                info!(
+                    ?hsm_id,
+                    "Starting graceful agent shutdown with cluster manager"
+                );
+                self.stepdown_with_cluster_manager(hsm_id).await;
+            } else {
+                info!("Starting graceful agent shutdown without cluster manager");
+            }
 
-        let leading = get_leading();
-        if !leading.is_empty() {
-            // We're still leader after trying with the cluster manager, force a local stepdown.
-            for (realm, group) in leading {
-                if let Err(err) = self
-                    .handle_stepdown_as_leader(StepDownRequest { realm, group })
-                    .await
-                {
-                    warn!(
-                        ?group,
-                        ?realm,
-                        ?err,
-                        "failed to request leadership stepdown"
-                    )
+            let leading = get_leading();
+            if !leading.is_empty() {
+                // We're still leader after trying with the cluster manager, force a local stepdown.
+                for (realm, group) in leading {
+                    if let Err(err) = self
+                        .handle_stepdown_as_leader(StepDownRequest { realm, group })
+                        .await
+                    {
+                        warn!(
+                            ?group,
+                            ?realm,
+                            ?err,
+                            "failed to request leadership stepdown"
+                        )
+                    }
                 }
             }
+            // now wait til we're done stepping down.
+            info!("Waiting for leadership stepdown(s) to complete.");
+            while !get_leading().is_empty() {
+                sleep(Duration::from_millis(20)).await;
+            }
         }
-        // now wait til we're done stepping down.
-        info!("Waiting for leadership stepdown(s) to complete.");
-        while !get_leading().is_empty() {
-            sleep(Duration::from_millis(20)).await;
-        }
+        // now all the leadership work is done, we can shutdown the merkle delete queue
+        self.0.store.shutdown_delete_queue().await;
     }
 
     // Find a cluster manager and ask it to stepdown all the groups we're leading.
