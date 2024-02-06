@@ -643,31 +643,45 @@ impl TransportInner {
                 self.collect_trace_buffer();
             }
             if status == Status_SEEWorldFailed || status == Status_ObjectInUse {
-                // try restarting the SEE world
+                // Try restarting the SEE world (this will panic to force the
+                // agent to restart regardless of outcome)
                 self.restart_world();
-                return Err(SeeError::SeeWorldFailed);
             }
         }
         Ok(res?)
     }
 
+    fn close_world(&mut self) {
+        if self.world_id.is_some() {
+            let mut cmd = M_Command::new(Cmd_Destroy);
+            cmd.args.destroy.key = self.world_id.unwrap();
+            if let Err(err) = self.transact(&mut cmd) {
+                warn!(?err, "attempt to close the SEEWorld failed");
+            }
+            self.world_id = None;
+        }
+    }
+
     /// Restarts the SEEWorld after its failed. We first attempt a restart by destroying the current one
     /// and then starting it again. If that fails, we do a more extensive reset using a clear command
     /// which should work but takes a lot of time.
-    fn restart_world(&mut self) {
+    fn restart_world(&mut self) -> ! {
         if self.world_id.is_some() {
             warn!("SEEWorld failed, attempting restart");
-            let mut cmd = M_Command::new(Cmd_Destroy);
-            cmd.args.destroy.key = self.world_id.unwrap();
-            if self.transact(&mut cmd).is_ok() {
-                self.world_id = None;
-                if unsafe { self.connect() }.is_ok() {
-                    return;
-                }
+            self.close_world();
+            if unsafe { self.connect() }.is_ok() {
+                self.close_world();
+                // Because restarting the SEEWorld will reset the role clocks,
+                // its best for the agent to restart.
+                panic!("SEEWorld failed and was successfully recovered. restarting agent");
             }
             warn!("Failed to restart SEEWorld, trying harder");
         }
         self.try_clear();
+        self.close_world();
+        // Because restarting the SEEWorld will reset the role clocks, its best
+        // for the agent to restart.
+        panic!("SEEWorld failed and was successfully recovered. restarting agent");
     }
 
     /// If the SEEWorld crashes or is terminated by the HSM, transact will return Status_SEEWorldFailed.
@@ -675,8 +689,7 @@ impl TransportInner {
     /// Recovering from this involves
     ///     * Getting a privileged connection.
     ///     * Issuing a clear command (equiv to noopclearfail -c)
-    ///     * Loading the HSM image. (or having the hardserver configured to auto load the image)
-    ///     * Finally creating a new SEEWorld.
+    ///     * Creating a new SEEWorld
     fn try_clear(&mut self) {
         self.world_id = None;
         warn!("Attempting to clear & restart SEEWorld");
