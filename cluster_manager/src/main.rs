@@ -6,6 +6,7 @@ use google::auth;
 use manager::Manager;
 use observability::{logging, metrics};
 use service_core::clap_parsers::{parse_duration, parse_listen};
+use service_core::metrics::start_uptime_reporter;
 use service_core::panic;
 use service_core::term::install_termination_handler;
 
@@ -49,6 +50,7 @@ async fn main() {
         "starting Cluster Manager"
     );
     let metrics = metrics::Client::new("cluster_manager");
+    start_uptime_reporter(metrics.clone()).await;
 
     let auth_manager = if args.bigtable.needs_auth() {
         Some(
