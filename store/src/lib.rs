@@ -1,3 +1,4 @@
+use futures::FutureExt;
 use google::auth::AuthMiddleware;
 use google::bigtable::v2::bigtable_client::BigtableClient as BtClient;
 use google::bigtable::v2::{read_rows_request, PingAndWarmRequest, ReadRowsRequest};
@@ -9,7 +10,7 @@ use std::future::Future;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
-use tokio::task::JoinHandle;
+use tokio::sync::oneshot;
 use tokio::time::sleep;
 use tracing::{debug, info, instrument, trace, warn};
 use url::Url;
@@ -37,7 +38,7 @@ pub mod tenants;
 pub use bigtable::bigtable_retries as store_retries;
 use log::{LogRow, ReadLastLogEntryError, ReadLastLogEntryFatal};
 pub use merkle::merkle_table;
-use merkle::InstanceIds;
+use merkle::{DeleteKeySet, InstanceIds, MerkleDeleteQueue};
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct BigtableArgs {
@@ -231,7 +232,16 @@ struct StoreClientInner {
     metrics: metrics::Client,
     merkle_cache: merkle::Cache,
     merkle_ids: InstanceIds,
+    merkle_delete_queue: MerkleDeleteQueue,
     warmer: TablesReadWarmer,
+}
+
+#[derive(Clone)]
+struct StoreClientMerkleDeleter {
+    bigtable: BigtableClient,
+    instance: Instance,
+    metrics: metrics::Client,
+    merkle_cache: merkle::Cache,
 }
 
 // Invariant: the log entry has been written at the end of a log row.
@@ -313,15 +323,30 @@ impl StoreClient {
             warmer.clone(),
         )
         .await?;
-        Ok(Self(Arc::new(StoreClientInner {
+
+        let cache = merkle::Cache::new(options.merkle_cache_nodes_limit.unwrap_or(1));
+        let deleter = StoreClientMerkleDeleter {
+            bigtable: bigtable.clone(),
+            instance: instance.clone(),
+            metrics: options.metrics.clone(),
+            merkle_cache: cache.clone(),
+        };
+        let res = Self(Arc::new(StoreClientInner {
             bigtable,
             instance,
             last_write: Mutex::new(HashMap::new()),
-            metrics: options.metrics,
-            merkle_cache: merkle::Cache::new(options.merkle_cache_nodes_limit.unwrap_or(1)),
+            metrics: options.metrics.clone(),
+            merkle_cache: cache,
             merkle_ids: InstanceIds::new(),
+            merkle_delete_queue: MerkleDeleteQueue::new(options.metrics, move |dks| {
+                let deleter = deleter.clone();
+                async move {
+                    let _ = deleter.remove_merkle_nodes(dks).await;
+                }
+            }),
             warmer,
-        })))
+        }));
+        Ok(res)
     }
 
     #[instrument(
@@ -351,7 +376,7 @@ impl StoreClient {
         entries: &[LogEntry],
         delta: StoreDelta<DataHash>,
         delete_waiter: F,
-    ) -> Result<(LogRow, Option<JoinHandle<()>>), AppendError> {
+    ) -> Result<(LogRow, Option<oneshot::Receiver<()>>), AppendError> {
         assert!(
             !entries.is_empty(),
             "append passed empty list of things to append."
@@ -425,16 +450,23 @@ impl StoreClient {
         // Delete obsolete Merkle nodes. These deletes are deferred a bit so
         // that slow concurrent readers can still access them.
         let delete_handle = if !delta.removes().is_empty() {
-            let store = self.clone();
-            let realm = *realm;
-            let group = *group;
-            Some(tokio::spawn(async move {
-                delete_waiter.await;
-                store
-                    .remove_merkle_nodes(&realm, &group, delta.removes())
-                    .await
-                    .expect("TODO");
-            }))
+            let deletes = DeleteKeySet {
+                realm: *realm,
+                keys: delta.into_inner().1,
+            };
+            let handle = self
+                .0
+                .merkle_delete_queue
+                .queue(
+                    async {
+                        delete_waiter.await;
+                        deletes
+                    }
+                    .boxed(),
+                )
+                .await
+                .expect("delete queue unexpectedly shutdown");
+            Some(handle)
         } else {
             None
         };
@@ -499,6 +531,20 @@ impl StoreClient {
                 Err(AppendError::LogPrecondition)
             }
             Err(err) => Err(AppendError::UnknownLogState(err)),
+        }
+    }
+
+    pub async fn shutdown_delete_queue(&self) {
+        match self.0.merkle_delete_queue.shutdown().await {
+            Ok(handle) => {
+                info!("starting graceful shutdown of the merkle delete queue");
+                if let Err(e) = handle.await {
+                    warn!(err=?e, "error waiting for merkle delete queue shutdown");
+                }
+            }
+            Err(_) => {
+                warn!("shutdown_delete_queue called, but already shutdown");
+            }
         }
     }
 }

@@ -7,23 +7,26 @@ use google::bigtable::v2::{
     ReadRowsRequest, RowFilter, RowRange, RowSet,
 };
 use rand_core::{OsRng, RngCore};
-use std::collections::{hash_map, BTreeMap, BTreeSet, HashMap};
+use std::collections::{hash_map, BTreeMap, HashMap};
 use std::fmt::{Debug, Write};
+use std::future::Future;
 use std::iter;
 use std::ops::DerefMut;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tracing::{instrument, trace, warn, Span};
+use tokio::sync::{mpsc, oneshot};
+use tracing::{info, instrument, trace, warn, Span};
 
-use super::{base128, StoreClient};
+use super::{base128, StoreClient, StoreClientMerkleDeleter};
 use agent_api::merkle::{TreeStoreError, TreeStoreReader};
-use bigtable::bigtable_retries;
+use async_util::ScopedTask;
 use bigtable::mutate::{mutate_rows, MutateRowsError};
 use bigtable::read::Reader;
-use bigtable::{BigtableTableAdminClient, Instance};
+use bigtable::{bigtable_retries, BigtableTableAdminClient, Instance};
 use bitvec::Bits;
-use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey};
+use hsm_api::merkle::{Dir, HashOutput, KeyVec, Node, NodeKey, NodeKeySet};
 use hsm_api::{DataHash, GroupId, RecordId};
 use juicebox_marshalling as marshalling;
 use juicebox_realm_api::types::RealmId;
@@ -190,29 +193,30 @@ impl StoreClient {
         report_cache_stats(&self.0.metrics, &tags, cache_stats);
         Ok(())
     }
+}
 
-    #[instrument(level = "trace", skip(self, remove))]
+impl StoreClientMerkleDeleter {
+    #[instrument(level = "trace", skip(self, keyset))]
     pub(super) async fn remove_merkle_nodes(
         &self,
-        realm: &RealmId,
-        group: &GroupId,
-        remove: &BTreeSet<NodeKey<DataHash>>,
+        keyset: DeleteKeySet,
     ) -> Result<(), RetryError<MutateRowsError>> {
-        if remove.is_empty() {
+        if keyset.keys.is_empty() {
             return Ok(());
         }
 
-        let tags = [tag!(?realm), tag!(?group)];
+        let tags = [tag!("realm":?keyset.realm)];
         let start = Instant::now();
         let mut to_fetch: HashMap<&StoreKey, &mut Option<InstanceId>> = HashMap::new();
-        let mut nodes_to_delete: Vec<(&NodeKey<DataHash>, StoreKey, Option<InstanceId>)> = remove
+        let mut nodes_to_delete: Vec<(&NodeKey<DataHash>, StoreKey, Option<InstanceId>)> = keyset
+            .keys
             .iter()
             .map(|nk| (nk, StoreKey::from(nk), None))
             .collect();
 
         {
             // Grab the instance ids from the cache for the nodes we're going to delete.
-            let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
+            let mut locked_cache = self.merkle_cache.0.lock().unwrap();
             for (nk, sk, id) in nodes_to_delete.iter_mut() {
                 match locked_cache.get(sk) {
                     Some(cached) => *id = Some(cached.instance_id.clone()),
@@ -224,8 +228,7 @@ impl StoreClient {
                         // everything in the cache.
                         warn!(
                             ?nk,
-                            ?realm,
-                            ?group,
+                            realm=?keyset.realm,
                             "merkle node not in cache, will read version from bigtable"
                         );
                         to_fetch.insert(sk, id);
@@ -233,7 +236,7 @@ impl StoreClient {
                 }
             }
         }
-        self.0.metrics.distribution(
+        self.metrics.distribution(
             "store_client.remove_merkle_nodes.versions_to_read",
             to_fetch.len(),
             &tags,
@@ -242,16 +245,16 @@ impl StoreClient {
         if !to_fetch.is_empty() {
             // Read any missing instance ids from bigtable
             let rows = Reader::read_rows(
-                &mut self.0.bigtable.clone(),
+                &mut self.bigtable.clone(),
                 Retry::new("read merkle nodes instance_ids to delete")
                     .with(bigtable_retries)
                     .with_metrics(
-                        &self.0.metrics,
+                        &self.metrics,
                         "store_client.remove_merkle_nodes.read_versions",
                         &tags,
                     ),
                 ReadRowsRequest {
-                    table_name: merkle_table(&self.0.instance, realm),
+                    table_name: merkle_table(&self.instance, &keyset.realm),
                     app_profile_id: String::new(),
                     rows: Some(RowSet {
                         row_keys: to_fetch.keys().map(|sk| sk.0.clone()).collect(),
@@ -293,13 +296,13 @@ impl StoreClient {
         }
 
         let run_delete = |_| {
-            let mut bigtable = self.0.bigtable.clone();
+            let mut bigtable = self.bigtable.clone();
             let rows = nodes_to_delete.clone();
             async move {
                 mutate_rows(
                     &mut bigtable,
                     MutateRowsRequest {
-                        table_name: merkle_table(&self.0.instance, realm),
+                        table_name: merkle_table(&self.instance, &keyset.realm),
                         app_profile_id: String::new(),
                         entries: rows
                             .into_iter()
@@ -309,7 +312,7 @@ impl StoreClient {
                                     mutation: Some(mutation::Mutation::DeleteFromColumn(
                                         mutation::DeleteFromColumn {
                                             family_name: String::from("f"),
-                                            column_qualifier: v.unwrap().0.clone(),
+                                            column_qualifier: v.unwrap().0,
                                             time_range: None,
                                         },
                                     )),
@@ -326,7 +329,7 @@ impl StoreClient {
         let result = Retry::new("deleting merkle nodes")
             .with(bigtable_retries)
             .with_metrics(
-                &self.0.metrics,
+                &self.metrics,
                 "store_client.remove_merkle_nodes.delete",
                 &tags,
             )
@@ -334,15 +337,15 @@ impl StoreClient {
             .await;
 
         let cache_stats = {
-            let mut locked_cache = self.0.merkle_cache.0.lock().unwrap();
+            let mut locked_cache = self.merkle_cache.0.lock().unwrap();
             for (_, key, _) in nodes_to_delete {
                 locked_cache.remove(&key);
             }
             locked_cache.stats()
         };
 
-        report_cache_stats(&self.0.metrics, &tags, cache_stats);
-        self.0.metrics.timing(
+        report_cache_stats(&self.metrics, &tags, cache_stats);
+        self.metrics.timing(
             "store_client.remove_merkle_nodes.time",
             start.elapsed(),
             &tags,
@@ -830,8 +833,219 @@ fn encode_prefix_into(prefix: &KeyVec, dest: &mut Vec<u8>) {
     base128::encode(prefix.as_bytes(), prefix.len(), dest);
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct DeleteKeySet {
+    pub realm: RealmId,
+    pub keys: NodeKeySet<DataHash>,
+}
+
+type DeleteKeySetFuture = Pin<Box<dyn Future<Output = DeleteKeySet> + Send>>;
+
+pub(super) struct MerkleDeleteQueue {
+    tx: mpsc::Sender<PendingQueueItem>,
+    shutting_down: AtomicBool,
+    metrics: metrics::Client,
+    // Will abort the worker task when dropped.
+    _worker: ScopedTask<()>,
+}
+
+enum PendingQueueItem {
+    Work {
+        f: DeleteKeySetFuture,
+        fin_tx: oneshot::Sender<()>,
+    },
+    Shutdown {
+        fin_tx: oneshot::Sender<()>,
+    },
+}
+enum ReadyQueueItem {
+    Work {
+        keys: DeleteKeySet,
+        fin_tx: oneshot::Sender<()>,
+    },
+    Shutdown {
+        fin_tx: oneshot::Sender<()>,
+    },
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(super) enum DeleteQueueError {
+    Shutdown,
+}
+
+impl MerkleDeleteQueue {
+    // Creates a new MerkleDeleteQueue with the supplied callback function. This
+    // callback will be called with a set of keys to delete once its related
+    // defer future completes. The queue may coalesce multiple set of keys into
+    // a single delete.
+    pub(super) fn new<F, CbFut>(metrics: metrics::Client, cb: F) -> Self
+    where
+        F: Fn(DeleteKeySet) -> CbFut + Send + 'static,
+        CbFut: Future<Output = ()> + Send + 'static,
+    {
+        let (tx, rx) = mpsc::channel(128);
+        let worker = ScopedTask::spawn(Self::queue_worker(rx, metrics.clone(), cb));
+        Self {
+            tx,
+            shutting_down: AtomicBool::new(false),
+            _worker: worker,
+            metrics,
+        }
+    }
+
+    // Shutdown the queue. All queued work will continue to completion. The
+    // returned Receiver will block until all the queued work is complete and
+    // the shutdown operation completed.
+    pub(super) async fn shutdown(&self) -> Result<oneshot::Receiver<()>, DeleteQueueError> {
+        if self.shutting_down.fetch_or(true, Ordering::Relaxed) {
+            return Err(DeleteQueueError::Shutdown);
+        }
+        let (fin_tx, fin_rx) = oneshot::channel();
+        self.tx
+            .send(PendingQueueItem::Shutdown { fin_tx })
+            .await
+            .map_err(|_| DeleteQueueError::Shutdown)?;
+        Ok(fin_rx)
+    }
+
+    // Queue a set of keys for deletion. `keys_fut` should sleep for the
+    // required amount of time that deletes should be deferred for. Note that
+    // items are processed in the ordered added to the queue, the futures should
+    // use a consistent amount of time for the sleep. The returned Receiver will
+    // block until the actual delete operation has been performed.
+    pub(super) async fn queue(
+        &self,
+        keys_fut: DeleteKeySetFuture,
+    ) -> Result<oneshot::Receiver<()>, DeleteQueueError> {
+        if self.shutting_down.load(Ordering::Relaxed) {
+            return Err(DeleteQueueError::Shutdown);
+        }
+        let (fin_tx, fin_rx) = oneshot::channel();
+        self.tx
+            .send(PendingQueueItem::Work {
+                f: keys_fut,
+                fin_tx,
+            })
+            .await
+            .map_err(|_| DeleteQueueError::Shutdown)?;
+
+        self.metrics.gauge(
+            "store_client.merkle_delete.waiting_queue.len",
+            self.tx.max_capacity() - self.tx.capacity(),
+            metrics::NO_TAGS,
+        );
+        Ok(fin_rx)
+    }
+
+    async fn queue_worker<F, CbFut>(
+        mut rx: mpsc::Receiver<PendingQueueItem>,
+        metrics: metrics::Client,
+        cb: F,
+    ) where
+        F: Fn(DeleteKeySet) -> CbFut + Send + 'static,
+        CbFut: Future<Output = ()> + Send + 'static,
+    {
+        info!("delete queue: worker starting");
+        let (ready_tx, mut ready_rx) = mpsc::channel(64);
+        let metrics2 = metrics.clone();
+        // The pending queue has the queued futures in it. When the future at
+        // the head of the queue completes, its results are added to a ready
+        // queue, and the next future awaited.
+        let _ready_handle = ScopedTask::spawn(async move {
+            while let Some(item) = rx.recv().await {
+                match item {
+                    PendingQueueItem::Work { f, fin_tx } => {
+                        let keys = f.await;
+                        if ready_tx
+                            .send(ReadyQueueItem::Work { keys, fin_tx })
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    PendingQueueItem::Shutdown { fin_tx } => {
+                        let _ = ready_tx.send(ReadyQueueItem::Shutdown { fin_tx }).await;
+                        return;
+                    }
+                }
+                metrics2.gauge(
+                    "store_client.merkle_delete.ready_queue_len",
+                    ready_tx.max_capacity() - ready_tx.capacity(),
+                    metrics::NO_TAGS,
+                );
+            }
+        });
+        const MAX_BATCH_SIZE: usize = 1024;
+
+        while let Some(item) = ready_rx.recv().await {
+            let mut shutdown = None;
+            match item {
+                ReadyQueueItem::Shutdown { fin_tx } => {
+                    shutdown = Some(fin_tx);
+                }
+                ReadyQueueItem::Work {
+                    keys: mut next,
+                    fin_tx,
+                } => {
+                    // see if there are more that are ready.
+                    let mut fin_txs = vec![fin_tx];
+                    loop {
+                        if let Ok(next_item) = ready_rx.try_recv() {
+                            match next_item {
+                                ReadyQueueItem::Shutdown { fin_tx } => {
+                                    shutdown = Some(fin_tx);
+                                }
+                                ReadyQueueItem::Work {
+                                    keys: more_keys,
+                                    fin_tx,
+                                } => {
+                                    assert_eq!(next.realm, more_keys.realm);
+                                    next.keys.extend(more_keys.keys);
+                                    fin_txs.push(fin_tx);
+                                    if next.keys.len() < MAX_BATCH_SIZE {
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    metrics.gauge(
+                        "store_client.merkle_delete.coalesced_num_batches",
+                        fin_txs.len(),
+                        [tag!("realm":?next.realm)],
+                    );
+                    metrics.gauge(
+                        "store_client.merkle_delete.coalesced_num_keys",
+                        next.keys.len(),
+                        [tag!("realm":?next.realm)],
+                    );
+                    cb(next).await;
+                    for fin_tx in fin_txs {
+                        // This returns err if the receiver was already dropped, but we
+                        // don't care.
+                        let _ = fin_tx.send(());
+                    }
+                }
+            }
+            if let Some(fin_tx) = shutdown {
+                info!("delete queue completed graceful shutdown");
+                let _ = fin_tx.send(());
+                return;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use futures::FutureExt;
+    use std::collections::BTreeSet;
+    use std::future;
+    use tokio::sync::mpsc::error::TryRecvError;
+    use tokio::sync::{mpsc, oneshot};
+
     use super::*;
     use bitvec::bitvec;
     use hsm_core::hsm::MerkleHasher;
@@ -988,5 +1202,85 @@ mod tests {
             format!("{}/tables/{}", instance.path(), merkle_table_brief(&REALM1)),
             expected
         );
+    }
+
+    #[tokio::test]
+    async fn test_delete_queue() {
+        let (res_tx, mut res_rx) = mpsc::channel(1);
+        let cb = move |keys: DeleteKeySet| {
+            let res_tx = res_tx.clone();
+            async move {
+                res_tx.send(keys).await.unwrap();
+            }
+        };
+
+        let keysets: Vec<DeleteKeySet> = (0..50)
+            .map(|i| DeleteKeySet {
+                realm: RealmId([1; 16]),
+                keys: BTreeSet::from([NodeKey::new(bitvec![1], DataHash([i; 32]))]),
+            })
+            .collect();
+        let q = MerkleDeleteQueue::new(metrics::Client::NONE, cb);
+        let (tx, rx) = oneshot::channel();
+        q.queue(rx.map(|r| r.unwrap()).boxed()).await.unwrap();
+
+        let (tx2, rx2) = oneshot::channel();
+        q.queue(rx2.map(|r| r.unwrap()).boxed()).await.unwrap();
+
+        // flag the first one as ready
+        assert_eq!(Err(TryRecvError::Empty), res_rx.try_recv());
+        tx.send(keysets[0].clone()).unwrap();
+        assert_eq!(keysets[0], res_rx.recv().await.unwrap());
+
+        // now the 2nd one.
+        tx2.send(keysets[1].clone()).unwrap();
+        assert_eq!(keysets[1], res_rx.recv().await.unwrap());
+
+        // check that it batches up ready ones.
+        for keyset in &keysets {
+            q.queue(future::ready(keyset.clone()).boxed())
+                .await
+                .unwrap();
+        }
+        // some number of these will end up in the first callback, which fills the res_rx channel.
+        // some number of these will end up a 2nd callback which is then blocked on res_tx.send().
+        // the remaining should end up in the ready channel and get bundled into a single callback.
+        // depend on the scheduling, we may end up with these being split across 1, 2 or 3 callbacks.
+        let mut cb1 = res_rx.recv().await.unwrap();
+        if cb1.keys.len() < keysets.len() {
+            let cb2 = res_rx.recv().await.unwrap();
+            cb1.keys.extend(cb2.keys);
+            if cb1.keys.len() < keysets.len() {
+                let cb3 = res_rx.recv().await.unwrap();
+                cb1.keys.extend(cb3.keys);
+            }
+        }
+        let all: NodeKeySet<DataHash> = keysets
+            .iter()
+            .flat_map(|ks| ks.keys.iter().cloned())
+            .collect();
+        assert_eq!(all, cb1.keys);
+
+        // put some pending working in the queue
+        let (tx, rx) = oneshot::channel();
+        q.queue(rx.map(|r| r.unwrap()).boxed()).await.unwrap();
+        // ask the queue to shutdown
+        let mut shutdown_handle = q.shutdown().await.unwrap();
+        // the shutdown shouldn't complete yet
+        assert_eq!(
+            Err(oneshot::error::TryRecvError::Empty),
+            shutdown_handle.try_recv()
+        );
+        // can't queue more work after starting shutdown
+        let (_tx2, rx2) = oneshot::channel();
+        assert_eq!(
+            DeleteQueueError::Shutdown,
+            q.queue(rx2.map(|r| r.unwrap()).boxed()).await.unwrap_err()
+        );
+
+        // let the pending item complete
+        tx.send(keysets[0].clone()).unwrap();
+        assert_eq!(keysets[0], res_rx.recv().await.unwrap());
+        assert_eq!(Ok(()), shutdown_handle.await);
     }
 }

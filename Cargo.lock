@@ -3336,10 +3336,12 @@ version = "0.2.3"
 dependencies = [
  "agent_api",
  "agent_core",
+ "async_util",
  "bigtable",
  "bitvec",
  "chrono",
  "clap",
+ "futures",
  "google",
  "hex",
  "hsm_api",
