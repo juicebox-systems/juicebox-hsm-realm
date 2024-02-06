@@ -25,6 +25,7 @@ use observability::{logging, metrics};
 use secret_manager::{
     new_google_secret_manager, tenant_secret_name, BulkLoad, SecretManager, SecretsFile,
 };
+use service_core::clap_parsers::parse_duration;
 
 type Client = juicebox_sdk::Client<TokioSleeper, reqwest::Client, HashMap<RealmId, AuthToken>>;
 
@@ -67,6 +68,10 @@ struct Args {
         default_value = "register,recover,delete"
     )]
     plan: Vec<Operation>,
+
+    /// How often to report progress for longer running operations.
+    #[arg(long, value_parser=parse_duration, default_value="10m")]
+    reporting_interval: Duration,
 
     /// Name of JSON file containing per-tenant keys for authentication.
     ///
@@ -187,6 +192,7 @@ async fn run(args: Args) -> anyhow::Result<usize> {
                     .expect("user ID overflow"),
             },
             &client_builder,
+            args.reporting_interval,
         )
         .await;
     }
@@ -213,9 +219,36 @@ async fn benchmark(
     concurrency: usize,
     ids: Range<u64>,
     client_builder: &Arc<ClientBuilder>,
+    report_interval: Duration,
 ) -> usize {
     info!(?op, concurrency, ?ids, "benchmarking concurrent clients");
     let start = Instant::now();
+
+    let report = |count: usize, durations_ns: &Histogram<u64>| {
+        let elapsed_s = start.elapsed().as_secs_f64();
+        info!(
+            ?op,
+            count,
+            concurrency,
+            elapsed = format!("{:0.3} s", elapsed_s),
+            throughput = format!("{:0.3} op/s", count as f64 / elapsed_s),
+            min = format!("{:0.3} ms", durations_ns.min() as f64 / 1e6),
+            mean = format!("{:0.3} ms", durations_ns.mean() / 1e6),
+            p50 = format!(
+                "{:0.3} ms",
+                durations_ns.value_at_quantile(0.50) as f64 / 1e6
+            ),
+            p95 = format!(
+                "{:0.3} ms",
+                durations_ns.value_at_quantile(0.95) as f64 / 1e6
+            ),
+            p99 = format!(
+                "{:0.3} ms",
+                durations_ns.value_at_quantile(0.99) as f64 / 1e6
+            ),
+            max = format!("{:0.3} ms", durations_ns.max() as f64 / 1e6),
+        );
+    };
 
     let mut stream = futures::stream::iter(
         ids.clone()
@@ -223,9 +256,12 @@ async fn benchmark(
     )
     .buffer_unordered(concurrency);
 
+    let mut last_reported = start;
     let mut durations_ns: Histogram<u64> = Histogram::new(1).unwrap();
     let mut errors: usize = 0;
+    let mut count: usize = 0;
     while let Some(result) = stream.next().await {
+        count += 1;
         match result {
             Ok(Ok(duration)) => {
                 durations_ns
@@ -236,34 +272,14 @@ async fn benchmark(
                 errors += 1;
             }
         }
+        if last_reported.elapsed() > report_interval {
+            report(count, &durations_ns);
+            last_reported = Instant::now();
+        }
     }
 
-    let elapsed_s = start.elapsed().as_secs_f64();
-
-    let count = ids.end.saturating_sub(ids.start);
-    info!(
-        ?op,
-        count,
-        concurrency,
-        elapsed = format!("{:0.3} s", elapsed_s),
-        throughput = format!("{:0.3} op/s", count as f64 / elapsed_s),
-        min = format!("{:0.3} ms", durations_ns.min() as f64 / 1e6),
-        mean = format!("{:0.3} ms", durations_ns.mean() / 1e6),
-        p50 = format!(
-            "{:0.3} ms",
-            durations_ns.value_at_quantile(0.50) as f64 / 1e6
-        ),
-        p95 = format!(
-            "{:0.3} ms",
-            durations_ns.value_at_quantile(0.95) as f64 / 1e6
-        ),
-        p99 = format!(
-            "{:0.3} ms",
-            durations_ns.value_at_quantile(0.99) as f64 / 1e6
-        ),
-        max = format!("{:0.3} ms", durations_ns.max() as f64 / 1e6),
-        "completed benchmark"
-    );
+    info!("benchmark complete");
+    report(count, &durations_ns);
     if errors > 0 {
         error!(errors, "client(s) reported errors");
     }

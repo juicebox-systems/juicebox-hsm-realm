@@ -21,5 +21,6 @@ juicebox_realm_auth = { workspace = true }
 observability = { workspace = true }
 reqwest = { workspace = true }
 secret_manager = { workspace = true }
+service_core = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
