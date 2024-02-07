@@ -111,8 +111,8 @@ jobs:
         timeout-minutes: 20
         strategy:
           matrix:
-            # Transfer Coordinator (PR #401) changes hsm_api::StatusResponse.
-            hsm_version: ["fdd7caafd95724ca6449af84f7658a9d92660cd5"]
+            # PaddedSecretsResponse (PR #405).
+            hsm_version: ["9a6e0ed5326240dd2a50411c9a9df1b659ce9500"]
         steps:
         - name: Check out sources
           uses: actions/checkout@v4
