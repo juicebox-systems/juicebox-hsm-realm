@@ -3,24 +3,24 @@ use reqwest::Url;
 use std::collections::HashMap;
 
 use hsm_api::PublicKey;
-use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
 use juicebox_sdk::Configuration;
 use juicebox_sdk::PinHashingMode;
 use juicebox_sdk::Realm;
-use store::StoreClient;
 
-use crate::get_hsm_statuses;
+use crate::cluster::ClusterInfo;
 
 pub async fn print_sensible_configuration(
     load_balancer: &Url,
-    agents_client: &Client,
-    store: &StoreClient,
+    cluster: &ClusterInfo,
 ) -> anyhow::Result<()> {
-    let hsm_statuses = get_hsm_statuses(agents_client, store).await?;
-    let realms: HashMap<RealmId, PublicKey> = hsm_statuses
-        .into_iter()
-        .filter_map(|(_, hsm)| hsm.realm.map(|realm| (realm.id, hsm.public_key)))
+    let realms: HashMap<RealmId, PublicKey> = cluster
+        .hsm_statuses()
+        .filter_map(|(hsm, _)| {
+            hsm.realm
+                .as_ref()
+                .map(|realm| (realm.id, hsm.public_key.clone()))
+        })
         .collect();
 
     if realms.is_empty() {

@@ -1,4 +1,3 @@
-use anyhow::Context;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use reqwest::Url;
@@ -10,21 +9,18 @@ use cluster_core::workload::{GroupWorkload, HsmWorkload};
 use hsm_api::{GroupStatus, HsmId, OwnedRange, Transferring};
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError};
-use store::{ServiceKind, StoreClient};
 
-pub async fn list_agents(c: &Client, store: &StoreClient) -> anyhow::Result<()> {
-    let addresses: Vec<(Url, _)> = store
-        .get_addresses(Some(ServiceKind::Agent))
-        .await
-        .context("failed to get agent addresses from Bigtable")?;
+use crate::cluster::ClusterInfo;
 
-    println!("found {} agents in service discovery", addresses.len());
-    if addresses.is_empty() {
+pub async fn list_agents(c: &Client, cluster: &ClusterInfo) -> anyhow::Result<()> {
+    println!("found {} agents in service discovery", cluster.agents.len());
+    if cluster.agents.is_empty() {
         return Ok(());
     }
-    let mut futures = addresses
+    let mut futures = cluster
+        .agents
         .iter()
-        .map(|(url, _)| async move {
+        .map(|url| async move {
             let result = rpc::send(c, url, StatusRequest {}).await;
             (url, result)
         })

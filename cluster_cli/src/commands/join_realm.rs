@@ -1,25 +1,22 @@
 use anyhow::anyhow;
 use reqwest::Url;
 
+use crate::cluster::ClusterInfo;
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
-use store::StoreClient;
-
-use crate::get_hsm_statuses;
 
 pub async fn join_realm(
     realm: RealmId,
     agent_addresses: &[Url],
     agents_client: &Client,
-    store: &StoreClient,
+    cluster: &ClusterInfo,
 ) -> anyhow::Result<()> {
     println!(
         "Requesting {} HSMs to join realm {realm:?}",
         agent_addresses.len()
     );
 
-    let hsm_statuses = get_hsm_statuses(agents_client, store).await?;
-    let Some((existing, _)) = hsm_statuses.into_iter().find(|(_, status)| {
+    let Some((_, existing)) = cluster.hsm_statuses().find(|(status, _)| {
         status
             .realm
             .as_ref()
@@ -30,7 +27,7 @@ pub async fn join_realm(
         ));
     };
 
-    cluster_core::join_realm(agents_client, realm, agent_addresses, &existing).await?;
+    cluster_core::join_realm(agents_client, realm, agent_addresses, existing).await?;
     println!("HSMs done joining realm");
     Ok(())
 }
