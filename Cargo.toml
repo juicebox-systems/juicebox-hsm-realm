@@ -107,7 +107,7 @@ chrono = { version = "=0.4.31", default-features = false }
 # ciborium and ciborium-io are pinned because we have a local fork.
 ciborium = { version = "=0.2.1", default-features = false }
 ciborium-io = { version = "=0.2.1", default-features = false }
-clap = { version = "4.4.14", features = ["derive", "string"] }
+clap = { version = "4.4.14", features = ["derive", "string", "env"] }
 cluster_api = { path = "cluster_api" }
 cluster_core = { path = "cluster_core" }
 digest = "0.10.7"

@@ -25,11 +25,13 @@ Options:
       --bigtable-project <PROJECT>
           The name of the GCP project that contains the bigtable instance
           
+          [env: JB_GCP_PROJECT=]
           [default: prj]
 
       --bigtable-instance <INSTANCE>
           The name of the bigtable instance to connect to
           
+          [env: JB_BIGTABLE=]
           [default: instance]
 
       --bigtable-url <URL>
