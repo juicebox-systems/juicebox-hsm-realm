@@ -43,11 +43,19 @@ use merkle::{DeleteKeySet, InstanceIds, MerkleDeleteQueue};
 #[derive(clap::Args, Clone, Debug)]
 pub struct BigtableArgs {
     /// The name of the GCP project that contains the bigtable instance.
-    #[arg(long = "bigtable-project", default_value = "prj")]
+    #[arg(
+        long = "bigtable-project",
+        default_value = "prj",
+        env = "JB_GCP_PROJECT"
+    )]
     pub project: String,
 
     /// The name of the bigtable instance to connect to.
-    #[arg(long = "bigtable-instance", default_value = "instance")]
+    #[arg(
+        long = "bigtable-instance",
+        default_value = "instance",
+        env = "JB_BIGTABLE"
+    )]
     pub instance: String,
 
     /// The url to the bigtable emulator [default uses GCP endpoints].
