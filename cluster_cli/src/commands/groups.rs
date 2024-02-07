@@ -2,12 +2,10 @@ use reqwest::Url;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, OwnedRange};
-use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
-use store::StoreClient;
 use table::{Column, FmtWriteStdOut, Justify, Table, TableStyle};
 
-use crate::get_hsm_statuses;
+use crate::cluster::ClusterInfo;
 
 #[derive(Default)]
 struct GroupInfo {
@@ -15,12 +13,10 @@ struct GroupInfo {
     leader: Option<(HsmId, LeaderStatus)>,
 }
 
-pub async fn status(c: &Client, store: &StoreClient) -> anyhow::Result<()> {
-    let status_responses = get_hsm_statuses(c, store).await?;
-
+pub async fn status(cluster: &ClusterInfo) -> anyhow::Result<()> {
     let mut realms: BTreeMap<RealmId, BTreeSet<GroupId>> = BTreeMap::new();
     let mut groups: BTreeMap<GroupId, GroupInfo> = BTreeMap::new();
-    for (_, status_response) in &status_responses {
+    for (status_response, _) in cluster.hsm_statuses() {
         if let Some(realm_status) = &status_response.realm {
             for group in &realm_status.groups {
                 realms.entry(realm_status.id).or_default().insert(group.id);
@@ -33,9 +29,9 @@ pub async fn status(c: &Client, store: &StoreClient) -> anyhow::Result<()> {
         }
     }
 
-    let addresses: HashMap<HsmId, Url> = status_responses
-        .into_iter()
-        .map(|(url, status)| (status.id, url))
+    let addresses: HashMap<HsmId, Url> = cluster
+        .hsm_statuses()
+        .map(|(status, url)| (status.id, url.clone()))
         .collect();
 
     for (realm, realm_groups) in realms {

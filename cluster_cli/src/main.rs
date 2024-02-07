@@ -7,16 +7,21 @@ use std::time::{Duration, SystemTime};
 use tracing::{info, Level};
 
 use google::{auth, GrpcConnectionOptions};
-use hsm_api::{GroupId, OwnedRange, RecordId};
+use hsm_api::{OwnedRange, RecordId};
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_realm_api::types::RealmId;
 use juicebox_realm_auth::Scope;
 use observability::{logging, metrics};
 use secret_manager::new_google_secret_manager;
 
+mod cluster;
 mod commands;
 mod statuses;
 
+use cluster::{
+    parse_resolvable_group_id, parse_resolvable_realm_id, ClusterInfo, ResolvableGroupId,
+    ResolvableRealmId,
+};
 use statuses::get_hsm_statuses;
 
 /// A CLI tool for interacting with the cluster.
@@ -52,8 +57,8 @@ enum Command {
         #[arg(short = 'u', long)]
         user: String,
         /// The ID of the realm that the token should be valid for.
-        #[arg(short='r', long, value_parser = parse_realm_id)]
-        realm: RealmId,
+        #[arg(short='r', long, value_parser = parse_resolvable_realm_id)]
+        realm: ResolvableRealmId,
         /// The scope to include in the token.
         #[arg(short = 's', long, default_value_t)]
         scope: Scope,
@@ -91,8 +96,8 @@ enum Command {
     /// to complete.
     JoinRealm {
         /// The ID of the realm to join.
-        #[arg(long, value_parser = parse_realm_id)]
-        realm: RealmId,
+        #[arg(long, value_parser = parse_resolvable_realm_id)]
+        realm: ResolvableRealmId,
 
         /// URLs of agents whose HSMs will join the realm.
         #[arg(required = true)]
@@ -105,8 +110,8 @@ enum Command {
     /// 'transfer' to assign it ownership.
     NewGroup {
         /// The ID of the realm in which to create the new group.
-        #[arg(long, value_parser = parse_realm_id)]
-        realm: RealmId,
+        #[arg(long, value_parser = parse_resolvable_realm_id)]
+        realm: ResolvableRealmId,
 
         /// URLs of agents whose HSMs will form the new group.
         ///
@@ -160,8 +165,8 @@ enum Command {
         table: Table,
 
         /// Realm ID.
-        #[arg(value_parser = parse_realm_id)]
-        realm: RealmId,
+        #[arg(value_parser = parse_resolvable_realm_id)]
+        realm: ResolvableRealmId,
     },
 
     /// Transfer ownership of user records from one group to another.
@@ -174,23 +179,23 @@ enum Command {
         cluster: Option<Url>,
 
         /// Realm ID.
-        #[arg(long, value_parser = parse_realm_id)]
-        realm: RealmId,
+        #[arg(long, value_parser = parse_resolvable_realm_id)]
+        realm: ResolvableRealmId,
 
         /// ID of group that currently owns the range to be transferred.
         ///
         /// The source group's current ownership must extend from exactly
         /// '--start' and/or up to exactly '--end'. In other words, this
         /// transfer cannot leave a gap in the source group's owned range.
-        #[arg(long, value_parser = parse_group_id)]
-        source: GroupId,
+        #[arg(long, value_parser = parse_resolvable_group_id)]
+        source: ResolvableGroupId,
 
         /// ID of group that should be the new owner of the range.
         ///
         /// The destination group must currently own either nothing or an
         /// adjacent range.
-        #[arg(long, value_parser = parse_group_id)]
-        destination: GroupId,
+        #[arg(long, value_parser = parse_resolvable_group_id)]
+        destination: ResolvableGroupId,
 
         /// The first record ID in the range, in hex.
         ///
@@ -213,8 +218,8 @@ enum Command {
     UserSummary {
         /// Restrict the report to just these realms(s). If not set will report
         /// on realms that are found via service discovery.
-        #[arg(long, value_parser=parse_realm_id)]
-        realm: Vec<RealmId>,
+        #[arg(long, value_parser=parse_resolvable_realm_id)]
+        realm: Vec<ResolvableRealmId>,
 
         /// What time period to report on.
         #[arg(long, value_enum, default_value_t=UserSummaryWhen::ThisMonth)]
@@ -277,8 +282,8 @@ enum ExperimentalCommand {
         /// Default: create a new realm if none are discoverable, use the one
         /// realm if exactly one is found, or fail if more than one realm is
         /// found.
-        #[arg(long, value_parser = parse_realm_id)]
-        realm: Option<RealmId>,
+        #[arg(long, value_parser = parse_resolvable_realm_id)]
+        realm: Option<ResolvableRealmId>,
     },
 }
 
@@ -349,9 +354,10 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .context("unable to connect to Bigtable")?;
 
     let agents_client = Client::new(ClientOptions::default());
+    let cluster_info = ClusterInfo::new(&store, &agents_client).await?;
 
     match args.command {
-        Command::Agents => commands::agents::list_agents(&agents_client, &store).await,
+        Command::Agents => commands::agents::list_agents(&agents_client, &cluster_info).await,
 
         Command::AuthToken {
             tenant,
@@ -363,19 +369,15 @@ async fn run(args: Args) -> anyhow::Result<()> {
                 &secret_manager.unwrap(),
                 tenant,
                 user,
-                realm,
+                realm.resolve(&cluster_info)?,
                 scope,
             )
             .await
         }
 
         Command::Configuration { load_balancer } => {
-            commands::configuration::print_sensible_configuration(
-                &load_balancer,
-                &agents_client,
-                &store,
-            )
-            .await
+            commands::configuration::print_sensible_configuration(&load_balancer, &cluster_info)
+                .await
         }
 
         Command::Experimental { command } => match command {
@@ -385,7 +387,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
                 group_size,
             } => {
                 commands::assimilate::assimilate(
-                    realm,
+                    realm.map(|id| id.resolve(&cluster_info)).transpose()?,
                     group_size,
                     &agents_client,
                     &store,
@@ -395,14 +397,21 @@ async fn run(args: Args) -> anyhow::Result<()> {
             }
         },
 
-        Command::Groups => commands::groups::status(&agents_client, &store).await,
+        Command::Groups => commands::groups::status(&cluster_info).await,
 
         Command::JoinRealm { realm, agents } => {
-            commands::join_realm::join_realm(realm, &agents, &agents_client, &store).await
+            commands::join_realm::join_realm(
+                realm.resolve(&cluster_info)?,
+                &agents,
+                &agents_client,
+                &cluster_info,
+            )
+            .await
         }
 
         Command::NewGroup { realm, agents } => {
-            commands::new_group::new_group(realm, &agents, &agents_client).await
+            commands::new_group::new_group(realm.resolve(&cluster_info)?, &agents, &agents_client)
+                .await
         }
 
         Command::NewRealm { agent } => commands::new_realm::new_realm(&agent, &agents_client).await,
@@ -410,12 +419,12 @@ async fn run(args: Args) -> anyhow::Result<()> {
         Command::TableStats {
             table: Table::Log,
             realm,
-        } => commands::table_stats::print_log_stats(realm, &store).await,
+        } => commands::table_stats::print_log_stats(realm.resolve(&cluster_info)?, &store).await,
 
         Command::TableStats {
             table: Table::Merkle,
             realm,
-        } => commands::table_stats::print_merkle_stats(realm, &store).await,
+        } => commands::table_stats::print_merkle_stats(realm.resolve(&cluster_info)?, &store).await,
 
         Command::Transfer {
             cluster,
@@ -426,12 +435,13 @@ async fn run(args: Args) -> anyhow::Result<()> {
             end,
         } => {
             commands::transfer::transfer(
+                &cluster_info,
+                &agents_client,
                 &cluster,
-                realm,
-                source,
-                destination,
+                realm.resolve(&cluster_info)?,
+                source.resolve(&cluster_info)?.group,
+                destination.resolve(&cluster_info)?.group,
                 OwnedRange { start, end },
-                &store,
             )
             .await
         }
@@ -441,7 +451,14 @@ async fn run(args: Args) -> anyhow::Result<()> {
             stepdown_type,
             id,
         } => {
-            commands::stepdown::stepdown(&store, &agents_client, &cluster, stepdown_type, &id).await
+            commands::stepdown::stepdown(
+                &cluster_info,
+                &agents_client,
+                &cluster,
+                stepdown_type,
+                &id,
+            )
+            .await
         }
 
         Command::Rebalance { cluster, full } => {
@@ -453,28 +470,27 @@ async fn run(args: Args) -> anyhow::Result<()> {
             when,
             start,
             end,
-        } => commands::users::user_summary(&store, &agents_client, realms, when, start, end).await,
+        } => {
+            let realms = realms
+                .into_iter()
+                .map(|id| id.resolve(&cluster_info))
+                .collect::<Result<Vec<RealmId>, _>>()?;
+            commands::users::user_summary(&store, &agents_client, realms, when, start, end).await
+        }
     }
 }
 
-fn parse_realm_id(buf: &str) -> Result<RealmId, hex::FromHexError> {
-    let id = hex::decode(buf)?;
-    Ok(RealmId(
-        id.try_into()
-            .map_err(|_| hex::FromHexError::InvalidStringLength)?,
-    ))
-}
-
-fn parse_group_id(buf: &str) -> Result<GroupId, hex::FromHexError> {
-    let id = hex::decode(buf)?;
-    Ok(GroupId(
-        id.try_into()
-            .map_err(|_| hex::FromHexError::InvalidStringLength)?,
-    ))
-}
-
 fn parse_record_id(buf: &str) -> Result<RecordId, hex::FromHexError> {
-    let id = hex::decode(buf)?;
+    let mut id = hex::decode(buf)?;
+    if id.len() < RecordId::NUM_BYTES {
+        // If the last provided byte is 0 or FF, use it to pad the remaining
+        // bytes of the id.
+        if let Some(last) = id.last() {
+            if *last == 0 || *last == 0xFF {
+                id.resize(RecordId::NUM_BYTES, *last);
+            }
+        }
+    }
     Ok(RecordId(
         id.try_into()
             .map_err(|_| hex::FromHexError::InvalidStringLength)?,
@@ -509,7 +525,38 @@ mod tests {
     use chrono::{DateTime, Datelike};
     use clap::CommandFactory;
     use expect_test::expect_file;
+    use hex::FromHexError;
     use std::fmt::Write;
+
+    #[test]
+    fn test_parse_record_id() {
+        assert_eq!(
+            Ok(RecordId::min_id()),
+            parse_record_id("0000000000000000000000000000000000000000000000000000000000000000")
+        );
+        assert_eq!(Ok(RecordId::min_id()), parse_record_id("00"));
+        let mut exp = RecordId::min_id();
+        exp.0[0] = 0x20;
+        assert_eq!(Ok(exp), parse_record_id("2000"));
+
+        assert_eq!(
+            Ok(RecordId::max_id()),
+            parse_record_id("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+        );
+        assert_eq!(Ok(RecordId::max_id()), parse_record_id("ff"));
+        let mut exp = RecordId::max_id();
+        exp.0[0] = 0x7f;
+        assert_eq!(Ok(exp), parse_record_id("7fff"));
+
+        assert_eq!(
+            Ok(RecordId([0x22; 32])),
+            parse_record_id("2222222222222222222222222222222222222222222222222222222222222222")
+        );
+        assert_eq!(
+            Err(FromHexError::InvalidStringLength),
+            parse_record_id("22")
+        );
+    }
 
     #[test]
     fn parse_date() {
