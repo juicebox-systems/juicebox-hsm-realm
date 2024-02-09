@@ -52,6 +52,7 @@ gcloud storage cp \
   "target/$MODE/service_checker" \
   "target/$MODE/software_agent" \
   "target/$MODE/software_hsm" \
+  "target/$MODE/chaos" \
   "gs://$GSPATH/"
 
 if [ "$ENTRUST" -eq "1" ]; then
