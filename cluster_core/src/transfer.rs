@@ -78,7 +78,7 @@ pub async fn perform_transfer(
         // committed. (where protocol safety requires the log entry to commit).
 
         info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination,
-            "starting PrepareTransfer");
+            range=%transfer.range, "starting PrepareTransfer");
         let (nonce, prepared_stmt) = prepare_transfer(
             client,
             dest_leader,
@@ -97,7 +97,7 @@ pub async fn perform_transfer(
         }
 
         info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination,
-            "transfer prepared, starting TransferOut");
+            range=%transfer.range, "transfer prepared, starting TransferOut");
         let (transferring_partition, transfer_stmt) = transfer_out(
             client,
             source_leader,
@@ -119,7 +119,7 @@ pub async fn perform_transfer(
         }
 
         info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination,
-            "transfer out completed, starting TransferIn");
+            range=%transfer.range, "transfer out completed, starting TransferIn");
         transfer_in(
             client,
             dest_leader,
@@ -175,9 +175,8 @@ pub async fn perform_transfer(
         .map_err(classify)
     };
 
-    info!(realm=?transfer.realm, source=?transfer.source,
-        destination=?transfer.destination,
-        "transfer in completed, starting CompleteTransfer");
+    info!(realm=?transfer.realm, source=?transfer.source, destination=?transfer.destination,
+        range=%transfer.range, "transfer in completed, starting CompleteTransfer");
 
     retry_loop::Retry::new("completing transfer of ownership of record ID range")
         .with_deadline(Some(deadline))
@@ -240,6 +239,11 @@ async fn transfer_out(
             cancel_prepared_transfer(client, dest_leader, transfer).await;
             Err(Error::OtherTransferPending)
         }
+        Ok(TransferOutResponse::InvalidProof) => {
+            warn!("TransferOut reported invalid proof");
+            cancel_prepared_transfer(client, dest_leader, transfer).await;
+            Err(Error::UnacceptableRange)
+        }
         Ok(TransferOutResponse::CommitTimeout) => {
             // This might still commit, so we shouldn't cancel the prepare.
             Err(Error::CommitTimeout)
@@ -250,9 +254,6 @@ async fn transfer_out(
             | TransferOutResponse::NoHsm
             | TransferOutResponse::NotLeader,
         ) => Err(Error::NoSourceLeader),
-        Ok(TransferOutResponse::InvalidProof) => {
-            panic!("TransferOut reported invalid proof");
-        }
         Ok(TransferOutResponse::InvalidRealm) => {
             unreachable!(
                 "TransferOut reported invalid realm for realm:{:?}",

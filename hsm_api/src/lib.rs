@@ -417,21 +417,30 @@ impl OwnedRange {
         }
     }
 
+    pub fn is_valid(&self) -> bool {
+        self.start <= self.end
+    }
+
     pub fn contains(&self, record_id: &RecordId) -> bool {
+        assert!(self.is_valid());
         record_id >= &self.start && record_id <= &self.end
     }
 
     pub fn overlaps(&self, other: &OwnedRange) -> bool {
+        assert!(self.is_valid());
         self.contains(&other.start) || self.contains(&other.end)
     }
 
     pub fn contains_range(&self, other: &OwnedRange) -> bool {
+        assert!(self.is_valid());
         self.contains(&other.start) && self.contains(&other.end)
     }
 
     /// Returns the single range resulting from merging `self` and `other`, or
     /// returns `None` if the two are not adjacent.
     pub fn join(&self, other: &OwnedRange) -> Option<Self> {
+        assert!(self.is_valid());
+        assert!(other.is_valid());
         match self.end.next() {
             Some(r) if r == other.start => Some(OwnedRange {
                 start: self.start.clone(),
@@ -452,6 +461,8 @@ impl OwnedRange {
     /// If `other` can be split out of `self`, returns the starting record ID
     /// in the resulting right-side range. Otherwise, returns None.
     pub fn split_at(&self, other: &OwnedRange) -> Option<RecordId> {
+        assert!(self.is_valid());
+        assert!(other.is_valid());
         if self.start == other.start && other.end < self.end {
             Some(other.end.next().unwrap())
         } else if self.end == other.end && other.start > self.start {
@@ -2171,6 +2182,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     fn owned_range_split_at_invalid() {
         let owns = OwnedRange {
             start: rec_id("0e33333300000000000000000000000000000000000000000000000000000000"),
