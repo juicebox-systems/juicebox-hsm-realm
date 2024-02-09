@@ -2171,6 +2171,19 @@ mod tests {
     }
 
     #[test]
+    fn owned_range_split_at_invalid() {
+        let owns = OwnedRange {
+            start: rec_id("0e33333300000000000000000000000000000000000000000000000000000000"),
+            end: rec_id("12333332ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+        };
+        let other = OwnedRange {
+            start: rec_id("0e33333300000000000000000000000000000000000000000000000000000000"),
+            end: rec_id("0e333332ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+        };
+        assert_eq!(None, owns.split_at(&other));
+    }
+
+    #[test]
     fn owned_range_join_split() {
         let a = OwnedRange {
             start: RecordId([33; RecordId::NUM_BYTES]),
@@ -2256,5 +2269,11 @@ mod tests {
         let mut end = RecordId::max_id();
         end.0[0] = e;
         OwnedRange { start, end }
+    }
+
+    fn rec_id(s: &str) -> RecordId {
+        let mut r = RecordId::min_id();
+        hex::decode_to_slice(s, &mut r.0).unwrap();
+        r
     }
 }

@@ -15,3 +15,6 @@ juicebox_noise = { workspace = true }
 juicebox_realm_api = { workspace = true }
 serde = { workspace = true }
 subtle = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }

@@ -1525,6 +1525,7 @@ dependencies = [
  "bitvec",
  "blake2",
  "digest",
+ "hex",
  "juicebox_marshalling",
  "juicebox_noise",
  "juicebox_realm_api",
