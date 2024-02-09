@@ -111,8 +111,8 @@ jobs:
         timeout-minutes: 20
         strategy:
           matrix:
-            # PaddedSecretsResponse (PR #405).
-            hsm_version: ["9a6e0ed5326240dd2a50411c9a9df1b659ce9500"]
+            # Transfer fixes (PR #437).
+            hsm_version: ["38601f81b779e56522281649d55abe0641ee9ca5"]
         steps:
         - name: Check out sources
           uses: actions/checkout@v4
