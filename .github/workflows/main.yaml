@@ -410,6 +410,7 @@ jobs:
       run: ./entrust_hsm/compile_linux.sh
 
     - name: Publish build to GCP bucket
+      if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       run: |
         PROJECT='juicebox-infra'
         BUCKET='9c39e3ca5fca69f058b9e673aef193b10d9e8c48' # sha1("ci-builds\n")
