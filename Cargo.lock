@@ -478,6 +478,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "chaos_puppy"
+version = "0.2.3"
+dependencies = [
+ "agent_api",
+ "anyhow",
+ "async-trait",
+ "build_info",
+ "clap",
+ "cluster_api",
+ "cluster_core",
+ "google",
+ "hsm_api",
+ "juicebox_marshalling",
+ "juicebox_networking",
+ "juicebox_realm_api",
+ "observability",
+ "rand",
+ "rand_core",
+ "service_core",
+ "store",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
