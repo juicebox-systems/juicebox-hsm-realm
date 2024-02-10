@@ -321,7 +321,6 @@ impl<T: Transport + 'static> Agent<T> {
                 ?realm,
                 ?group,
                 ?next_index,
-                no_spew = 1,
                 "start watching log"
             );
             let mut it = self.0.store.read_log_entries_iter(
@@ -1775,7 +1774,7 @@ impl<T: Transport + 'static> Agent<T> {
                 return;
             }
 
-            info!(?group, from=%group_state.role, to=%role_now, no_spew=1, "HSM role transitioned");
+            info!(?group, from=%group_state.role, to=%role_now, "HSM role transitioned");
             group_state.role = role_now.clone();
 
             match role_now.role {
@@ -1814,7 +1813,7 @@ impl<T: Transport + 'static> Agent<T> {
             }
         };
         if let Some((config, starting_index)) = starting_info {
-            info!(name=?self.0.name, ?realm, ?group, no_spew=1, "Starting group committer");
+            info!(name=?self.0.name, ?realm, ?group, "Starting group committer");
             tokio::spawn(
                 self.clone()
                     .group_committer(realm, group, config, starting_index),

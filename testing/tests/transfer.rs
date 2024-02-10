@@ -10,7 +10,7 @@ use std::fs;
 use std::iter::zip;
 use std::path::PathBuf;
 
-use cluster_api::TransferRequest;
+use cluster_api::{TransferError, TransferRequest};
 use cluster_core::new_group;
 use hsm_api::{GroupId, OwnedRange, RecordId};
 use hsm_core::merkle::testing::rec_id;
@@ -144,6 +144,7 @@ async fn transfer() {
     .await
     .unwrap()
     .unwrap();
+    // at this point groups[1] owns partitions 0 & 1, and groups[2] owns partitions 2 & 3
 
     // do some recovers
     for (r, expected) in join_all(clients.iter().map(|(client, expected)| {
@@ -206,6 +207,27 @@ async fn transfer() {
     {
         assert_eq!(r.unwrap().expose_secret(), expected.expose_secret());
     }
+
+    // shouldn't be able to transfer an invalid range
+    let range = OwnedRange {
+        start: partitions[2].start.clone(),
+        end: partitions[2].start.prev().unwrap(),
+    };
+    assert_eq!(
+        Err(TransferError::UnacceptableRange),
+        rpc::send(
+            &agent_client,
+            &cluster.cluster_managers[0],
+            TransferRequest {
+                realm,
+                source: group_ids[2],
+                destination: group_ids[3],
+                range,
+            },
+        )
+        .await
+        .unwrap()
+    );
 
     processes.kill();
 }

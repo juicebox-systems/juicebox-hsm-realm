@@ -29,7 +29,7 @@ impl Puppy for OwnershipTransfer {
         }
         owners.sort_by(|a, b| a.realm.cmp(&b.realm).then_with(|| start(a).cmp(start(b))));
         for o in &owners {
-            info!(realm=?o.realm, group=?o.group, agent=?o.agent, range=?o.range, "group owns range");
+            info!(realm=?o.realm, group=?o.group, agent=%o.agent, range=%o.range.as_ref().unwrap(), "group owns range");
         }
         if !empty_groups.is_empty() {
             let ids: Vec<GroupId> = empty_groups.iter().map(|g| g.group).collect();

@@ -25,6 +25,10 @@ impl<P: Platform> Hsm<P> {
         if request.destination == request.source {
             return Response::InvalidGroup;
         }
+        if !request.range.is_valid() {
+            return Response::UnacceptableRange;
+        }
+
         let leader = match is_group_leader(
             &self.persistent,
             &mut self.volatile.groups,
@@ -121,6 +125,9 @@ impl<P: Platform> Hsm<P> {
 
         if request.source == request.destination {
             return Response::InvalidGroup;
+        }
+        if !request.range.is_valid() {
+            return Response::NotOwner;
         }
 
         let leader = match is_group_leader(
