@@ -413,11 +413,8 @@ jobs:
       if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       run: |
         PROJECT='juicebox-infra'
-        BUCKET='9c39e3ca5fca69f058b9e673aef193b10d9e8c48' # sha1("ci-builds\n")
-
-        GIT="git-$(git describe --always --dirty)"
-        TIMESTAMP="$(date -u '+%Y%m%d%H%M%SZ')"
-        GSPATH="$BUCKET/$TIMESTAMP/$GIT/release"
+        # bucket is sha1("ci-builds\n")
+        GSPATH="9c39e3ca5fca69f058b9e673aef193b10d9e8c48/${{github.sha}}/"
         gcloud storage cp \
           "target/release/cluster" \
           "target/release/cluster_bench" \
