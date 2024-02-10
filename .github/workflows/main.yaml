@@ -408,3 +408,24 @@ jobs:
 
     - name: Run cargo build (PPC entrust_hsm.elf)
       run: ./entrust_hsm/compile_linux.sh
+
+    - name: Publish build to GCP bucket
+      if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      run: |
+        PROJECT='juicebox-infra'
+        # bucket is sha1("ci-builds\n")
+        GSPATH="9c39e3ca5fca69f058b9e673aef193b10d9e8c48/${{github.sha}}/"
+        gcloud storage cp \
+          "target/release/cluster" \
+          "target/release/cluster_bench" \
+          "target/release/cluster_manager" \
+          "target/release/load_balancer" \
+          "target/release/service_checker" \
+          "target/release/software_agent" \
+          "target/release/software_hsm" \
+          "target/release/chaos" \
+          "target/release/entrust_agent" \
+          "target/release/entrust_init" \
+          "target/release/entrust_ops" \
+          "target/powerpc-unknown-linux-gnu/release/entrust_hsm.elf" \
+          "gs://$GSPATH/"
