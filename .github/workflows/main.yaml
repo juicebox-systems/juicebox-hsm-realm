@@ -407,7 +407,7 @@ jobs:
         command: build
 
     - name: Run cargo build (PPC entrust_hsm.elf)
-      run: ./entrust_hsm/compile_linux.sh
+      run: ./entrust_hsm/compile_linux.sh --features insecure
 
     - name: Publish build to GCP bucket
       if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
