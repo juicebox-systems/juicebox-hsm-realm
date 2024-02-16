@@ -68,16 +68,10 @@ async fn main() {
         .await
         .expect("Unable to connect to Bigtable admin");
 
-    info!("initializing service discovery table");
     store_admin
-        .initialize_discovery()
+        .initialize_shared_tables()
         .await
-        .expect("Failed to initialize service discovery table");
-
-    store_admin
-        .initialize_leases()
-        .await
-        .expect("Failed to initialize lease table");
+        .expect("Failed to initialize shared tables");
 
     let store = args
         .bigtable

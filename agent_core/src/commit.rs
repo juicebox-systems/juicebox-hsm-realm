@@ -10,10 +10,11 @@ use tracing::{info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::hsm::Transport;
+use super::peers::DiscoveryWatcher;
 use super::{group_state, group_state_mut, Agent, LeaderState};
 use agent_api::{ReadCapturedRequest, ReadCapturedResponse};
 use async_util::ScopedTask;
-use cluster_core::discover_hsm_ids;
+use cluster_core::hsm_ids;
 use election::HsmElection;
 use hsm_api::{
     AppResultType, Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole,
@@ -27,7 +28,7 @@ use observability::metrics::{self, Tag};
 use observability::metrics_tag as tag;
 use service_core::http::ReqwestClientMetrics;
 use store::log::LogRow;
-use store::StoreClient;
+use store::ServiceKind;
 
 /// Returned by [`Agent::commit_maybe`] and its helper [`Agent::do_commit`].
 #[derive(Debug, Eq, PartialEq)]
@@ -83,12 +84,11 @@ impl<T: Transport + 'static> Agent<T> {
     ) {
         let tags = [tag!(?realm), tag!(?group)];
         let agent_discovery = AgentDiscoveryCache::new(
-            self.0.store.clone(),
+            &self.0.discovery,
             self.0.peer_client.clone(),
             Duration::from_secs(10),
         )
         .await;
-
         // Spawn the log compactor task. The channel tracks the latest compact
         // index (see `get_compact_index`). The ScopedTask's Drop impl aborts
         // the task when the committer task exits.
@@ -611,43 +611,45 @@ struct AgentDiscoveryCacheInner {
 
 impl AgentDiscoveryCache {
     async fn new(
-        store: StoreClient,
-        agent_client: ReqwestClientMetrics,
+        disco: &DiscoveryWatcher,
+        client: ReqwestClientMetrics,
         interval: Duration,
     ) -> Self {
-        let init_peers: HashMap<HsmId, Url> = match discover_hsm_ids(&store, &agent_client).await {
-            Ok(it) => it.collect(),
-            Err(_) => HashMap::new(),
-        };
+        let mut disco_rx = disco.subscribe(ServiceKind::Agent);
+        let agents = disco_rx.borrow_and_update().clone();
+        let init_peers: HashMap<HsmId, Url> = hsm_ids(&client, &agents.0).await.collect();
+        info!(?init_peers, "initialized agent discovery cache");
 
         let c = Self {
             inner: Arc::new(Mutex::new(AgentDiscoveryCacheInner {
-                peers: init_peers,
+                peers: init_peers.clone(),
                 task: None,
             })),
         };
 
         let clone = c.clone();
         let task = Some(ScopedTask::spawn(async move {
-            let mut next_interval = interval;
+            let mut last = init_peers;
             loop {
-                sleep(next_interval).await;
-                match discover_hsm_ids(&store, &agent_client).await {
-                    Ok(it) => {
-                        let new_peers: HashMap<HsmId, Url> = it.collect();
-                        let mut locked = clone.inner.lock().unwrap();
-                        locked.peers = new_peers;
-                        next_interval = interval;
-                    }
-                    Err(err) => {
-                        warn!(?err, "failed to fetch service discovery info from bigtable");
-                        next_interval = interval / 10;
-                    }
+                // If an agent is down or unreachable, it'll get dropped from
+                // the peers cache. This means callers using the cache will skip
+                // that agent entirely until this loops spots that its available
+                // again. This is useful particularly for get_captures as it
+                // prevents it from having to wait for the timeout each time its
+                // called. Otherwise this would only need to call hsm_ids again
+                // if the set of discovery urls changed.
+                sleep(interval).await;
+                let agents = disco_rx.borrow_and_update().clone();
+                let new_peers: HashMap<HsmId, Url> = hsm_ids(&client, &agents.0).await.collect();
+                if new_peers != last {
+                    last = new_peers.clone();
+                    info!(?new_peers, "updated peers in AgentDiscoveryCache");
+                    let mut locked = clone.inner.lock().unwrap();
+                    locked.peers = new_peers;
                 }
             }
         }));
         c.inner.lock().unwrap().task = task;
-
         c
     }
 

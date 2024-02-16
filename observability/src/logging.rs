@@ -1,7 +1,7 @@
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
-use opentelemetry_sdk::trace::{Sampler, ShouldSample};
+use opentelemetry_sdk::trace::{BatchConfig, Sampler, ShouldSample};
 use opentelemetry_sdk::Resource;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -175,6 +175,11 @@ pub fn configure_with_options(options: Options) {
                     background: options.background_trace_sampler,
                 })
                 .with_resource(Resource::new(resource_properties)),
+        )
+        .with_batch_config(
+            BatchConfig::default()
+                .with_scheduled_delay(Duration::from_secs_f32(2.5))
+                .with_max_export_batch_size(450),
         )
         .install_batch(opentelemetry_sdk::runtime::Tokio)
         .expect("TODO");

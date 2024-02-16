@@ -169,6 +169,12 @@ enum Command {
         realm: ResolvableRealmId,
     },
 
+    /// Operations for managing tenants
+    Tenant {
+        #[command(subcommand)]
+        command: TenantCommand,
+    },
+
     /// Transfer ownership of user records from one group to another.
     ///
     /// Both groups must already exist and be part of the same realm.
@@ -252,6 +258,18 @@ enum Table {
 enum StepdownType {
     Hsm,
     Group,
+}
+
+#[derive(Subcommand)]
+enum TenantCommand {
+    /// Configure the capacity/rate limit for a tenant.
+    SetCapacity {
+        /// The tenant name/identifier.
+        tenant: String,
+
+        /// The number of allowed (client) operations per second.
+        ops_per_sec: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -425,6 +443,13 @@ async fn run(args: Args) -> anyhow::Result<()> {
             table: Table::Merkle,
             realm,
         } => commands::table_stats::print_merkle_stats(realm.resolve(&cluster_info)?, &store).await,
+
+        Command::Tenant { command } => match command {
+            TenantCommand::SetCapacity {
+                tenant,
+                ops_per_sec,
+            } => commands::tenants::set_capacity(&store, &agents_client, tenant, ops_per_sec).await,
+        },
 
         Command::Transfer {
             cluster,
@@ -609,6 +634,8 @@ mod tests {
             vec!["cluster", "rebalance", "--help"],
             vec!["cluster", "stepdown", "--help"],
             vec!["cluster", "table-stats", "--help"],
+            vec!["cluster", "tenant", "--help"],
+            vec!["cluster", "tenant", "set-capacity", "--help"],
             vec!["cluster", "transfer", "--help"],
             vec!["cluster", "user-summary", "--help"],
         ] {

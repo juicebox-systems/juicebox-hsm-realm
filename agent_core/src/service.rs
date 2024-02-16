@@ -7,7 +7,7 @@ use tokio::task::JoinHandle;
 use tracing::info;
 
 use crate::hsm::{HsmClient, Transport};
-use crate::Agent;
+use crate::{Agent, AgentConfiguration};
 use build_info::BuildInfo;
 use google::{auth, GrpcConnectionOptions};
 use observability::{logging, metrics};
@@ -88,6 +88,11 @@ pub struct AgentArgs<SA: Args + Debug> {
     /// Name of the agent in logging [default: agent{listen}].
     #[arg(short, long)]
     pub name: Option<String>,
+
+    /// Default rate limit to apply to tenants where there's no specific
+    /// configuration found for them. In HTTP requests per second.
+    #[arg(long, default_value_t = 10)]
+    pub default_rate_limit: usize,
 
     // Args for a specific type of agent service.
     #[command(flatten)]
@@ -202,13 +207,16 @@ where
     );
 
     let agent = Agent::new(
-        name,
-        build_info,
+        AgentConfiguration {
+            name,
+            build_info,
+            store,
+            store_admin,
+            event_publisher: pubsub,
+            metrics,
+            default_rate_limiter_rate: args.default_rate_limit,
+        },
         hsm_client,
-        store,
-        store_admin,
-        pubsub,
-        metrics,
     );
     let agent_clone = agent.clone();
     shutdown_tasks.add(Box::pin(async move {

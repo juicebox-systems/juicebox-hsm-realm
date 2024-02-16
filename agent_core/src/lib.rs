@@ -7,13 +7,12 @@ use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use hyper_util::rt::TokioIo;
-use observability::tracing::TracingMiddleware;
 use serde_json::json;
-use service_core::http::ReqwestClientMetrics;
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Arguments;
 use std::future::Future;
+use std::iter;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -29,6 +28,8 @@ mod append;
 mod commit;
 pub mod hsm;
 pub mod merkle;
+mod peers;
+mod rate;
 pub mod service;
 mod tenants;
 mod transfer;
@@ -39,8 +40,10 @@ use agent_api::{
     CancelPreparedTransferRequest, CompleteTransferRequest, GroupOwnsRangeRequest, HashedUserId,
     JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest,
     NewGroupResponse, NewRealmRequest, NewRealmResponse, PrepareTransferRequest,
-    ReadCapturedRequest, ReadCapturedResponse, StatusRequest, StatusResponse, StepDownRequest,
-    StepDownResponse, TransferInRequest, TransferOutRequest,
+    RateLimitStateRequest, RateLimitStateResponse, ReadCapturedRequest, ReadCapturedResponse,
+    ReloadTenantConfigurationRequest, ReloadTenantConfigurationResponse, StatusRequest,
+    StatusResponse, StepDownRequest, StepDownResponse, TenantRateLimitState, TransferInRequest,
+    TransferOutRequest,
 };
 use append::{Append, AppendingState};
 use build_info::BuildInfo;
@@ -57,11 +60,16 @@ use juicebox_networking::rpc::{self, Rpc, SendOptions};
 use juicebox_realm_api::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
 use juicebox_realm_api::types::RealmId;
 use observability::logging::TracingSource;
+use observability::tracing::TracingMiddleware;
 use observability::{metrics, metrics_tag as tag};
+use peers::DiscoveryWatcher;
 use pubsub_api::{Message, Publisher};
+use rate::{PeerId, RateLimiter};
 use retry_loop::{retry_logging, retry_logging_debug, AttemptError, Retry, RetryError};
+use service_core::http::ReqwestClientMetrics;
 use service_core::rpc::{handle_rpc, HandlerError};
 use store::log::{LogEntriesIter, LogEntriesIterError, LogRow, ReadLastLogEntryFatal};
+use store::tenant_config::TenantConfiguration;
 use store::{discovery, store_retries, ServiceKind};
 use tenants::UserAccountingWriter;
 
@@ -77,10 +85,12 @@ struct AgentInner<T> {
     store: store::StoreClient,
     store_admin: store::StoreAdminClient,
     peer_client: ReqwestClientMetrics,
+    discovery: DiscoveryWatcher,
     state: Mutex<State>,
     metrics: metrics::Client,
     accountant: UserAccountingWriter,
     event_publisher: Box<dyn Publisher>,
+    default_rate_limiter_rate: usize,
 }
 
 #[derive(Debug)]
@@ -96,6 +106,8 @@ struct State {
     /// service discovery. It's always available for leaders. It will never go
     /// from `Some` to `None`.
     hsm_id: Option<HsmId>,
+    /// Current Tenant rate limiting state.
+    tenant_limiters: HashMap<String, RateLimiter>,
 }
 
 impl State {
@@ -231,33 +243,41 @@ impl<T> Clone for Agent<T> {
     }
 }
 
+pub struct AgentConfiguration {
+    pub name: String,
+    pub build_info: BuildInfo,
+    pub store: store::StoreClient,
+    pub store_admin: store::StoreAdminClient,
+    pub event_publisher: Box<dyn Publisher>,
+    pub metrics: metrics::Client,
+    pub default_rate_limiter_rate: usize,
+}
+
 impl<T: Transport + 'static> Agent<T> {
-    pub fn new(
-        name: String,
-        build_info: BuildInfo,
-        hsm: HsmClient<T>,
-        store: store::StoreClient,
-        store_admin: store::StoreAdminClient,
-        event_publisher: Box<dyn Publisher>,
-        metrics: metrics::Client,
-    ) -> Self {
+    pub fn new(config: AgentConfiguration, hsm: HsmClient<T>) -> Self {
         Self(Arc::new(AgentInner {
-            name,
-            build_info,
+            name: config.name,
+            build_info: config.build_info,
             boot_time: Instant::now(),
             hsm,
-            store: store.clone(),
-            store_admin,
-            peer_client: ReqwestClientMetrics::new(metrics.clone(), ClientOptions::default()),
+            store: config.store.clone(),
+            store_admin: config.store_admin,
+            peer_client: ReqwestClientMetrics::new(
+                config.metrics.clone(),
+                ClientOptions::default(),
+            ),
+            discovery: DiscoveryWatcher::new(config.store.clone()),
             state: Mutex::new(State {
                 captures: Vec::new(),
                 registered: false,
                 hsm_id: None,
                 groups: HashMap::new(),
+                tenant_limiters: HashMap::new(),
             }),
-            metrics: metrics.clone(),
-            accountant: UserAccountingWriter::new(store, metrics),
-            event_publisher,
+            metrics: config.metrics.clone(),
+            accountant: UserAccountingWriter::new(config.store, config.metrics),
+            event_publisher: config.event_publisher,
+            default_rate_limiter_rate: config.default_rate_limiter_rate,
         }))
     }
 
@@ -620,6 +640,8 @@ impl<T: Transport + 'static> Agent<T> {
         let url = Url::parse(&format!("http://{address}")).unwrap();
 
         self.start_service_registration(url.clone());
+        self.start_ratelimit_fetcher(url.clone());
+        self.start_tenant_config_fetcher().await;
         self.restart_watching().await;
         self.start_nvram_writer();
         let wd = self.clone();
@@ -715,33 +737,23 @@ impl<T: Transport + 'static> Agent<T> {
 
     // Find a cluster manager and ask it to stepdown all the groups we're leading.
     async fn stepdown_with_cluster_manager(&self, id: HsmId) {
-        match self
-            .0
-            .store
-            .get_addresses(Some(ServiceKind::ClusterManager))
-            .await
-        {
-            Ok(managers) if !managers.is_empty() => {
-                let mc =
-                    ReqwestClientMetrics::new(self.0.metrics.clone(), ClientOptions::default());
-                for manager in &managers {
+        match self.0.discovery.urls(ServiceKind::ClusterManager) {
+            managers if !managers.0.is_empty() => {
+                for manager in &managers.0 {
                     let req = cluster_api::StepDownRequest::Hsm(id);
-                    match rpc::send(&mc, &manager.0, req).await {
+                    match rpc::send(&self.0.peer_client, manager, req).await {
                         Ok(cluster_api::StepDownResponse::Ok) => return,
                         Ok(res) => {
-                            warn!(?res, url=%manager.0, "stepdown not ok");
+                            warn!(?res, url=%manager, "stepdown not ok");
                         }
                         Err(err) => {
-                            warn!(?err, url=%manager.0, "stepdown reported error");
+                            warn!(?err, url=%manager, "stepdown reported error");
                         }
                     }
                 }
             }
-            Ok(_) => {
+            _ => {
                 warn!("Unable to find cluster manager in service discovery.");
-            }
-            Err(err) => {
-                warn!(?err, "error reading from service discovery.")
             }
         }
     }
@@ -782,6 +794,139 @@ impl<T: Transport + 'static> Agent<T> {
             }
         });
     }
+
+    fn start_ratelimit_fetcher(&self, our_url: Url) {
+        let agent = self.0.clone();
+        let mut disco_rx = self.0.discovery.subscribe(ServiceKind::Agent);
+        tokio::spawn(async move {
+            let mut urls = disco_rx.borrow_and_update().excluding(&our_url);
+            info!(peers=?urls, "starting rate limit collector");
+            loop {
+                if matches!(disco_rx.has_changed(), Ok(true)) {
+                    let new_urls = disco_rx.borrow_and_update().excluding(&our_url);
+                    if !new_urls.0.is_empty() {
+                        info!(peers=?new_urls, "rate limit collector using new set of peers");
+                        urls = new_urls;
+                    }
+                }
+                let updates: Vec<(PeerId, String, Vec<u8>)> = iter::zip(
+                    urls.0.iter(),
+                    join_all(urls.0.iter().map(|url| {
+                        rpc::send_with_options(
+                            &agent.peer_client,
+                            url,
+                            RateLimitStateRequest {},
+                            SendOptions::default().with_timeout(Duration::from_millis(500)),
+                        )
+                    }))
+                    .await,
+                )
+                .filter_map(|(url, r)| match r {
+                    Ok(RateLimitStateResponse::Ok(state)) => Some((url, state)),
+                    Err(_) => {
+                        // Already logged by peer_client.
+                        None
+                    }
+                })
+                .flat_map(|(url, updates)| {
+                    updates.into_iter().map(|tenant_state| {
+                        (
+                            PeerId(url.to_string()),
+                            tenant_state.tenant,
+                            tenant_state.state,
+                        )
+                    })
+                })
+                .collect();
+                {
+                    let mut locked = agent.state.lock().unwrap();
+                    for (peer, tenant, state) in updates {
+                        locked
+                            .tenant_limiters
+                            .entry(tenant)
+                            .or_insert_with(|| RateLimiter::new(agent.default_rate_limiter_rate))
+                            .update_from_other(peer, &state);
+                    }
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        });
+    }
+
+    async fn start_tenant_config_fetcher(&self) {
+        let mut last = match self.reload_tenant_config(&[]).await {
+            Ok(ReloadTenantConfigResult::Updated(config)) => config,
+            Ok(ReloadTenantConfigResult::NotChanged) => Vec::new(),
+            Err(_) => Vec::new(),
+        };
+        let agent = self.clone();
+        tokio::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(60)).await;
+                match agent.reload_tenant_config(&last).await {
+                    Ok(ReloadTenantConfigResult::NotChanged) => {}
+                    Ok(ReloadTenantConfigResult::Updated(new_config)) => {
+                        last = new_config;
+                    }
+                    Err(_) => {
+                        // already logged
+                    }
+                }
+            }
+        });
+    }
+
+    async fn reload_tenant_config(
+        &self,
+        last: &[(String, TenantConfiguration)],
+    ) -> Result<ReloadTenantConfigResult, RetryError<tonic::Status>> {
+        match self.0.store.get_tenants().await {
+            Err(err) => {
+                warn!(?err, "failed to get tenant info from bigtable");
+                Err(err)
+            }
+            Ok(tenants) => {
+                debug!(?tenants, "got tenant info from bigtable");
+                if tenants == last {
+                    return Ok(ReloadTenantConfigResult::NotChanged);
+                }
+                {
+                    let mut state = self.0.state.lock().unwrap();
+                    for (tenant, config) in &tenants {
+                        state
+                            .tenant_limiters
+                            .entry(tenant.clone())
+                            .and_modify(|rl| rl.update_limit(config.capacity_reqs_per_sec()))
+                            .or_insert_with(|| RateLimiter::new(config.capacity_reqs_per_sec()));
+                    }
+                }
+                info!(num_tenants=?tenants.len(), "updated tenant rate limiting configuration");
+                Ok(ReloadTenantConfigResult::Updated(tenants))
+            }
+        }
+    }
+
+    async fn handle_reload_tenant_config(
+        &self,
+        _: ReloadTenantConfigurationRequest,
+    ) -> Result<ReloadTenantConfigurationResponse, HandlerError> {
+        match self.reload_tenant_config(&[]).await {
+            Err(_) => Ok(ReloadTenantConfigurationResponse::NoStore),
+            Ok(ReloadTenantConfigResult::NotChanged) => {
+                Ok(ReloadTenantConfigurationResponse::Ok { num_tenants: 0 })
+            }
+            Ok(ReloadTenantConfigResult::Updated(config)) => {
+                Ok(ReloadTenantConfigurationResponse::Ok {
+                    num_tenants: config.len(),
+                })
+            }
+        }
+    }
+}
+
+enum ReloadTenantConfigResult {
+    NotChanged,
+    Updated(Vec<(String, TenantConfiguration)>),
 }
 
 impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
@@ -812,6 +957,12 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                 match path {
                     AppRequest::PATH => handle_rpc(&agent, request, Self::handle_app).await,
                     StatusRequest::PATH => handle_rpc(&agent, request, Self::handle_status).await,
+                    RateLimitStateRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_ratelimit_state).await
+                    }
+                    ReadCapturedRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_read_captured).await
+                    }
                     "livez" => Ok(agent.handle_livez(request).await),
                     BecomeLeaderRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_become_leader).await
@@ -831,8 +982,8 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
                     NewRealmRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_new_realm).await
                     }
-                    ReadCapturedRequest::PATH => {
-                        handle_rpc(&agent, request, Self::handle_read_captured).await
+                    ReloadTenantConfigurationRequest::PATH => {
+                        handle_rpc(&agent, request, Self::handle_reload_tenant_config).await
                     }
                     PrepareTransferRequest::PATH => {
                         handle_rpc(&agent, request, Self::handle_prepare_transfer).await
@@ -892,6 +1043,25 @@ impl<T: Transport + 'static> Agent<T> {
             hsm: hsm_status.ok(),
             uptime: self.0.boot_time.elapsed(),
         })
+    }
+
+    async fn handle_ratelimit_state(
+        &self,
+        _request: RateLimitStateRequest,
+    ) -> Result<RateLimitStateResponse, HandlerError> {
+        let now = SystemTime::now();
+        let states: Vec<_> = {
+            let mut locked = self.0.state.lock().unwrap();
+            locked
+                .tenant_limiters
+                .iter_mut()
+                .map(|(t, b)| TenantRateLimitState {
+                    tenant: t.clone(),
+                    state: b.state(now),
+                })
+                .collect()
+        };
+        Ok(RateLimitStateResponse::Ok(states))
     }
 
     async fn handle_livez(&self, _request: Request<IncomingBody>) -> Response<Full<Bytes>> {
@@ -1390,7 +1560,7 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
-    #[instrument(level = "trace")]
+    #[instrument(level = "trace", skip(self))]
     async fn handle_read_captured(
         &self,
         request: ReadCapturedRequest,
@@ -1479,6 +1649,22 @@ impl<T: Transport + 'static> Agent<T> {
                     .await?;
 
                 if let Some(request_type) = &request_type {
+                    // create a reservation for the follow on request if there's going to be one.
+                    if matches!(
+                        request_type,
+                        AppResultType::Recover1
+                            | AppResultType::Recover2 { .. }
+                            | AppResultType::Register1
+                    ) {
+                        let mut locked = self.0.state.lock().unwrap();
+                        locked
+                            .tenant_limiters
+                            .get_mut(&tenant)
+                            .expect(
+                                "start_app_request created the bucket if it didn't already exist",
+                            )
+                            .add_reservation(record_id.clone());
+                    }
                     if let Some(msg) = create_tenant_event_msg(request_type, &user) {
                         if let Err(err) = self.0.event_publisher.publish(realm, &tenant, msg).await
                         {
@@ -1572,6 +1758,23 @@ impl<T: Transport + 'static> Agent<T> {
         type HsmResponse = hsm_api::AppResponse;
         type Response = AppResponse;
 
+        let rate_limit_result = {
+            let tenant = request.tenant.clone();
+            let rec_id = request.record_id.clone();
+            let mut state = self.0.state.lock().unwrap();
+            let bucket = state
+                .tenant_limiters
+                .entry(tenant)
+                .or_insert_with(|| RateLimiter::new(self.0.default_rate_limiter_rate));
+            bucket.allow(rec_id)
+        };
+        if !rate_limit_result.allowed {
+            warn!(tenant=?request.tenant, bucket=?rate_limit_result, "rate limit exceeded");
+            return Err(Response::RateLimitExceeded);
+        } else {
+            debug!(tenant=?request.tenant, bucket=?rate_limit_result, "rate limit allowed");
+        }
+
         #[derive(Debug, thiserror::Error)]
         enum FatalError<T: Transport> {
             // These ultimately map to NO_HSM, but it's useful to separate them
@@ -1608,6 +1811,7 @@ impl<T: Transport + 'static> Agent<T> {
                         AppResponse::MissingSession => "missing_session",
                         AppResponse::SessionError => "session_error",
                         AppResponse::DecodingError => "decoding_error",
+                        AppResponse::RateLimitExceeded => "rate_limit_exceeded",
                     },
                 };
                 AttemptError::Fatal {

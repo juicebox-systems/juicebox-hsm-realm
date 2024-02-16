@@ -447,6 +447,7 @@ name: {name}
                 ClientResponse::InvalidAuth => StatusCode::UNAUTHORIZED,
                 ClientResponse::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
                 ClientResponse::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+                ClientResponse::RateLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
             })
             .body(Full::new(Bytes::from(
                 marshalling::to_vec(&response).expect("TODO"),
@@ -504,6 +505,7 @@ fn add_client_response(tags: &mut Vec<Tag>, response: &ClientResponse) {
         ClientResponse::SessionError => ("SessionError", false),
         ClientResponse::DecodingError => ("DecodingError", false),
         ClientResponse::PayloadTooLarge => ("PayloadTooLarge", false),
+        ClientResponse::RateLimitExceeded => ("RateLimitExceeded", false),
     };
     tags.push(tag!(result));
     tags.push(tag!(success));
@@ -612,6 +614,7 @@ async fn handle_client_request_inner(
             Ok(AppResponse::MissingSession) => return Response::MissingSession,
             Ok(AppResponse::SessionError) => return Response::SessionError,
             Ok(AppResponse::DecodingError) => return Response::DecodingError,
+            Ok(AppResponse::RateLimitExceeded) => return Response::RateLimitExceeded,
         };
     }
 

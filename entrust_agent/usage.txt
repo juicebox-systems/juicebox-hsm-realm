@@ -95,6 +95,11 @@ Options:
   -n, --name <NAME>
           Name of the agent in logging [default: agent{listen}]
 
+      --default-rate-limit <DEFAULT_RATE_LIMIT>
+          Default rate limit to apply to tenants where there's no specific configuration found for them. In HTTP requests per second
+          
+          [default: 10]
+
   -m, --module <MODULE>
           The HSM module to work with. (The default of 1 is fine unless there are multiple HSMs in a host)
           

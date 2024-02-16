@@ -274,13 +274,9 @@ mod tests {
             .await
             .expect("failed to connect to bigtable admin service");
         store_admin
-            .initialize_leases()
+            .initialize_shared_tables()
             .await
-            .expect("failed to initialize leases table");
-        store_admin
-            .initialize_discovery()
-            .await
-            .expect("failed to initialize discovery table");
+            .expect("failed to initialize tables");
 
         let store = bt_args
             .connect_data(None, store::Options::default())
