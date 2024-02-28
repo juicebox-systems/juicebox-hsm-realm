@@ -1,15 +1,17 @@
 use ::reqwest::Certificate;
 use anyhow::{anyhow, Context};
+use chrono::{DateTime, Local};
 use clap::{Parser, ValueEnum};
 use futures::StreamExt;
 use hdrhistogram::Histogram;
+use serde::Serialize;
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, File};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tracing::{debug, error, info, warn};
 
 use async_util::ScopedTask;
@@ -72,6 +74,11 @@ struct Args {
     /// How often to report progress for longer running operations.
     #[arg(long, value_parser=parse_duration, default_value="10m")]
     reporting_interval: Duration,
+
+    /// If set will write the results of the benchmark run to the specified file
+    /// in json format. If the file already exists it'll be overwritten.
+    #[arg(long, value_name = "OUT_FILE")]
+    results_file: Option<PathBuf>,
 
     /// Name of JSON file containing per-tenant keys for authentication.
     ///
@@ -160,7 +167,7 @@ async fn run(args: Args) -> anyhow::Result<usize> {
     let client_builder = Arc::new(ClientBuilder {
         shared_http_client,
         certs,
-        configuration,
+        configuration: configuration.clone(),
         tenant: args.tenant,
         auth_key,
         auth_key_version,
@@ -168,6 +175,8 @@ async fn run(args: Args) -> anyhow::Result<usize> {
     });
 
     info!("running test register");
+    let started_time = SystemTime::now();
+
     client_builder
         .build(args.user_start)
         .register(
@@ -180,8 +189,9 @@ async fn run(args: Args) -> anyhow::Result<usize> {
         .unwrap();
 
     let mut total_errors = 0;
+    let mut results = Vec::new();
     for op in args.plan {
-        total_errors += benchmark(
+        let result = benchmark(
             op,
             args.concurrency,
             Range {
@@ -195,15 +205,88 @@ async fn run(args: Args) -> anyhow::Result<usize> {
             args.reporting_interval,
         )
         .await;
+        total_errors += result.errors;
+        results.push(result);
     }
 
     logging::flush();
+    if let Some(results_file) = args.results_file {
+        let datetime: DateTime<Local> = started_time.into();
+        let result = BenchmarkResult {
+            configuration,
+            started: format!("{}", datetime.format("%+")),
+            elapsed_secs: started_time.elapsed().unwrap_or_default().as_secs_f64(),
+            errors: total_errors,
+            operations: results,
+        };
+        match File::create(results_file) {
+            Ok(f) => {
+                if let Err(e) = serde_json::to_writer_pretty(f, &result) {
+                    eprintln!("failed to serialize results to json: {e:?}");
+                }
+            }
+            Err(e) => {
+                eprintln!("failed to create results file: {e:?}");
+            }
+        }
+    }
     info!(pid = std::process::id(), "exiting");
 
     Ok(total_errors)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+#[derive(Serialize)]
+struct BenchmarkResult {
+    configuration: Configuration,
+    started: String,
+    elapsed_secs: f64,
+    errors: usize,
+    operations: Vec<OperationResult>,
+}
+
+#[derive(Debug, Serialize)]
+struct OperationResult {
+    op: Operation,
+    count: usize,
+    concurrency: usize,
+    errors: usize,
+    elapsed_secs: f64,
+    throughput: f64, //ops per sec
+    min_ms: f64,
+    mean_ms: f64,
+    p50_ms: f64,
+    p95_ms: f64,
+    p99_ms: f64,
+    max_ms: f64,
+}
+
+impl OperationResult {
+    fn new(
+        op: Operation,
+        count: usize,
+        concurrency: usize,
+        errors: usize,
+        elapsed: Duration,
+        durations_ns: &Histogram<u64>,
+    ) -> Self {
+        OperationResult {
+            op,
+            count,
+            concurrency,
+            errors,
+            elapsed_secs: elapsed.as_secs_f64(),
+            throughput: count as f64 / elapsed.as_secs_f64(),
+            min_ms: durations_ns.min() as f64 / 1e6,
+            mean_ms: durations_ns.mean() / 1e6,
+            p50_ms: durations_ns.value_at_quantile(0.50) as f64 / 1e6,
+            p95_ms: durations_ns.value_at_quantile(0.95) as f64 / 1e6,
+            p99_ms: durations_ns.value_at_quantile(0.99) as f64 / 1e6,
+            max_ms: durations_ns.max() as f64 / 1e6,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, ValueEnum)]
 enum Operation {
     Register,
     /// Must follow register to succeed.
@@ -220,33 +303,24 @@ async fn benchmark(
     ids: Range<u64>,
     client_builder: &Arc<ClientBuilder>,
     report_interval: Duration,
-) -> usize {
+) -> OperationResult {
     info!(?op, concurrency, ?ids, "benchmarking concurrent clients");
     let start = Instant::now();
 
     let report = |count: usize, durations_ns: &Histogram<u64>| {
-        let elapsed_s = start.elapsed().as_secs_f64();
+        let r = OperationResult::new(op, count, concurrency, 0, start.elapsed(), durations_ns);
         info!(
             ?op,
             count,
             concurrency,
-            elapsed = format!("{:0.3} s", elapsed_s),
-            throughput = format!("{:0.3} op/s", count as f64 / elapsed_s),
-            min = format!("{:0.3} ms", durations_ns.min() as f64 / 1e6),
-            mean = format!("{:0.3} ms", durations_ns.mean() / 1e6),
-            p50 = format!(
-                "{:0.3} ms",
-                durations_ns.value_at_quantile(0.50) as f64 / 1e6
-            ),
-            p95 = format!(
-                "{:0.3} ms",
-                durations_ns.value_at_quantile(0.95) as f64 / 1e6
-            ),
-            p99 = format!(
-                "{:0.3} ms",
-                durations_ns.value_at_quantile(0.99) as f64 / 1e6
-            ),
-            max = format!("{:0.3} ms", durations_ns.max() as f64 / 1e6),
+            elapsed = format!("{:0.3} s", r.elapsed_secs),
+            throughput = format!("{:0.3} op/s", count as f64 / r.elapsed_secs),
+            min = format!("{:0.3} ms", r.min_ms),
+            mean = format!("{:0.3} ms", r.mean_ms),
+            p50 = format!("{:0.3} ms", r.p50_ms),
+            p95 = format!("{:0.3} ms", r.p95_ms),
+            p99 = format!("{:0.3} ms", r.p99_ms),
+            max = format!("{:0.3} ms", r.max_ms),
         );
     };
 
@@ -278,12 +352,20 @@ async fn benchmark(
         }
     }
 
+    let res = OperationResult::new(
+        op,
+        count,
+        concurrency,
+        errors,
+        start.elapsed(),
+        &durations_ns,
+    );
     info!("benchmark complete");
     report(count, &durations_ns);
     if errors > 0 {
         error!(errors, "client(s) reported errors");
     }
-    errors
+    res
 }
 
 async fn run_op(op: Operation, i: u64, client_builder: Arc<ClientBuilder>) -> Result<Duration, ()> {
