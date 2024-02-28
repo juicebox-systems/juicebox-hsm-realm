@@ -144,15 +144,17 @@ async fn rate_limiting() {
             Err(RegisterError::RateLimitExceeded) => 1,
             Err(e) => panic!("Unexpected error during register {e:?}"),
         };
-
-        match client.recover(&pin, &info).await {
-            Ok(recovered_secret) => {
-                assert_eq!(recovered_secret.expose_secret(), secret.expose_secret())
+        if rate_limit_errors == 0 {
+            // can only recover if we successfully registered
+            match client.recover(&pin, &info).await {
+                Ok(recovered_secret) => {
+                    assert_eq!(recovered_secret.expose_secret(), secret.expose_secret())
+                }
+                Err(RecoverError::RateLimitExceeded) => {
+                    rate_limit_errors += 1;
+                }
+                Err(e) => panic!("Unexpected error during recover {e:?}"),
             }
-            Err(RecoverError::RateLimitExceeded) => {
-                rate_limit_errors += 1;
-            }
-            Err(e) => panic!("Unexpected error during recover {e:?}"),
         }
         println!("reg_recover finished with {rate_limit_errors} errors");
         rate_limit_errors
