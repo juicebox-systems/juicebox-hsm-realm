@@ -11,6 +11,7 @@ build = "../build_info/build_script.rs"
 anyhow = { workspace = true }
 async_util = { workspace = true }
 build_info = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 hdrhistogram = { workspace = true }
@@ -21,6 +22,8 @@ juicebox_realm_auth = { workspace = true }
 observability = { workspace = true }
 reqwest = { workspace = true }
 secret_manager = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 service_core = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
