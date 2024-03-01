@@ -9,6 +9,7 @@ rust-version = { workspace = true }
 [dependencies]
 hex = { workspace = true }
 hsm_api = { workspace = true }
+juicebox_marshalling = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_realm_api = { workspace = true }
 serde = { workspace = true }

@@ -1,14 +1,23 @@
-use ::reqwest::ClientBuilder;
 use futures::future::join_all;
 use http::StatusCode;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use store::StoreClient;
+use url::Url;
 
+use ::reqwest::ClientBuilder;
+use agent_api::{ReloadTenantConfigurationRequest, ReloadTenantConfigurationResponse};
 use cluster_core::{JoinRealmError, NewRealmError};
 use juicebox_networking::reqwest::{self, ClientOptions};
+use juicebox_networking::rpc;
 use juicebox_process_group::ProcessGroup;
-use juicebox_sdk::RealmId;
+use juicebox_sdk::{
+    AuthToken, Client, Pin, Policy, RealmId, RecoverError, RegisterError, TokioSleeper, UserInfo,
+    UserSecret,
+};
+use store::tenant_config::TenantConfiguration;
 use testing::exec::bigtable::emulator;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
 use testing::exec::hsm_gen::Entrust;
@@ -95,4 +104,120 @@ async fn realm() {
     }
 
     processes.kill();
+}
+
+#[tokio::test]
+async fn rate_limiting() {
+    let bt_args = emulator(PORT.next());
+    let mut processes = ProcessGroup::new();
+
+    let cluster_args = ClusterConfig {
+        load_balancers: 1,
+        cluster_managers: 1,
+        realms: vec![RealmConfig {
+            hsms: 3,
+            groups: 1,
+            state_dir: None,
+        }],
+        bigtable: bt_args,
+        local_pubsub: true,
+        secrets_file: Some(PathBuf::from("../secrets-demo.json")),
+        entrust: Entrust(false),
+        path_to_target: fs::canonicalize("..").unwrap(),
+    };
+
+    let cluster = create_cluster(cluster_args, &mut processes, PORT.clone())
+        .await
+        .unwrap();
+
+    type JbClient = Client<TokioSleeper, reqwest::Client, HashMap<RealmId, AuthToken>>;
+
+    let reg_recover = |client: JbClient| async move {
+        let secret = UserSecret::from(vec![42, 45]);
+        let pin = Pin::from(vec![1, 2, 3, 4]);
+        let info = UserInfo::from(vec![b'c']);
+        let mut rate_limit_errors = match client
+            .register(&pin, &secret, &info, Policy { num_guesses: 22 })
+            .await
+        {
+            Ok(_) => 0,
+            Err(RegisterError::RateLimitExceeded) => 1,
+            Err(e) => panic!("Unexpected error during register {e:?}"),
+        };
+        if rate_limit_errors == 0 {
+            // can only recover if we successfully registered
+            match client.recover(&pin, &info).await {
+                Ok(recovered_secret) => {
+                    assert_eq!(recovered_secret.expose_secret(), secret.expose_secret())
+                }
+                Err(RecoverError::RateLimitExceeded) => {
+                    rate_limit_errors += 1;
+                }
+                Err(e) => panic!("Unexpected error during recover {e:?}"),
+            }
+        }
+        println!("reg_recover finished with {rate_limit_errors} errors");
+        rate_limit_errors
+    };
+    assert_eq!(0, reg_recover(cluster.client_for_user("presso")).await);
+
+    update_rate_limit(
+        &cluster.store,
+        &cluster.realms[0].agents,
+        &cluster.tenant,
+        2,
+    )
+    .await;
+
+    let rate_limit_errors =
+        join_all((0..10).map(|i| reg_recover(cluster.client_for_user(&format!("presso_{i}")))))
+            .await
+            .into_iter()
+            .sum::<i32>();
+    assert!(
+        rate_limit_errors > 0 && rate_limit_errors < 20,
+        "expecting rate_limit_errors to be between 1 and 19, but was {rate_limit_errors}"
+    );
+
+    update_rate_limit(
+        &cluster.store,
+        &cluster.realms[0].agents,
+        &cluster.tenant,
+        200,
+    )
+    .await;
+    let rate_limit_errors =
+        join_all((0..10).map(|i| reg_recover(cluster.client_for_user(&format!("presso_{i}")))))
+            .await
+            .into_iter()
+            .sum::<i32>();
+    assert_eq!(0, rate_limit_errors);
+}
+
+async fn update_rate_limit(store: &StoreClient, agents: &[Url], tenant: &str, ops_per_sec: usize) {
+    store
+        .update_tenant(
+            tenant,
+            &TenantConfiguration {
+                capacity_ops_per_sec: ops_per_sec,
+            },
+        )
+        .await
+        .unwrap();
+
+    let http_client = reqwest::Client::default();
+    for r in join_all(
+        agents
+            .iter()
+            .map(|url| rpc::send(&http_client, url, ReloadTenantConfigurationRequest {})),
+    )
+    .await
+    {
+        match r.unwrap() {
+            ReloadTenantConfigurationResponse::Ok { num_tenants } => assert!(num_tenants > 0),
+            ReloadTenantConfigurationResponse::NoStore => {
+                panic!("agent was unable to reload config due to a bigtable error")
+            }
+        }
+    }
 }

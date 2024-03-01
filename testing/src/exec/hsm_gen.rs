@@ -123,7 +123,9 @@ impl HsmGenerator {
             cmd.arg("--key")
                 .arg(&self.secret)
                 .arg("--listen")
-                .arg(agent_address);
+                .arg(agent_address)
+                .arg("--default-rate-limit")
+                .arg("1000");
             if let Some(d) = &hsm_dir {
                 cmd.arg("--state-dir").arg(d.as_os_str());
             }

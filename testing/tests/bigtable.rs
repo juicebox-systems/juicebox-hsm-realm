@@ -15,6 +15,7 @@ use observability::metrics;
 use retry_loop::RetryError;
 use store::log::testing::{new_log_row, read_log_entry, ReadLogEntryError, TOMBSTONE_WINDOW_SIZE};
 use store::log::{LogEntriesIterError, LogRow, ReadLastLogEntryFatal};
+use store::tenant_config::TenantConfiguration;
 use store::tenants::UserAccounting;
 use store::{
     discovery, tenants, AppendError, ExtendLeaseError, LeaseKey, LeaseType, ServiceKind,
@@ -1101,7 +1102,7 @@ async fn test_service_discovery() {
     let mut pg = ProcessGroup::new();
     let (admin, data) = init_bt(&mut pg, emulator(PORT.next())).await;
 
-    admin.initialize_discovery().await.unwrap();
+    admin.initialize_shared_tables().await.unwrap();
     assert!(data.get_addresses(None).await.unwrap().is_empty());
 
     let url1: Url = "http://localhost:9999".parse().unwrap();
@@ -1169,10 +1170,93 @@ async fn test_service_discovery() {
 }
 
 #[tokio::test]
+async fn test_tenant_config() {
+    let mut pg = ProcessGroup::new();
+    let (admin, data) = init_bt(&mut pg, emulator(PORT.next())).await;
+    admin.initialize_shared_tables().await.unwrap();
+    assert_eq!(
+        Vec::<(String, TenantConfiguration)>::new(),
+        data.get_tenants().await.unwrap()
+    );
+    data.update_tenant(
+        "bob",
+        &TenantConfiguration {
+            capacity_ops_per_sec: 10,
+        },
+    )
+    .await
+    .unwrap();
+    data.update_tenant(
+        "alice",
+        &TenantConfiguration {
+            capacity_ops_per_sec: 20,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        vec![
+            (
+                String::from("alice"),
+                TenantConfiguration {
+                    capacity_ops_per_sec: 20
+                }
+            ),
+            (
+                String::from("bob"),
+                TenantConfiguration {
+                    capacity_ops_per_sec: 10
+                }
+            ),
+        ],
+        data.get_tenants().await.unwrap()
+    );
+    data.update_tenant(
+        "bob",
+        &TenantConfiguration {
+            capacity_ops_per_sec: 5,
+        },
+    )
+    .await
+    .unwrap();
+    data.update_tenant(
+        "test-juiceboxmonitor",
+        &TenantConfiguration {
+            capacity_ops_per_sec: 100,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        vec![
+            (
+                String::from("alice"),
+                TenantConfiguration {
+                    capacity_ops_per_sec: 20
+                }
+            ),
+            (
+                String::from("bob"),
+                TenantConfiguration {
+                    capacity_ops_per_sec: 5
+                }
+            ),
+            (
+                String::from("test-juiceboxmonitor"),
+                TenantConfiguration {
+                    capacity_ops_per_sec: 100
+                }
+            ),
+        ],
+        data.get_tenants().await.unwrap()
+    );
+}
+
+#[tokio::test]
 async fn test_lease() {
     let mut pg = ProcessGroup::new();
     let (admin, data) = init_bt(&mut pg, emulator(PORT.next())).await;
-    admin.initialize_leases().await.unwrap();
+    admin.initialize_shared_tables().await.unwrap();
 
     let now = SystemTime::now();
 

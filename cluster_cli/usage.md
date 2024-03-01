@@ -17,6 +17,7 @@ Commands:
   stepdown       Ask an HSM to step down as leader
   rebalance      Rebalance the cluster workload by potentially moving group leadership
   table-stats    Print information about a Bigtable table
+  tenant         Operations for managing tenants
   transfer       Transfer ownership of user records from one group to another
   user-summary   Report counts of active users by tenant for a month. These are users that have a secret stored at some point during the month (in the UTC timezone)
   help           Print this message or the help of the given subcommand(s)
@@ -308,6 +309,38 @@ Usage: cluster table-stats <TABLE> <REALM>
 Arguments:
   <TABLE>  Only the "log" and "merkle" tables are currently supported [possible values: log, merkle]
   <REALM>  Realm ID
+
+Options:
+  -h, --help  Print help
+
+```
+
+## `cluster tenant --help`
+
+```
+Operations for managing tenants
+
+Usage: cluster tenant <COMMAND>
+
+Commands:
+  set-capacity  Configure the capacity/rate limit for a tenant
+  help          Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
+
+```
+
+## `cluster tenant set-capacity --help`
+
+```
+Configure the capacity/rate limit for a tenant
+
+Usage: cluster tenant set-capacity <TENANT> <OPS_PER_SEC>
+
+Arguments:
+  <TENANT>       The tenant name/identifier
+  <OPS_PER_SEC>  The number of allowed (client) operations per second
 
 Options:
   -h, --help  Print help

@@ -33,6 +33,7 @@ version = "0.2.3"
 dependencies = [
  "hex",
  "hsm_api",
+ "juicebox_marshalling",
  "juicebox_networking",
  "juicebox_realm_api",
  "observability",
@@ -71,11 +72,14 @@ dependencies = [
  "pubsub_api",
  "reqwest",
  "retry_loop",
+ "serde",
  "serde_json",
  "service_core",
  "store",
  "thiserror",
  "tokio",
+ "tokio-stream",
+ "tokio-util",
  "tonic 0.10.2",
  "tracing",
  "tracing-opentelemetry",
@@ -3385,6 +3389,7 @@ dependencies = [
  "rand_core",
  "reqwest",
  "retry_loop",
+ "serde",
  "service_core",
  "thiserror",
  "tokio",
@@ -3657,6 +3662,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

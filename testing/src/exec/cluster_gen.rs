@@ -175,11 +175,10 @@ pub async fn create_cluster(
         .await
         .expect("failed to connect to bigtable admin service");
 
-    info!("initializing service discovery table");
     store_admin
-        .initialize_discovery()
+        .initialize_shared_tables()
         .await
-        .expect("unable to initialize Bigtable service discovery");
+        .expect("unable to initialize Bigtable shared tables");
 
     let store = args
         .bigtable

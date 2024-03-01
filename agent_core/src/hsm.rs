@@ -57,7 +57,7 @@ impl<T: Transport> HsmClient<T> {
     #[instrument(
         level = "trace",
         name = "HsmClient::send",
-        skip(r),
+        skip(self, r),
         fields(req_name, req_len, resp_len, rpc_dur)
     )]
     pub async fn send<RPC: HsmRpc + Send>(

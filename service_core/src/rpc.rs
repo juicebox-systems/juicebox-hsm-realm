@@ -2,7 +2,7 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 use std::future::Future;
-use tracing::{trace, warn};
+use tracing::warn;
 
 use juicebox_marshalling as marshalling;
 use juicebox_networking::rpc::{Rpc, Service};
@@ -34,18 +34,7 @@ where
         }
     };
 
-    trace!(
-        request_type = std::any::type_name::<R>(),
-        ?request,
-        "received request"
-    );
     let response = handler(service, request).await;
-    trace!(
-        response_type = std::any::type_name::<R::Response>(),
-        ?response,
-        "responding"
-    );
-
     match response {
         Err(e) => match e { /* no possible errors */ },
         Ok(response) => {

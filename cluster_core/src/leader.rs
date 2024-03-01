@@ -67,9 +67,17 @@ pub async fn discover_hsm_ids(
     agents_client: &impl http::Client,
 ) -> Result<impl Iterator<Item = (HsmId, Url)>, RetryError<tonic::Status>> {
     let agents = store.get_addresses(Some(ServiceKind::Agent)).await?;
-    Ok(join_all(agents.iter().map(|(url, _)| {
+    let urls: Vec<Url> = agents.into_iter().map(|(url, _)| url).collect();
+    Ok(hsm_ids(agents_client, &urls).await)
+}
+
+pub async fn hsm_ids<'a, 'b, 'c>(
+    client: &'a impl http::Client,
+    agents: &'b [Url],
+) -> impl Iterator<Item = (HsmId, Url)> + 'c {
+    join_all(agents.iter().map(|url| {
         rpc::send_with_options(
-            agents_client,
+            client,
             url,
             StatusRequest {},
             SendOptions::default().with_timeout(Duration::from_secs(2)),
@@ -80,6 +88,5 @@ pub async fn discover_hsm_ids(
     .into_iter()
     // skip network failures
     .filter_map(|(url, response)| response.map(|r| (url, r)).ok())
-    .filter_map(|(url, status)| status.hsm.map(|hsm| (url, hsm)))
-    .map(|(url, status)| (status.id, url)))
+    .filter_map(|(url, status)| status.hsm.map(|hsm| (hsm.id, url)))
 }

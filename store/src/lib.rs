@@ -33,6 +33,7 @@ pub mod discovery;
 mod lease;
 pub mod log;
 mod merkle;
+pub mod tenant_config;
 pub mod tenants;
 
 pub use bigtable::bigtable_retries as store_retries;
@@ -211,13 +212,11 @@ impl StoreAdminClient {
         Ok(Self { bigtable, instance })
     }
 
-    /// Creates a little Bigtable table for service discovery.
-    pub async fn initialize_discovery(&self) -> Result<(), tonic::Status> {
-        discovery::initialize(self.bigtable.clone(), &self.instance).await
-    }
-
-    pub async fn initialize_leases(&self) -> Result<(), tonic::Status> {
-        lease::initialize(self.bigtable.clone(), &self.instance).await
+    pub async fn initialize_shared_tables(&self) -> Result<(), tonic::Status> {
+        let mut bigtable = self.bigtable.clone();
+        discovery::initialize(&mut bigtable, &self.instance).await?;
+        lease::initialize(&mut bigtable, &self.instance).await?;
+        tenant_config::initialize(&mut bigtable, &self.instance).await
     }
 
     pub async fn initialize_realm(&self, realm: &RealmId) -> Result<(), tonic::Status> {
@@ -620,7 +619,7 @@ impl ConnWarmer for TablesReadWarmer {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ServiceKind {
     Agent,
     LoadBalancer,

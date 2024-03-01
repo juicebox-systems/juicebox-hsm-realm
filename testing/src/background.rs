@@ -119,7 +119,7 @@ pub enum WorkerReq {
     Shutdown,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct WorkerResults {
     pub successes: usize,
     pub errors: Vec<String>,

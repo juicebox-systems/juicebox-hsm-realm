@@ -9,5 +9,6 @@ pub mod new_realm;
 pub mod rebalance;
 pub mod stepdown;
 pub mod table_stats;
+pub mod tenants;
 pub mod transfer;
 pub mod users;

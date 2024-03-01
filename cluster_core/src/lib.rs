@@ -21,7 +21,7 @@ mod realm;
 mod transfer;
 pub mod workload;
 
-pub use leader::{discover_hsm_ids, find_leaders};
+pub use leader::{discover_hsm_ids, find_leaders, hsm_ids};
 pub use realm::{join_realm, new_group, new_realm, JoinRealmError, NewGroupError, NewRealmError};
 pub use transfer::{perform_transfer, TransferChaos, TransferError, TransferRequest};
 

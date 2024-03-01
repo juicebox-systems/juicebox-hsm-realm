@@ -8,6 +8,7 @@ use hsm_api::{
     GroupConfigurationStatement, GroupId, HsmId, HsmRealmStatement, LogIndex, OwnedRange,
     Partition, PreparedTransferStatement, RecordId, TransferNonce, TransferStatement,
 };
+use juicebox_marshalling::bytes;
 use juicebox_networking::rpc::{Rpc, Service};
 use juicebox_realm_api::{
     requests::{ClientRequestKind, NoiseRequest, NoiseResponse},
@@ -365,6 +366,40 @@ pub enum CompleteTransferResponse {
     CommitTimeout,
 }
 
+impl Rpc<AgentService> for RateLimitStateRequest {
+    const PATH: &'static str = "rate/state";
+    type Response = RateLimitStateResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RateLimitStateRequest {}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum RateLimitStateResponse {
+    Ok(Vec<TenantRateLimitState>),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct TenantRateLimitState {
+    pub tenant: String,
+    #[serde(with = "bytes")]
+    pub state: Vec<u8>,
+}
+
+impl Rpc<AgentService> for ReloadTenantConfigurationRequest {
+    const PATH: &'static str = "tenants/reload";
+    type Response = ReloadTenantConfigurationResponse;
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ReloadTenantConfigurationRequest {}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum ReloadTenantConfigurationResponse {
+    Ok { num_tenants: usize },
+    NoStore,
+}
+
 impl Rpc<AgentService> for AppRequest {
     const PATH: &'static str = "app";
     type Response = AppResponse;
@@ -420,4 +455,5 @@ pub enum AppResponse {
     MissingSession,
     SessionError,
     DecodingError,
+    RateLimitExceeded,
 }

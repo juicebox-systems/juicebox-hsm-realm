@@ -42,7 +42,7 @@ fn discovery_table_brief() -> String {
 
 /// Creates a little Bigtable table for service discovery.
 pub(super) async fn initialize(
-    mut bigtable: BigtableTableAdminClient,
+    bigtable: &mut BigtableTableAdminClient,
     instance: &Instance,
 ) -> Result<(), tonic::Status> {
     // This is not realm-specific, so it might already exist.
