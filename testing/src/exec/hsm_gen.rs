@@ -161,7 +161,7 @@ impl HsmGenerator {
                 if attempt >= 1000 {
                     panic!("Failed to connect to agent/HSM at {agent_url}");
                 }
-                sleep(Duration::from_millis(1)).await;
+                sleep(Duration::from_millis(5)).await;
             }
             unreachable!()
         });
