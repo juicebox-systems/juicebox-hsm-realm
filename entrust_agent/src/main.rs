@@ -19,14 +19,13 @@ use entrust_nfast::{
     find_key, lookup_name_no_default, Cmd_ClearUnitEx, Cmd_CreateBuffer, Cmd_CreateSEEWorld,
     Cmd_CreateSEEWorld_Args_flags_EnableDebug, Cmd_Destroy, Cmd_GetTicket, Cmd_LoadBuffer,
     Cmd_LoadBuffer_Args_flags_Final, Cmd_NoOp, Cmd_SEEJob, Cmd_SetSEEMachine, Cmd_StatGetValues,
-    Cmd_TraceSEEWorld, M_ByteBlock, M_Cmd_ClearUnitEx_Args, M_Cmd_CreateBuffer_Args,
-    M_Cmd_CreateSEEWorld_Args, M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args, M_Cmd_SEEJob_Args,
-    M_Cmd_SetSEEMachine_Args, M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID, M_Status, M_Word,
-    ModuleMode_Default, NFKM_cmd_loadblob, NF_StatID_enumtable, NFastApp_Connect,
-    NFastApp_Connection, NFastApp_ConnectionFlags_Privileged, NFastApp_Disconnect, NFastConn,
-    NFastError, Reply, SEEInitStatus_OK, StatInfo_flags_Counter, StatInfo_flags_Fraction,
+    Cmd_TraceSEEWorld, ConnectionFlags, M_ByteBlock, M_Cmd_ClearUnitEx_Args,
+    M_Cmd_CreateBuffer_Args, M_Cmd_CreateSEEWorld_Args, M_Cmd_LoadBuffer_Args, M_Cmd_NoOp_Args,
+    M_Cmd_SEEJob_Args, M_Cmd_SetSEEMachine_Args, M_Cmd_TraceSEEWorld_Args, M_Command, M_KeyID,
+    M_Word, ModuleMode_Default, NFKM_cmd_loadblob, NF_StatID_enumtable, NFastConn, NFastError,
+    Reply, SEEInitStatus_OK, StatInfo_flags_Counter, StatInfo_flags_Fraction,
     StatInfo_flags_IPAddress, StatInfo_flags_String, StatNodeTag_ModuleEnvStats,
-    StatNodeTag_PerModule, Status_OK, Status_ObjectInUse, Status_SEEWorldFailed,
+    StatNodeTag_PerModule, Status_ObjectInUse, Status_SEEWorldFailed,
     TicketDestination_AnySEEWorld,
 };
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
@@ -188,12 +187,14 @@ impl EntrustSeeTransport {
         let metrics_clone = metrics.clone();
         std::thread::spawn(move || collect_entrust_stats(module, metrics_clone));
         tokio::spawn(async move {
+            let conn = NFastConn::new(ConnectionFlags::NONE)
+                .expect("Failed to connect to Entrust Hardserver");
             let mut t = TransportInner {
                 tracing,
                 module,
                 see_machine,
                 userdata,
-                conn: NFastConn::new(),
+                conn,
                 world_id: None,
                 nvram: if reinit_nvram {
                     NvRamState::Reinitialize
@@ -210,9 +211,10 @@ impl EntrustSeeTransport {
 
 fn collect_entrust_stats(module: u8, mut metrics: metrics::Client) {
     let interval = Duration::from_secs(1);
-    let mut conn = NFastConn::new();
+    let conn =
+        NFastConn::new(ConnectionFlags::NONE).expect("failed to connect to Entrust Hardserver");
     loop {
-        if let Err(err) = collect_entrust_stats_inner(module, &mut conn, &mut metrics) {
+        if let Err(err) = collect_entrust_stats_inner(module, &conn, &mut metrics) {
             warn!(?err, "failed to collect stats from HSM");
         }
         std::thread::sleep(interval);
@@ -223,11 +225,9 @@ const ALL_STATINFO_FLAG_BITS: u32 = 0b00111111;
 
 fn collect_entrust_stats_inner(
     module: u8,
-    conn: &mut NFastConn,
+    conn: &NFastConn,
     metrics: &mut metrics::Client,
 ) -> Result<(), SeeError> {
-    unsafe { conn.connect()? };
-
     // see /opt/nfast/c/csd/examples/nfuser/stattree.c for the entrust example on reading stats.
     let mut stat_path = [
         StatNodeTag_PerModule,
@@ -356,7 +356,6 @@ impl TransportInner {
 
     #[instrument(level = "trace", skip(self))]
     unsafe fn connect(&mut self) -> Result<(), SeeError> {
-        self.conn.connect()?;
         if self.world_id.is_none() {
             self.world_id = Some(self.start_seeworld()?);
 
@@ -629,15 +628,7 @@ impl TransportInner {
     }
 
     fn transact(&mut self, cmd: &mut M_Command) -> Result<Reply, SeeError> {
-        self.transact_on_conn(self.conn.conn, cmd)
-    }
-
-    fn transact_on_conn(
-        &mut self,
-        conn: NFastApp_Connection,
-        cmd: &mut M_Command,
-    ) -> Result<Reply, SeeError> {
-        let res = unsafe { self.conn.transact_on_conn(conn, cmd) };
+        let res = unsafe { self.conn.transact(cmd) };
         if let Err(NFastError::Transact(status)) = res {
             if cmd.cmd != Cmd_TraceSEEWorld {
                 self.collect_trace_buffer();
@@ -693,18 +684,9 @@ impl TransportInner {
     fn try_clear(&mut self) {
         self.world_id = None;
         warn!("Attempting to clear & restart SEEWorld");
-        let mut priv_conn: NFastApp_Connection = null_mut();
-        unsafe {
-            let rc = NFastApp_Connect(
-                self.conn.app,
-                &mut priv_conn,
-                NFastApp_ConnectionFlags_Privileged,
-                null_mut(),
-            ) as M_Status;
-            if rc != Status_OK {
-                panic!("Connect for privileged connection failed with code {rc}. Unable to recover crashed SEEWorld.");
-            }
-        }
+        let priv_conn = NFastConn::new(ConnectionFlags::NONE.with_privileged())
+            .expect("Connect for privileged connection failed. Unable to recover crashed SEEWorld");
+
         // issue the clear command
         let mut cmd = M_Command::new(Cmd_ClearUnitEx);
         cmd.args.clearunitex = M_Cmd_ClearUnitEx_Args {
@@ -712,7 +694,7 @@ impl TransportInner {
             module: self.module as M_Word,
             mode: ModuleMode_Default,
         };
-        let reply = self.transact_on_conn(priv_conn, &mut cmd);
+        let reply = unsafe { priv_conn.transact(&mut cmd) };
         match reply {
             Err(e) => {
                 panic!("The SEEWorld crashed, and the attempt the clear the HSM so it can be restarted failed with error {e:?}");
@@ -724,7 +706,7 @@ impl TransportInner {
                 cmd.args.noop = M_Cmd_NoOp_Args {
                     module: self.module as M_Word,
                 };
-                match self.transact_on_conn(priv_conn, &mut cmd) {
+                match unsafe { priv_conn.transact(&mut cmd) } {
                     Err(e) => {
                         panic!(
                                 "The SEEWorld crashed, and a No-op after performing a clear failed with error {e:?}"
@@ -738,9 +720,6 @@ impl TransportInner {
                     }
                 }
             }
-        }
-        unsafe {
-            NFastApp_Disconnect(priv_conn, null_mut());
         }
     }
 }

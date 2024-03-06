@@ -3,7 +3,8 @@ use clap::{command, Parser, Subcommand};
 use std::ptr::null_mut;
 
 use entrust_nfast::{
-    find_key, M_Hash, M_ModuleID, NFKM_WorldInfo, NFKM_getinfo, NFastConn, NFastError,
+    find_key, ConnectionFlags, M_Hash, M_ModuleID, NFKM_WorldInfo, NFKM_getinfo, NFastConn,
+    NFastError,
 };
 
 mod acl;
@@ -59,10 +60,7 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     args.command.validate()?;
 
-    let mut conn = NFastConn::new();
-    unsafe {
-        conn.connect().context("Connecting to Entrust Hardserver")?;
-    }
+    let conn = NFastConn::new(ConnectionFlags::NONE).context("Connecting to Entrust Hardserver")?;
 
     let mut worldinfo: *mut NFKM_WorldInfo = null_mut();
     unsafe {
@@ -76,7 +74,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Nvram(nvargs) => {
             let signing_key_hash =
                 resolve_signing_key(&conn, &args.signing).context("Resolving signing key")?;
-            nvram::command_nvram(&mut conn, args.module, worldinfo, signing_key_hash, &nvargs)
+            nvram::command_nvram(conn, args.module, worldinfo, signing_key_hash, &nvargs)
         }
         Commands::Keys(kargs) => {
             let signing_key_hash =
