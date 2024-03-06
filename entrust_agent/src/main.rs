@@ -10,7 +10,7 @@ use std::ptr::null_mut;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
-use tracing::{debug, info, instrument, warn, Span};
+use tracing::{debug, info, warn, Span};
 
 use agent_core::hsm::Transport;
 use agent_core::service::{AgentArgs, HsmTransportConstructor};
@@ -189,13 +189,12 @@ impl EntrustSeeTransport {
         tokio::spawn(async move {
             let conn = NFastConn::new(ConnectionFlags::NONE)
                 .expect("Failed to connect to Entrust Hardserver");
-            let mut t = TransportInner {
+            let start = SEEWorldStarter {
                 tracing,
                 module,
                 see_machine,
                 userdata,
                 conn,
-                world_id: None,
                 nvram: if reinit_nvram {
                     NvRamState::Reinitialize
                 } else {
@@ -203,7 +202,8 @@ impl EntrustSeeTransport {
                 },
                 metrics,
             };
-            t.run_worker(receiver).await
+            let world = unsafe { start.connect().expect("Failed to start SEEWorld") };
+            run_worker(world, receiver).await
         });
         Self(sender)
     }
@@ -292,18 +292,26 @@ impl WorkerRequest {
 }
 
 #[derive(Debug)]
-struct TransportInner {
-    tracing: bool,
+struct SEEWorldStarter {
     module: u8,
     see_machine: PathBuf,
     userdata: PathBuf,
     conn: NFastConn,
-    world_id: Option<M_KeyID>,
     nvram: NvRamState,
+    tracing: bool,
     metrics: metrics::Client,
 }
 
-unsafe impl Send for TransportInner {}
+#[derive(Debug)]
+struct SEEWorldConn {
+    module: u8,
+    conn: NFastConn,
+    tracing: bool,
+    world_id: M_KeyID,
+    metrics: metrics::Client,
+}
+
+unsafe impl Send for SEEWorldConn {}
 
 impl Transport for EntrustSeeTransport {
     type FatalError = SeeError;
@@ -323,19 +331,15 @@ impl Transport for EntrustSeeTransport {
     }
 }
 
-impl TransportInner {
-    async fn run_worker(&mut self, mut reciever: mpsc::Receiver<WorkerRequest>) {
-        while let Some(work) = reciever.recv().await {
-            let result = self.send_hsm_msg(work.msg_name, work.msg);
-            _ = work.respond_to.send(result);
-        }
+async fn run_worker(world: SEEWorldConn, mut reciever: mpsc::Receiver<WorkerRequest>) {
+    while let Some(work) = reciever.recv().await {
+        let result = world.send_hsm_msg(work.msg_name, work.msg);
+        _ = work.respond_to.send(result);
     }
+}
 
-    #[instrument(level = "trace", skip(self, msg), fields(req_msg_len=msg.len(), resp_msg_len))]
-    fn send_hsm_msg(&mut self, msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, SeeError> {
-        unsafe {
-            self.connect()?;
-        }
+impl SEEWorldConn {
+    fn send_hsm_msg(&self, msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, SeeError> {
         let start = Instant::now();
         let req_len = msg.len();
         let resp_vec = self.transact_seejob(msg)?;
@@ -353,19 +357,43 @@ impl TransportInner {
         Span::current().record("resp_msg_len", resp_vec.len());
         Ok(resp_vec)
     }
+}
 
-    #[instrument(level = "trace", skip(self))]
-    unsafe fn connect(&mut self) -> Result<(), SeeError> {
-        if self.world_id.is_none() {
-            self.world_id = Some(self.start_seeworld()?);
-
-            self.start_hsmcore();
-        }
-        Ok(())
+impl SEEWorldStarter {
+    unsafe fn connect(self) -> Result<SEEWorldConn, SeeError> {
+        let world_id = match self.start_seeworld() {
+            Ok(id) => id,
+            Err(e) => {
+                let perform_clear = match e {
+                    SeeError::SeeWorldFailed => true,
+                    SeeError::NFast(NFastError::Transact(status))
+                        if status == Status_ObjectInUse =>
+                    {
+                        true
+                    }
+                    _ => false,
+                };
+                if !perform_clear {
+                    return Err(e);
+                }
+                self.try_clear();
+                self.start_seeworld()?
+            }
+        };
+        let conn = SEEWorldConn {
+            conn: self.conn,
+            tracing: self.tracing,
+            world_id,
+            metrics: self.metrics,
+            module: self.module,
+        };
+        conn.start_hsmcore(self.nvram);
+        Ok(conn)
     }
+}
 
-    #[instrument(level = "trace", skip(self))]
-    fn start_hsmcore(&mut self) {
+impl SEEWorldConn {
+    fn start_hsmcore(&self, nvram: NvRamState) {
         // Collect up all the key tickets we need.
         let comm_private_key = self.ticket_for_key("simple", "jbox-noise", KeyHalf::Private);
         let comm_public_key = self.ticket_for_key("simple", "jbox-noise", KeyHalf::Public);
@@ -385,7 +413,7 @@ impl TransportInner {
             comm_public_key,
             mac_key,
             record_key,
-            nvram: self.nvram,
+            nvram,
         };
         let start_msg = marshalling::to_vec(&start).expect("Failed to serialize StartRequest");
         let resp_bytes = self
@@ -421,13 +449,10 @@ impl TransportInner {
         }
     }
 
-    #[instrument(level = "trace", skip(self, data), fields(data_len=data.len()))]
-    fn transact_seejob(&mut self, mut data: Vec<u8>) -> Result<Vec<u8>, SeeError> {
+    fn transact_seejob(&self, mut data: Vec<u8>) -> Result<Vec<u8>, SeeError> {
         let mut cmd = M_Command::new(Cmd_SEEJob);
         cmd.args.seejob = M_Cmd_SEEJob_Args {
-            worldid: self
-                .world_id
-                .expect("SEEWorld should have already been started"),
+            worldid: self.world_id,
             seeargs: M_ByteBlock::from_vec(&mut data),
         };
         let reply = self.transact(&mut cmd)?;
@@ -457,14 +482,16 @@ impl TransportInner {
             }
             Err(msg) => Err(SeeError::Deserialization(DeserializationError(msg))),
         };
-        self.collect_trace_buffer();
+        if self.tracing {
+            self.collect_trace_buffer();
+        }
         result
     }
 
     // If there's a problem generating a ticket for a key, then we can't start
     // the hsmcore, and retrying is highly unlikely to work. So this panics on
     // all the error conditions.
-    fn ticket_for_key(&mut self, app: &str, ident: &str, half: KeyHalf) -> Ticket {
+    fn ticket_for_key(&self, app: &str, ident: &str, half: KeyHalf) -> Ticket {
         debug!(?app, ?ident, "Trying to find key in security world");
 
         let key = match find_key(&self.conn, app, ident) {
@@ -507,9 +534,10 @@ impl TransportInner {
         debug!(?app, ?ident, "Generated key ticket");
         Ticket(ticket)
     }
+}
 
-    #[instrument(level = "trace", skip(self))]
-    unsafe fn start_seeworld(&mut self) -> Result<M_KeyID, SeeError> {
+impl SEEWorldStarter {
+    unsafe fn start_seeworld(&self) -> Result<M_KeyID, SeeError> {
         // Load the SEEMachine image
         let data = fs::read(&self.see_machine).unwrap_or_else(|err| {
             panic!(
@@ -523,7 +551,7 @@ impl TransportInner {
             flags: 0,
             buffer: image_buffer,
         };
-        self.transact(&mut cmd)?;
+        self.conn.transact(&mut cmd)?;
 
         let user_data = fs::read(&self.userdata).unwrap_or_else(|err| {
             panic!(
@@ -542,27 +570,23 @@ impl TransportInner {
             },
             buffer: user_data_buffer,
         };
-        match self.transact(&mut cmd) {
-            Err(e) => Err(e),
-            Ok(reply) => {
-                // for CreateSEEWorld we also need to check the initStatus.
-                let init = reply.reply.createseeworld.initstatus;
-                if init != SEEInitStatus_OK {
-                    warn!(
-                        initstatus = init,
-                        "SEE Machine failed to initialize during CreateSEEWorld"
-                    );
-                    Err(SeeError::SeeWorldFailed)
-                } else {
-                    info!("Successfully started SEEWorld");
-                    Ok(reply.reply.createseeworld.worldid)
-                }
-            }
+        let reply = self.conn.transact(&mut cmd)?;
+        // for CreateSEEWorld we also need to check the initStatus.
+        let init = reply.reply.createseeworld.initstatus;
+        if init != SEEInitStatus_OK {
+            warn!(
+                initstatus = init,
+                "SEE Machine failed to initialize during CreateSEEWorld"
+            );
+            Err(SeeError::SeeWorldFailed)
+        } else {
+            info!("Successfully started SEEWorld");
+            Ok(reply.reply.createseeworld.worldid)
         }
     }
 
     /// Create's a HSM buffer and loads the supplied userdata into it. Returns the buffer id.
-    fn load_buffer(&mut self, mut userdata: Vec<u8>) -> Result<M_KeyID, SeeError> {
+    fn load_buffer(&self, mut userdata: Vec<u8>) -> Result<M_KeyID, SeeError> {
         // This function takes a Vec<u8> for userdata to ensure its on the heap, as required
         // by the transact calls for Cmd_LoadBuffer.
         let buffer_id = {
@@ -573,8 +597,10 @@ impl TransportInner {
                 size: userdata.len() as M_Word,
                 params: null_mut(),
             };
-            let rep = self.transact(&mut cmd)?;
-            unsafe { rep.reply.createbuffer.id }
+            unsafe {
+                let rep = self.conn.transact(&mut cmd)?;
+                rep.reply.createbuffer.id
+            }
         };
 
         const WRITE_BLOCK_SIZE: usize = 4096;
@@ -596,21 +622,20 @@ impl TransportInner {
                 },
                 flashsegment: null_mut(),
             };
-            self.transact(&mut cmd)?;
+            unsafe { self.conn.transact(&mut cmd)? };
             togo = &mut togo[n..];
         }
         Ok(buffer_id)
     }
+}
 
-    /// If tracing is enabled, will collect any data from the HSM trace buffer and log it.
-    #[instrument(level = "trace", skip(self))]
-    fn collect_trace_buffer(&mut self) {
-        if !self.tracing || self.world_id.is_none() {
-            return;
-        }
+impl SEEWorldConn {
+    /// Collect any data from the HSM trace buffer and log it.
+    fn collect_trace_buffer(&self) {
+        assert!(self.tracing);
         let mut cmd = M_Command::new(Cmd_TraceSEEWorld);
         cmd.args.traceseeworld = M_Cmd_TraceSEEWorld_Args {
-            worldid: self.world_id.unwrap(),
+            worldid: self.world_id,
         };
         match self.transact(&mut cmd) {
             Err(e) => {
@@ -627,65 +652,52 @@ impl TransportInner {
         }
     }
 
-    fn transact(&mut self, cmd: &mut M_Command) -> Result<Reply, SeeError> {
+    fn transact(&self, cmd: &mut M_Command) -> Result<Reply, SeeError> {
         let res = unsafe { self.conn.transact(cmd) };
         if let Err(NFastError::Transact(status)) = res {
-            if cmd.cmd != Cmd_TraceSEEWorld {
+            if cmd.cmd != Cmd_TraceSEEWorld && self.tracing {
                 self.collect_trace_buffer();
             }
             if status == Status_SEEWorldFailed || status == Status_ObjectInUse {
-                // Try restarting the SEE world (this will panic to force the
-                // agent to restart regardless of outcome)
-                self.restart_world();
+                // Attempt to gracefully cleanup so that things restart cleanly.
+                let mut cmd = M_Command::new(Cmd_Destroy);
+                cmd.args.destroy.key = self.world_id;
+                if let Err(err) = unsafe { self.conn.transact(&mut cmd) } {
+                    warn!(?err, "attempt to close the SEEWorld failed");
+                }
+                // Because of the role clocks it's not safe to restart the
+                // SEEWorld without restarting the agent.
+                panic!(
+                    "The SEEWorld crashed while transacting a request (err={})",
+                    NFastError::Transact(status)
+                );
             }
         }
         Ok(res?)
     }
+}
 
-    fn close_world(&mut self) {
-        if self.world_id.is_some() {
-            let mut cmd = M_Command::new(Cmd_Destroy);
-            cmd.args.destroy.key = self.world_id.unwrap();
-            if let Err(err) = self.transact(&mut cmd) {
-                warn!(?err, "attempt to close the SEEWorld failed");
-            }
-            self.world_id = None;
-        }
-    }
-
-    /// Restarts the SEEWorld after its failed. We first attempt a restart by destroying the current one
-    /// and then starting it again. If that fails, we do a more extensive reset using a clear command
-    /// which should work but takes a lot of time.
-    fn restart_world(&mut self) -> ! {
-        if self.world_id.is_some() {
-            warn!("SEEWorld failed, attempting restart");
-            self.close_world();
-            if unsafe { self.connect() }.is_ok() {
-                self.close_world();
-                // Because restarting the SEEWorld will reset the role clocks,
-                // its best for the agent to restart.
-                panic!("SEEWorld failed and was successfully recovered. restarting agent");
-            }
-            warn!("Failed to restart SEEWorld, trying harder");
-        }
-        self.try_clear();
-        self.close_world();
-        // Because restarting the SEEWorld will reset the role clocks, its best
-        // for the agent to restart.
-        panic!("SEEWorld failed and was successfully recovered. restarting agent");
-    }
-
-    /// If the SEEWorld crashes or is terminated by the HSM, transact will return Status_SEEWorldFailed.
-    /// If a graceful recovery doesn't work, then this more aggressive one should do it.
-    /// Recovering from this involves
-    ///     * Getting a privileged connection.
-    ///     * Issuing a clear command (equiv to noopclearfail -c)
-    ///     * Creating a new SEEWorld
-    fn try_clear(&mut self) {
-        self.world_id = None;
-        warn!("Attempting to clear & restart SEEWorld");
-        let priv_conn = NFastConn::new(ConnectionFlags::NONE.with_privileged())
-            .expect("Connect for privileged connection failed. Unable to recover crashed SEEWorld");
+impl SEEWorldStarter {
+    /// If the SEEWorld fails to start, it's usually because the SEEWorld
+    /// previously crashed or was terminated by the HSM and it didn't get
+    /// cleaned up.
+    ///
+    /// SEEWorldConn attempts to gracefully clean up, but if that doesn't work
+    /// then this more aggressive one should do it.
+    ///
+    /// Recovering from this involves:
+    /// * Getting a privileged connection.
+    /// * Issuing a clear command (equiv to noopclearfail -c)
+    ///
+    /// This requires that the user account running the service is a member
+    /// of the 'nfast' group.
+    ///
+    /// This panics if its unable to successfully perform the clear
+    fn try_clear(&self) {
+        warn!("Attempting to clear SEEWorld");
+        let priv_conn = NFastConn::new(ConnectionFlags::NONE.with_privileged()).expect(
+            "Connect for privileged connection failed. Unable to recover from crashed SEEWorld",
+        );
 
         // issue the clear command
         let mut cmd = M_Command::new(Cmd_ClearUnitEx);
@@ -697,7 +709,9 @@ impl TransportInner {
         let reply = unsafe { priv_conn.transact(&mut cmd) };
         match reply {
             Err(e) => {
-                panic!("The SEEWorld crashed, and the attempt the clear the HSM so it can be restarted failed with error {e:?}");
+                panic!(
+                    "The attempt the clear the HSM so it can be restarted failed with error {e:?}"
+                );
             }
             Ok(_r) => {
                 info!("Clear successfully issued, waiting on it to finish.");
@@ -709,14 +723,11 @@ impl TransportInner {
                 match unsafe { priv_conn.transact(&mut cmd) } {
                     Err(e) => {
                         panic!(
-                                "The SEEWorld crashed, and a No-op after performing a clear failed with error {e:?}"
-                            );
+                            "Performing a No-op after performing a clear failed with error {e:?}"
+                        );
                     }
                     Ok(_reply) => {
-                        info!("Clear successfully completed. Attempting to restart SEEWorld");
-                        if let Err(e) = unsafe { self.connect() } {
-                            panic!("Restarting SEEWorld after previous crash has failed: {e:?}");
-                        }
+                        info!("Clear successfully completed.");
                     }
                 }
             }
