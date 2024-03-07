@@ -37,7 +37,7 @@ async fn cluster_bench() {
         .unwrap();
 
     run_cluster_bench(&cluster, &[]);
-    run_cluster_bench(&cluster, &["--conn-pool"]);
+    run_cluster_bench(&cluster, &["--conn-pool", "4"]);
     run_service_checker(&cluster);
 }
 
