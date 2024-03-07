@@ -119,6 +119,7 @@ async fn main() {
         process_name: String::from("juicebox-load-balancer"),
         // We intentionally don't want to trace everything any client asks for.
         trace_sampler: Sampler::TraceIdRatioBased(args.trace_sampling_rate),
+        build_info: Some(build_info::get!()),
         ..logging::Options::default()
     });
 

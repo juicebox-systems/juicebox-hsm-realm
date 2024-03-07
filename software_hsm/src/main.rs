@@ -51,7 +51,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("software-hsm");
+    logging::configure("software-hsm", build_info::get!());
     panic::set_abort_on_panic();
     install_termination_handler(Duration::from_secs(1));
 

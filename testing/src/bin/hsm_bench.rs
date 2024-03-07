@@ -65,7 +65,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("juicebox-hsm-bench");
+    logging::configure("juicebox-hsm-bench", build_info::get!());
 
     let mut process_group = ProcessGroup::new();
     install_termination_handler(Duration::from_secs(1));

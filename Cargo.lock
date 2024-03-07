@@ -2320,6 +2320,7 @@ dependencies = [
 name = "observability"
 version = "0.2.3"
 dependencies = [
+ "build_info",
  "dogstatsd",
  "hyper 1.1.0",
  "opentelemetry",

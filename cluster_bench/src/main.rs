@@ -113,6 +113,7 @@ struct Args {
 async fn main() -> ExitCode {
     logging::configure_with_options(logging::Options {
         process_name: String::from("cluster_bench"),
+        build_info: Some(build_info::get!()),
         ..logging::Options::default()
     });
 
