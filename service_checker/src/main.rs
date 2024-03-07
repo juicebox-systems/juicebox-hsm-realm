@@ -94,6 +94,7 @@ async fn main() -> ExitCode {
         process_name: String::from("service_checker"),
         additional_tags: HashMap::from([(String::from("env"), args.env.clone())]),
         trace_sampler: Sampler::AlwaysOn,
+        build_info: Some(build_info::get!()),
         ..logging::Options::default()
     });
 

@@ -316,6 +316,7 @@ async fn main() -> ExitCode {
     logging::configure_with_options(logging::Options {
         process_name: String::from("cluster-cli"),
         default_log_level: Level::ERROR,
+        build_info: Some(build_info::get!()),
         ..logging::Options::default()
     });
 

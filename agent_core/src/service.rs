@@ -131,7 +131,7 @@ where
     SA: Args + Debug,
     T: Transport + 'static,
 {
-    logging::configure(service_name);
+    logging::configure(service_name, build_info.clone());
     panic::set_abort_on_panic();
     let mut shutdown_tasks = install_termination_handler(Duration::from_secs(20));
 

@@ -1,3 +1,4 @@
+use build_info::BuildInfo;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
@@ -98,9 +99,10 @@ fn should_log(module_path: Option<&str>) -> bool {
     true
 }
 
-pub fn configure(service_name: &str) {
+pub fn configure(service_name: &str, build_info: BuildInfo) {
     configure_with_options(Options {
         process_name: service_name.to_owned(),
+        build_info: Some(build_info),
         ..Options::default()
     })
 }
@@ -111,6 +113,7 @@ pub struct Options {
     pub additional_tags: HashMap<String, String>,
     pub trace_sampler: Sampler,
     pub background_trace_sampler: Sampler,
+    pub build_info: Option<build_info::BuildInfo>,
 }
 
 impl Default for Options {
@@ -121,6 +124,7 @@ impl Default for Options {
             additional_tags: HashMap::new(),
             trace_sampler: Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(0.1))),
             background_trace_sampler: Sampler::TraceIdRatioBased(0.005),
+            build_info: None,
         }
     }
 }
@@ -212,7 +216,7 @@ pub fn configure_with_options(options: Options) {
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
     info!(
-        max_level = %log_level,
+        max_level = %log_level, git_hash=options.build_info.map(|b|b.git_hash),
         "initialized logging to terminal and telemetry to OTLP/Jaeger. you can set verbosity with env var LOGLEVEL."
     );
 }

@@ -42,7 +42,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("juicebox-demo-runner");
+    logging::configure("juicebox-demo-runner", build_info::get!());
 
     let args = Args::parse();
 

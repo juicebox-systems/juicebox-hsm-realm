@@ -39,7 +39,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("cluster-manager");
+    logging::configure("cluster-manager", build_info::get!());
     panic::set_abort_on_panic();
     install_termination_handler(Duration::from_secs(1));
 

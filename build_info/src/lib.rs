@@ -48,7 +48,7 @@ macro_rules! clap {
 }
 
 /// Describes the environment where/when this code was built.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BuildInfo {
     /// Tag name of an ancestor commit, along with distance to that commit, if
     /// any. The format is "{name}-{count}". See `git help describe`.
