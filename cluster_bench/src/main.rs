@@ -56,9 +56,10 @@ struct Args {
     #[arg(long, value_name = "NAME", required_unless_present("secrets_file"))]
     gcp_project: Option<String>,
 
-    /// Share an HTTP(S) connection pool across all concurrent clients.
-    #[arg(long = "conn-pool")]
-    share_http_connections: bool,
+    /// Share this many HTTP clients across all concurrent clients. If 0
+    /// will create a new HTTP Client for each users operation.
+    #[arg(long = "conn-pool", default_value_t = 0)]
+    conn_pool_size: usize,
 
     /// List of operations to benchmark. Pass multiple times or use a
     /// comma-separated list.
@@ -155,18 +156,18 @@ async fn run(args: Args) -> anyhow::Result<usize> {
         })
         .collect::<anyhow::Result<_>>()?;
 
-    let shared_http_client = if args.share_http_connections {
-        Some(reqwest::Client::new(reqwest::ClientOptions {
-            additional_root_certs: certs.clone(),
-            timeout: TIMEOUT,
-            default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
-        }))
-    } else {
-        None
-    };
+    let shared_http_clients = (0..args.conn_pool_size)
+        .map(|_| {
+            reqwest::Client::new(reqwest::ClientOptions {
+                additional_root_certs: certs.clone(),
+                timeout: TIMEOUT,
+                default_headers: HashMap::from([(JUICEBOX_VERSION_HEADER, VERSION)]),
+            })
+        })
+        .collect();
 
     let client_builder = Arc::new(ClientBuilder {
-        shared_http_client,
+        shared_http_clients,
         certs,
         configuration: configuration.clone(),
         tenant: args.tenant,
@@ -446,7 +447,7 @@ async fn run_op(op: Operation, i: u64, client_builder: Arc<ClientBuilder>) -> Re
 }
 
 struct ClientBuilder {
-    shared_http_client: Option<reqwest::Client>,
+    shared_http_clients: Vec<reqwest::Client>,
     certs: Vec<Certificate>,
     configuration: Configuration,
     tenant: String,
@@ -491,13 +492,15 @@ impl ClientBuilder {
             .configuration(self.configuration.clone())
             .auth_token_manager(auth_tokens)
             .tokio_sleeper();
-        cb = match &self.shared_http_client {
-            Some(client) => cb.http(client.clone()),
-            None => cb.reqwest_with_options(reqwest::ClientOptions {
+        cb = if self.shared_http_clients.is_empty() {
+            cb.reqwest_with_options(reqwest::ClientOptions {
                 additional_root_certs: self.certs.clone(),
                 timeout: TIMEOUT,
                 ..reqwest::ClientOptions::default()
-            }),
+            })
+        } else {
+            let idx = user_num as usize % self.shared_http_clients.len();
+            cb.http(self.shared_http_clients[idx].clone())
         };
         cb.build()
     }
