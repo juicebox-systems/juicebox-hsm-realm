@@ -176,6 +176,11 @@ impl StoreClient {
         };
 
         let tags = [tag!(?realm), tag!(?group)];
+        self.0.metrics.distribution(
+            "store_client.write_merkle_nodes.batch_size",
+            items.len(),
+            &tags,
+        );
 
         Retry::new("writing merkle tree nodes")
             .with(bigtable_retries)
