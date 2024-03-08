@@ -49,19 +49,19 @@ impl NVRamArgs {
 }
 
 pub fn command_nvram(
-    conn: &mut NFastConn,
+    conn: NFastConn,
     module: M_ModuleID,
     world: *mut NFKM_WorldInfo,
     signing_key_hash: M_Hash,
     args: &NVRamArgs,
 ) -> anyhow::Result<()> {
     let admin_certs = unsafe {
-        read_nvram_admin_delegation_key(conn, world, module)
+        read_nvram_admin_delegation_key(&conn, world, module)
             .context("Loading NVRAM admin key from admin cards")?
     };
 
     alloc_nvram(
-        conn,
+        &conn,
         module,
         admin_certs,
         signing_key_hash,
@@ -152,7 +152,7 @@ unsafe fn read_nvram_admin_delegation_key(
 
 #[allow(non_upper_case_globals)]
 fn alloc_nvram(
-    conn: &mut NFastConn,
+    conn: &NFastConn,
     module: M_ModuleID,
     mut admin_certs: [M_Certificate; 2],
     signing_key_hash: M_Hash,

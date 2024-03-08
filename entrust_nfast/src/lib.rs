@@ -12,71 +12,73 @@ use tracing::{debug, warn};
 mod nfastapp;
 pub use nfastapp::*;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct NFastConn {
     pub app: NFast_AppHandle,
     pub conn: NFastApp_Connection,
 }
 
-impl Default for NFastConn {
-    fn default() -> Self {
-        Self::new()
+pub struct ConnectionFlags(u32);
+impl ConnectionFlags {
+    pub const NONE: ConnectionFlags = ConnectionFlags(0);
+
+    pub fn with_privileged(self) -> Self {
+        Self(self.0 | NFastApp_ConnectionFlags_Privileged)
+    }
+
+    pub fn with_force_client_id(self) -> Self {
+        Self(self.0 | NFastApp_ConnectionFlags_ForceClientID)
+    }
+
+    pub fn with_no_client_id(self) -> Self {
+        Self(self.0 | NFastApp_ConnectionFlags_NoClientID)
     }
 }
 
 impl NFastConn {
-    pub fn new() -> Self {
-        Self {
-            app: null_mut(),
-            conn: null_mut(),
-        }
-    }
-
-    /// Initialize the NFast API and connect to the local hardserver. Does nothing if already connected.
+    /// Initialize the NFast API and connects to the local hardserver.
+    ///
     /// # Safety
     /// Is calling into the NFast C API, who known what happens in there.
-    pub unsafe fn connect(&mut self) -> Result<(), NFastError> {
-        if self.app.is_null() {
-            let rc = NFastApp_Init(&mut self.app, None, None, None, null_mut());
-            let rc = rc as M_Status;
-            if rc != Status_OK {
-                return Err(NFastError::Api(rc));
-            }
+    pub fn new(flags: ConnectionFlags) -> Result<Self, NFastError> {
+        let mut app: NFast_AppHandle = null_mut();
+        let rc = unsafe { NFastApp_Init(&mut app, None, None, None, null_mut()) } as M_Status;
+        if rc != Status_OK {
+            return Err(NFastError::Api(rc));
         }
-        if self.conn.is_null() {
-            let rc = NFastApp_Connect(self.app, &mut self.conn, 0, null_mut());
-            let rc = rc as M_Status;
-            if rc != Status_OK {
-                return Err(NFastError::Api(rc));
-            }
+        let mut conn: NFastApp_Connection = null_mut();
+        let rc = unsafe { NFastApp_Connect(app, &mut conn, flags.0, null_mut()) } as M_Status;
+        if rc != Status_OK {
+            return Err(NFastError::Api(rc));
         }
-        Ok(())
+        Ok(Self { app, conn })
     }
 
-    /// Transact the Cmd with NFast. Will connect to the hard server if not
-    /// already connected.
+    /// Create an additional connection. Every thread should have its own NFastConn.
+    ///
     /// # Safety
     /// Is calling into the NFast C API, who known what happens in there.
-    pub unsafe fn transact(&mut self, cmd: &mut M_Command) -> Result<Reply, NFastError> {
-        self.connect()?;
-        self.transact_on_conn(self.conn, cmd)
+    pub fn additional(&self, flags: ConnectionFlags) -> Result<Self, NFastError> {
+        let mut conn: NFastApp_Connection = null_mut();
+        let rc = unsafe { NFastApp_Connect(self.app, &mut conn, flags.0, null_mut()) } as M_Status;
+        if rc != Status_OK {
+            return Err(NFastError::Api(rc));
+        }
+        Ok(Self {
+            app: self.app,
+            conn,
+        })
     }
 
-    /// Transact the Cmd with NFast on the supplied connection. The connection
-    /// must of been obtained from this NFastConn's app handle. connect() must
-    /// of already been called.
+    /// Transact the Cmd with the hardserver.
+    ///
     /// # Safety
     /// Is calling into the NFast C API, who known what happens in there.
-    pub unsafe fn transact_on_conn(
-        &mut self,
-        conn: NFastApp_Connection,
-        cmd: &mut M_Command,
-    ) -> Result<Reply, NFastError> {
+    pub unsafe fn transact(&self, cmd: &mut M_Command) -> Result<Reply, NFastError> {
         assert!(!self.app.is_null());
-        assert!(!conn.is_null());
+        assert!(!self.conn.is_null());
         let mut rep = M_Reply::default();
-        let rc = NFastApp_Transact(conn, null_mut(), cmd, &mut rep, null_mut());
-        let rc = rc as M_Status;
+        let rc = NFastApp_Transact(self.conn, null_mut(), cmd, &mut rep, null_mut()) as M_Status;
         if rc != Status_OK {
             warn!(cmd=?cmd.cmd, ?rc, "NFastApp_Transact returned error");
             return Err(NFastError::Api(rc));
@@ -92,7 +94,13 @@ impl NFastConn {
     }
 }
 
-#[derive(Debug, Error)]
+impl Drop for NFastConn {
+    fn drop(&mut self) {
+        unsafe { NFastApp_Disconnect(self.conn, null_mut()) };
+    }
+}
+
+#[derive(Error)]
 pub enum NFastError {
     /// An NFast API call returned an error.
     Api(M_Status),
@@ -113,6 +121,12 @@ impl Display for NFastError {
                 write!(f, "Transact Error {} ({})", lookup(*status), *status)
             }
         }
+    }
+}
+
+impl std::fmt::Debug for NFastError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
     }
 }
 
@@ -187,20 +201,22 @@ pub fn find_key(
     }
     debug!(?app, ?ident, key_hash=%unsafe{(*key).hash}, "found key");
     Ok(Some(SecurityWorldKey {
-        conn: conn.clone(),
+        app: conn.app,
         inner: key,
     }))
 }
 
 pub struct SecurityWorldKey {
-    conn: NFastConn,
+    app: NFast_AppHandle,
     inner: *mut NFKM_Key,
 }
+
 impl Drop for SecurityWorldKey {
     fn drop(&mut self) {
-        unsafe { NFKM_freekey(self.conn.app, self.inner, null_mut()) };
+        unsafe { NFKM_freekey(self.app, self.inner, null_mut()) };
     }
 }
+
 impl Deref for SecurityWorldKey {
     type Target = NFKM_Key;
 

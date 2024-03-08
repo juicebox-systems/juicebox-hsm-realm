@@ -9,6 +9,7 @@ build = "../build_info/build_script.rs"
 
 [dependencies]
 agent_core = { workspace = true }
+async-channel = { workspace = true }
 build_info = { workspace = true }
 clap = { workspace = true }
 entrust_api = { workspace = true }

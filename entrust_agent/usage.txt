@@ -117,6 +117,11 @@ Options:
       --reinitialize
           Reinitialize the NVRAM state back to blank, effectively making a new HSM
 
+      --transport-threads <TRANSPORT_THREADS>
+          Number of worker threads to use for the entrust transport
+          
+          [default: 32]
+
   -h, --help
           Print help (see a summary with '-h')
 
