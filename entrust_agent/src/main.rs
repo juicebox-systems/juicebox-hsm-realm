@@ -103,81 +103,6 @@ impl HsmTransportConstructor<EntrustArgs, EntrustSeeTransport> for EntrustConstr
 }
 
 #[derive(Debug)]
-pub enum SeeError {
-    // These are agent side marshalling errors.
-    Serialization(SerializationError),
-    Deserialization(DeserializationError),
-    // An NFast API or CMD transact failed.
-    NFast(NFastError),
-    // The HSM process crashed or was otherwise terminated.
-    SeeWorldFailed,
-    // HSM Side marshalling errors
-    HsmMarshallingError(String),
-}
-
-impl Display for SeeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SeeError::Serialization(err) => write!(f, "Serialization error: {:?}", err),
-            SeeError::Deserialization(err) => write!(f, "Deserialization error: {:?}", err),
-            SeeError::NFast(err) => write!(f, "NFastError: {}", err),
-            SeeError::SeeWorldFailed => write!(f, "SEEWorld failed"),
-            SeeError::HsmMarshallingError(msg) => {
-                write!(f, "HSM Marshalling Error: {msg}")
-            }
-        }
-    }
-}
-
-impl From<DeserializationError> for SeeError {
-    fn from(v: DeserializationError) -> Self {
-        Self::Deserialization(v)
-    }
-}
-
-impl From<SerializationError> for SeeError {
-    fn from(v: SerializationError) -> Self {
-        Self::Serialization(v)
-    }
-}
-
-impl From<NFastError> for SeeError {
-    fn from(v: NFastError) -> Self {
-        Self::NFast(v)
-    }
-}
-
-impl From<SeeError> for AttemptError<SeeError> {
-    fn from(error: SeeError) -> Self {
-        match error {
-            SeeError::Serialization(_) => AttemptError::Fatal {
-                error,
-                tags: vec![tag!("kind": "serialization")],
-            },
-            SeeError::Deserialization(_) => AttemptError::Fatal {
-                error,
-                tags: vec![tag!("kind": "deserialization")],
-            },
-            SeeError::NFast(_) => AttemptError::Fatal {
-                error,
-                tags: vec![tag!("kind": "nfast")],
-            },
-            SeeError::SeeWorldFailed => {
-                // A retry might succeed after this restarts the world.
-                AttemptError::Retryable {
-                    error,
-                    tags: vec![tag!("kind": "nfast")],
-                }
-            }
-            SeeError::HsmMarshallingError(_) => AttemptError::Fatal {
-                error,
-                tags: vec![tag!("kind": "hsm_marshalling")],
-            },
-        }
-    }
-}
-
-#[derive(Debug)]
 struct EntrustSeeTransport(async_channel::Sender<WorkerRequest>);
 
 impl EntrustSeeTransport {
@@ -355,42 +280,92 @@ impl SEEWorldConn {
 
         Ok(resp_vec)
     }
-}
 
-impl SEEWorldStarter {
-    unsafe fn connect(self) -> Result<SEEWorldConn, SeeError> {
-        let world_id = match self.start_seeworld() {
-            Ok(id) => id,
-            Err(e) => {
-                let perform_clear = match e {
-                    SeeError::SeeWorldFailed => true,
-                    SeeError::NFast(NFastError::Transact(status))
-                        if status == Status_ObjectInUse =>
-                    {
-                        true
-                    }
-                    _ => false,
-                };
-                if !perform_clear {
-                    return Err(e);
-                }
-                self.try_clear();
-                self.start_seeworld()?
+    fn transact_seejob(&self, mut data: Vec<u8>) -> Result<Vec<u8>, SeeError> {
+        let mut cmd = M_Command::new(Cmd_SEEJob);
+        cmd.args.seejob = M_Cmd_SEEJob_Args {
+            worldid: self.world_id,
+            seeargs: M_ByteBlock::from_vec(&mut data),
+        };
+        let reply = self.transact(&mut cmd)?;
+        let mut data = unsafe { reply.reply.seejob.seereply.as_slice().to_vec() };
+        let result = match SEEJobResponseType::from_byte(
+            data.pop()
+                .expect("SEEJob responses should always include the type trailer byte"),
+        ) {
+            Ok(SEEJobResponseType::JobResult) => Ok(data),
+            Ok(SEEJobResponseType::JobResultWithIdleTime) => {
+                assert!(data.len() >= 4);
+                let idle_bytes = data.split_off(data.len() - 4);
+                let idle = u32::from_be_bytes(idle_bytes.try_into().unwrap());
+                self.metrics.timing(
+                    "entrust.idle_time",
+                    Duration::from_nanos(idle.into()),
+                    metrics::NO_TAGS,
+                );
+                Ok(data)
             }
+            Ok(SEEJobResponseType::PanicMessage) => {
+                panic!("HSM panicked: {}\n", String::from_utf8_lossy(&data));
+            }
+            Ok(SEEJobResponseType::MarshallingError) => {
+                let msg = String::from_utf8_lossy(&data).to_string();
+                Err(SeeError::HsmMarshallingError(msg))
+            }
+            Err(msg) => Err(SeeError::Deserialization(DeserializationError(msg))),
         };
-        let conn = SEEWorldConn {
-            conn: self.conn,
-            tracing: self.args.trace,
-            world_id,
-            metrics: self.metrics,
-            module: self.args.module,
-        };
-        conn.start_hsmcore(self.args.nvram_state());
-        Ok(conn)
+        if self.tracing {
+            self.collect_trace_buffer();
+        }
+        result
     }
-}
 
-impl SEEWorldConn {
+    fn transact(&self, cmd: &mut M_Command) -> Result<Reply, SeeError> {
+        let res = unsafe { self.conn.transact(cmd) };
+        if let Err(NFastError::Transact(status)) = res {
+            if cmd.cmd != Cmd_TraceSEEWorld && self.tracing {
+                self.collect_trace_buffer();
+            }
+            if status == Status_SEEWorldFailed || status == Status_ObjectInUse {
+                // Attempt to gracefully cleanup so that things restart cleanly.
+                let mut cmd = M_Command::new(Cmd_Destroy);
+                cmd.args.destroy.key = self.world_id;
+                if let Err(err) = unsafe { self.conn.transact(&mut cmd) } {
+                    warn!(?err, "attempt to close the SEEWorld failed");
+                }
+                // Because of the role clocks it's not safe to restart the
+                // SEEWorld without restarting the agent.
+                panic!(
+                    "The SEEWorld crashed while transacting a request (err={})",
+                    NFastError::Transact(status)
+                );
+            }
+        }
+        Ok(res?)
+    }
+
+    /// Collect any data from the HSM trace buffer and log it.
+    fn collect_trace_buffer(&self) {
+        assert!(self.tracing);
+        let mut cmd = M_Command::new(Cmd_TraceSEEWorld);
+        cmd.args.traceseeworld = M_Cmd_TraceSEEWorld_Args {
+            worldid: self.world_id,
+        };
+        match self.transact(&mut cmd) {
+            Err(e) => {
+                warn!(err=?e, "error trying to collect trace data");
+            }
+            Ok(reply) => unsafe {
+                let tr = &reply.reply.traceseeworld;
+                let str = String::from_utf8_lossy(tr.data.as_slice());
+                let trimmed = str.trim_end_matches(&[' ', '\r', '\n', '\0']);
+                if !trimmed.is_empty() {
+                    info!(flags=?tr.flags, len=?tr.data.len, "HSM: {trimmed}");
+                }
+            },
+        }
+    }
+
     fn start_hsmcore(&self, nvram: NvRamState) {
         // Collect up all the key tickets we need.
         let comm_private_key = self.ticket_for_key("simple", "jbox-noise", KeyHalf::Private);
@@ -447,45 +422,6 @@ impl SEEWorldConn {
         }
     }
 
-    fn transact_seejob(&self, mut data: Vec<u8>) -> Result<Vec<u8>, SeeError> {
-        let mut cmd = M_Command::new(Cmd_SEEJob);
-        cmd.args.seejob = M_Cmd_SEEJob_Args {
-            worldid: self.world_id,
-            seeargs: M_ByteBlock::from_vec(&mut data),
-        };
-        let reply = self.transact(&mut cmd)?;
-        let mut data = unsafe { reply.reply.seejob.seereply.as_slice().to_vec() };
-        let result = match SEEJobResponseType::from_byte(
-            data.pop()
-                .expect("SEEJob responses should always include the type trailer byte"),
-        ) {
-            Ok(SEEJobResponseType::JobResult) => Ok(data),
-            Ok(SEEJobResponseType::JobResultWithIdleTime) => {
-                assert!(data.len() >= 4);
-                let idle_bytes = data.split_off(data.len() - 4);
-                let idle = u32::from_be_bytes(idle_bytes.try_into().unwrap());
-                self.metrics.timing(
-                    "entrust.idle_time",
-                    Duration::from_nanos(idle.into()),
-                    metrics::NO_TAGS,
-                );
-                Ok(data)
-            }
-            Ok(SEEJobResponseType::PanicMessage) => {
-                panic!("HSM panicked: {}\n", String::from_utf8_lossy(&data));
-            }
-            Ok(SEEJobResponseType::MarshallingError) => {
-                let msg = String::from_utf8_lossy(&data).to_string();
-                Err(SeeError::HsmMarshallingError(msg))
-            }
-            Err(msg) => Err(SeeError::Deserialization(DeserializationError(msg))),
-        };
-        if self.tracing {
-            self.collect_trace_buffer();
-        }
-        result
-    }
-
     // If there's a problem generating a ticket for a key, then we can't start
     // the hsmcore, and retrying is highly unlikely to work. So this panics on
     // all the error conditions.
@@ -535,6 +471,37 @@ impl SEEWorldConn {
 }
 
 impl SEEWorldStarter {
+    unsafe fn connect(self) -> Result<SEEWorldConn, SeeError> {
+        let world_id = match self.start_seeworld() {
+            Ok(id) => id,
+            Err(e) => {
+                let perform_clear = match e {
+                    SeeError::SeeWorldFailed => true,
+                    SeeError::NFast(NFastError::Transact(status))
+                        if status == Status_ObjectInUse =>
+                    {
+                        true
+                    }
+                    _ => false,
+                };
+                if !perform_clear {
+                    return Err(e);
+                }
+                self.try_clear();
+                self.start_seeworld()?
+            }
+        };
+        let conn = SEEWorldConn {
+            conn: self.conn,
+            tracing: self.args.trace,
+            world_id,
+            metrics: self.metrics,
+            module: self.args.module,
+        };
+        conn.start_hsmcore(self.args.nvram_state());
+        Ok(conn)
+    }
+
     unsafe fn start_seeworld(&self) -> Result<M_KeyID, SeeError> {
         // Load the SEEMachine image
         let data = fs::read(&self.args.image).unwrap_or_else(|err| {
@@ -583,99 +550,6 @@ impl SEEWorldStarter {
         }
     }
 
-    /// Create's a HSM buffer and loads the supplied userdata into it. Returns the buffer id.
-    fn load_buffer(&self, mut userdata: Vec<u8>) -> Result<M_KeyID, SeeError> {
-        // This function takes a Vec<u8> for userdata to ensure its on the heap, as required
-        // by the transact calls for Cmd_LoadBuffer.
-        let buffer_id = {
-            let mut cmd = M_Command::new(Cmd_CreateBuffer);
-            cmd.args.createbuffer = M_Cmd_CreateBuffer_Args {
-                module: self.args.module as M_Word,
-                flags: 0,
-                size: userdata.len() as M_Word,
-                params: null_mut(),
-            };
-            unsafe {
-                let rep = self.conn.transact(&mut cmd)?;
-                rep.reply.createbuffer.id
-            }
-        };
-
-        const WRITE_BLOCK_SIZE: usize = 4096;
-        // togo is a &mut because we need to use as_mut_ptr() in the M_ByteBlock
-        let mut togo: &mut [u8] = &mut userdata;
-        while !togo.is_empty() {
-            let n = min(togo.len(), WRITE_BLOCK_SIZE);
-            let mut cmd = M_Command::new(Cmd_LoadBuffer);
-            cmd.args.loadbuffer = M_Cmd_LoadBuffer_Args {
-                id: buffer_id,
-                flags: if n == togo.len() {
-                    Cmd_LoadBuffer_Args_flags_Final
-                } else {
-                    0
-                },
-                chunk: M_ByteBlock {
-                    len: n as M_Word,
-                    ptr: togo.as_mut_ptr(),
-                },
-                flashsegment: null_mut(),
-            };
-            unsafe { self.conn.transact(&mut cmd)? };
-            togo = &mut togo[n..];
-        }
-        Ok(buffer_id)
-    }
-}
-
-impl SEEWorldConn {
-    /// Collect any data from the HSM trace buffer and log it.
-    fn collect_trace_buffer(&self) {
-        assert!(self.tracing);
-        let mut cmd = M_Command::new(Cmd_TraceSEEWorld);
-        cmd.args.traceseeworld = M_Cmd_TraceSEEWorld_Args {
-            worldid: self.world_id,
-        };
-        match self.transact(&mut cmd) {
-            Err(e) => {
-                warn!(err=?e, "error trying to collect trace data");
-            }
-            Ok(reply) => unsafe {
-                let tr = &reply.reply.traceseeworld;
-                let str = String::from_utf8_lossy(tr.data.as_slice());
-                let trimmed = str.trim_end_matches(&[' ', '\r', '\n', '\0']);
-                if !trimmed.is_empty() {
-                    info!(flags=?tr.flags, len=?tr.data.len, "HSM: {trimmed}");
-                }
-            },
-        }
-    }
-
-    fn transact(&self, cmd: &mut M_Command) -> Result<Reply, SeeError> {
-        let res = unsafe { self.conn.transact(cmd) };
-        if let Err(NFastError::Transact(status)) = res {
-            if cmd.cmd != Cmd_TraceSEEWorld && self.tracing {
-                self.collect_trace_buffer();
-            }
-            if status == Status_SEEWorldFailed || status == Status_ObjectInUse {
-                // Attempt to gracefully cleanup so that things restart cleanly.
-                let mut cmd = M_Command::new(Cmd_Destroy);
-                cmd.args.destroy.key = self.world_id;
-                if let Err(err) = unsafe { self.conn.transact(&mut cmd) } {
-                    warn!(?err, "attempt to close the SEEWorld failed");
-                }
-                // Because of the role clocks it's not safe to restart the
-                // SEEWorld without restarting the agent.
-                panic!(
-                    "The SEEWorld crashed while transacting a request (err={})",
-                    NFastError::Transact(status)
-                );
-            }
-        }
-        Ok(res?)
-    }
-}
-
-impl SEEWorldStarter {
     /// If the SEEWorld fails to start, it's usually because the SEEWorld
     /// previously crashed or was terminated by the HSM and it didn't get
     /// cleaned up.
@@ -731,11 +605,129 @@ impl SEEWorldStarter {
             }
         }
     }
+
+    /// Create's a HSM buffer and loads the supplied userdata into it. Returns the buffer id.
+    fn load_buffer(&self, mut userdata: Vec<u8>) -> Result<M_KeyID, SeeError> {
+        // This function takes a Vec<u8> for userdata to ensure its on the heap, as required
+        // by the transact calls for Cmd_LoadBuffer.
+        let buffer_id = {
+            let mut cmd = M_Command::new(Cmd_CreateBuffer);
+            cmd.args.createbuffer = M_Cmd_CreateBuffer_Args {
+                module: self.args.module as M_Word,
+                flags: 0,
+                size: userdata.len() as M_Word,
+                params: null_mut(),
+            };
+            unsafe {
+                let rep = self.conn.transact(&mut cmd)?;
+                rep.reply.createbuffer.id
+            }
+        };
+
+        const WRITE_BLOCK_SIZE: usize = 4096;
+        // togo is a &mut because we need to use as_mut_ptr() in the M_ByteBlock
+        let mut togo: &mut [u8] = &mut userdata;
+        while !togo.is_empty() {
+            let n = min(togo.len(), WRITE_BLOCK_SIZE);
+            let mut cmd = M_Command::new(Cmd_LoadBuffer);
+            cmd.args.loadbuffer = M_Cmd_LoadBuffer_Args {
+                id: buffer_id,
+                flags: if n == togo.len() {
+                    Cmd_LoadBuffer_Args_flags_Final
+                } else {
+                    0
+                },
+                chunk: M_ByteBlock {
+                    len: n as M_Word,
+                    ptr: togo.as_mut_ptr(),
+                },
+                flashsegment: null_mut(),
+            };
+            unsafe { self.conn.transact(&mut cmd)? };
+            togo = &mut togo[n..];
+        }
+        Ok(buffer_id)
+    }
 }
 
 enum KeyHalf {
     Public,
     Private,
+}
+
+#[derive(Debug)]
+pub enum SeeError {
+    // These are agent side marshalling errors.
+    Serialization(SerializationError),
+    Deserialization(DeserializationError),
+    // An NFast API or CMD transact failed.
+    NFast(NFastError),
+    // The HSM process crashed or was otherwise terminated.
+    SeeWorldFailed,
+    // HSM Side marshalling errors
+    HsmMarshallingError(String),
+}
+
+impl Display for SeeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SeeError::Serialization(err) => write!(f, "Serialization error: {:?}", err),
+            SeeError::Deserialization(err) => write!(f, "Deserialization error: {:?}", err),
+            SeeError::NFast(err) => write!(f, "NFastError: {}", err),
+            SeeError::SeeWorldFailed => write!(f, "SEEWorld failed"),
+            SeeError::HsmMarshallingError(msg) => {
+                write!(f, "HSM Marshalling Error: {msg}")
+            }
+        }
+    }
+}
+
+impl From<DeserializationError> for SeeError {
+    fn from(v: DeserializationError) -> Self {
+        Self::Deserialization(v)
+    }
+}
+
+impl From<SerializationError> for SeeError {
+    fn from(v: SerializationError) -> Self {
+        Self::Serialization(v)
+    }
+}
+
+impl From<NFastError> for SeeError {
+    fn from(v: NFastError) -> Self {
+        Self::NFast(v)
+    }
+}
+
+impl From<SeeError> for AttemptError<SeeError> {
+    fn from(error: SeeError) -> Self {
+        match error {
+            SeeError::Serialization(_) => AttemptError::Fatal {
+                error,
+                tags: vec![tag!("kind": "serialization")],
+            },
+            SeeError::Deserialization(_) => AttemptError::Fatal {
+                error,
+                tags: vec![tag!("kind": "deserialization")],
+            },
+            SeeError::NFast(_) => AttemptError::Fatal {
+                error,
+                tags: vec![tag!("kind": "nfast")],
+            },
+            SeeError::SeeWorldFailed => {
+                // A retry might succeed after this restarts the world.
+                AttemptError::Retryable {
+                    error,
+                    tags: vec![tag!("kind": "nfast")],
+                }
+            }
+            SeeError::HsmMarshallingError(_) => AttemptError::Fatal {
+                error,
+                tags: vec![tag!("kind": "hsm_marshalling")],
+            },
+        }
+    }
 }
 
 #[cfg(test)]
