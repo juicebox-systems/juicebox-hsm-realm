@@ -3,14 +3,14 @@ use core::slice;
 use std::cmp::min;
 use std::ffi::CString;
 use std::fmt::Display;
-use std::fs;
 use std::iter::zip;
 use std::path::PathBuf;
 use std::ptr::null_mut;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use std::{fs, thread};
+use tokio::sync::oneshot;
 use tokio::time::Instant;
-use tracing::{debug, info, warn, Span};
+use tracing::{debug, info, warn};
 
 use agent_core::hsm::Transport;
 use agent_core::service::{AgentArgs, HsmTransportConstructor};
@@ -34,7 +34,7 @@ use retry_loop::AttemptError;
 use service_core::future_task::FutureTask;
 
 /// A host agent for use with an Entrust nCipherXC HSM.
-#[derive(Debug, Args)]
+#[derive(Clone, Debug, Args)]
 struct EntrustArgs {
     /// The HSM module to work with. (The default of 1 is fine unless there are
     /// multiple HSMs in a host).
@@ -63,6 +63,20 @@ struct EntrustArgs {
     /// Reinitialize the NVRAM state back to blank, effectively making a new HSM.
     #[arg(long, default_value_t = false)]
     reinitialize: bool,
+
+    /// Number of worker threads to use for the entrust transport.
+    #[arg(long, default_value_t = 32)]
+    transport_threads: u8,
+}
+
+impl EntrustArgs {
+    fn nvram_state(&self) -> NvRamState {
+        if self.reinitialize {
+            NvRamState::Reinitialize
+        } else {
+            NvRamState::LastWritten
+        }
+    }
 }
 
 #[tokio::main]
@@ -82,14 +96,7 @@ impl HsmTransportConstructor<EntrustArgs, EntrustSeeTransport> for EntrustConstr
         metrics: &metrics::Client,
     ) -> (EntrustSeeTransport, Option<FutureTask<()>>) {
         (
-            EntrustSeeTransport::new(
-                args.service.module,
-                args.service.trace,
-                args.service.image.clone(),
-                args.service.userdata.clone(),
-                args.service.reinitialize,
-                metrics.clone(),
-            ),
+            EntrustSeeTransport::new(args.service.clone(), metrics.clone()),
             None,
         )
     }
@@ -171,40 +178,28 @@ impl From<SeeError> for AttemptError<SeeError> {
 }
 
 #[derive(Debug)]
-struct EntrustSeeTransport(mpsc::Sender<WorkerRequest>);
+struct EntrustSeeTransport(async_channel::Sender<WorkerRequest>);
 
 impl EntrustSeeTransport {
-    fn new(
-        module: u8,
-        tracing: bool,
-        see_machine: PathBuf,
-        userdata: PathBuf,
-        reinit_nvram: bool,
-        metrics: metrics::Client,
-    ) -> Self {
-        let (sender, receiver) = mpsc::channel(16);
+    fn new(args: EntrustArgs, metrics: metrics::Client) -> Self {
+        let (sender, receiver) = async_channel::bounded(128);
 
         let metrics_clone = metrics.clone();
-        std::thread::spawn(move || collect_entrust_stats(module, metrics_clone));
-        tokio::spawn(async move {
-            let conn = NFastConn::new(ConnectionFlags::NONE)
-                .expect("Failed to connect to Entrust Hardserver");
-            let start = SEEWorldStarter {
-                tracing,
-                module,
-                see_machine,
-                userdata,
-                conn,
-                nvram: if reinit_nvram {
-                    NvRamState::Reinitialize
-                } else {
-                    NvRamState::LastWritten
-                },
-                metrics,
-            };
-            let world = unsafe { start.connect().expect("Failed to start SEEWorld") };
-            run_worker(world, receiver).await
-        });
+        std::thread::spawn(move || collect_entrust_stats(args.module, metrics_clone));
+        let conn =
+            NFastConn::new(ConnectionFlags::NONE).expect("Failed to connect to Entrust Hardserver");
+        let num_threads = args.transport_threads;
+        let start = SEEWorldStarter {
+            args,
+            conn,
+            metrics,
+        };
+        let world = unsafe { start.connect().expect("Failed to start SEEWorld") };
+        for _ in 0..num_threads {
+            let another_conn = world.additional_conn().unwrap();
+            let another_rec = receiver.clone();
+            thread::spawn(move || another_conn.run_worker(another_rec));
+        }
         Self(sender)
     }
 }
@@ -293,12 +288,8 @@ impl WorkerRequest {
 
 #[derive(Debug)]
 struct SEEWorldStarter {
-    module: u8,
-    see_machine: PathBuf,
-    userdata: PathBuf,
+    args: EntrustArgs,
     conn: NFastConn,
-    nvram: NvRamState,
-    tracing: bool,
     metrics: metrics::Client,
 }
 
@@ -331,22 +322,30 @@ impl Transport for EntrustSeeTransport {
     }
 }
 
-async fn run_worker(world: SEEWorldConn, mut reciever: mpsc::Receiver<WorkerRequest>) {
-    while let Some(work) = reciever.recv().await {
-        let result = world.send_hsm_msg(work.msg_name, work.msg);
-        _ = work.respond_to.send(result);
-    }
-}
-
 impl SEEWorldConn {
+    fn run_worker(&self, receiver: async_channel::Receiver<WorkerRequest>) {
+        while let Ok(work) = receiver.recv_blocking() {
+            let result = self.send_hsm_msg(work.msg_name, work.msg);
+            _ = work.respond_to.send(result);
+        }
+        info!("entrust transport worker thread stopping");
+    }
+
+    fn additional_conn(&self) -> Result<SEEWorldConn, NFastError> {
+        Ok(SEEWorldConn {
+            module: self.module,
+            conn: self.conn.additional(ConnectionFlags::NONE)?,
+            tracing: self.tracing,
+            world_id: self.world_id,
+            metrics: self.metrics.clone(),
+        })
+    }
+
     fn send_hsm_msg(&self, msg_name: &str, msg: Vec<u8>) -> Result<Vec<u8>, SeeError> {
         let start = Instant::now();
         let req_len = msg.len();
         let resp_vec = self.transact_seejob(msg)?;
         let elapsed = start.elapsed();
-        if elapsed > Duration::from_millis(20) {
-            warn!(dur=?start.elapsed(), req=msg_name, ?req_len, result_len=resp_vec.len(), "Entrust HSM SEEJob transaction was slow");
-        }
         let tag = tag!(?msg_name);
         self.metrics.timing("entrust.seejob.time", elapsed, [&tag]);
         self.metrics
@@ -354,7 +353,6 @@ impl SEEWorldConn {
         self.metrics
             .distribution("entrust.seejob.response.bytes", resp_vec.len(), [&tag]);
 
-        Span::current().record("resp_msg_len", resp_vec.len());
         Ok(resp_vec)
     }
 }
@@ -382,12 +380,12 @@ impl SEEWorldStarter {
         };
         let conn = SEEWorldConn {
             conn: self.conn,
-            tracing: self.tracing,
+            tracing: self.args.trace,
             world_id,
             metrics: self.metrics,
-            module: self.module,
+            module: self.args.module,
         };
-        conn.start_hsmcore(self.nvram);
+        conn.start_hsmcore(self.args.nvram_state());
         Ok(conn)
     }
 }
@@ -539,10 +537,10 @@ impl SEEWorldConn {
 impl SEEWorldStarter {
     unsafe fn start_seeworld(&self) -> Result<M_KeyID, SeeError> {
         // Load the SEEMachine image
-        let data = fs::read(&self.see_machine).unwrap_or_else(|err| {
+        let data = fs::read(&self.args.image).unwrap_or_else(|err| {
             panic!(
                 "Failed to load see machine image file {}: {err}",
-                self.see_machine.display()
+                self.args.image.display()
             )
         });
         let image_buffer = self.load_buffer(data)?;
@@ -553,17 +551,17 @@ impl SEEWorldStarter {
         };
         self.conn.transact(&mut cmd)?;
 
-        let user_data = fs::read(&self.userdata).unwrap_or_else(|err| {
+        let user_data = fs::read(&self.args.userdata).unwrap_or_else(|err| {
             panic!(
                 "Failed to load userdata file {}: {err}",
-                self.userdata.display()
+                self.args.userdata.display()
             )
         });
         let user_data_buffer = self.load_buffer(user_data)?;
 
         let mut cmd = M_Command::new(Cmd_CreateSEEWorld);
         cmd.args.createseeworld = M_Cmd_CreateSEEWorld_Args {
-            flags: if self.tracing {
+            flags: if self.args.trace {
                 Cmd_CreateSEEWorld_Args_flags_EnableDebug
             } else {
                 0
@@ -592,7 +590,7 @@ impl SEEWorldStarter {
         let buffer_id = {
             let mut cmd = M_Command::new(Cmd_CreateBuffer);
             cmd.args.createbuffer = M_Cmd_CreateBuffer_Args {
-                module: self.module as M_Word,
+                module: self.args.module as M_Word,
                 flags: 0,
                 size: userdata.len() as M_Word,
                 params: null_mut(),
@@ -703,7 +701,7 @@ impl SEEWorldStarter {
         let mut cmd = M_Command::new(Cmd_ClearUnitEx);
         cmd.args.clearunitex = M_Cmd_ClearUnitEx_Args {
             flags: 0,
-            module: self.module as M_Word,
+            module: self.args.module as M_Word,
             mode: ModuleMode_Default,
         };
         let reply = unsafe { priv_conn.transact(&mut cmd) };
@@ -718,7 +716,7 @@ impl SEEWorldStarter {
                 // Clear takes a while we'll wait on a no-op for it to finish.
                 let mut cmd = M_Command::new(Cmd_NoOp);
                 cmd.args.noop = M_Cmd_NoOp_Args {
-                    module: self.module as M_Word,
+                    module: self.args.module as M_Word,
                 };
                 match unsafe { priv_conn.transact(&mut cmd) } {
                     Err(e) => {

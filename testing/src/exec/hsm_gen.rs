@@ -158,7 +158,8 @@ impl HsmGenerator {
                         return hsm.public_key;
                     }
                 }
-                if attempt >= 1000 {
+                // The entrust agent can take a long time to start.
+                if attempt >= 5000 {
                     panic!("Failed to connect to agent/HSM at {agent_url}");
                 }
                 sleep(Duration::from_millis(5)).await;

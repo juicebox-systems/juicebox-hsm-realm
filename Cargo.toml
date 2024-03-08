@@ -91,6 +91,7 @@ version = "0.2.3"
 agent_api = { path = "agent_api" }
 agent_core = { path = "agent_core" }
 anyhow = "1.0.79"
+async-channel = "2.2.0"
 async-trait = "0.1.77"
 async_util = { path = "async_util" }
 bigtable = { path = "bigtable" }

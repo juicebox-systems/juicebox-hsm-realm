@@ -54,6 +54,22 @@ impl NFastConn {
         Ok(Self { app, conn })
     }
 
+    /// Create an additional connection. Every thread should have its own NFastConn.
+    ///
+    /// # Safety
+    /// Is calling into the NFast C API, who known what happens in there.
+    pub fn additional(&self, flags: ConnectionFlags) -> Result<Self, NFastError> {
+        let mut conn: NFastApp_Connection = null_mut();
+        let rc = unsafe { NFastApp_Connect(self.app, &mut conn, flags.0, null_mut()) } as M_Status;
+        if rc != Status_OK {
+            return Err(NFastError::Api(rc));
+        }
+        Ok(Self {
+            app: self.app,
+            conn,
+        })
+    }
+
     /// Transact the Cmd with the hardserver.
     ///
     /// # Safety
