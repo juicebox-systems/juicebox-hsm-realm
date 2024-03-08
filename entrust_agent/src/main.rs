@@ -624,7 +624,9 @@ impl SEEWorldStarter {
             }
         };
 
-        const WRITE_BLOCK_SIZE: usize = 4096;
+        // Max size is 262140 (256k minus a bit), see the documentation for
+        // M_Cmd_LoadBuffer_Args.
+        const WRITE_BLOCK_SIZE: usize = 255 * 1024;
         // togo is a &mut because we need to use as_mut_ptr() in the M_ByteBlock
         let mut togo: &mut [u8] = &mut userdata;
         while !togo.is_empty() {
