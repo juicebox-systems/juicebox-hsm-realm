@@ -536,23 +536,66 @@ impl TreeStoreReader<DataHash> for StoreClient {
             }
         };
 
+        let ranges: Vec<RowRange> = all_store_key_starts(record_id)
+            // The first "key start" is 0 bits long, the second is
+            // 1 bit long, etc. By skipping `next.prefix.len()`,
+            // the Bigtable reads will return keys with at least
+            // `next.prefix.len()` bits.
+            .skip(next.prefix.len())
+            .map(|prefix| RowRange {
+                end_key: Some(EndKeyOpen(prefix.next().into_bytes())),
+                start_key: Some(StartKeyClosed(prefix.into_bytes())),
+            })
+            .collect();
+
+        self.0.metrics.distribution(
+            "store_client.path_lookup.num_prefixes_to_read",
+            ranges.len(),
+            tags,
+        );
+
+        let permit = if ranges.len() >= self.0.merkle_large_read_limit {
+            match tokio::time::timeout(
+                Duration::from_secs(3),
+                self.0.merkle_large_read_permits.acquire(),
+            )
+            .await
+            {
+                Ok(Ok(permit)) => {
+                    self.0
+                        .metrics
+                        .incr("store_client.path_lookup.num_large_read_with_permit", tags);
+                    Some(permit)
+                }
+                Ok(Err(e)) => panic!("semaphore unexpectedly closed: {e}"),
+                Err(_) => {
+                    self.0.metrics.incr(
+                        "store_client.path_lookup.num_large_read_with_permit_timeout",
+                        tags,
+                    );
+                    warn!(
+                        prefix_count = ranges.len(),
+                        "timeout waiting for merkle read permit"
+                    );
+                    // If we can't get the permit in a few seconds, then there's no point waiting
+                    // longer because the the root hash that this read is based on will be gone.
+                    return Err(TreeStoreError::Busy);
+                }
+            }
+        } else {
+            self.0
+                .metrics
+                .incr("store_client.path_lookup.num_small_read", tags);
+            None
+        };
+
         // Read the rest from Bigtable.
         let read_req = ReadRowsRequest {
             table_name: merkle_table(&self.0.instance, realm),
             app_profile_id: String::new(),
             rows: Some(RowSet {
                 row_keys: Vec::new(),
-                row_ranges: all_store_key_starts(record_id)
-                    // The first "key start" is 0 bits long, the second is
-                    // 1 bit long, etc. By skipping `next.prefix.len()`,
-                    // the Bigtable reads will return keys with at least
-                    // `next.prefix.len()` bits.
-                    .skip(next.prefix.len())
-                    .map(|prefix| RowRange {
-                        end_key: Some(EndKeyOpen(prefix.next().into_bytes())),
-                        start_key: Some(StartKeyClosed(prefix.into_bytes())),
-                    })
-                    .collect(),
+                row_ranges: ranges,
             }),
             filter: Some(RowFilter {
                 filter: Some(row_filter::Filter::CellsPerRowLimitFilter(1)),
@@ -583,6 +626,7 @@ impl TreeStoreReader<DataHash> for StoreClient {
         )
         .await
         .map_err(|e| TreeStoreError::Network(e.to_string()))?;
+        drop(permit);
 
         self.0.metrics.distribution(
             "store_client.path_lookup.bigtable_nodes_read",

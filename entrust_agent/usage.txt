@@ -87,6 +87,16 @@ Options:
           
           [default: 25000]
 
+      --merkle-large-read-permits <MERKLE_LARGE_READ_PERMITS>
+          The maximum number of concurrent reads of "large" merkle paths
+          
+          [default: 10]
+
+      --merkle-large-read-limit <MERKLE_LARGE_READ_LIMIT>
+          The number of key prefixes in a merkle path read for it to be considered a large read
+          
+          [default: 246]
+
   -l, --listen <LISTEN>
           The IP/port to listen on
           

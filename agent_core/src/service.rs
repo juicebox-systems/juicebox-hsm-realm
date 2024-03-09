@@ -76,6 +76,15 @@ pub struct AgentArgs<SA: Args + Debug> {
     )]
     pub merkle_cache_nodes_limit: usize,
 
+    /// The maximum number of concurrent reads of "large" merkle paths.
+    #[arg(long, default_value_t = 10)]
+    pub merkle_large_read_permits: usize,
+
+    /// The number of key prefixes in a merkle path read for it to be considered
+    /// a large read.
+    #[arg(long, default_value_t = 246)]
+    pub merkle_large_read_limit: usize,
+
     /// The IP/port to listen on.
     #[arg(
         short,
@@ -167,6 +176,8 @@ where
             store::Options {
                 metrics: metrics.clone(),
                 merkle_cache_nodes_limit: Some(args.merkle_cache_nodes_limit),
+                merkle_large_read_limit: args.merkle_large_read_limit,
+                merkle_large_read_permits: args.merkle_large_read_permits,
             },
         )
         .await
