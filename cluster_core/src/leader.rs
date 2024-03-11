@@ -1,14 +1,14 @@
 use futures::future::join_all;
 use futures::FutureExt;
-use juicebox_networking::http;
 use std::collections::HashMap;
 use std::iter::zip;
 use std::time::Duration;
 use tracing::{trace, warn};
-use url::Url;
 
 use agent_api::{StatusRequest, StatusResponse};
 use hsm_api::{GroupId, HsmId};
+use jburl::Url;
+use juicebox_networking::http;
 use juicebox_networking::rpc::{self, SendOptions};
 use juicebox_realm_api::types::RealmId;
 use retry_loop::RetryError;

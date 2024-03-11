@@ -22,7 +22,6 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{debug, info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use url::Url;
 
 mod append;
 mod commit;
@@ -55,6 +54,7 @@ use hsm_api::{
     CaptureNextResponse, Captured, EntryMac, GroupId, GroupMemberRole, HsmId, LogEntry, LogIndex,
     RoleLogicalClock, RoleStatus,
 };
+use jburl::Url;
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::{self, Rpc, SendOptions};
 use juicebox_realm_api::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};

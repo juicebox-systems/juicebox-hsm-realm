@@ -5,11 +5,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use store::StoreClient;
-use url::Url;
 
 use ::reqwest::ClientBuilder;
 use agent_api::{ReloadTenantConfigurationRequest, ReloadTenantConfigurationResponse};
 use cluster_core::{JoinRealmError, NewRealmError};
+use jburl::Url;
 use juicebox_networking::reqwest::{self, ClientOptions};
 use juicebox_networking::rpc;
 use juicebox_process_group::ProcessGroup;
@@ -78,7 +78,7 @@ async fn realm() {
         cluster.realms[0]
             .agents
             .iter()
-            .map(|url| http_client.get(url.join("/livez").unwrap()).send()),
+            .map(|url| http_client.get(url.join("/livez").unwrap().as_ref()).send()),
     )
     .await
     .into_iter()
@@ -93,7 +93,7 @@ async fn realm() {
         cluster
             .cluster_managers
             .iter()
-            .map(|url| http_client.get(url.join("/livez").unwrap()).send()),
+            .map(|url| http_client.get(url.join("/livez").unwrap().as_ref()).send()),
     )
     .await
     .into_iter()

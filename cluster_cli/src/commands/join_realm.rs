@@ -1,7 +1,7 @@
 use anyhow::anyhow;
-use reqwest::Url;
 
 use crate::cluster::ClusterInfo;
+use jburl::Url;
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
 

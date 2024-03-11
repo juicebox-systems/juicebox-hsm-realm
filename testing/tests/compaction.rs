@@ -1,5 +1,4 @@
 use once_cell::sync::Lazy;
-use reqwest::Url;
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
@@ -9,6 +8,7 @@ use testing::background::BackgroundClientRequests;
 use tokio::time::sleep;
 use tracing::info;
 
+use jburl::Url;
 use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::{Pin, Policy, UserInfo, UserSecret};
 use testing::exec::bigtable::emulator;

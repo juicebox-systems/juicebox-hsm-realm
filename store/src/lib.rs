@@ -13,7 +13,6 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::oneshot;
 use tokio::time::sleep;
 use tracing::{debug, info, instrument, trace, warn};
-use url::Url;
 
 use bigtable::mutate::MutateRowsError;
 use bigtable::read::{Reader, RowKey};
@@ -23,6 +22,7 @@ use bigtable::{
 };
 use hsm_api::merkle::StoreDelta;
 use hsm_api::{DataHash, EntryMac, GroupId, LogEntry, LogIndex};
+use jburl::Url;
 use juicebox_realm_api::types::RealmId;
 use observability::{metrics, metrics_tag as tag};
 use retry_loop::{Retry, RetryError};

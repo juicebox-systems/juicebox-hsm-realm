@@ -1,8 +1,9 @@
 use anyhow::anyhow;
+
 use cluster_api::{RebalanceRequest, RebalanceSuccess};
+use jburl::Url;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
-use reqwest::Url;
 use store::{ServiceKind, StoreClient};
 
 pub(crate) async fn rebalance(

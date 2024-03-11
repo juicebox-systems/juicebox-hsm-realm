@@ -9,6 +9,7 @@ version.workspace = true
 [dependencies]
 agent_core = { workspace = true }
 http = { workspace = true }
+jburl = { workspace = true }
 juicebox_marshalling = { workspace = true }
 observability = { workspace = true }
 opentelemetry = { workspace = true }
@@ -16,4 +17,3 @@ reqwest = { workspace = true }
 retry_loop = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
-url = { workspace = true }

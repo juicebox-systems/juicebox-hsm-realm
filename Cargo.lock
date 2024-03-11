@@ -64,6 +64,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.1.0",
  "hyper-util",
+ "jburl",
  "juicebox_marshalling",
  "juicebox_networking",
  "juicebox_realm_api",
@@ -83,7 +84,6 @@ dependencies = [
  "tonic 0.10.2",
  "tracing",
  "tracing-opentelemetry",
- "url",
 ]
 
 [[package]]
@@ -507,7 +507,7 @@ dependencies = [
  "cluster_core",
  "google",
  "hsm_api",
- "juicebox_marshalling",
+ "jburl",
  "juicebox_networking",
  "juicebox_realm_api",
  "observability",
@@ -518,7 +518,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
- "url",
 ]
 
 [[package]]
@@ -668,6 +667,7 @@ dependencies = [
  "google",
  "hex",
  "hsm_api",
+ "jburl",
  "juicebox_marshalling",
  "juicebox_networking",
  "juicebox_realm_api",
@@ -694,17 +694,15 @@ dependencies = [
  "cluster_api",
  "futures",
  "hsm_api",
+ "jburl",
  "juicebox_networking",
  "juicebox_realm_api",
- "observability",
  "retry_loop",
- "service_core",
  "store",
  "thiserror",
  "tokio",
  "tonic 0.10.2",
  "tracing",
- "url",
 ]
 
 [[package]]
@@ -725,6 +723,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.1.0",
  "hyper-util",
+ "jburl",
  "juicebox_networking",
  "juicebox_process_group",
  "juicebox_realm_api",
@@ -739,7 +738,6 @@ dependencies = [
  "tonic 0.10.2",
  "tracing",
  "tracing-opentelemetry",
- "url",
 ]
 
 [[package]]
@@ -1411,7 +1409,6 @@ dependencies = [
  "observability",
  "pubsub_api",
  "retry_loop",
- "tokio",
  "tonic 0.10.2",
  "tracing",
 ]
@@ -1882,6 +1879,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1a46d1a171d865aa5f83f92695765caa047a9b4cbae2cbf37dbd613a793fd4c"
 
 [[package]]
+name = "jburl"
+version = "0.2.3"
+dependencies = [
+ "url",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2130,6 +2134,7 @@ dependencies = [
  "http-body-util",
  "hyper 1.1.0",
  "hyper-util",
+ "jburl",
  "juicebox_marshalling",
  "juicebox_networking",
  "juicebox_realm_api",
@@ -2150,7 +2155,6 @@ dependencies = [
  "tokio-rustls 0.25.0",
  "tracing",
  "tracing-opentelemetry",
- "url",
 ]
 
 [[package]]
@@ -3333,13 +3337,13 @@ dependencies = [
  "build_info",
  "clap",
  "expect-test",
+ "jburl",
  "nix",
  "observability",
  "service_core",
  "software_hsm_client",
  "tokio",
  "tracing",
- "url",
 ]
 
 [[package]]
@@ -3359,12 +3363,12 @@ dependencies = [
  "http-body-util",
  "hyper 1.1.0",
  "hyper-util",
+ "jburl",
  "observability",
  "rand",
  "service_core",
  "tokio",
  "tracing",
- "url",
  "x25519-dalek",
 ]
 
@@ -3374,6 +3378,7 @@ version = "0.2.3"
 dependencies = [
  "agent_core",
  "http 0.2.11",
+ "jburl",
  "juicebox_marshalling",
  "observability",
  "opentelemetry",
@@ -3381,7 +3386,6 @@ dependencies = [
  "retry_loop",
  "tracing",
  "tracing-opentelemetry",
- "url",
 ]
 
 [[package]]
@@ -3433,6 +3437,7 @@ dependencies = [
  "hsm_api",
  "hsm_core",
  "http 0.2.11",
+ "jburl",
  "juicebox_marshalling",
  "juicebox_process_group",
  "juicebox_realm_api",
@@ -3449,7 +3454,6 @@ dependencies = [
  "tokio",
  "tonic 0.10.2",
  "tracing",
- "url",
 ]
 
 [[package]]
@@ -3572,6 +3576,7 @@ dependencies = [
  "hsm_core",
  "http 0.2.11",
  "itertools 0.12.0",
+ "jburl",
  "juicebox_marshalling",
  "juicebox_networking",
  "juicebox_noise",
@@ -3598,7 +3603,6 @@ dependencies = [
  "tokio-rustls 0.25.0",
  "tonic 0.10.2",
  "tracing",
- "url",
  "x25519-dalek",
 ]
 

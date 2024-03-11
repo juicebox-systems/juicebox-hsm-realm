@@ -11,13 +11,13 @@ build = "../build_info/build_script.rs"
 agent_core = { workspace = true }
 build_info = { workspace = true }
 clap = { workspace = true }
+jburl = { workspace = true }
 nix = { workspace = true }
 observability = { workspace = true }
 service_core = { workspace = true }
 software_hsm_client = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }

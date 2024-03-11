@@ -1,5 +1,4 @@
-use reqwest::Url;
-
+use jburl::Url;
 use juicebox_networking::reqwest::Client;
 
 pub async fn new_realm(agent_address: &Url, agents_client: &Client) -> anyhow::Result<()> {

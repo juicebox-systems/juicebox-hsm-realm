@@ -1,15 +1,15 @@
 use futures::future::join_all;
 use futures::FutureExt;
-use juicebox_networking::http;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
-use url::Url;
 
 use agent_api::StatusRequest;
 use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange};
+use jburl::Url;
+use juicebox_networking::http;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError, SendOptions};
 use juicebox_realm_api::types::RealmId;

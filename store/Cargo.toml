@@ -18,6 +18,7 @@ google = { workspace = true }
 hex = { workspace = true }
 hsm_api = { workspace = true }
 http = { workspace = true }
+jburl = { workspace = true }
 juicebox_marshalling = { workspace = true }
 juicebox_realm_api = { workspace = true }
 lru-cache = { workspace = true }
@@ -31,7 +32,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
 agent_core = { workspace = true }

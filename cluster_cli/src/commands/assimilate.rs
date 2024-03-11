@@ -1,12 +1,12 @@
 use anyhow::anyhow;
 use futures::future::try_join_all;
 use juicebox_networking::rpc;
-use reqwest::Url;
 use std::cmp::min;
 use std::collections::HashSet;
 
 use cluster_api::TransferRequest;
 use hsm_api::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
+use jburl::Url;
 use juicebox_marshalling::to_be4;
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;

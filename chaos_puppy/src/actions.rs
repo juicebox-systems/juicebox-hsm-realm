@@ -3,10 +3,10 @@ use async_trait::async_trait;
 use rand::seq::SliceRandom;
 use rand_core::OsRng;
 use std::fmt::Debug;
-use url::Url;
 
 use cluster_core::HsmStatuses;
 use hsm_api::{GroupId, OwnedRange};
+use jburl::Url;
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
 use store::{ServiceKind, StoreClient};

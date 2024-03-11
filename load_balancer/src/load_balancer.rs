@@ -28,11 +28,11 @@ use tokio::time;
 use tokio_rustls::{rustls, TlsAcceptor};
 use tracing::{span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use url::Url;
 
 use super::server::{HealthCheckStatus, ManagerOptions, ServiceManager};
 use agent_api::{AppRequest, AppResponse, HashedUserId, StatusRequest, StatusResponse};
 use hsm_api::{GroupId, OwnedRange, RecordId};
+use jburl::Url;
 use juicebox_marshalling as marshalling;
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::{self, SendOptions};

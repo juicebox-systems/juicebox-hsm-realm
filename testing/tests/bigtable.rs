@@ -1,6 +1,5 @@
 use chrono::{Datelike, Days, Months, Utc};
 use once_cell::sync::Lazy;
-use reqwest::Url;
 use std::time::{Duration, SystemTime};
 
 use agent_api::merkle::TreeStoreReader;
@@ -9,6 +8,7 @@ use hsm_api::merkle::{Branch, DeltaBuilder, InteriorNode, Node, NodeKey, StoreDe
 use hsm_api::{DataHash, EntryMac, GroupId, HsmId, LogEntry, LogIndex, OwnedRange, RecordId};
 use hsm_core::hsm::MerkleHasher;
 use hsm_core::merkle::Tree;
+use jburl::Url;
 use juicebox_process_group::ProcessGroup;
 use juicebox_realm_api::types::RealmId;
 use observability::metrics;

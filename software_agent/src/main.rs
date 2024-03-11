@@ -8,9 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
 use tracing::{info, warn};
-use url::Url;
 
 use agent_core::service::{AgentArgs, HsmTransportConstructor};
+use jburl::Url;
 use observability::metrics;
 use service_core::future_task::FutureTask;
 use software_hsm_client::HsmHttpClient;

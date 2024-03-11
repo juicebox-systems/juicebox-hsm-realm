@@ -18,11 +18,11 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
-use url::Url;
 
 use super::PortIssuer;
 use agent_api::StatusRequest;
 use hsm_api::PublicKey;
+use jburl::Url;
 
 type AgentClient = reqwest::Client;
 

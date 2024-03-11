@@ -9,12 +9,12 @@ use std::collections::HashMap;
 use std::str;
 use std::time::{Duration, SystemTime};
 use tracing::{debug, warn};
-use url::Url;
 
 use super::{to_micros, BigtableClient, BigtableTableAdminClient, Instance, RowKey, ServiceKind};
 use bigtable::mutate::mutate_rows;
 use bigtable::read::Reader;
 use bigtable::{bigtable_retries, inspect_grpc_error};
+use jburl::Url;
 use observability::metrics;
 use retry_loop::{retry_logging, Retry, RetryError};
 
