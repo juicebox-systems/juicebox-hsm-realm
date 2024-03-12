@@ -34,6 +34,8 @@ if ! command -v gcloud > /dev/null; then
   exit 1
 fi
 
+git diff --quiet || (echo 'git state is dirty, must be clean.' && exit 1)
+
 echo "Building version $GIT in $MODE mode"
 if [ "$ENTRUST" -eq "1" ]; then
   cargo build --all "--$MODE"
