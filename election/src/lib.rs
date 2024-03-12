@@ -29,7 +29,7 @@ impl HsmElection {
         self.votes.entry(voter).and_modify(|f| *f = Some(index));
     }
 
-    pub fn outcome(self) -> Result<LogIndex, ElectionNoQuorum> {
+    pub fn outcome(&self) -> Result<LogIndex, ElectionNoQuorum> {
         let mut indexes = self
             .votes
             .values()
