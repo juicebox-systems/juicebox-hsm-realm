@@ -1,6 +1,8 @@
-use futures::future::join_all;
+use futures::stream::FuturesUnordered;
+use futures::{Stream, StreamExt};
 use std::collections::{HashMap, VecDeque};
 use std::mem;
+use std::pin::pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::watch;
@@ -168,13 +170,31 @@ impl<T: Transport + 'static> Agent<T> {
         };
 
         // See if we can move the commit index forward.
-        let captures = self.get_captures(realm, group, config, peers).await;
+        let mut captures = Vec::with_capacity(config.len());
+        let mut captures_stream = pin!(self.get_captures(realm, group, config, peers).await);
 
         // Calculate a commit index.
         let mut election = HsmElection::new(config);
-        for c in &captures {
+        while let Some(c) = captures_stream.next().await {
             election.vote(c.hsm, c.index);
+            captures.push(c);
+            if let Ok(idx) = election.outcome() {
+                if Some(idx) > last_committed {
+                    // We can move the commit index forward. Wait a small amount
+                    // of time for any additional votes, as they may improve how
+                    // far forward we can go.
+                    let _ = tokio::time::timeout(Duration::from_millis(10), async {
+                        while let Some(c) = captures_stream.next().await {
+                            election.vote(c.hsm, c.index);
+                            captures.push(c);
+                        }
+                    })
+                    .await;
+                    break;
+                }
+            }
         }
+
         let commit_index: Option<LogIndex> = election.outcome().ok();
         if commit_index <= last_committed {
             return CommitResult::NoChange;
@@ -201,24 +221,26 @@ impl<T: Transport + 'static> Agent<T> {
         group: GroupId,
         hsms: &[HsmId],
         peers: &AgentDiscoveryCache,
-    ) -> Vec<Captured> {
-        let urls: Vec<Url> = hsms.iter().filter_map(|hsm| peers.url(hsm)).collect();
-        join_all(urls.iter().map(|url| {
-            rpc::send_with_options(
-                &self.0.peer_client,
-                url,
-                ReadCapturedRequest { realm, group },
-                SendOptions::default().with_timeout(Duration::from_millis(500)),
-            )
-        }))
-        .await
-        .into_iter()
-        // skip network failures
-        .filter_map(|r| r.ok())
-        .filter_map(|r| match r {
-            ReadCapturedResponse::Ok(captured) => captured,
+    ) -> impl Stream<Item = Captured> + '_ {
+        let f: FuturesUnordered<_> = hsms
+            .iter()
+            .filter_map(|hsm| peers.url(hsm))
+            .map(move |url| async move {
+                rpc::send_with_options(
+                    &self.0.peer_client,
+                    &url,
+                    ReadCapturedRequest { realm, group },
+                    SendOptions::default().with_timeout(Duration::from_millis(500)),
+                )
+                .await
+            })
+            .collect();
+
+        f.filter_map(|r| async { r.ok() }).filter_map(|r| async {
+            match r {
+                ReadCapturedResponse::Ok(captured) => captured,
+            }
         })
-        .collect()
     }
 
     // Ask the HSM to do the commit.

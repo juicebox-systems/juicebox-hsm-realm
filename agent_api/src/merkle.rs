@@ -38,4 +38,5 @@ pub trait TreeStoreReader<HO>: Sync {
 pub enum TreeStoreError {
     MissingNode,
     Network(String),
+    Busy,
 }
