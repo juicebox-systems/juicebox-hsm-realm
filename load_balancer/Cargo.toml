@@ -24,6 +24,7 @@ http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
+jburl = { workspace = true }
 juicebox_marshalling = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_realm_api = { workspace = true }
@@ -43,7 +44,6 @@ tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }

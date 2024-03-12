@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Context};
 use hsm_api::{GroupId, OwnedRange};
-use reqwest::Url;
 
 use super::super::cluster::ClusterInfo;
 use cluster_api::TransferRequest;
+use jburl::Url;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
 use juicebox_realm_api::types::RealmId;

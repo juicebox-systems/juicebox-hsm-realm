@@ -18,9 +18,9 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{info, span, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use url::Url;
 
 use hsm_api::GroupId;
+use jburl::Url;
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::Rpc;
 use juicebox_realm_api::types::RealmId;

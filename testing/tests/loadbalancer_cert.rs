@@ -10,8 +10,8 @@ use tokio::net::TcpStream;
 use tokio::time::sleep;
 use tokio_rustls::rustls::{self, ClientConfig};
 use tokio_rustls::TlsConnector;
-use url::Url;
 
+use jburl::Url;
 use juicebox_process_group::ProcessGroup;
 use testing::exec::bigtable::emulator;
 use testing::exec::certs::{create_localhost_key_and_cert, Certificates};

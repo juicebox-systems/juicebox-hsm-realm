@@ -1,11 +1,11 @@
 use anyhow::anyhow;
 use anyhow::Context;
-use reqwest::Url;
 
 use super::super::cluster::{ClusterInfo, IdError};
 use super::super::StepdownType;
 use cluster_api::{StepDownRequest, StepDownResponse};
 use hsm_api::HsmId;
+use jburl::Url;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
 

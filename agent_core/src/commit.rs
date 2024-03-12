@@ -1,6 +1,5 @@
 use futures::stream::FuturesUnordered;
 use futures::{Stream, StreamExt};
-use reqwest::Url;
 use std::collections::{HashMap, VecDeque};
 use std::mem;
 use std::pin::pin;
@@ -22,6 +21,7 @@ use hsm_api::{
     AppResultType, Captured, CommitRequest, CommitResponse, EntryMac, GroupId, GroupMemberRole,
     HsmId, LogIndex, PersistStateRequest, PersistStateResponse,
 };
+use jburl::Url;
 use juicebox_networking::rpc::{self, SendOptions};
 use juicebox_realm_api::requests::NoiseResponse;
 use juicebox_realm_api::types::RealmId;

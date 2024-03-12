@@ -1,5 +1,4 @@
-use reqwest::Url;
-
+use jburl::Url;
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
 

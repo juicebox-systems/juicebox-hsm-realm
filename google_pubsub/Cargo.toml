@@ -16,4 +16,3 @@ pubsub_api = { workspace = true }
 retry_loop = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
-tokio = { workspace = true }

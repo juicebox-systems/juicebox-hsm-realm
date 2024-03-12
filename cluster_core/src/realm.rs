@@ -1,13 +1,13 @@
 use futures::future::try_join_all;
 use thiserror::Error;
 use tracing::{debug, info};
-use url::Url;
 
 use agent_api::{
     JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest,
     NewGroupResponse, NewRealmRequest, NewRealmResponse, StatusRequest,
 };
 use hsm_api::{GroupId, HsmId, HsmRealmStatement, GROUPS_LIMIT};
+use jburl::Url;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;

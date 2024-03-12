@@ -1,13 +1,13 @@
 use anyhow::Context;
 use chrono::{LocalResult, TimeZone, Utc};
 use clap::{command, Parser, Subcommand, ValueEnum};
-use reqwest::Url;
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime};
 use tracing::{info, Level};
 
 use google::{auth, GrpcConnectionOptions};
 use hsm_api::{OwnedRange, RecordId};
+use jburl::Url;
 use juicebox_networking::reqwest::{Client, ClientOptions};
 use juicebox_realm_api::types::RealmId;
 use juicebox_realm_auth::Scope;

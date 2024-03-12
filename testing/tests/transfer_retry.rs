@@ -3,7 +3,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use url::Url;
 
 use cluster_api::{TransferError, TransferRequest};
 use cluster_core::{
@@ -11,6 +10,7 @@ use cluster_core::{
     ManagementLeaseKey, TransferChaos,
 };
 use hsm_api::{GroupId, LeaderStatus, OwnedRange, RecordId};
+use jburl::Url;
 use juicebox_networking::reqwest::{self, ClientOptions};
 use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::RealmId;

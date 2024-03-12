@@ -1,4 +1,4 @@
-use ::reqwest::{Certificate, Url};
+use ::reqwest::Certificate;
 use futures::future::join_all;
 use http::Uri;
 use std::collections::HashMap;
@@ -18,6 +18,7 @@ use agent_api::StatusRequest;
 use cluster_core::{self, NewRealmError, TransferRequest};
 use google::{auth, GrpcConnectionOptions};
 use hsm_api::{GroupId, OwnedRange, PublicKey};
+use jburl::Url;
 use juicebox_networking::reqwest;
 use juicebox_networking::rpc;
 use juicebox_process_group::ProcessGroup;
@@ -86,7 +87,7 @@ impl ClusterResult {
                 .realms
                 .iter()
                 .map(|r| Realm {
-                    address: self.load_balancers[0].clone(),
+                    address: self.load_balancers[0].clone().into(),
                     public_key: Some(r.communication_public_key.0.clone()),
                     id: r.realm,
                 })

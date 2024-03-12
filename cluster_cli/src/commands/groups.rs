@@ -1,7 +1,7 @@
-use reqwest::Url;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, OwnedRange};
+use jburl::Url;
 use juicebox_realm_api::types::RealmId;
 use table::{Column, FmtWriteStdOut, Justify, Table, TableStyle};
 

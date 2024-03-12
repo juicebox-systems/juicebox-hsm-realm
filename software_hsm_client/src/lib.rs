@@ -4,9 +4,9 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use url::Url;
 
 use agent_core::hsm::Transport;
+use jburl::Url;
 use juicebox_marshalling::{self as marshalling, DeserializationError, SerializationError};
 use observability::metrics_tag as tag;
 use retry_loop::AttemptError;
@@ -51,7 +51,7 @@ impl Transport for HsmHttpClient {
 
         match self
             .http
-            .post(self.hsm.clone())
+            .post(self.hsm.as_ref())
             .body(msg)
             .headers(headers)
             .send()

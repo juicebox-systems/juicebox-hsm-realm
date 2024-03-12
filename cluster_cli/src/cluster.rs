@@ -2,13 +2,13 @@ use anyhow::Context;
 use futures::future::join_all;
 use futures::FutureExt;
 use hex::FromHexError;
-use reqwest::Url;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use thiserror::Error;
 
 use agent_api::{StatusRequest, StatusResponse};
 use hsm_api::{GroupId, HsmId};
+use jburl::Url;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
 use juicebox_sdk::RealmId;

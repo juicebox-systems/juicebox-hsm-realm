@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use std::iter::zip;
 use std::time::Duration;
 use tracing::{info, warn};
-use url::Url;
 
 use super::{ManagementGrant, Manager};
 use cluster_core::{discover_hsm_ids, get_hsm_statuses};
 use hsm_api::{GroupId, HsmId, LogIndex};
+use jburl::Url;
 use juicebox_networking::rpc::{self, RpcError};
 use juicebox_realm_api::types::RealmId;
 use service_core::rpc::HandlerError;

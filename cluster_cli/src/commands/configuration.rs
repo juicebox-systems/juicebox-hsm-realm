@@ -1,8 +1,8 @@
 use anyhow::anyhow;
-use reqwest::Url;
 use std::collections::HashMap;
 
 use hsm_api::PublicKey;
+use jburl::Url;
 use juicebox_realm_api::types::RealmId;
 use juicebox_sdk::Configuration;
 use juicebox_sdk::PinHashingMode;
@@ -33,7 +33,7 @@ pub async fn print_sensible_configuration(
         realms: realms
             .into_iter()
             .map(|(id, public_key)| Realm {
-                address: load_balancer.clone(),
+                address: load_balancer.clone().into(),
                 id,
                 public_key: Some(public_key.0),
             })

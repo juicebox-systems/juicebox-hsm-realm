@@ -58,7 +58,8 @@ async fn load_balancer() {
         .post(
             cluster.load_balancers[0]
                 .join(SecretsRequest::PATH)
-                .unwrap(),
+                .unwrap()
+                .as_ref(),
         )
         .body(req)
         .send()
@@ -71,7 +72,8 @@ async fn load_balancer() {
         .post(
             cluster.load_balancers[0]
                 .join(SecretsRequest::PATH)
-                .unwrap(),
+                .unwrap()
+                .as_ref(),
         )
         .body(req)
         .send()
@@ -80,7 +82,7 @@ async fn load_balancer() {
     assert_eq!(StatusCode::BAD_REQUEST, res.status());
 
     let res = http
-        .get(cluster.load_balancers[0].join("livez").unwrap())
+        .get(cluster.load_balancers[0].join("livez").unwrap().as_ref())
         .send()
         .await
         .unwrap();

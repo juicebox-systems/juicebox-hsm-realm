@@ -20,13 +20,13 @@ hsm_core = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
+jburl = { workspace = true }
 observability = { workspace = true }
 rand = { workspace = true }
 service_core = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 x25519-dalek = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }

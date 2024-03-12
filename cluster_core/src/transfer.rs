@@ -1,6 +1,5 @@
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
-use url::Url;
 
 use super::{find_leaders, ManagementGrant, ManagementLeaseKey};
 use agent_api::{
@@ -10,6 +9,7 @@ use agent_api::{
 };
 pub use cluster_api::{TransferError, TransferRequest, TransferSuccess};
 use hsm_api::{Partition, PreparedTransferStatement, TransferNonce, TransferStatement};
+use jburl::Url;
 use juicebox_networking::{http, rpc};
 use retry_loop::{retry_logging, AttemptError, RetryError};
 use store::StoreClient;

@@ -11,14 +11,12 @@ agent_api = { workspace = true }
 cluster_api = { workspace = true }
 futures = { workspace = true }
 hsm_api = { workspace = true }
+jburl = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_realm_api = { workspace = true }
-observability = { workspace = true }
 retry_loop = { workspace = true }
-service_core = { workspace = true }
 store = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
-url = { workspace = true }

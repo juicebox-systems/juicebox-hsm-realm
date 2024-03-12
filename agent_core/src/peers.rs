@@ -1,39 +1,22 @@
 use futures::{Stream, StreamExt};
 use std::collections::HashMap;
-use std::fmt::{Debug, Display, Write};
+use std::fmt::Debug;
 use std::time::Duration;
 use tokio::sync::watch;
 use tokio::time::sleep;
 use tokio_stream::wrappers::WatchStream;
 use tokio_stream::{empty, once};
 use tokio_util::either::Either;
-use url::Url;
 
+use jburl::Url;
 use store::{ServiceKind, StoreClient};
 
-#[derive(Default, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub(crate) struct Urls(pub Vec<Url>);
 impl Urls {
     pub fn excluding(&self, u: &Url) -> Urls {
         let res = self.0.iter().filter(|url| *url != u).cloned().collect();
         Urls(res)
-    }
-}
-
-impl Debug for Urls {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_char('[')?;
-        let mut first = true;
-        for u in &self.0 {
-            if first {
-                first = false;
-            } else {
-                f.write_str(", ")?;
-            }
-            // the debug output for Url is way too much.
-            Display::fmt(u, f)?;
-        }
-        f.write_char(']')
     }
 }
 

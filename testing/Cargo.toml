@@ -21,6 +21,7 @@ hsm_api = { workspace = true }
 hsm_core = { workspace = true, features = ["dot"] }
 http = { workspace = true }
 itertools = { workspace = true }
+jburl = { workspace = true }
 juicebox_sdk = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_process_group = { workspace = true }
@@ -40,7 +41,6 @@ software_hsm_client = { workspace = true }
 store = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
 agent_core = { workspace = true }

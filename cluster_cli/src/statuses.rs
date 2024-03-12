@@ -1,10 +1,10 @@
 use anyhow::Context;
 use futures::future::join_all;
-use reqwest::Url;
 use tracing::debug;
 
 use agent_api::StatusRequest;
 use hsm_api::StatusResponse;
+use jburl::Url;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc;
 use store::{ServiceKind, StoreClient};

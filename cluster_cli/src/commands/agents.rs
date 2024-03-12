@@ -1,12 +1,12 @@
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use reqwest::Url;
 use std::fmt;
 use std::time::Duration;
 
 use agent_api::{StatusRequest, StatusResponse};
 use cluster_core::workload::{GroupWorkload, HsmWorkload};
 use hsm_api::{GroupStatus, HsmId, OwnedRange, Transferring};
+use jburl::Url;
 use juicebox_networking::reqwest::Client;
 use juicebox_networking::rpc::{self, RpcError};
 

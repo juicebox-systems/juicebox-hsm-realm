@@ -20,11 +20,11 @@ use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tracing::warn;
-use url::Url;
 
 use hsm_api::rpc::Nanos;
 use hsm_core::hal::{Clock, IOError, NVRam, MAX_NVRAM_SIZE};
 use hsm_core::hsm::{Hsm, HsmError, HsmOptions, MetricsReporting, PersistenceError, RealmKeys};
+use jburl::Url;
 
 struct HalInstant(Instant);
 impl Sub for HalInstant {

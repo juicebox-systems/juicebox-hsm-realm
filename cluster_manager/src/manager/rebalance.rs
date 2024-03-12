@@ -1,13 +1,13 @@
 use cluster_core::discover_hsm_statuses;
 use std::collections::HashMap;
 use tracing::{info, warn};
-use url::Url;
 
 use super::Manager;
 use agent_api::{BecomeLeaderRequest, BecomeLeaderResponse, StepDownRequest, StepDownResponse};
 use cluster_api::{RebalanceError, RebalanceSuccess, RebalancedLeader};
 use cluster_core::workload::{HsmWorkload, WorkAmount};
 use hsm_api::HsmId;
+use jburl::Url;
 use juicebox_networking::rpc;
 use service_core::rpc::HandlerError;
 
