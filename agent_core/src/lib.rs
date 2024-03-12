@@ -1793,6 +1793,8 @@ impl<T: Transport + 'static> Agent<T> {
             HsmTransport(T::RetryableError),
             #[error("HSM rejected stale proof. This agent will get a fresh one. Tree root hash was from log index {}", .index.0)]
             StaleProof { index: LogIndex },
+            #[error("The store is too busy to handle a merkle path read request")]
+            StoreBusy,
         }
 
         impl<T: Transport> From<FatalError<T>> for AttemptError<FatalError<T>, RetryableError<T>> {
@@ -1826,6 +1828,7 @@ impl<T: Transport + 'static> Agent<T> {
                     RetryableError::HsmTransport(_) => "hsm_transport",
                     RetryableError::MissingNode => "missing_node",
                     RetryableError::StaleProof { .. } => "stale_proof",
+                    RetryableError::StoreBusy => "store_busy",
                 };
                 AttemptError::Retryable {
                     error,
@@ -1885,6 +1888,7 @@ impl<T: Transport + 'static> Agent<T> {
                         warn!(?error, "start_app_request: error reading proof");
                         FatalError::Other(Response::NoStore).into()
                     }
+                    TreeStoreError::Busy => RetryableError::StoreBusy.into(),
                 }
             })?;
 

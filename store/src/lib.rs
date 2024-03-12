@@ -10,7 +10,7 @@ use std::future::Future;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Semaphore};
 use tokio::time::sleep;
 use tracing::{debug, info, instrument, trace, warn};
 use url::Url;
@@ -240,6 +240,8 @@ struct StoreClientInner {
     merkle_cache: merkle::Cache,
     merkle_ids: InstanceIds,
     merkle_delete_queue: MerkleDeleteQueue,
+    merkle_large_read_permits: Semaphore,
+    merkle_large_read_limit: usize,
     warmer: TablesReadWarmer,
 }
 
@@ -301,6 +303,22 @@ pub struct Options {
     /// If unset, this will basically disable the cache (but the cache
     /// implementation insists on a limit of at least 1 entry).
     pub merkle_cache_nodes_limit: Option<usize>,
+
+    /// The maximum number of concurrent reads of "large" merkle paths. This
+    /// stops the store from overwhelming bigtable with read requests while our
+    /// merkle cache is cold. Once the top of the tree is cached most reads will
+    /// only read a few nodes from the bottom of the tree which is cheap.
+    ///
+    /// This may need to be tuned based on the number of HSMs in the cluster and
+    /// the number of bigtable nodes.
+    pub merkle_large_read_permits: usize,
+
+    /// The number of key prefixes in a merkle path read for it to be considered
+    /// a large read. Because the bottom of the tree is sparsely populated this
+    /// value will be relatively high.
+    ///
+    /// This may need tuning if the size of the tree changes dramatically.
+    pub merkle_large_read_limit: usize,
 }
 
 impl Default for Options {
@@ -308,6 +326,8 @@ impl Default for Options {
         Self {
             metrics: metrics::Client::NONE,
             merkle_cache_nodes_limit: None,
+            merkle_large_read_limit: 246,
+            merkle_large_read_permits: 10,
         }
     }
 }
@@ -351,6 +371,8 @@ impl StoreClient {
                     let _ = deleter.remove_merkle_nodes(dks).await;
                 }
             }),
+            merkle_large_read_permits: Semaphore::new(options.merkle_large_read_permits),
+            merkle_large_read_limit: options.merkle_large_read_limit,
             warmer,
         }));
         Ok(res)

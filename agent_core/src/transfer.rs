@@ -195,6 +195,7 @@ impl<T: Transport + 'static> Agent<T> {
                         {
                             Ok(proof) => Some(proof),
                             Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
+                            Err(TreeStoreError::Busy) => return Ok(Response::NoStore),
                             Err(TreeStoreError::Network(e)) => {
                                 warn!(error = ?e, "handle_transfer_out: error reading proof");
                                 return Ok(Response::NoStore);
@@ -364,12 +365,16 @@ impl<T: Transport + 'static> Agent<T> {
                             &tags,
                         );
                         let transferring_in_proof = match transferring_in_proof_req.await {
-                            Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
+                            Err(TreeStoreError::Network(_)) | Err(TreeStoreError::Busy) => {
+                                return Ok(Response::NoStore)
+                            }
                             Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
                             Ok(proof) => proof,
                         };
                         let owned_range_proof = match owned_range_proof_req.await {
-                            Err(TreeStoreError::Network(_)) => return Ok(Response::NoStore),
+                            Err(TreeStoreError::Network(_)) | Err(TreeStoreError::Busy) => {
+                                return Ok(Response::NoStore)
+                            }
                             Err(err @ TreeStoreError::MissingNode) => todo!("{err:?}"),
                             Ok(proof) => proof,
                         };
