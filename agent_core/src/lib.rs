@@ -1063,11 +1063,11 @@ impl<T: Transport + 'static> Agent<T> {
         Ok(StatusResponse {
             hsm: hsm_status.ok(),
             uptime: self.0.boot_time.elapsed(),
-            agent: Some(AgentStatus {
+            agent: AgentStatus {
                 name: self.0.name.clone(),
                 build_hash: self.0.build_info.git_hash.unwrap_or("").to_owned(),
                 groups,
-            }),
+            },
         })
     }
 

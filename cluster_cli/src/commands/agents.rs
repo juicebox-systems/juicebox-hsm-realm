@@ -41,7 +41,11 @@ fn print_agent_status(url: &Url, status: Result<StatusResponse, RpcError>) {
     println!("{TAB}discovery URL: {url}");
 
     match status {
-        Ok(StatusResponse { uptime, hsm, agent }) => {
+        Ok(StatusResponse {
+            uptime,
+            hsm,
+            mut agent,
+        }) => {
             println!("{TAB}uptime: {}", Uptime(uptime));
             match hsm {
                 Some(status) => {
@@ -73,28 +77,26 @@ fn print_agent_status(url: &Url, status: Result<StatusResponse, RpcError>) {
                     println!("{TAB}no HSM found");
                 }
             }
-            if let Some(mut status) = agent {
-                println!("{TAB}Agent status:");
-                println!("{TAB}{TAB}name: {}", status.name);
-                println!("{TAB}{TAB}build: {}", status.build_hash);
-                status.groups.sort_unstable_by_key(|s| s.group);
-                for group in status.groups {
-                    println!("{TAB}{TAB}group: {}", group.group);
-                    println!("{TAB}{TAB}{TAB}role:  {}", group.role);
-                    if let Some(l) = group.leader {
-                        println!(
-                            "{TAB}{TAB}{TAB}{TAB}waiting clients:  {}",
-                            l.num_waiting_clients
-                        );
-                        println!(
-                            "{TAB}{TAB}{TAB}{TAB}append queue len: {}",
-                            l.append_queue_len
-                        );
-                        print!("{TAB}{TAB}{TAB}{TAB}last appended: ");
-                        match l.last_appended {
-                            None => println!("None"),
-                            Some((idx, mac)) => println!("{} / {:?}", idx, mac),
-                        }
+            println!("{TAB}Agent status:");
+            println!("{TAB}{TAB}name: {}", agent.name);
+            println!("{TAB}{TAB}build: {}", agent.build_hash);
+            agent.groups.sort_unstable_by_key(|s| s.group);
+            for group in agent.groups {
+                println!("{TAB}{TAB}group: {}", group.group);
+                println!("{TAB}{TAB}{TAB}role:  {}", group.role);
+                if let Some(l) = group.leader {
+                    println!(
+                        "{TAB}{TAB}{TAB}{TAB}waiting clients:  {}",
+                        l.num_waiting_clients
+                    );
+                    println!(
+                        "{TAB}{TAB}{TAB}{TAB}append queue len: {}",
+                        l.append_queue_len
+                    );
+                    print!("{TAB}{TAB}{TAB}{TAB}last appended: ");
+                    match l.last_appended {
+                        None => println!("None"),
+                        Some((idx, mac)) => println!("{} / {:?}", idx, mac),
                     }
                 }
             }

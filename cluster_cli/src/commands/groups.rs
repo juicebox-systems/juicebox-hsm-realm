@@ -28,11 +28,9 @@ pub async fn status(cluster: &ClusterInfo) -> anyhow::Result<()> {
                         entry.leader = Some((hsm_response.id, leader.clone()));
                     }
                 }
-                if let Some(agent_status) = &status_response.agent {
-                    for group in &agent_status.groups {
-                        let entry = groups.entry(group.group).or_default();
-                        entry.agents.push((hsm_response.id, group.clone()))
-                    }
+                for group in &status_response.agent.groups {
+                    let entry = groups.entry(group.group).or_default();
+                    entry.agents.push((hsm_response.id, group.clone()))
                 }
             }
         }
@@ -42,16 +40,7 @@ pub async fn status(cluster: &ClusterInfo) -> anyhow::Result<()> {
         .statuses
         .iter()
         .filter(|s| s.0.hsm.is_some())
-        .map(|(status, url)| {
-            (
-                status.hsm.as_ref().unwrap().id,
-                status
-                    .agent
-                    .as_ref()
-                    .map(|a| a.name.clone())
-                    .unwrap_or_else(|| url.clone().to_string()),
-            )
-        })
+        .map(|(status, _url)| (status.hsm.as_ref().unwrap().id, status.agent.name.clone()))
         .collect();
 
     for (realm, realm_groups) in realms {
