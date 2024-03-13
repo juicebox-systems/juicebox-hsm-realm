@@ -35,11 +35,12 @@ mod transfer;
 
 use agent_api::merkle::TreeStoreError;
 use agent_api::{
-    AppRequest, AppResponse, BecomeLeaderRequest, BecomeLeaderResponse,
-    CancelPreparedTransferRequest, CompleteTransferRequest, GroupOwnsRangeRequest, HashedUserId,
-    JoinGroupRequest, JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest,
-    NewGroupResponse, NewRealmRequest, NewRealmResponse, PrepareTransferRequest,
-    RateLimitStateRequest, RateLimitStateResponse, ReadCapturedRequest, ReadCapturedResponse,
+    AgentGroupLeaderStatus, AgentGroupStatus, AgentStatus, AppRequest, AppResponse,
+    BecomeLeaderRequest, BecomeLeaderResponse, CancelPreparedTransferRequest,
+    CompleteTransferRequest, GroupOwnsRangeRequest, HashedUserId, JoinGroupRequest,
+    JoinGroupResponse, JoinRealmRequest, JoinRealmResponse, NewGroupRequest, NewGroupResponse,
+    NewRealmRequest, NewRealmResponse, PrepareTransferRequest, RateLimitStateRequest,
+    RateLimitStateResponse, ReadCapturedRequest, ReadCapturedResponse,
     ReloadTenantConfigurationRequest, ReloadTenantConfigurationResponse, StatusRequest,
     StatusResponse, StepDownRequest, StepDownResponse, TenantRateLimitState, TransferInRequest,
     TransferOutRequest,
@@ -1034,14 +1035,39 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
 impl<T: Transport + 'static> Agent<T> {
     async fn handle_status(&self, _request: StatusRequest) -> Result<StatusResponse, HandlerError> {
         let hsm_status = self.0.hsm.send(hsm_api::StatusRequest {}).await;
-        if let Ok(hsm_status) = &hsm_status {
-            // The ID is cached before service discovery registration, but we
-            // set it here too in case others call this before that happens.
-            self.0.state.lock().unwrap().hsm_id = Some(hsm_status.id);
-        }
+        let groups = {
+            let mut locked = self.0.state.lock().unwrap();
+            if let Ok(hsm_status) = &hsm_status {
+                // The ID is cached before service discovery registration, but we
+                // set it here too in case others call this before that happens.
+                locked.hsm_id = Some(hsm_status.id);
+            }
+            locked
+                .groups
+                .iter()
+                .map(|((realm, group), gs)| AgentGroupStatus {
+                    realm: *realm,
+                    group: *group,
+                    role: gs.role.clone(),
+                    leader: gs.leader.as_ref().map(|ls| AgentGroupLeaderStatus {
+                        num_waiting_clients: ls.response_channels.len(),
+                        last_appended: ls
+                            .last_appended
+                            .as_ref()
+                            .map(|e| (e.index, e.entry_mac.clone())),
+                        append_queue_len: ls.append_queue.len(),
+                    }),
+                })
+                .collect()
+        };
         Ok(StatusResponse {
             hsm: hsm_status.ok(),
             uptime: self.0.boot_time.elapsed(),
+            agent: Some(AgentStatus {
+                name: self.0.name.clone(),
+                build_hash: self.0.build_info.git_hash.unwrap_or("").to_owned(),
+                groups,
+            }),
         })
     }
 

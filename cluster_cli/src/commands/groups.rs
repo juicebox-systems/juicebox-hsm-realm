@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use agent_api::AgentGroupStatus;
 use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, OwnedRange};
-use jburl::Url;
 use juicebox_realm_api::types::RealmId;
 use table::{Column, FmtWriteStdOut, Justify, Table, TableStyle};
 
@@ -11,27 +11,47 @@ use crate::cluster::ClusterInfo;
 struct GroupInfo {
     members: Vec<(HsmId, GroupStatus)>,
     leader: Option<(HsmId, LeaderStatus)>,
+    agents: Vec<(HsmId, AgentGroupStatus)>,
 }
 
 pub async fn status(cluster: &ClusterInfo) -> anyhow::Result<()> {
     let mut realms: BTreeMap<RealmId, BTreeSet<GroupId>> = BTreeMap::new();
     let mut groups: BTreeMap<GroupId, GroupInfo> = BTreeMap::new();
-    for (status_response, _) in cluster.hsm_statuses() {
-        if let Some(realm_status) = &status_response.realm {
-            for group in &realm_status.groups {
-                realms.entry(realm_status.id).or_default().insert(group.id);
-                let entry = groups.entry(group.id).or_default();
-                entry.members.push((status_response.id, group.clone()));
-                if let Some(leader) = &group.leader {
-                    entry.leader = Some((status_response.id, leader.clone()));
+    for (status_response, _) in &cluster.statuses {
+        if let Some(hsm_response) = &status_response.hsm {
+            if let Some(realm_status) = &hsm_response.realm {
+                for group in &realm_status.groups {
+                    realms.entry(realm_status.id).or_default().insert(group.id);
+                    let entry = groups.entry(group.id).or_default();
+                    entry.members.push((hsm_response.id, group.clone()));
+                    if let Some(leader) = &group.leader {
+                        entry.leader = Some((hsm_response.id, leader.clone()));
+                    }
+                }
+                if let Some(agent_status) = &status_response.agent {
+                    for group in &agent_status.groups {
+                        let entry = groups.entry(group.group).or_default();
+                        entry.agents.push((hsm_response.id, group.clone()))
+                    }
                 }
             }
         }
     }
 
-    let addresses: HashMap<HsmId, Url> = cluster
-        .hsm_statuses()
-        .map(|(status, url)| (status.id, url.clone()))
+    let agent_names: HashMap<HsmId, String> = cluster
+        .statuses
+        .iter()
+        .filter(|s| s.0.hsm.is_some())
+        .map(|(status, url)| {
+            (
+                status.hsm.as_ref().unwrap().id,
+                status
+                    .agent
+                    .as_ref()
+                    .map(|a| a.name.clone())
+                    .unwrap_or_else(|| url.clone().to_string()),
+            )
+        })
         .collect();
 
     for (realm, realm_groups) in realms {
@@ -45,14 +65,14 @@ pub async fn status(cluster: &ClusterInfo) -> anyhow::Result<()> {
                     println!("\t      {}", hex::encode(end.0));
                 }
             }
-            print_group_table(group, &addresses);
+            print_group_table(group, &agent_names);
         }
         println!();
     }
     Ok(())
 }
 
-fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
+fn print_group_table(group: &GroupInfo, agent_names: &HashMap<HsmId, String>) {
     let rows: Vec<_> = group
         .members
         .iter()
@@ -62,9 +82,15 @@ fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
                 .as_ref()
                 .filter(|(id, _)| id == hsm_id)
                 .map(|(_, status)| status);
+            let agent_ldr = group
+                .agents
+                .iter()
+                .find(|a| a.0 == *hsm_id)
+                .and_then(|(_, a)| a.leader.clone());
+
             [
                 hsm_id.to_string(),
-                addresses.get(hsm_id).unwrap().to_string(),
+                agent_names.get(hsm_id).unwrap().clone(),
                 group_status.role.to_string(),
                 match &group_status.captured {
                     None => String::from("None"),
@@ -79,6 +105,18 @@ fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
                         committed: None, ..
                     }) => String::from("None"),
                     _ => String::from(""),
+                },
+                match agent_ldr.as_ref().map(|l| &l.last_appended) {
+                    Some(None) | None => String::from(""),
+                    Some(Some((idx, _mac))) => idx.to_string(),
+                },
+                match agent_ldr.as_ref().map(|l| l.append_queue_len) {
+                    None => String::from(""),
+                    Some(l) => l.to_string(),
+                },
+                match agent_ldr.as_ref().map(|l| l.num_waiting_clients) {
+                    None => String::from(""),
+                    Some(n) => n.to_string(),
                 },
             ]
         })
@@ -96,6 +134,9 @@ fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
                         String::from(""),
                         String::from(""),
                         String::from(""),
+                        String::from(""),
+                        String::from(""),
+                        String::from(""),
                     ]
                 }),
         )
@@ -104,10 +145,13 @@ fn print_group_table(group: &GroupInfo, addresses: &HashMap<HsmId, Url>) {
     let table = Table::new(
         [
             Column::new("HSM ID"),
-            Column::new("Agent URL"),
+            Column::new("Agent Name"),
             Column::new("Role"),
             Column::new("Captured").justify(Justify::Right),
             Column::new("Commit").justify(Justify::Right),
+            Column::new("Last Appended").justify(Justify::Right),
+            Column::new("Append Q Len").justify(Justify::Right),
+            Column::new("Clients Waiting").justify(Justify::Right),
         ],
         rows,
         TableStyle::default(),
