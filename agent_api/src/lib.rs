@@ -2,18 +2,17 @@ pub mod merkle;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{fmt::Display, time::Duration};
+use std::fmt::Display;
+use std::time::Duration;
 
 use hsm_api::{
-    GroupConfigurationStatement, GroupId, HsmId, HsmRealmStatement, LogIndex, OwnedRange,
-    Partition, PreparedTransferStatement, RecordId, TransferNonce, TransferStatement,
+    EntryMac, GroupConfigurationStatement, GroupId, HsmId, HsmRealmStatement, LogIndex, OwnedRange,
+    Partition, PreparedTransferStatement, RecordId, RoleStatus, TransferNonce, TransferStatement,
 };
 use juicebox_marshalling::bytes;
 use juicebox_networking::rpc::{Rpc, Service};
-use juicebox_realm_api::{
-    requests::{ClientRequestKind, NoiseRequest, NoiseResponse},
-    types::{RealmId, SessionId},
-};
+use juicebox_realm_api::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
+use juicebox_realm_api::types::{RealmId, SessionId};
 
 #[derive(Clone, Debug)]
 pub struct AgentService;
@@ -32,6 +31,29 @@ pub struct StatusRequest {}
 pub struct StatusResponse {
     pub uptime: Duration,
     pub hsm: Option<hsm_api::StatusResponse>,
+    pub agent: Option<AgentStatus>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AgentStatus {
+    pub name: String,
+    pub build_hash: String,
+    pub groups: Vec<AgentGroupStatus>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AgentGroupStatus {
+    pub realm: RealmId,
+    pub group: GroupId,
+    pub role: RoleStatus,
+    pub leader: Option<AgentGroupLeaderStatus>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AgentGroupLeaderStatus {
+    pub num_waiting_clients: usize,
+    pub last_appended: Option<(LogIndex, EntryMac)>,
+    pub append_queue_len: usize,
 }
 
 impl Rpc<AgentService> for NewRealmRequest {
