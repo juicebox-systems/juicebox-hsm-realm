@@ -36,6 +36,7 @@ async fn main() -> ExitCode {
     logging::configure_with_options(logging::Options {
         process_name: String::from("chaos"),
         default_log_level: Level::INFO,
+        build_info: Some(build_info::get!()),
         ..logging::Options::default()
     });
 
