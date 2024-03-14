@@ -31,7 +31,7 @@ pub struct StatusRequest {}
 pub struct StatusResponse {
     pub uptime: Duration,
     pub hsm: Option<hsm_api::StatusResponse>,
-    pub agent: Option<AgentStatus>,
+    pub agent: AgentStatus,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
