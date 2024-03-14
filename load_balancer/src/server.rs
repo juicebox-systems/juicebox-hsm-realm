@@ -366,7 +366,7 @@ mod tests {
                     idle_timeout: Duration::from_secs(5),
                     shutdown_notice_period: Duration::from_secs(1),
                 },
-                metrics::Client::new("test_service"),
+                metrics::Client::new("test_service", None),
             );
             let (respond_next_tx, respond_next_rx) = broadcast::channel(1);
 

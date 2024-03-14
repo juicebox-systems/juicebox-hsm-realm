@@ -39,7 +39,8 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    logging::configure("cluster-manager", build_info::get!());
+    let build = build_info::get!();
+    logging::configure("cluster-manager", build.clone());
     panic::set_abort_on_panic();
     install_termination_handler(Duration::from_secs(1));
 
@@ -49,7 +50,7 @@ async fn main() {
         version = env!("CARGO_PKG_VERSION"),
         "starting Cluster Manager"
     );
-    let metrics = metrics::Client::new("cluster_manager");
+    let metrics = metrics::Client::new("cluster_manager", Some(&build));
     start_uptime_reporter(metrics.clone()).await;
 
     let auth_manager = if args.bigtable.needs_auth() {

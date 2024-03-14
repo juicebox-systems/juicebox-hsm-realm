@@ -156,7 +156,7 @@ where
 
     info!(?args, "Parsed command-line args");
 
-    let metrics = metrics::Client::new(service_name);
+    let metrics = metrics::Client::new(service_name, Some(&build_info));
     start_uptime_reporter(metrics.clone()).await;
 
     let auth_manager = if args.bigtable.needs_auth() || args.pubsub_url.is_none() {

@@ -51,7 +51,8 @@ async fn main() -> ExitCode {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let metrics = metrics::Client::new("chaos");
+    let build = build_info::get!();
+    let metrics = metrics::Client::new("chaos", Some(&build));
 
     let auth_manager = auth::from_adc()
         .await
