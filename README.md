@@ -21,7 +21,7 @@ pre-production environments.
 ## Architecture Overview
 
 An HSM realm consists of _load balancers_, _agents_, _HSMs_, _cluster
-managers_, and it relies on [Google Cloud Bigtable] and [Google Cloud Secret
+managers_, and it relies on [Google Cloud Bigtable], [Google Cloud Pub/sub] and [Google Cloud Secret
 Manager]. The architecture is designed to scale up to hundreds of HSMs in one
 realm and tolerates the failure (by stopping) of some of those HSMs. This
 section provides a brief overview of the architecture.
@@ -90,6 +90,7 @@ IDs they serve. Agents register themselves with a service discovery table
 requests.
 
 [Google Cloud Bigtable]: https://cloud.google.com/bigtable/docs
+[Google Cloud Pub/sub]: https://cloud.google.com/pubsub
 [Google Cloud Secret Manager]: https://cloud.google.com/secret-manager/docs
 [Noise protocol]: https://noiseprotocol.org/
 [consensus protocol]: https://en.wikipedia.org/wiki/Consensus_(computer_science)
@@ -116,8 +117,8 @@ library. The standard library makes assumptions about the operating system that
 may not be valid on all HSMs. These crates depend only on the `core` and
 `alloc` crates, not `std`.
 
-There are also various tools in this repository, not included in the diagram
-above:
+There are also various tools in this repository:
+
 - `cluster_bench` runs a client benchmark against existing realm(s).
 - `cluster_cli` is used to manage realms from the command-line, including
   initializing realms and transferring ownership.
