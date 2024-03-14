@@ -114,12 +114,12 @@ struct Args {
 async fn main() {
     panic::set_abort_on_panic();
     let args = Args::parse();
-
+    let build = build_info::get!();
     logging::configure_with_options(logging::Options {
         process_name: String::from("juicebox-load-balancer"),
         // We intentionally don't want to trace everything any client asks for.
         trace_sampler: Sampler::TraceIdRatioBased(args.trace_sampling_rate),
-        build_info: Some(build_info::get!()),
+        build_info: Some(build.clone()),
         ..logging::Options::default()
     });
 
@@ -129,7 +129,7 @@ async fn main() {
         "starting load balancer"
     );
     let name = args.name.unwrap_or_else(|| format!("lb{}", args.listen));
-    let metrics = metrics::Client::new("load_balancer");
+    let metrics = metrics::Client::new("load_balancer", Some(&build));
     start_uptime_reporter(metrics.clone()).await;
 
     let certs = Arc::new(

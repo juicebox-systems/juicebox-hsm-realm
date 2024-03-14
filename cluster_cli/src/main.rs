@@ -331,7 +331,8 @@ async fn main() -> ExitCode {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let metrics = metrics::Client::new("cluster_cli");
+    let build = build_info::get!();
+    let metrics = metrics::Client::new("cluster_cli", Some(&build));
 
     let auth_manager = if args.bigtable.needs_auth() || args.command.needs_secret_manager() {
         Some(

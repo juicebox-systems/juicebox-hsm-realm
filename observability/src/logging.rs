@@ -164,6 +164,11 @@ pub fn configure_with_options(options: Options) {
     for (k, v) in options.additional_tags {
         resource_properties.push(KeyValue::new(k, v));
     }
+    if let Some(build) = &options.build_info {
+        if let Some(hash) = build.git_hash {
+            resource_properties.push(KeyValue::new("version", hash))
+        }
+    }
 
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()

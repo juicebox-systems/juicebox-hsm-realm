@@ -90,11 +90,12 @@ struct Args {
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = Args::parse();
+    let build = build_info::get!();
     logging::configure_with_options(logging::Options {
         process_name: String::from("service_checker"),
         additional_tags: HashMap::from([(String::from("env"), args.env.clone())]),
         trace_sampler: Sampler::AlwaysOn,
-        build_info: Some(build_info::get!()),
+        build_info: Some(build.clone()),
         ..logging::Options::default()
     });
 
@@ -106,7 +107,8 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let mc = metrics::Client::new_with_tags("service_checker", [tag!("env": args.env)]);
+    let mc =
+        metrics::Client::new_with_tags("service_checker", Some(&build), [tag!("env": args.env)]);
 
     let mut res;
     loop {

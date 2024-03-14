@@ -36,6 +36,7 @@ async fn main() -> ExitCode {
     logging::configure_with_options(logging::Options {
         process_name: String::from("chaos"),
         default_log_level: Level::INFO,
+        build_info: Some(build_info::get!()),
         ..logging::Options::default()
     });
 
@@ -50,7 +51,8 @@ async fn main() -> ExitCode {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let metrics = metrics::Client::new("chaos");
+    let build = build_info::get!();
+    let metrics = metrics::Client::new("chaos", Some(&build));
 
     let auth_manager = auth::from_adc()
         .await

@@ -1,3 +1,4 @@
+use build_info::BuildInfo;
 use dogstatsd::{DogstatsdResult, ServiceCheckOptions};
 use std::borrow::Cow;
 use std::future::Future;
@@ -98,11 +99,11 @@ impl Client {
     /// Does not record metrics.
     pub const NONE: Self = Self { inner: None };
 
-    pub fn new(service_name: &str) -> Self {
-        Self::new_with_tags(service_name, [])
+    pub fn new(service_name: &str, build: Option<&BuildInfo>) -> Self {
+        Self::new_with_tags(service_name, build, [])
     }
 
-    pub fn new_with_tags<I>(service_name: &str, tags: I) -> Self
+    pub fn new_with_tags<I>(service_name: &str, build: Option<&BuildInfo>, tags: I) -> Self
     where
         I: IntoIterator<Item = Tag>,
     {
@@ -110,6 +111,11 @@ impl Client {
         options.default_tag(metrics_tag!("service": service_name).0);
         for tag in tags {
             options.default_tag(tag.0);
+        }
+        if let Some(build) = build {
+            if let Some(hash) = build.git_hash {
+                options.default_tag(metrics_tag!("version": hash).0);
+            }
         }
         let client = dogstatsd::Client::new(options.build()).unwrap();
         Self {

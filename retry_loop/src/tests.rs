@@ -102,7 +102,7 @@ async fn test_retry_disabled_ok() {
     let test_log = TestLog::new();
     let result = Retry::disabled()
         .with_metrics(
-            &metrics::Client::new("retry_loop_unit_tests"),
+            &metrics::Client::new("retry_loop_unit_tests", None),
             "test_retry_disabled_ok",
             &[],
         )
@@ -125,7 +125,7 @@ async fn test_retry_disabled_retryable() {
     let test_log = TestLog::new();
     let result = Retry::disabled()
         .with_metrics(
-            &metrics::Client::new("retry_loop_unit_tests"),
+            &metrics::Client::new("retry_loop_unit_tests", None),
             "test_retry_disabled_retryable",
             &[],
         )
@@ -156,7 +156,7 @@ async fn test_retry_disabled_fatal() {
     let test_log = TestLog::new();
     let result = Retry::disabled()
         .with_metrics(
-            &metrics::Client::new("retry_loop_unit_tests"),
+            &metrics::Client::new("retry_loop_unit_tests", None),
             "test_retry_disabled_fatal",
             &[],
         )
@@ -185,7 +185,7 @@ async fn test_retry_success_right_away() {
     let test_log = TestLog::new();
     let result = Retry::new("testing")
         .with_metrics(
-            &metrics::Client::new("retry_loop_unit_tests"),
+            &metrics::Client::new("retry_loop_unit_tests", None),
             "test_retry_success_right_away",
             &[],
         )
@@ -211,7 +211,7 @@ async fn test_retry_success_eventually() {
     let test_log = TestLog::new();
     let result = Retry::new("testing")
         .with_metrics(
-            &metrics::Client::new("retry_loop_unit_tests"),
+            &metrics::Client::new("retry_loop_unit_tests", None),
             "test_retry_success_eventually",
             &[],
         )
@@ -246,7 +246,7 @@ async fn test_retry_fatal_right_away() {
     let test_log = TestLog::new();
     let result = Retry::new("testing")
         .with_metrics(
-            &metrics::Client::new("retry_loop_unit_tests"),
+            &metrics::Client::new("retry_loop_unit_tests", None),
             "test_retry_fatal_right_away",
             &[],
         )
@@ -277,7 +277,7 @@ async fn test_retry_fatal_eventually() {
     let test_log = TestLog::new();
     let result = Retry::new("testing")
         .with_metrics(
-            &metrics::Client::new("retry_loop_unit_tests"),
+            &metrics::Client::new("retry_loop_unit_tests", None),
             "test_retry_fatal_eventually",
             &[],
         )
@@ -318,7 +318,7 @@ async fn test_retry_exhausted_attempts() {
     let test_log = TestLog::new();
     let result = Retry::new("testing")
         .with_metrics(
-            &metrics::Client::new("retry_loop_unit_tests"),
+            &metrics::Client::new("retry_loop_unit_tests", None),
             "test_retry_exhausted_attempts",
             &[],
         )
@@ -358,7 +358,7 @@ async fn test_retry_exhausted_time() {
     let test_log = TestLog::new();
     let result = Retry::new("testing")
         .with_metrics(
-            &metrics::Client::new("retry_loop_unit_tests"),
+            &metrics::Client::new("retry_loop_unit_tests", None),
             "test_retry_exhausted_time",
             &[],
         )
@@ -391,7 +391,7 @@ async fn test_retry_no_attempts() {
     let test_log = TestLog::new();
     let result = Retry::new("testing")
         .with_metrics(
-            &metrics::Client::new("retry_loop_unit_tests"),
+            &metrics::Client::new("retry_loop_unit_tests", None),
             "test_retry_no_attempts",
             &[],
         )
@@ -415,7 +415,7 @@ async fn test_retry_no_time() {
     let test_log = TestLog::new();
     let result = Retry::new("testing")
         .with_metrics(
-            &metrics::Client::new("retry_loop_unit_tests"),
+            &metrics::Client::new("retry_loop_unit_tests", None),
             "test_retry_no_time",
             &[],
         )
