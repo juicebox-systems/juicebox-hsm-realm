@@ -574,7 +574,7 @@ impl<P: Platform> Hsm<P> {
         let clock = self
             .volatile
             .groups
-            .get(&request.source)
+            .get(&request.destination)
             .expect("already verified group membership")
             .at;
 
