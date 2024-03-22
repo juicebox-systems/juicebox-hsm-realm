@@ -111,7 +111,12 @@ async fn transfer_retry() {
     )
     .await;
 
-    assert!(range_owners(&status, realm, &OwnedRange::full()).is_some());
+    assert!(range_owners(
+        status.values().map(|(s, _url)| s),
+        realm,
+        &OwnedRange::full()
+    )
+    .is_some());
 
     processes.kill();
 }

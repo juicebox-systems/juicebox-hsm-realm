@@ -16,6 +16,7 @@ Commands:
   new-realm      Create a new realm and group on a single agent's HSM
   stepdown       Ask an HSM to step down as leader
   rebalance      Rebalance the cluster workload by potentially moving group leadership
+  partitions     Print information about the recordID partition(s)
   table-stats    Print information about a Bigtable table
   tenant         Operations for managing tenants
   transfer       Transfer ownership of user records from one group to another
@@ -151,6 +152,7 @@ Usage: cluster experimental <COMMAND>
 
 Commands:
   assimilate  Reconfigure any available agents/HSMs into a nominal and well-balanced realm
+  transfer    Transfers ownership of a range of record IDs to the specified group
   help        Print this message or the help of the given subcommand(s)
 
 Options:
@@ -182,6 +184,42 @@ Options:
           If provided, the HSMs already in this realm, as well as HSMs not currently in any realm, are assimilated.
           
           Default: create a new realm if none are discoverable, use the one realm if exactly one is found, or fail if more than one realm is found.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+```
+
+## `cluster experimental transfer --help`
+
+```
+Transfers ownership of a range of record IDs to the specified group.
+
+This will discover the source group(s) and perform the set of transfers necessary for the destination group to own the specified range.
+
+Usage: cluster experimental transfer [OPTIONS] --realm <REALM> --destination <DESTINATION> --start <START> --end <END>
+
+Options:
+  -c, --cluster <CLUSTER>
+          URL to a cluster manager, which will execute the transfer requests. By default it will find a cluster manager using service discovery
+
+      --realm <REALM>
+          The realm ID
+
+      --destination <DESTINATION>
+          ID of group that should be the new owner of the range.
+          
+          The destination group must currently own nothing or an overlapping range.
+
+      --start <START>
+          The first record ID in the range, in hex.
+          
+          Example: 0000000000000000000000000000000000000000000000000000000000000000
+
+      --end <END>
+          The last record ID in the range (inclusive), in hex.
+          
+          Example: 7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
   -h, --help
           Print help (see a summary with '-h')

@@ -12,6 +12,7 @@ cluster_api = { workspace = true }
 futures = { workspace = true }
 hsm_api = { workspace = true }
 jburl = { workspace = true }
+juicebox_marshalling = { workspace = true }
 juicebox_networking = { workspace = true }
 juicebox_realm_api = { workspace = true }
 retry_loop = { workspace = true }
@@ -20,3 +21,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+expect-test = { workspace = true }

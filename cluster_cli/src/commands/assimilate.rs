@@ -5,9 +5,9 @@ use std::cmp::min;
 use std::collections::HashSet;
 
 use cluster_api::TransferRequest;
+use cluster_core::partition_evenly;
 use hsm_api::{GroupId, HsmId, OwnedRange, RecordId, StatusResponse};
 use jburl::Url;
-use juicebox_marshalling::to_be4;
 use juicebox_networking::reqwest::Client;
 use juicebox_realm_api::types::RealmId;
 use store::{ServiceKind, StoreClient};
@@ -146,10 +146,7 @@ pub async fn assimilate(
             };
 
             if old_group != new_group {
-                println!(
-                    "transferring {transfer} from {old_group:?} to {new_group:?}",
-                    transfer = format_owned_range(&transfer)
-                );
+                println!("transferring {transfer} from {old_group:?} to {new_group:?}");
 
                 rpc::send(
                     agents_client,
@@ -251,137 +248,4 @@ async fn nominal_groups(
 
     groups.sort_unstable();
     Ok(groups)
-}
-
-fn partition_evenly(n: usize) -> Vec<OwnedRange> {
-    // It's difficult to divide a 256-bit space into even ranges using only
-    // 64-bit integers. This divides a 32-bit space instead and gets close
-    // enough for our purposes. Dividing 2^32 by n is better than dividing
-    // (2^64-1) by n because it gets the exact results you'd expect when n is a
-    // small power of two.
-    if n > 1_000_000 {
-        unimplemented!("no guarantees here");
-    }
-    let n = u64::try_from(n).unwrap();
-    let partition_size = 2u64.pow(32) / n;
-
-    (0..n)
-        .map(|i| {
-            let mut start = [0; RecordId::NUM_BYTES];
-            start[..4].copy_from_slice(&to_be4(partition_size * i));
-            let mut end = [0xff; RecordId::NUM_BYTES];
-            if i + 1 < n {
-                end[..4].copy_from_slice(&to_be4(partition_size * (i + 1) - 1));
-                OwnedRange {
-                    start: RecordId(start),
-                    end: RecordId(end),
-                }
-            } else {
-                OwnedRange {
-                    start: RecordId(start),
-                    end: RecordId(end),
-                }
-            }
-        })
-        .collect()
-}
-
-fn format_owned_range(range: &OwnedRange) -> String {
-    format!(
-        "{}-{}",
-        hex::encode(range.start.0),
-        hex::encode(range.end.0)
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use expect_test::expect;
-    use std::fmt::Write;
-
-    #[test]
-    fn test_partition_evenly_full_coverage() {
-        for i in [1, 2, 3, 15, 32, 108] {
-            let mut last: Option<RecordId> = None;
-            for range in partition_evenly(i) {
-                let next = match &last {
-                    None => RecordId::min_id(),
-                    Some(id) => id.next().unwrap(),
-                };
-                assert_eq!(range.start, next);
-                assert!(range.end >= range.start);
-                last = Some(range.end);
-            }
-            assert_eq!(last, Some(RecordId::max_id()));
-        }
-    }
-
-    #[test]
-    fn test_partition_evenly_snapshot() {
-        let mut buf = String::new();
-        for i in 1..10 {
-            writeln!(buf, "partition_evenly({i}):").unwrap();
-            for range in partition_evenly(i) {
-                writeln!(buf, "  {}", format_owned_range(&range)).unwrap();
-            }
-        }
-
-        expect![[r#"
-            partition_evenly(1):
-              0000000000000000000000000000000000000000000000000000000000000000-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-            partition_evenly(2):
-              0000000000000000000000000000000000000000000000000000000000000000-7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              8000000000000000000000000000000000000000000000000000000000000000-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-            partition_evenly(3):
-              0000000000000000000000000000000000000000000000000000000000000000-55555554ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              5555555500000000000000000000000000000000000000000000000000000000-aaaaaaa9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              aaaaaaaa00000000000000000000000000000000000000000000000000000000-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-            partition_evenly(4):
-              0000000000000000000000000000000000000000000000000000000000000000-3fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              4000000000000000000000000000000000000000000000000000000000000000-7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              8000000000000000000000000000000000000000000000000000000000000000-bfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              c000000000000000000000000000000000000000000000000000000000000000-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-            partition_evenly(5):
-              0000000000000000000000000000000000000000000000000000000000000000-33333332ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              3333333300000000000000000000000000000000000000000000000000000000-66666665ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              6666666600000000000000000000000000000000000000000000000000000000-99999998ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              9999999900000000000000000000000000000000000000000000000000000000-cccccccbffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              cccccccc00000000000000000000000000000000000000000000000000000000-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-            partition_evenly(6):
-              0000000000000000000000000000000000000000000000000000000000000000-2aaaaaa9ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              2aaaaaaa00000000000000000000000000000000000000000000000000000000-55555553ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              5555555400000000000000000000000000000000000000000000000000000000-7ffffffdffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              7ffffffe00000000000000000000000000000000000000000000000000000000-aaaaaaa7ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              aaaaaaa800000000000000000000000000000000000000000000000000000000-d5555551ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              d555555200000000000000000000000000000000000000000000000000000000-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-            partition_evenly(7):
-              0000000000000000000000000000000000000000000000000000000000000000-24924923ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              2492492400000000000000000000000000000000000000000000000000000000-49249247ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              4924924800000000000000000000000000000000000000000000000000000000-6db6db6bffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              6db6db6c00000000000000000000000000000000000000000000000000000000-9249248fffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              9249249000000000000000000000000000000000000000000000000000000000-b6db6db3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              b6db6db400000000000000000000000000000000000000000000000000000000-db6db6d7ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              db6db6d800000000000000000000000000000000000000000000000000000000-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-            partition_evenly(8):
-              0000000000000000000000000000000000000000000000000000000000000000-1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              2000000000000000000000000000000000000000000000000000000000000000-3fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              4000000000000000000000000000000000000000000000000000000000000000-5fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              6000000000000000000000000000000000000000000000000000000000000000-7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              8000000000000000000000000000000000000000000000000000000000000000-9fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              a000000000000000000000000000000000000000000000000000000000000000-bfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              c000000000000000000000000000000000000000000000000000000000000000-dfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              e000000000000000000000000000000000000000000000000000000000000000-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-            partition_evenly(9):
-              0000000000000000000000000000000000000000000000000000000000000000-1c71c71bffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              1c71c71c00000000000000000000000000000000000000000000000000000000-38e38e37ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              38e38e3800000000000000000000000000000000000000000000000000000000-55555553ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              5555555400000000000000000000000000000000000000000000000000000000-71c71c6fffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              71c71c7000000000000000000000000000000000000000000000000000000000-8e38e38bffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              8e38e38c00000000000000000000000000000000000000000000000000000000-aaaaaaa7ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              aaaaaaa800000000000000000000000000000000000000000000000000000000-c71c71c3ffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              c71c71c400000000000000000000000000000000000000000000000000000000-e38e38dfffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-              e38e38e000000000000000000000000000000000000000000000000000000000-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-        "#]].assert_eq(&buf);
-    }
 }

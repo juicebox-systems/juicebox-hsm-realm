@@ -159,6 +159,13 @@ enum Command {
         full: bool,
     },
 
+    /// Print information about the recordID partition(s).
+    Partitions {
+        /// Realm ID.
+        #[arg(value_parser = parse_resolvable_realm_id)]
+        realm: Option<ResolvableRealmId>,
+    },
+
     /// Print information about a Bigtable table.
     TableStats {
         /// Only the "log" and "merkle" tables are currently supported.
@@ -303,6 +310,42 @@ enum ExperimentalCommand {
         #[arg(long, value_parser = parse_resolvable_realm_id)]
         realm: Option<ResolvableRealmId>,
     },
+
+    /// Transfers ownership of a range of record IDs to the specified group.
+    ///
+    /// This will discover the source group(s) and perform the set of transfers
+    /// necessary for the destination group to own the specified range.
+    Transfer {
+        /// URL to a cluster manager, which will execute the transfer requests.
+        /// By default it will find a cluster manager using service discovery.
+        #[arg(short, long)]
+        cluster: Option<Url>,
+
+        /// The realm ID.
+        #[arg(long, value_parser = parse_resolvable_realm_id)]
+        realm: ResolvableRealmId,
+
+        /// ID of group that should be the new owner of the range.
+        ///
+        /// The destination group must currently own nothing or an overlapping
+        /// range.
+        #[arg(long, value_parser = parse_resolvable_group_id)]
+        destination: ResolvableGroupId,
+
+        /// The first record ID in the range, in hex.
+        ///
+        /// Example:
+        /// 0000000000000000000000000000000000000000000000000000000000000000
+        #[arg(long, value_parser = parse_record_id)]
+        start: RecordId,
+
+        /// The last record ID in the range (inclusive), in hex.
+        ///
+        /// Example:
+        /// 7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+        #[arg(long, value_parser = parse_record_id)]
+        end: RecordId,
+    },
 }
 
 impl Command {
@@ -415,6 +458,24 @@ async fn run(args: Args) -> anyhow::Result<()> {
                 )
                 .await
             }
+            ExperimentalCommand::Transfer {
+                cluster,
+                realm,
+                destination,
+                start,
+                end,
+            } => {
+                commands::transfer_range::transfer(
+                    &cluster_info,
+                    &agents_client,
+                    &cluster,
+                    realm.resolve(&cluster_info)?,
+                    destination.resolve(&cluster_info)?.group,
+                    start,
+                    end,
+                )
+                .await
+            }
         },
 
         Command::Groups => commands::groups::status(&cluster_info).await,
@@ -435,6 +496,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
         }
 
         Command::NewRealm { agent } => commands::new_realm::new_realm(&agent, &agents_client).await,
+
+        Command::Partitions { realm } => {
+            let realm = realm.map(|r| r.resolve(&cluster_info)).transpose()?;
+            commands::partitions::print(&cluster_info, realm).await
+        }
 
         Command::TableStats {
             table: Table::Log,
@@ -629,6 +695,7 @@ mod tests {
             vec!["cluster", "configuration", "--help"],
             vec!["cluster", "experimental", "--help"],
             vec!["cluster", "experimental", "assimilate", "--help"],
+            vec!["cluster", "experimental", "transfer", "--help"],
             vec!["cluster", "groups", "--help"],
             vec!["cluster", "join-realm", "--help"],
             vec!["cluster", "new-group", "--help"],

@@ -692,9 +692,11 @@ version = "0.2.3"
 dependencies = [
  "agent_api",
  "cluster_api",
+ "expect-test",
  "futures",
  "hsm_api",
  "jburl",
+ "juicebox_marshalling",
  "juicebox_networking",
  "juicebox_realm_api",
  "retry_loop",
