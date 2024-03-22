@@ -157,23 +157,52 @@ async fn transfer() {
         assert_eq!(r.unwrap().expose_secret(), expected.expose_secret());
     }
 
-    // prepare & then cancel a transfer out.
-    let leader = cluster_core::find_leaders(&cluster.store, &agent_client)
+    // Prepare & then cancel a transfer out. For maximum coverage we want the
+    // source & destination groups to not be on the same set of HSMs.
+    let agents = &cluster.realms[0].agents;
+    let source = new_group(&agent_client, realm, &agents[..1]).await.unwrap();
+    let destination = new_group(&agent_client, realm, &agents[1..]).await.unwrap();
+
+    // source needs to own something that it can transfer to dest.
+    rpc::send(
+        &agent_client,
+        &cluster.cluster_managers[0],
+        TransferRequest {
+            realm,
+            source: group_ids[1],
+            destination: source,
+            range: partitions[0].clone(),
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    let leaders = cluster_core::find_leaders(&cluster.store, &agent_client)
         .await
-        .unwrap()
-        .get(&(cluster.realms[0].realm, group_ids[0]))
+        .unwrap();
+
+    let leader_src = leaders
+        .get(&(cluster.realms[0].realm, source))
         .unwrap()
         .1
         .clone();
 
+    let leader_dest = leaders
+        .get(&(cluster.realms[0].realm, destination))
+        .unwrap()
+        .1
+        .clone();
+    assert_ne!(leader_src, leader_dest);
+
     assert!(matches!(
         rpc::send(
             &agent_client,
-            &leader,
+            &leader_dest,
             PrepareTransferRequest {
                 realm,
-                source: group_ids[1],
-                destination: group_ids[0],
+                source,
+                destination,
                 range: partitions[0].clone(),
             },
         )
@@ -181,21 +210,21 @@ async fn transfer() {
         .unwrap(),
         PrepareTransferResponse::Ok { .. }
     ));
-    assert!(matches!(
+    assert_eq!(
         rpc::send(
             &agent_client,
-            &leader,
+            &leader_dest,
             CancelPreparedTransferRequest {
                 realm,
-                source: group_ids[1],
-                destination: group_ids[0],
+                source,
+                destination,
                 range: partitions[0].clone(),
             },
         )
         .await
         .unwrap(),
         CancelPreparedTransferResponse::Ok
-    ));
+    );
 
     // do some recovers
     for (r, expected) in join_all(clients.iter().map(|(client, expected)| {
