@@ -13,7 +13,6 @@ use std::path::PathBuf;
 use cluster_api::{TransferError, TransferRequest};
 use cluster_core::new_group;
 use hsm_api::{GroupId, OwnedRange, RecordId};
-use hsm_core::merkle::testing::rec_id;
 use juicebox_networking::reqwest::{self, Client, ClientOptions};
 use juicebox_process_group::ProcessGroup;
 use juicebox_sdk::{Pin, Policy, UserInfo, UserSecret};
@@ -281,7 +280,7 @@ async fn split_merge_empty_cluster(agent_client: &Client, cluster: &ClusterResul
             destination: new_group_id,
             range: OwnedRange {
                 start: RecordId::min_id(),
-                end: rec_id(&[5]),
+                end: RecordId::min_id().with(&[5]),
             },
         },
     )
@@ -298,8 +297,8 @@ async fn split_merge_empty_cluster(agent_client: &Client, cluster: &ClusterResul
             source: new_group_id,
             destination: src_group,
             range: OwnedRange {
-                start: rec_id(&[1]),
-                end: rec_id(&[5]),
+                start: RecordId::min_id().with(&[1]),
+                end: RecordId::min_id().with(&[5]),
             },
         },
     )
@@ -317,7 +316,7 @@ async fn split_merge_empty_cluster(agent_client: &Client, cluster: &ClusterResul
             destination: src_group,
             range: OwnedRange {
                 start: RecordId::min_id(),
-                end: rec_id(&[1]).prev().unwrap(),
+                end: RecordId::max_id().with(&[0]),
             },
         },
     )
@@ -327,12 +326,8 @@ async fn split_merge_empty_cluster(agent_client: &Client, cluster: &ClusterResul
 }
 
 fn make_range(start: u8, end: u8) -> OwnedRange {
-    let mut start_id = RecordId::min_id();
-    start_id.0[0] = start;
-    let mut end_id = RecordId::max_id();
-    end_id.0[0] = end;
     OwnedRange {
-        start: start_id,
-        end: end_id,
+        start: RecordId::min_id().with(&[start]),
+        end: RecordId::max_id().with(&[end]),
     }
 }

@@ -329,21 +329,12 @@ pub fn partition_evenly(n: usize) -> Vec<OwnedRange> {
 
     (0..n)
         .map(|i| {
-            let mut start = [0; RecordId::NUM_BYTES];
-            start[..4].copy_from_slice(&to_be4(partition_size * i));
-            let mut end = [0xff; RecordId::NUM_BYTES];
+            let start = RecordId::min_id().with(&to_be4(partition_size * i));
+            let mut end = RecordId::max_id();
             if i + 1 < n {
-                end[..4].copy_from_slice(&to_be4(partition_size * (i + 1) - 1));
-                OwnedRange {
-                    start: RecordId(start),
-                    end: RecordId(end),
-                }
-            } else {
-                OwnedRange {
-                    start: RecordId(start),
-                    end: RecordId(end),
-                }
+                end = end.with(&to_be4(partition_size * (i + 1) - 1));
             }
+            OwnedRange { start, end }
         })
         .collect()
 }
@@ -528,10 +519,8 @@ mod tests {
     }
 
     fn mkrange(s: u8, e: u8) -> OwnedRange {
-        let mut start = RecordId::min_id();
-        start.0[0] = s;
-        let mut end = RecordId::max_id();
-        end.0[0] = e;
+        let start = RecordId::min_id().with(&[s]);
+        let end = RecordId::max_id().with(&[e]);
         OwnedRange { start, end }
     }
 }

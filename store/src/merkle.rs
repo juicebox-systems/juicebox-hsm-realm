@@ -1098,7 +1098,7 @@ mod tests {
     use super::*;
     use bitvec::bitvec;
     use hsm_core::hsm::MerkleHasher;
-    use hsm_core::merkle::testing::{rec_id, TestHash};
+    use hsm_core::merkle::testing::TestHash;
     use hsm_core::merkle::NodeHashBuilder;
 
     #[test]
@@ -1222,7 +1222,9 @@ mod tests {
     #[test]
     fn test_store_key_parse_data_hash() {
         let prefix = bitvec![0, 1, 1, 1];
-        let hash = NodeHashBuilder::<MerkleHasher>::Leaf(&rec_id(&[1]), &[1, 2, 3, 4]).build();
+        let hash =
+            NodeHashBuilder::<MerkleHasher>::Leaf(&RecordId::min_id().with(&[1]), &[1, 2, 3, 4])
+                .build();
 
         let sk = StoreKey::new(&prefix, &hash);
         match StoreKey::parse::<DataHash>(&sk.into_bytes()) {

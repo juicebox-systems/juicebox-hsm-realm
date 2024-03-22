@@ -326,10 +326,10 @@ fn format_branch_label<HO>(_prefix: &KeyVec, dir: Dir, branch: &Branch<HO>) -> S
 #[cfg(test)]
 mod tests {
     use expect_test::expect_file;
-    use hsm_api::OwnedRange;
+    use hsm_api::{OwnedRange, RecordId};
 
     use super::tree_to_dot_document;
-    use crate::merkle::testing::{new_empty_tree, rec_id, tree_insert};
+    use crate::merkle::testing::{new_empty_tree, tree_insert};
 
     #[test]
     fn dot_output() {
@@ -341,7 +341,7 @@ mod tests {
                 &mut store,
                 &range,
                 root,
-                &rec_id(&[2, 6, i]),
+                &RecordId::min_id().with(&[2, 6, i]),
                 [b'a' + i].to_vec(),
                 true,
             );

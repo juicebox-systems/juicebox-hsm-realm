@@ -1,28 +1,27 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use super::TreeIndex;
 use bitvec::bitvec;
 use bitvec::Bits;
 use hsm_api::merkle::KeyVec;
+use hsm_api::RecordId;
 use hsm_core::merkle::dot::{hash_id, DotGraph};
-use hsm_core::merkle::testing::rec_id;
-
-use super::TreeIndex;
 
 pub fn doc_merge(dir: &Path) {
     let dir = dir.join("merge");
 
     let tree = super::split::make_split_tree();
-    let (left_tree, right_tree) = tree.split(rec_id(&[0b00001011]));
+    let (left_tree, right_tree) = tree.split(RecordId::min_id().with(&[0b00001011]));
 
     // Highlight the left/right proofs.
 
     // 00001010 is the right most key in the left tree, highlight every node that's on the path.
-    let left_proof_key = rec_id(&[0b00001010]);
+    let left_proof_key = RecordId::min_id().with(&[0b00001010]);
     left_tree.highlight_record_id_to_dot(left_proof_key.clone(), &dir, "merge_left_proof.dot");
 
     // 00001111 is the left most key in the right tree, highlight every node that's on the path.
-    let right_proof_key = rec_id(&[0b00001111]);
+    let right_proof_key = RecordId::min_id().with(&[0b00001111]);
     right_tree.highlight_record_id_to_dot(right_proof_key.clone(), &dir, "merge_right_proof.dot");
 
     // highlight the branches of interest

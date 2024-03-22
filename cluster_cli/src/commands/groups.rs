@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use agent_api::AgentGroupStatus;
-use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, OwnedRange};
+use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus};
 use juicebox_realm_api::types::RealmId;
 use table::{Column, FmtWriteStdOut, Justify, Table, TableStyle};
 
@@ -49,9 +49,8 @@ pub async fn status(cluster: &ClusterInfo) -> anyhow::Result<()> {
             println!("\tGroup: {:?}", group_id);
             let group = &groups[&group_id];
             if let Some((_, leader)) = &group.leader {
-                if let Some(OwnedRange { start, end }) = &leader.owned_range {
-                    println!("\tOwns: {}-", hex::encode(start.0));
-                    println!("\t      {}", hex::encode(end.0));
+                if let Some(range) = &leader.owned_range {
+                    println!("\tOwns: {}", range);
                 }
             }
             print_group_table(group, &agent_names);

@@ -308,15 +308,14 @@ impl<'a, H: NodeHasher> NodeHashBuilder<'a, H> {
 #[cfg(test)]
 mod tests {
     use super::testing::{
-        check_tree_invariants, new_empty_tree, rec_id, MemStore, MemStoreError, TestHash,
-        TestHasher,
+        check_tree_invariants, new_empty_tree, MemStore, MemStoreError, TestHash, TestHasher,
     };
     use super::{HashOutput, InteriorNode};
     use crate::merkle::{InteriorNodeExt, NodeHashBuilder};
     use bitvec::Bits;
     use bitvec::{bitvec, BitVec};
     use hsm_api::merkle::{Branch, KeyVec, LeafNode, Node};
-    use hsm_api::OwnedRange;
+    use hsm_api::{OwnedRange, RecordId};
     use juicebox_marshalling as marshalling;
 
     #[test]
@@ -394,7 +393,9 @@ mod tests {
     fn get_nothing() {
         let range = OwnedRange::full();
         let (_tree, root, store) = new_empty_tree(&range);
-        let p = store.read(&range, &root, &rec_id(&[1, 2, 3])).unwrap();
+        let p = store
+            .read(&range, &root, &RecordId::min_id().with(&[1, 2, 3]))
+            .unwrap();
         assert_eq!(1, p.path.len());
         assert!(p.leaf.is_none());
         check_tree_invariants::<TestHasher>(&range, root, &store);
@@ -405,8 +406,8 @@ mod tests {
         let (root_hash, _) =
             InteriorNode::new_with_hash::<TestHasher>(&OwnedRange::full(), true, None, None);
         let p0 = OwnedRange {
-            start: rec_id(&[1]),
-            end: rec_id(&[2]),
+            start: RecordId::min_id().with(&[1]),
+            end: RecordId::min_id().with(&[2]),
         };
         let (hash_p0, _) = InteriorNode::new_with_hash::<TestHasher>(&p0, true, None, None);
         let p1 = OwnedRange {
@@ -454,8 +455,8 @@ mod tests {
     #[test]
     fn test_leaf_hash() {
         let v = vec![1, 2, 3, 4, 5, 6, 8, 9];
-        let k1 = rec_id(&[1, 2]);
-        let k2 = rec_id(&[1, 4]);
+        let k1 = RecordId::min_id().with(&[1, 2]);
+        let k2 = RecordId::min_id().with(&[1, 4]);
         let ha = NodeHashBuilder::<TestHasher>::Leaf(&k1, &v).build();
         let hb = NodeHashBuilder::<TestHasher>::Leaf(&k2, &v).build();
         assert_ne!(ha, hb);

@@ -142,18 +142,18 @@ mod tests {
     use rand::{RngCore, SeedableRng};
     use std::collections::BTreeMap;
 
-    use super::super::testing::{
-        check_tree_invariants, new_empty_tree, rec_id, tree_insert, TestHasher,
-    };
+    use super::super::testing::{check_tree_invariants, new_empty_tree, tree_insert, TestHasher};
     use super::super::tests::tree_size;
     use hsm_api::merkle::{KeyVec, Node, NodeKey};
-    use hsm_api::OwnedRange;
+    use hsm_api::{OwnedRange, RecordId};
 
     #[test]
     fn first_insert() {
         let range = OwnedRange::full();
         let (mut tree, root, mut store) = new_empty_tree(&range);
-        let rp = store.read(&range, &root, &rec_id(&[1, 2, 3])).unwrap();
+        let rp = store
+            .read(&range, &root, &RecordId::min_id().with(&[1, 2, 3]))
+            .unwrap();
         let (new_root, d) = tree
             .insert(tree.latest_proof(rp).unwrap(), [42].to_vec())
             .unwrap();
@@ -166,12 +166,17 @@ mod tests {
         if let Node::Leaf(leaf) = leaf_node {
             assert_eq!([42].to_vec(), leaf.value);
         }
-        assert_eq!(leaf_key.prefix, rec_id(&[1, 2, 3]).to_bitvec());
+        assert_eq!(
+            leaf_key.prefix,
+            RecordId::min_id().with(&[1, 2, 3]).to_bitvec()
+        );
         assert!(d.removes().contains(&NodeKey::new(KeyVec::new(), root)));
         store.apply_store_delta(new_root, d);
         check_tree_invariants::<TestHasher>(&range, new_root, &store);
 
-        let p = store.read(&range, &new_root, &rec_id(&[1, 2, 3])).unwrap();
+        let p = store
+            .read(&range, &new_root, &RecordId::min_id().with(&[1, 2, 3]))
+            .unwrap();
         assert_eq!([42].to_vec(), p.leaf.as_ref().unwrap().value);
         assert_eq!(1, p.path.len());
         assert_eq!(new_root, p.root_hash);
@@ -186,7 +191,7 @@ mod tests {
             &mut store,
             &range,
             root,
-            &rec_id(&[2, 6, 8]),
+            &RecordId::min_id().with(&[2, 6, 8]),
             [42].to_vec(),
             true,
         );
@@ -195,7 +200,7 @@ mod tests {
             &mut store,
             &range,
             root,
-            &rec_id(&[4, 4, 6]),
+            &RecordId::min_id().with(&[4, 4, 6]),
             [43].to_vec(),
             true,
         );
@@ -204,12 +209,14 @@ mod tests {
             &mut store,
             &range,
             root,
-            &rec_id(&[0, 2, 3]),
+            &RecordId::min_id().with(&[0, 2, 3]),
             [44].to_vec(),
             false,
         );
 
-        let p = store.read(&range, &root, &rec_id(&[2, 6, 8])).unwrap();
+        let p = store
+            .read(&range, &root, &RecordId::min_id().with(&[2, 6, 8]))
+            .unwrap();
         assert_eq!([42].to_vec(), p.leaf.unwrap().value);
         assert_eq!(3, p.path.len());
         assert_eq!(root, p.root_hash);
@@ -220,8 +227,8 @@ mod tests {
     #[test]
     fn update_existing() {
         let range = OwnedRange {
-            start: rec_id(&[1]),
-            end: rec_id(&[6]),
+            start: RecordId::min_id().with(&[1]),
+            end: RecordId::min_id().with(&[6]),
         };
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         root = tree_insert(
@@ -229,7 +236,7 @@ mod tests {
             &mut store,
             &range,
             root,
-            &rec_id(&[2, 6, 8]),
+            &RecordId::min_id().with(&[2, 6, 8]),
             [42].to_vec(),
             false,
         );
@@ -238,7 +245,7 @@ mod tests {
             &mut store,
             &range,
             root,
-            &rec_id(&[4, 4, 6]),
+            &RecordId::min_id().with(&[4, 4, 6]),
             [43].to_vec(),
             false,
         );
@@ -248,12 +255,14 @@ mod tests {
             &mut store,
             &range,
             root,
-            &rec_id(&[4, 4, 6]),
+            &RecordId::min_id().with(&[4, 4, 6]),
             [44].to_vec(),
             false,
         );
 
-        let rp = store.read(&range, &root, &rec_id(&[4, 4, 6])).unwrap();
+        let rp = store
+            .read(&range, &root, &RecordId::min_id().with(&[4, 4, 6]))
+            .unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
         check_tree_invariants::<TestHasher>(&range, root, &store);
 
@@ -263,11 +272,13 @@ mod tests {
             &mut store,
             &range,
             root,
-            &rec_id(&[4, 4, 6]),
+            &RecordId::min_id().with(&[4, 4, 6]),
             [44].to_vec(),
             false,
         );
-        let rp = store.read(&range, &root, &rec_id(&[4, 4, 6])).unwrap();
+        let rp = store
+            .read(&range, &root, &RecordId::min_id().with(&[4, 4, 6]))
+            .unwrap();
         assert_eq!([44].to_vec(), rp.leaf.unwrap().value);
         check_tree_invariants::<TestHasher>(&range, root, &store);
         assert_eq!(tree_size(KeyVec::new(), root, &store).unwrap(), store.len());
@@ -289,7 +300,7 @@ mod tests {
         };
         for i in 0..LOTS_COUNT {
             rng.fill_bytes(&mut random_key);
-            let key = rec_id(&random_key);
+            let key = RecordId::min_id().with(&random_key);
             // write our new key/value
             root = tree_insert(
                 &mut tree,
@@ -319,9 +330,9 @@ mod tests {
     fn pipeline() {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
-        let rid1 = rec_id(&[1]);
-        let rid2 = rec_id(&[2]);
-        let rid3 = rec_id(&[3]);
+        let rid1 = RecordId::min_id().with(&[1]);
+        let rid2 = RecordId::min_id().with(&[2]);
+        let rid3 = RecordId::min_id().with(&[3]);
         root = tree_insert(
             &mut tree,
             &mut store,

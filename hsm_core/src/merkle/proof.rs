@@ -353,9 +353,8 @@ mod tests {
     use crate::merkle::testing::TestHash;
     use crate::merkle::{new_leaf, InteriorNodeExt};
 
-    use super::super::testing::{new_empty_tree, rec_id, tree_insert, TestHasher};
-    use super::verify;
-    use super::ProofError;
+    use super::super::testing::{new_empty_tree, tree_insert, TestHasher};
+    use super::{verify, ProofError};
     use bitvec::bitvec;
     use bitvec::Bits;
     use hsm_api::merkle::{Branch, InteriorNode, KeyVec, LeafNode, ReadProof};
@@ -365,8 +364,8 @@ mod tests {
     fn verify_proof() {
         let range = OwnedRange::full();
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
-        let rid1 = rec_id(&[1]);
-        let rid5 = rec_id(&[5]);
+        let rid1 = RecordId::min_id().with(&[1]);
+        let rid5 = RecordId::min_id().with(&[5]);
         root = tree_insert(
             &mut tree,
             &mut store,
@@ -654,18 +653,20 @@ mod tests {
             &mut store,
             &range,
             root,
-            &rec_id(&[0b10000000]),
+            &RecordId::min_id().with(&[0b10000000]),
             [1].to_vec(),
             false,
         );
-        let rp_1 = store.read(&range, &root, &rec_id(&[0b10000000])).unwrap();
+        let rp_1 = store
+            .read(&range, &root, &RecordId::min_id().with(&[0b10000000]))
+            .unwrap();
         for i in 0..20 {
             root = tree_insert(
                 &mut tree,
                 &mut store,
                 &range,
                 root,
-                &rec_id(&[0b11000000]),
+                &RecordId::min_id().with(&[0b11000000]),
                 [i].to_vec(),
                 false,
             );
@@ -679,7 +680,7 @@ mod tests {
     #[test]
     fn make_latest_with_leaf() {
         let range = OwnedRange::full();
-        let key = rec_id(&[1]);
+        let key = RecordId::min_id().with(&[1]);
         let (mut tree, mut root, mut store) = new_empty_tree(&range);
         root = tree_insert(&mut tree, &mut store, &range, root, &key, vec![1], false);
         let rp = store.read(&range, &root, &key).unwrap();
