@@ -254,7 +254,7 @@ pub struct CancelPreparedTransferRequest {
     pub range: OwnedRange,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum CancelPreparedTransferResponse {
     Ok,
     InvalidRealm,
