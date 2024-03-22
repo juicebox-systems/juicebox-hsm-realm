@@ -89,6 +89,7 @@ struct AgentInner<T> {
     peer_client: ReqwestClientMetrics,
     discovery: DiscoveryWatcher,
     state: Mutex<State>,
+    tenant_limiters: Mutex<HashMap<String, RateLimiter>>,
     metrics: metrics::Client,
     accountant: UserAccountingWriter,
     event_publisher: Box<dyn Publisher>,
@@ -108,8 +109,6 @@ struct State {
     /// service discovery. It's always available for leaders. It will never go
     /// from `Some` to `None`.
     hsm_id: Option<HsmId>,
-    /// Current Tenant rate limiting state.
-    tenant_limiters: HashMap<String, RateLimiter>,
 }
 
 impl State {
@@ -274,8 +273,8 @@ impl<T: Transport + 'static> Agent<T> {
                 registered: false,
                 hsm_id: None,
                 groups: HashMap::new(),
-                tenant_limiters: HashMap::new(),
             }),
+            tenant_limiters: Mutex::new(HashMap::new()),
             metrics: config.metrics.clone(),
             accountant: UserAccountingWriter::new(config.store, config.metrics),
             event_publisher: config.event_publisher,
@@ -848,10 +847,9 @@ impl<T: Transport + 'static> Agent<T> {
                 })
                 .collect();
                 {
-                    let mut locked = agent.state.lock().unwrap();
+                    let mut locked = agent.tenant_limiters.lock().unwrap();
                     for (peer, tenant, state) in updates {
                         locked
-                            .tenant_limiters
                             .entry(tenant)
                             .or_insert_with(|| RateLimiter::new(agent.default_rate_limiter_rate))
                             .update_from_other(peer, state);
@@ -900,10 +898,9 @@ impl<T: Transport + 'static> Agent<T> {
                     return Ok(ReloadTenantConfigResult::NotChanged);
                 }
                 {
-                    let mut state = self.0.state.lock().unwrap();
+                    let mut locked = self.0.tenant_limiters.lock().unwrap();
                     for (tenant, config) in &tenants {
-                        state
-                            .tenant_limiters
+                        locked
                             .entry(tenant.clone())
                             .and_modify(|rl| rl.update_limit(config.capacity_reqs_per_sec()))
                             .or_insert_with(|| RateLimiter::new(config.capacity_reqs_per_sec()));
@@ -1085,9 +1082,8 @@ impl<T: Transport + 'static> Agent<T> {
     ) -> Result<RateLimitStateResponse, HandlerError> {
         let now = SystemTime::now();
         let states: Vec<(String, rate::State)> = {
-            let mut locked = self.0.state.lock().unwrap();
+            let mut locked = self.0.tenant_limiters.lock().unwrap();
             locked
-                .tenant_limiters
                 .iter_mut()
                 .map(|(t, b)| (t.clone(), b.state(now)))
                 .collect()
@@ -1694,9 +1690,8 @@ impl<T: Transport + 'static> Agent<T> {
                             | AppResultType::Recover2 { .. }
                             | AppResultType::Register1
                     ) {
-                        let mut locked = self.0.state.lock().unwrap();
+                        let mut locked = self.0.tenant_limiters.lock().unwrap();
                         locked
-                            .tenant_limiters
                             .get_mut(&tenant)
                             .expect(
                                 "start_app_request created the bucket if it didn't already exist",
@@ -1799,9 +1794,8 @@ impl<T: Transport + 'static> Agent<T> {
         let rate_limit_result = {
             let tenant = request.tenant.clone();
             let rec_id = request.record_id.clone();
-            let mut state = self.0.state.lock().unwrap();
-            let bucket = state
-                .tenant_limiters
+            let mut locked = self.0.tenant_limiters.lock().unwrap();
+            let bucket = locked
                 .entry(tenant)
                 .or_insert_with(|| RateLimiter::new(self.0.default_rate_limiter_rate));
             bucket.allow(rec_id)
