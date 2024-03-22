@@ -111,8 +111,8 @@ jobs:
         timeout-minutes: 20
         strategy:
           matrix:
-            # Transfer fixes (PR #437).
-            hsm_version: ["38601f81b779e56522281649d55abe0641ee9ca5"]
+            # Cancel Prepared Transfer fix (PR #462).
+            hsm_version: ["19a29d9f7dfd20f210f377d1ff9d22685d238ea1"]
         steps:
         - name: Check out sources
           uses: actions/checkout@v4
