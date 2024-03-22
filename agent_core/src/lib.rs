@@ -56,6 +56,7 @@ use hsm_api::{
     RoleLogicalClock, RoleStatus,
 };
 use jburl::Url;
+use juicebox_marshalling as marshalling;
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::{self, Rpc, SendOptions};
 use juicebox_realm_api::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
@@ -810,7 +811,7 @@ impl<T: Transport + 'static> Agent<T> {
                         urls = new_urls;
                     }
                 }
-                let updates: Vec<(PeerId, String, Vec<u8>)> = iter::zip(
+                let updates: Vec<(PeerId, String, rate::State)> = iter::zip(
                     urls.0.iter(),
                     join_all(urls.0.iter().map(|url| {
                         rpc::send_with_options(
@@ -830,12 +831,19 @@ impl<T: Transport + 'static> Agent<T> {
                     }
                 })
                 .flat_map(|(url, updates)| {
-                    updates.into_iter().map(|tenant_state| {
-                        (
-                            PeerId(url.to_string()),
-                            tenant_state.tenant,
-                            tenant_state.state,
-                        )
+                    updates.into_iter().filter_map(move |tenant_state| {
+                        match marshalling::from_slice(&tenant_state.state) {
+                            Err(err) => {
+                                warn!(%url, ?err, "failed to deserialize rate limiter state from peer");
+                                None
+                            },
+                            Ok(state)=> Some(
+                                (
+                                    PeerId(url.to_string()),
+                                    tenant_state.tenant,
+                                    state
+                                ))
+                        }
                     })
                 })
                 .collect();
@@ -846,7 +854,7 @@ impl<T: Transport + 'static> Agent<T> {
                             .tenant_limiters
                             .entry(tenant)
                             .or_insert_with(|| RateLimiter::new(agent.default_rate_limiter_rate))
-                            .update_from_other(peer, &state);
+                            .update_from_other(peer, state);
                     }
                 }
                 sleep(Duration::from_millis(10)).await;
@@ -1076,18 +1084,22 @@ impl<T: Transport + 'static> Agent<T> {
         _request: RateLimitStateRequest,
     ) -> Result<RateLimitStateResponse, HandlerError> {
         let now = SystemTime::now();
-        let states: Vec<_> = {
+        let states: Vec<(String, rate::State)> = {
             let mut locked = self.0.state.lock().unwrap();
             locked
                 .tenant_limiters
                 .iter_mut()
-                .map(|(t, b)| TenantRateLimitState {
-                    tenant: t.clone(),
-                    state: b.state(now),
-                })
+                .map(|(t, b)| (t.clone(), b.state(now)))
                 .collect()
         };
-        Ok(RateLimitStateResponse::Ok(states))
+        let serialized = states
+            .into_iter()
+            .map(|(t, s)| TenantRateLimitState {
+                tenant: t,
+                state: marshalling::to_vec(&s).unwrap(),
+            })
+            .collect();
+        Ok(RateLimitStateResponse::Ok(serialized))
     }
 
     async fn handle_livez(&self, _request: Request<IncomingBody>) -> Response<Full<Bytes>> {

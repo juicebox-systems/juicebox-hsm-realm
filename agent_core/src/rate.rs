@@ -5,10 +5,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 use std::ops::Deref;
 use std::time::{Duration, SystemTime};
-use tracing::warn;
 
 use hsm_api::RecordId;
-use juicebox_marshalling as marshalling;
 
 const RESERVATION_LIFETIME: Duration = Duration::from_secs(2);
 
@@ -79,42 +77,32 @@ impl RateLimiter {
         self.reservations.add(now + RESERVATION_LIFETIME, id)
     }
 
-    /// Returns the current state in a serialized format to give to other nodes.
-    pub fn state(&mut self, now: SystemTime) -> Vec<u8> {
-        // we manage the serialization here so that the internal rate limiter
-        // types don't have to leak into agent_api.
+    /// Returns the current state such that it can be serialized and given to other nodes.
+    pub fn state(&mut self, now: SystemTime) -> State {
         let expire_before = now - RESERVATION_LIFETIME * 2;
         self.reservations
             .used
             .retain(|(tm, _id)| *tm >= expire_before);
 
-        marshalling::to_vec(&(
-            &self.my_reqs,
-            &self.reservations.mine,
-            &self.reservations.used,
-        ))
-        .expect("serialization failed")
-    }
-
-    pub fn update_from_other(&mut self, node: PeerId, state: &[u8]) {
-        #[derive(Deserialize)]
-        struct State(
-            OrderedVecDeque<SystemTime>,
-            ReservationSet,
-            HashSet<(SystemTime, RecordId)>,
-        );
-
-        match marshalling::from_slice::<State>(state) {
-            Ok(state) => {
-                self.others_reqs.insert(node.clone(), state.0);
-                self.reservations.others.insert(node, state.1);
-                self.reservations.used.extend(state.2);
-            }
-            Err(err) => {
-                warn!(?err, "Failed to deserialize state from other node");
-            }
+        State {
+            reqs: self.my_reqs.clone(),
+            reservations: self.reservations.mine.clone(),
+            reservations_used: self.reservations.used.clone(),
         }
     }
+
+    pub fn update_from_other(&mut self, node: PeerId, state: State) {
+        self.others_reqs.insert(node.clone(), state.reqs);
+        self.reservations.others.insert(node, state.reservations);
+        self.reservations.used.extend(state.reservations_used);
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct State {
+    reqs: OrderedVecDeque<SystemTime>,
+    reservations: ReservationSet,
+    reservations_used: HashSet<(SystemTime, RecordId)>,
 }
 
 #[derive(Debug, Default)]
@@ -152,13 +140,13 @@ impl Reservations {
     }
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct ReservationSet {
     expiry: OrderedVecDeque<Expiry>,
     ids: HashMap<RecordId, SystemTime>,
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct Expiry {
     when: SystemTime,
     id: RecordId,
@@ -209,7 +197,7 @@ impl ReservationSet {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 struct OrderedVecDeque<T>(VecDeque<T>);
 
 impl<T> Default for OrderedVecDeque<T> {
@@ -457,12 +445,23 @@ mod tests {
 
     fn trade_limiter_state(now: SystemTime, ids: &[PeerId], limiters: &mut [RateLimiter]) {
         assert_eq!(ids.len(), limiters.len());
-        let states: Vec<_> = limiters.iter_mut().map(|b| b.state(now)).collect();
+        let states: Vec<_> = limiters
+            .iter_mut()
+            .map(|b| b.state(now))
+            .map(|s| juicebox_marshalling::to_vec(&s).unwrap())
+            .collect();
+
         for i in 0..ids.len() {
             for j in 0..ids.len() {
                 if i != j {
-                    limiters[i].update_from_other(ids[j].clone(), &states[j]);
-                    limiters[j].update_from_other(ids[i].clone(), &states[i]);
+                    limiters[i].update_from_other(
+                        ids[j].clone(),
+                        juicebox_marshalling::from_slice(&states[j]).unwrap(),
+                    );
+                    limiters[j].update_from_other(
+                        ids[i].clone(),
+                        juicebox_marshalling::from_slice(&states[i]).unwrap(),
+                    );
                 }
             }
         }
