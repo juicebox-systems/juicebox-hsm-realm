@@ -1,16 +1,16 @@
 use std::time::{Duration, Instant};
 use tracing::warn;
 
+use super::commit::UncompactedRowsStats;
 use super::hsm::Transport;
+use super::with_lock;
+use super::{group_state_mut, Agent};
 use agent_api::StepDownRequest;
 use hsm_api::merkle::StoreDelta;
 use hsm_api::{DataHash, GroupId, LogEntry, LogIndex};
 use juicebox_realm_api::types::RealmId;
 use observability::metrics::Tag;
 use observability::metrics_tag as tag;
-
-use super::commit::UncompactedRowsStats;
-use super::{group_state_mut, Agent};
 use AppendingState::*;
 
 #[derive(Debug)]
@@ -27,26 +27,22 @@ pub(super) enum AppendingState {
 
 impl<T: Transport + 'static> Agent<T> {
     pub(super) fn append(&self, realm: RealmId, group: GroupId, append_request: Append) {
-        let appending = {
-            let mut locked = self.0.state.lock().unwrap();
+        if let Some(NotAppending { next }) = with_lock!(&self.0.state, |locked| {
             match group_state_mut(&mut locked.groups, realm, group)
                 .leader
                 .as_mut()
             {
-                None => return,
+                None => None,
                 Some(leader) => {
                     let existing = leader
                         .append_queue
                         .insert(append_request.entry.index, append_request);
                     assert!(existing.is_none());
-                    std::mem::replace(&mut leader.appending, Appending)
+                    Some(std::mem::replace(&mut leader.appending, Appending))
                 }
             }
-        };
-
-        if let NotAppending { next } = appending {
+        }) {
             let agent = self.clone();
-
             tokio::spawn(async move { agent.keep_appending(realm, group, next).await });
         }
     }
@@ -59,13 +55,13 @@ impl<T: Transport + 'static> Agent<T> {
         let mut next = next;
         let mut batch = Vec::new();
         let metric_tags = [tag!(?realm), tag!(?group)];
-        let mut queue_depth: usize;
+        let mut queue_depth: usize = 0;
 
         loop {
             let mut delta = StoreDelta::default();
             batch.clear();
-            {
-                let mut locked = self.0.state.lock().unwrap();
+
+            with_lock!(&self.0.state, |locked| {
                 let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
                     .leader
                     .as_mut()
@@ -90,8 +86,10 @@ impl<T: Transport + 'static> Agent<T> {
                     return;
                 }
                 queue_depth = leader.append_queue.len();
+            });
+            if batch.is_empty() {
+                return;
             }
-
             let start = Instant::now();
             match self.0.store.append(&realm, &group, &batch, delta).await {
                 Err(store::AppendError::LogPrecondition) => {
@@ -124,8 +122,7 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(row) => {
                     let elapsed = start.elapsed();
                     let batch_size = batch.len();
-                    let stats = {
-                        let mut locked = self.0.state.lock().unwrap();
+                    let stats = with_lock!(&self.0.state, |locked| {
                         if let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
                             .leader
                             .as_mut()
@@ -136,7 +133,7 @@ impl<T: Transport + 'static> Agent<T> {
                         } else {
                             None
                         }
-                    };
+                    });
                     if let Some(stats) = stats {
                         stats.publish(&self.0.metrics, &metric_tags);
                     }
