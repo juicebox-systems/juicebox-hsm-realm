@@ -7,6 +7,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use blake2::Blake2sMac256;
+use core::cmp::{max, min};
 use core::fmt::{self, Display};
 use core::ops::Deref;
 use core::time::Duration;
@@ -97,6 +98,15 @@ impl RecordId {
 
     pub fn max_id() -> Self {
         RecordId([255; Self::NUM_BYTES])
+    }
+
+    /// Returns a new RecordId with the starting bytes set to `p`. panics if
+    /// len(p) > NUM_BYTES
+    pub fn with(&self, p: &[u8]) -> RecordId {
+        assert!(p.len() <= Self::NUM_BYTES);
+        let mut n = self.clone();
+        n.0[..p.len()].copy_from_slice(p);
+        n
     }
 
     pub fn next(&self) -> Option<RecordId> {
@@ -426,13 +436,21 @@ impl OwnedRange {
         record_id >= &self.start && record_id <= &self.end
     }
 
+    /// Returns true if `other` has any overlap with `self`, i.e. `contains`
+    /// returns true on both ranges for at least one recordId.
     pub fn overlaps(&self, other: &OwnedRange) -> bool {
         assert!(self.is_valid());
-        self.contains(&other.start) || self.contains(&other.end)
+        assert!(other.is_valid());
+        self.contains(&other.start)
+            || self.contains(&other.end)
+            || other.contains(&self.start)
+            || other.contains(&self.end)
     }
 
+    /// Returns true if `other` is the same or a sub-range of `self`.
     pub fn contains_range(&self, other: &OwnedRange) -> bool {
         assert!(self.is_valid());
+        assert!(other.is_valid());
         self.contains(&other.start) && self.contains(&other.end)
     }
 
@@ -469,6 +487,15 @@ impl OwnedRange {
             Some(other.start.clone())
         } else {
             None
+        }
+    }
+
+    /// Returns an OwnedRange that contains both `self` & `other`. They do not
+    /// need to be adjacent. See also [`join`]
+    pub fn union(&self, other: &OwnedRange) -> OwnedRange {
+        OwnedRange {
+            start: min(&self.start, &other.start).clone(),
+            end: max(&self.end, &other.end).clone(),
         }
     }
 }
@@ -2013,7 +2040,7 @@ pub struct GuessState {
 
 #[cfg(test)]
 mod tests {
-    use alloc::format;
+    use alloc::{format, vec};
     use core::mem::size_of;
     use subtle::ConstantTimeEq;
 
@@ -2058,6 +2085,38 @@ mod tests {
         exp.0[RecordId::NUM_BYTES - 1] = 0;
         exp.0[RecordId::NUM_BYTES - 2] = 43;
         assert_eq!(exp, id.next().unwrap());
+    }
+
+    #[test]
+    fn record_id_with() {
+        let a = RecordId::min_id().with(&[1, 2, 3]);
+        assert_eq!(
+            RecordId([
+                1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0
+            ]),
+            a
+        );
+        let b = RecordId::max_id().with(&[1, 2]);
+        assert_eq!(
+            RecordId([
+                1, 2, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                0xff, 0xff, 0xff
+            ]),
+            b
+        );
+        let c = RecordId([4; 32]);
+        assert_eq!(c, c.with(&[]));
+        let bytes = vec![45u8; 32];
+        assert_eq!(RecordId([45; 32]), RecordId::min_id().with(&bytes));
+    }
+
+    #[test]
+    #[should_panic]
+    fn record_id_with_too_much() {
+        let bytes = vec![45u8; 33];
+        RecordId::min_id().with(&bytes);
     }
 
     #[test]
@@ -2135,10 +2194,8 @@ mod tests {
 
     #[test]
     fn owned_range_contains() {
-        let mut start = RecordId::min_id();
-        start.0[0] = 10;
-        let mut end = RecordId::min_id();
-        end.0[0] = 20;
+        let start = RecordId::min_id().with(&[10]);
+        let end = RecordId::min_id().with(&[20]);
         let r = OwnedRange {
             start: start.clone(),
             end: end.clone(),
@@ -2172,13 +2229,28 @@ mod tests {
 
     #[test]
     fn owned_range_overlaps() {
+        fn overlaps(a: &OwnedRange, b: &OwnedRange) -> bool {
+            let o = a.overlaps(b);
+            assert_eq!(o, b.overlaps(a));
+            o
+        }
         let r1 = mkrange(100, 200);
-        assert!(r1.overlaps(&r1));
-        assert!(r1.overlaps(&mkrange(50, 101)));
-        assert!(r1.overlaps(&mkrange(199, 201)));
-        assert!(r1.overlaps(&mkrange(150, 160)));
-        assert!(!r1.overlaps(&mkrange(0, 99)));
-        assert!(!r1.overlaps(&mkrange(201, 222)));
+        assert!(overlaps(&r1, &r1));
+        assert!(overlaps(&r1, &mkrange(50, 100)));
+        assert!(overlaps(&r1, &mkrange(50, 101)));
+        assert!(overlaps(&r1, &mkrange(199, 201)));
+        assert!(overlaps(&r1, &mkrange(150, 160)));
+        assert!(overlaps(&r1, &mkrange(200, 222)));
+        assert!(!overlaps(&r1, &mkrange(0, 99)));
+        assert!(!overlaps(&r1, &mkrange(201, 222)));
+    }
+
+    #[test]
+    fn owned_range_union() {
+        assert_eq!(mkrange(10, 20), mkrange(10, 14).union(&mkrange(19, 20)));
+        assert_eq!(mkrange(10, 20), mkrange(11, 20).union(&mkrange(10, 11)));
+        assert_eq!(mkrange(10, 20), mkrange(10, 20).union(&mkrange(12, 13)));
+        assert_eq!(mkrange(10, 20), mkrange(12, 13).union(&mkrange(10, 20)));
     }
 
     #[test]
@@ -2276,10 +2348,8 @@ mod tests {
     }
 
     fn mkrange(s: u8, e: u8) -> OwnedRange {
-        let mut start = RecordId::min_id();
-        start.0[0] = s;
-        let mut end = RecordId::max_id();
-        end.0[0] = e;
+        let start = RecordId::min_id().with(&[s]);
+        let end = RecordId::max_id().with(&[e]);
         OwnedRange { start, end }
     }
 

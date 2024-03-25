@@ -189,7 +189,11 @@ impl Manager {
                 );
                 continue;
             }
-            match range_owners(&hsms_status, realm, &t_out.partition.range) {
+            match range_owners(
+                hsms_status.values().map(|(s, _url)| s),
+                realm,
+                &t_out.partition.range,
+            ) {
                 None => {
                     warn!(?realm, source=?source, ?destination, range=%t_out.partition.range,
                         "found TransferOut with no matching PreparedTransfer. range is not fully owned! doing nothing. Will retry later");

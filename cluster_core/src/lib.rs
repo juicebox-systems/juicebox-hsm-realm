@@ -1,5 +1,6 @@
 use futures::future::join_all;
 use futures::FutureExt;
+use juicebox_marshalling::to_be4;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 use tokio::task::JoinHandle;
@@ -7,7 +8,9 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
 use agent_api::StatusRequest;
-use hsm_api::{GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange};
+use hsm_api::{
+    GroupId, GroupStatus, HsmId, LeaderStatus, LogIndex, OwnedRange, RecordId, StatusResponse,
+};
 use jburl::Url;
 use juicebox_networking::http;
 use juicebox_networking::reqwest::Client;
@@ -23,7 +26,10 @@ pub mod workload;
 
 pub use leader::{discover_hsm_ids, find_leaders, hsm_ids};
 pub use realm::{join_realm, new_group, new_realm, JoinRealmError, NewGroupError, NewRealmError};
-pub use transfer::{perform_transfer, TransferChaos, TransferError, TransferRequest};
+pub use transfer::{
+    perform_transfer, plan_transfers, plan_transfers_range, TransferChaos, TransferError,
+    TransferRequest, TransferStep,
+};
 
 const LEASE_DURATION: Duration = Duration::from_secs(3);
 
@@ -267,14 +273,13 @@ pub fn find_leader(status: &HsmStatuses, realm: RealmId, group: GroupId) -> Opti
 // the set of owners that cover `range_to_check`. If `range_to_check` is not
 // fully covered None is returned. This is used to help verify ownership of all
 // or a subset of the recordId range during transfer recovery.
-pub fn range_owners(
-    hsm_status: &HsmStatuses,
+pub fn range_owners<'a>(
+    hsm_status: impl Iterator<Item = &'a StatusResponse>,
     realm: RealmId,
     range_to_check: &OwnedRange,
 ) -> Option<Vec<(GroupId, OwnedRange)>> {
     let ranges: Vec<(GroupId, OwnedRange)> = hsm_status
-        .values()
-        .filter_map(|(s, _)| s.realm.as_ref())
+        .filter_map(|s| s.realm.as_ref())
         .filter(|rs| rs.id == realm)
         .flat_map(|rs| rs.groups.iter())
         .filter_map(|gs| {
@@ -310,10 +315,131 @@ fn verify_range_owners(
     }
 }
 
+pub fn partition_evenly(n: usize) -> Vec<OwnedRange> {
+    // It's difficult to divide a 256-bit space into even ranges using only
+    // 64-bit integers. This divides a 32-bit space instead and gets close
+    // enough for our purposes. Dividing 2^32 by n is better than dividing
+    // (2^64-1) by n because it gets the exact results you'd expect when n is a
+    // small power of two.
+    if n > 1_000_000 {
+        unimplemented!("no guarantees here");
+    }
+    let n = u64::try_from(n).unwrap();
+    let partition_size = 2u64.pow(32) / n;
+
+    (0..n)
+        .map(|i| {
+            let mut start = [0; RecordId::NUM_BYTES];
+            start[..4].copy_from_slice(&to_be4(partition_size * i));
+            let mut end = [0xff; RecordId::NUM_BYTES];
+            if i + 1 < n {
+                end[..4].copy_from_slice(&to_be4(partition_size * (i + 1) - 1));
+                OwnedRange {
+                    start: RecordId(start),
+                    end: RecordId(end),
+                }
+            } else {
+                OwnedRange {
+                    start: RecordId(start),
+                    end: RecordId(end),
+                }
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use expect_test::expect;
     use hsm_api::{GroupId, OwnedRange, RecordId};
+    use std::fmt::Write;
+
+    #[test]
+    fn test_partition_evenly_full_coverage() {
+        for i in [1, 2, 3, 15, 32, 108] {
+            let mut last: Option<RecordId> = None;
+            for range in partition_evenly(i) {
+                let next = match &last {
+                    None => RecordId::min_id(),
+                    Some(id) => id.next().unwrap(),
+                };
+                assert_eq!(range.start, next);
+                assert!(range.end >= range.start);
+                last = Some(range.end);
+            }
+            assert_eq!(last, Some(RecordId::max_id()));
+        }
+    }
+
+    #[test]
+    fn test_partition_evenly_snapshot() {
+        let mut buf = String::new();
+        for i in 1..10 {
+            writeln!(buf, "partition_evenly({i}):").unwrap();
+            for range in partition_evenly(i) {
+                writeln!(buf, "  {}", &range).unwrap();
+            }
+        }
+
+        expect![[r#"
+            partition_evenly(1):
+              [0x00...-0xff...]
+            partition_evenly(2):
+              [0x00...-0x7fff...]
+              [0x8000...-0xff...]
+            partition_evenly(3):
+              [0x00...-0x55555554ff...]
+              [0x5555555500...-0xaaaaaaa9ff...]
+              [0xaaaaaaaa00...-0xff...]
+            partition_evenly(4):
+              [0x00...-0x3fff...]
+              [0x4000...-0x7fff...]
+              [0x8000...-0xbfff...]
+              [0xc000...-0xff...]
+            partition_evenly(5):
+              [0x00...-0x33333332ff...]
+              [0x3333333300...-0x66666665ff...]
+              [0x6666666600...-0x99999998ff...]
+              [0x9999999900...-0xcccccccbff...]
+              [0xcccccccc00...-0xff...]
+            partition_evenly(6):
+              [0x00...-0x2aaaaaa9ff...]
+              [0x2aaaaaaa00...-0x55555553ff...]
+              [0x5555555400...-0x7ffffffdff...]
+              [0x7ffffffe00...-0xaaaaaaa7ff...]
+              [0xaaaaaaa800...-0xd5555551ff...]
+              [0xd555555200...-0xff...]
+            partition_evenly(7):
+              [0x00...-0x24924923ff...]
+              [0x2492492400...-0x49249247ff...]
+              [0x4924924800...-0x6db6db6bff...]
+              [0x6db6db6c00...-0x9249248fff...]
+              [0x9249249000...-0xb6db6db3ff...]
+              [0xb6db6db400...-0xdb6db6d7ff...]
+              [0xdb6db6d800...-0xff...]
+            partition_evenly(8):
+              [0x00...-0x1fff...]
+              [0x2000...-0x3fff...]
+              [0x4000...-0x5fff...]
+              [0x6000...-0x7fff...]
+              [0x8000...-0x9fff...]
+              [0xa000...-0xbfff...]
+              [0xc000...-0xdfff...]
+              [0xe000...-0xff...]
+            partition_evenly(9):
+              [0x00...-0x1c71c71bff...]
+              [0x1c71c71c00...-0x38e38e37ff...]
+              [0x38e38e3800...-0x55555553ff...]
+              [0x5555555400...-0x71c71c6fff...]
+              [0x71c71c7000...-0x8e38e38bff...]
+              [0x8e38e38c00...-0xaaaaaaa7ff...]
+              [0xaaaaaaa800...-0xc71c71c3ff...]
+              [0xc71c71c400...-0xe38e38dfff...]
+              [0xe38e38e000...-0xff...]
+        "#]]
+        .assert_eq(&buf);
+    }
 
     #[test]
     fn lease_key() {
