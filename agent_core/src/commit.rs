@@ -12,6 +12,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::hsm::Transport;
 use super::peers::DiscoveryWatcher;
+use super::with_lock;
 use super::{group_state, group_state_mut, Agent, LeaderState};
 use agent_api::{ReadCapturedRequest, ReadCapturedResponse};
 use async_util::ScopedTask;
@@ -69,7 +70,7 @@ impl<T: Transport + 'static> Agent<T> {
                         warn!(?err, "failed to request HSM to write to NVRAM");
                     }
                     Ok(PersistStateResponse::Ok { captured, .. }) => {
-                        agent.0.state.lock().unwrap().captures = captured
+                        with_lock!(&agent.0.state, |locked| locked.captures = captured)
                     }
                 };
             }
@@ -160,13 +161,15 @@ impl<T: Transport + 'static> Agent<T> {
         peers: &AgentDiscoveryCache,
     ) -> CommitResult {
         // Verify we're acting as leader and get the last commit index.
-        let last_committed = {
-            let locked = self.0.state.lock().unwrap();
+        let last_committed = match with_lock!(&self.0.state, |locked| {
             let group = group_state(&locked.groups, realm, group);
             match &group.leader {
-                Some(leader) => leader.committed,
-                None => return CommitResult::NoLongerLeader,
+                Some(leader) => Ok(leader.committed),
+                None => Err(CommitResult::NoLongerLeader),
             }
+        }) {
+            Ok(index) => index,
+            Err(err) => return err,
         };
 
         // See if we can move the commit index forward.
@@ -286,20 +289,21 @@ impl<T: Transport + 'static> Agent<T> {
 
         self.maybe_role_changed(realm, group, commit_state.role);
 
-        let mut locked = self.0.state.lock().unwrap();
-        if let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
-            .leader
-            .as_mut()
-        {
-            if leader.committed < Some(committed) {
-                leader.committed = Some(committed);
-                CommitResult::Committed(committed)
+        with_lock!(&self.0.state, |locked| {
+            if let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
+                .leader
+                .as_mut()
+            {
+                if leader.committed < Some(committed) {
+                    leader.committed = Some(committed);
+                    CommitResult::Committed(committed)
+                } else {
+                    CommitResult::NoChange
+                }
             } else {
-                CommitResult::NoChange
+                CommitResult::NoLongerLeader
             }
-        } else {
-            CommitResult::NoLongerLeader
-        }
+        })
     }
 
     // Returns the number of released responses.
@@ -310,34 +314,35 @@ impl<T: Transport + 'static> Agent<T> {
         responses: Vec<(EntryMac, NoiseResponse, AppResultType)>,
         abandoned: Vec<EntryMac>,
     ) -> usize {
-        let mut released_count = 0;
-        let mut locked = self.0.state.lock().unwrap();
-        if let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
-            .leader
-            .as_mut()
-        {
-            for (mac, client_response, event) in responses {
-                if let Some(sender) = leader.response_channels.remove(&mac.into()) {
-                    if sender.send((client_response, event)).is_err() {
-                        warn!("dropping response on the floor: client no longer waiting");
+        with_lock!(&self.0.state, |locked| {
+            let mut released_count = 0;
+            if let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
+                .leader
+                .as_mut()
+            {
+                for (mac, client_response, event) in responses {
+                    if let Some(sender) = leader.response_channels.remove(&mac.into()) {
+                        if sender.send((client_response, event)).is_err() {
+                            warn!("dropping response on the floor: client no longer waiting");
+                        }
+                        released_count += 1;
+                    } else {
+                        warn!("dropping response on the floor: client never waiting");
                     }
-                    released_count += 1;
-                } else {
-                    warn!("dropping response on the floor: client never waiting");
                 }
-            }
-            for mac in abandoned {
-                if let Some(sender) = leader.response_channels.remove(&mac.into()) {
-                    // This closes the sender without having sent, which'll have
-                    // the waiter get an error and report NotLeader to the
-                    // load balancer.
-                    drop(sender);
+                for mac in abandoned {
+                    if let Some(sender) = leader.response_channels.remove(&mac.into()) {
+                        // This closes the sender without having sent, which'll have
+                        // the waiter get an error and report NotLeader to the
+                        // load balancer.
+                        drop(sender);
+                    }
                 }
+            } else if !responses.is_empty() {
+                warn!("dropping responses on the floor: no leader state");
             }
-        } else if !responses.is_empty() {
-            warn!("dropping responses on the floor: no leader state");
-        }
-        released_count
+            released_count
+        })
     }
 
     /// Calculates the current compaction index based on cached state.
@@ -348,19 +353,20 @@ impl<T: Transport + 'static> Agent<T> {
     /// entries in the log, and the second prevents the leader HSM from needing
     /// a CaptureJump RPC due to its own compactions.
     fn get_compact_index(&self, realm: RealmId, group: GroupId) -> Option<LogIndex> {
-        let locked = self.0.state.lock().unwrap();
-        let last_committed: LogIndex = locked
-            .groups
-            .get(&(realm, group))?
-            .leader
-            .as_ref()?
-            .committed?;
-        let local_captured: LogIndex = locked
-            .captures
-            .iter()
-            .find(|captured| captured.realm == realm && captured.group == group)?
-            .index;
-        Some(LogIndex::min(last_committed.prev()?, local_captured))
+        with_lock!(&self.0.state, |locked| {
+            let last_committed: LogIndex = locked
+                .groups
+                .get(&(realm, group))?
+                .leader
+                .as_ref()?
+                .committed?;
+            let local_captured: LogIndex = locked
+                .captures
+                .iter()
+                .find(|captured| captured.realm == realm && captured.group == group)?
+                .index;
+            Some(LogIndex::min(last_committed.prev()?, local_captured))
+        })
     }
 
     /// Main function for the leader's log compaction task.
@@ -491,19 +497,22 @@ impl<T: Transport + 'static> Agent<T> {
     /// Compacts the log a single time.
     #[instrument(level = "trace", skip(self), fields(rows))]
     async fn compact_once(&self, realm: RealmId, group: GroupId, compact_index: LogIndex) {
-        let (to_compact, stats): (Vec<LogRow>, UncompactedRowsStats) = {
-            let mut locked = self.0.state.lock().unwrap();
-            let Some(leader) = group_state_mut(&mut locked.groups, realm, group)
-                .leader
-                .as_mut()
-            else {
-                return; // no longer leader
+        let (to_compact, stats): (Vec<LogRow>, UncompactedRowsStats) =
+            match with_lock!(&self.0.state, |locked| {
+                match group_state_mut(&mut locked.groups, realm, group)
+                    .leader
+                    .as_mut()
+                {
+                    None => Err(()),
+                    Some(leader) => Ok((
+                        split_off_compactible_prefix(&mut leader.uncompacted_rows, compact_index),
+                        UncompactedRowsStats::new(leader),
+                    )),
+                }
+            }) {
+                Ok((rows, stats)) => (rows, stats),
+                Err(_) => return, // no longer leader;
             };
-            (
-                split_off_compactible_prefix(&mut leader.uncompacted_rows, compact_index),
-                UncompactedRowsStats::new(leader),
-            )
-        };
 
         stats.publish(&self.0.metrics, &[tag!(?realm), tag!(group)]);
         Span::current().record("rows", to_compact.len());

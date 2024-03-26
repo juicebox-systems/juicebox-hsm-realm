@@ -48,3 +48,7 @@ tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }
+
+[features]
+# enables basic instrumentation of locks via the with_lock! macro.
+lock_instr = []

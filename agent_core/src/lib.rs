@@ -56,6 +56,7 @@ use hsm_api::{
     RoleLogicalClock, RoleStatus,
 };
 use jburl::Url;
+use juicebox_marshalling as marshalling;
 use juicebox_networking::reqwest::ClientOptions;
 use juicebox_networking::rpc::{self, Rpc, SendOptions};
 use juicebox_realm_api::requests::{ClientRequestKind, NoiseRequest, NoiseResponse};
@@ -88,6 +89,7 @@ struct AgentInner<T> {
     peer_client: ReqwestClientMetrics,
     discovery: DiscoveryWatcher,
     state: Mutex<State>,
+    tenant_limiters: Mutex<HashMap<String, RateLimiter>>,
     metrics: metrics::Client,
     accountant: UserAccountingWriter,
     event_publisher: Box<dyn Publisher>,
@@ -107,8 +109,6 @@ struct State {
     /// service discovery. It's always available for leaders. It will never go
     /// from `Some` to `None`.
     hsm_id: Option<HsmId>,
-    /// Current Tenant rate limiting state.
-    tenant_limiters: HashMap<String, RateLimiter>,
 }
 
 impl State {
@@ -254,6 +254,53 @@ pub struct AgentConfiguration {
     pub default_rate_limiter_rate: usize,
 }
 
+#[cfg(not(feature = "lock_instr"))]
+macro_rules! with_lock {
+    ($mutex:expr, $op:expr) => {{
+        $crate::with_lock_plain($mutex, $op)
+    }};
+}
+
+#[inline]
+#[cfg(not(feature = "lock_instr"))]
+pub(crate) fn with_lock_plain<T, R>(m: &Mutex<T>, op: impl FnOnce(&mut T) -> R) -> R {
+    let mut locked = m.lock().unwrap();
+    op(&mut locked)
+}
+
+#[cfg(feature = "lock_instr")]
+macro_rules! with_lock {
+    ($mutex:expr, $op:expr) => {{
+        let (result, lock_wait, lock_held) = $crate::with_lock_instr($mutex, $op);
+        if lock_wait > Duration::from_millis(1) {
+            tracing::info!(duration=?lock_wait, lock=stringify!($mutex), "waiting for lock");
+        }
+        if lock_held > Duration::from_millis(1) {
+            tracing::info!(duration=?lock_held, lock=stringify!($mutex), "holding the lock");
+        }
+        result
+    }}
+}
+
+#[cfg(feature = "lock_instr")]
+pub(crate) fn with_lock_instr<T, R>(
+    m: &Mutex<T>,
+    op: impl FnOnce(&mut T) -> R,
+) -> (R, Duration, Duration) {
+    let start = Instant::now();
+    let locked_when: Instant;
+    let result = {
+        let mut locked = m.lock().unwrap();
+        locked_when = Instant::now();
+        op(&mut locked)
+    };
+    let locked_time = locked_when.elapsed();
+    let lock_wait = locked_when - start;
+    (result, lock_wait, locked_time)
+}
+
+pub(crate) use with_lock;
+
 impl<T: Transport + 'static> Agent<T> {
     pub fn new(config: AgentConfiguration, hsm: HsmClient<T>) -> Self {
         Self(Arc::new(AgentInner {
@@ -273,8 +320,8 @@ impl<T: Transport + 'static> Agent<T> {
                 registered: false,
                 hsm_id: None,
                 groups: HashMap::new(),
-                tenant_limiters: HashMap::new(),
             }),
+            tenant_limiters: Mutex::new(HashMap::new()),
             metrics: config.metrics.clone(),
             accountant: UserAccountingWriter::new(config.store, config.metrics),
             event_publisher: config.event_publisher,
@@ -588,45 +635,46 @@ impl<T: Transport + 'static> Agent<T> {
                 Ok(hsm_status) => {
                     if let Some(hsm_realm_status) = hsm_status.realm {
                         let realm = hsm_realm_status.id;
-                        let agent_state = self.0.state.lock().unwrap();
-                        for hsm_group_status in hsm_realm_status.groups {
-                            let group = hsm_group_status.id;
-                            // During new_realm & new_group we can be in this
-                            // state for a while as the agent leader state isn't
-                            // set until its finished creating the bigtable
-                            // tables and has appended the first log entry &
-                            // merkle tree nodes. The check on the captured
-                            // index stops us from treating that as a bad state.
-                            let is_suspect = matches!(
-                                hsm_group_status.role.role,
-                                GroupMemberRole::Leader { .. }
-                            ) && hsm_group_status
-                                .captured
-                                .is_some_and(|(index, _)| index > LogIndex::FIRST)
-                                && !agent_state.is_leader(realm, group);
-                            if is_suspect {
-                                let count = suspect_counts.entry(group).or_default();
-                                *count += 1;
-                                warn!(
-                                    ?group,
-                                    check_count = count,
-                                    "group in suspect state (hsm is leader, agent is not)"
-                                );
-                                if *count >= 5 {
-                                    self.0.metrics.event(
-                                        "Agent watchdog triggered",
-                                        "group in suspect state (hsm is leader, agent is not)",
-                                        [tag!(?realm), tag!(?group)],
+                        with_lock!(&self.0.state, |agent_state| {
+                            for hsm_group_status in hsm_realm_status.groups {
+                                let group = hsm_group_status.id;
+                                // During new_realm & new_group we can be in this
+                                // state for a while as the agent leader state isn't
+                                // set until its finished creating the bigtable
+                                // tables and has appended the first log entry &
+                                // merkle tree nodes. The check on the captured
+                                // index stops us from treating that as a bad state.
+                                let is_suspect = matches!(
+                                    hsm_group_status.role.role,
+                                    GroupMemberRole::Leader { .. }
+                                ) && hsm_group_status
+                                    .captured
+                                    .is_some_and(|(index, _)| index > LogIndex::FIRST)
+                                    && !agent_state.is_leader(realm, group);
+                                if is_suspect {
+                                    let count = suspect_counts.entry(group).or_default();
+                                    *count += 1;
+                                    warn!(
+                                        ?group,
+                                        check_count = count,
+                                        "group in suspect state (hsm is leader, agent is not)"
                                     );
-                                    panic!(
+                                    if *count >= 5 {
+                                        self.0.metrics.event(
+                                            "Agent watchdog triggered",
+                                            "group in suspect state (hsm is leader, agent is not)",
+                                            [tag!(?realm), tag!(?group)],
+                                        );
+                                        panic!(
                                         "group {group:?} in suspect state (hsm is leader, agent is not)"
                                     )
+                                    }
+                                } else {
+                                    suspect_counts.remove(&hsm_group_status.id);
                                 }
-                            } else {
-                                suspect_counts.remove(&hsm_group_status.id);
                             }
-                        }
-                    };
+                        });
+                    }
                 }
             }
             debug!(?suspect_counts, "agent/hsm leadership state suspects");
@@ -810,7 +858,7 @@ impl<T: Transport + 'static> Agent<T> {
                         urls = new_urls;
                     }
                 }
-                let updates: Vec<(PeerId, String, Vec<u8>)> = iter::zip(
+                let updates: Vec<(PeerId, String, rate::State)> = iter::zip(
                     urls.0.iter(),
                     join_all(urls.0.iter().map(|url| {
                         rpc::send_with_options(
@@ -830,25 +878,30 @@ impl<T: Transport + 'static> Agent<T> {
                     }
                 })
                 .flat_map(|(url, updates)| {
-                    updates.into_iter().map(|tenant_state| {
-                        (
-                            PeerId(url.to_string()),
-                            tenant_state.tenant,
-                            tenant_state.state,
-                        )
+                    updates.into_iter().filter_map(move |tenant_state| {
+                        match marshalling::from_slice(&tenant_state.state) {
+                            Err(err) => {
+                                warn!(%url, ?err, "failed to deserialize rate limiter state from peer");
+                                None
+                            },
+                            Ok(state)=> Some(
+                                (
+                                    PeerId(url.to_string()),
+                                    tenant_state.tenant,
+                                    state
+                                ))
+                        }
                     })
                 })
                 .collect();
-                {
-                    let mut locked = agent.state.lock().unwrap();
+                with_lock!(&agent.tenant_limiters, |locked| {
                     for (peer, tenant, state) in updates {
                         locked
-                            .tenant_limiters
                             .entry(tenant)
                             .or_insert_with(|| RateLimiter::new(agent.default_rate_limiter_rate))
-                            .update_from_other(peer, &state);
+                            .update_from_other(peer, state);
                     }
-                }
+                });
                 sleep(Duration::from_millis(10)).await;
             }
         });
@@ -891,16 +944,14 @@ impl<T: Transport + 'static> Agent<T> {
                 if tenants == last {
                     return Ok(ReloadTenantConfigResult::NotChanged);
                 }
-                {
-                    let mut state = self.0.state.lock().unwrap();
+                with_lock!(&self.0.tenant_limiters, |locked| {
                     for (tenant, config) in &tenants {
-                        state
-                            .tenant_limiters
+                        locked
                             .entry(tenant.clone())
                             .and_modify(|rl| rl.update_limit(config.capacity_reqs_per_sec()))
                             .or_insert_with(|| RateLimiter::new(config.capacity_reqs_per_sec()));
                     }
-                }
+                });
                 info!(num_tenants=?tenants.len(), "updated tenant rate limiting configuration");
                 Ok(ReloadTenantConfigResult::Updated(tenants))
             }
@@ -1035,8 +1086,7 @@ impl<T: Transport + 'static> Service<Request<IncomingBody>> for Agent<T> {
 impl<T: Transport + 'static> Agent<T> {
     async fn handle_status(&self, _request: StatusRequest) -> Result<StatusResponse, HandlerError> {
         let hsm_status = self.0.hsm.send(hsm_api::StatusRequest {}).await;
-        let groups = {
-            let mut locked = self.0.state.lock().unwrap();
+        let groups = with_lock!(&self.0.state, |locked| {
             if let Ok(hsm_status) = &hsm_status {
                 // The ID is cached before service discovery registration, but we
                 // set it here too in case others call this before that happens.
@@ -1059,7 +1109,8 @@ impl<T: Transport + 'static> Agent<T> {
                     }),
                 })
                 .collect()
-        };
+        });
+
         Ok(StatusResponse {
             hsm: hsm_status.ok(),
             uptime: self.0.boot_time.elapsed(),
@@ -1076,18 +1127,20 @@ impl<T: Transport + 'static> Agent<T> {
         _request: RateLimitStateRequest,
     ) -> Result<RateLimitStateResponse, HandlerError> {
         let now = SystemTime::now();
-        let states: Vec<_> = {
-            let mut locked = self.0.state.lock().unwrap();
+        let states: Vec<(String, rate::State)> = with_lock!(&self.0.tenant_limiters, |locked| {
             locked
-                .tenant_limiters
                 .iter_mut()
-                .map(|(t, b)| TenantRateLimitState {
-                    tenant: t.clone(),
-                    state: b.state(now),
-                })
+                .map(|(t, b)| (t.clone(), b.state(now)))
                 .collect()
-        };
-        Ok(RateLimitStateResponse::Ok(states))
+        });
+        let serialized = states
+            .into_iter()
+            .map(|(t, s)| TenantRateLimitState {
+                tenant: t,
+                state: marshalling::to_vec(&s).unwrap(),
+            })
+            .collect();
+        Ok(RateLimitStateResponse::Ok(serialized))
     }
 
     async fn handle_livez(&self, _request: Request<IncomingBody>) -> Response<Full<Bytes>> {
@@ -1102,15 +1155,13 @@ impl<T: Transport + 'static> Agent<T> {
                 .unwrap()
         };
 
-        {
-            let locked = self.0.state.lock().unwrap();
-            if !locked.registered || locked.hsm_id.is_none() {
-                // The HSM ID is cached before registration, so the message
-                // only mentions service discovery.
-                return unavailable_response(format_args!(
-                    "not yet registered with service discovery"
-                ));
-            }
+        let not_registered = with_lock!(&self.0.state, |locked| {
+            !locked.registered || locked.hsm_id.is_none()
+        });
+        if not_registered {
+            // The HSM ID is cached before registration, so the message
+            // only mentions service discovery.
+            return unavailable_response(format_args!("not yet registered with service discovery"));
         }
 
         // Note: As this is a liveness check, we want to send a real
@@ -1385,7 +1436,7 @@ impl<T: Transport + 'static> Agent<T> {
         let store = &self.0.store;
         let tags = [tag!("realm": ?request.realm), tag!("group": ?request.group)];
 
-        if self.0.state.lock().unwrap().hsm_id.is_none() {
+        if with_lock!(&self.0.state, |locked| locked.hsm_id.is_none()) {
             // The HSM should be up by now, and we don't want to start
             // leadership without knowing its ID.
             return Response::NoHsm;
@@ -1593,12 +1644,11 @@ impl<T: Transport + 'static> Agent<T> {
     ) -> Result<ReadCapturedResponse, HandlerError> {
         type Response = ReadCapturedResponse;
 
-        let state = self.0.state.lock().unwrap();
-        let c = state
+        let c = with_lock!(&self.0.state, |state| state
             .captures
             .iter()
             .find(|c| c.group == request.group && c.realm == request.realm)
-            .cloned();
+            .cloned());
         Ok(Response::Ok(c))
     }
 
@@ -1682,14 +1732,15 @@ impl<T: Transport + 'static> Agent<T> {
                             | AppResultType::Recover2 { .. }
                             | AppResultType::Register1
                     ) {
-                        let mut locked = self.0.state.lock().unwrap();
-                        locked
-                            .tenant_limiters
+                        let record_id = record_id.clone();
+                        with_lock!(&self.0.tenant_limiters, |locked| {
+                            locked
                             .get_mut(&tenant)
                             .expect(
                                 "start_app_request created the bucket if it didn't already exist",
                             )
-                            .add_reservation(record_id.clone());
+                            .add_reservation(record_id);
+                        });
                     }
                     if let Some(msg) = create_tenant_event_msg(request_type, &user) {
                         if let Err(err) = self.0.event_publisher.publish(realm, &tenant, msg).await
@@ -1750,22 +1801,25 @@ impl<T: Transport + 'static> Agent<T> {
 
         let (sender, receiver) = oneshot::channel::<(NoiseResponse, AppResultType)>();
 
-        {
-            let mut locked = self.0.state.lock().unwrap();
+        let is_leader = with_lock!(&self.0.state, |locked| {
             let group_state = group_state_mut(&mut locked.groups, realm, group);
             match &mut group_state.leader {
                 Some(leader) => {
                     leader
                         .response_channels
                         .insert(append_request.entry.entry_mac.clone().into(), sender);
+                    true
                 }
                 None => {
                     // Its possible for start_app_request to succeed, but to
                     // have subsequently lost leadership due to a background
                     // capture_next or commit operation.
-                    return Ok((Response::NotLeader, None));
+                    false
                 }
             }
+        });
+        if !is_leader {
+            return Ok((Response::NotLeader, None));
         }
 
         self.append(realm, group, append_request);
@@ -1787,12 +1841,12 @@ impl<T: Transport + 'static> Agent<T> {
         let rate_limit_result = {
             let tenant = request.tenant.clone();
             let rec_id = request.record_id.clone();
-            let mut state = self.0.state.lock().unwrap();
-            let bucket = state
-                .tenant_limiters
-                .entry(tenant)
-                .or_insert_with(|| RateLimiter::new(self.0.default_rate_limiter_rate));
-            bucket.allow(rec_id)
+            with_lock!(&self.0.tenant_limiters, move |locked| {
+                let bucket = locked
+                    .entry(tenant)
+                    .or_insert_with(|| RateLimiter::new(self.0.default_rate_limiter_rate));
+                bucket.allow(rec_id)
+            })
         };
         if !rate_limit_result.allowed {
             warn!(tenant=?request.tenant, bucket=?rate_limit_result, "rate limit exceeded");
@@ -1864,18 +1918,17 @@ impl<T: Transport + 'static> Agent<T> {
         }
 
         let run = |_| async {
-            let cached_entry: Option<LogEntry> = {
-                let locked = self.0.state.lock().unwrap();
-                let Some(leader) = group_state(&locked.groups, request.realm, request.group)
+            let cached_entry: Option<LogEntry> = with_lock!(&self.0.state, |locked| {
+                match group_state(&locked.groups, request.realm, request.group)
                     .leader
                     .as_ref()
-                else {
-                    return Err(AttemptError::from(FatalError::<T>::Other(
+                {
+                    Some(leader) => Ok(leader.last_appended.clone()),
+                    None => Err(AttemptError::from(FatalError::<T>::Other(
                         Response::NotLeader,
-                    )));
-                };
-                leader.last_appended.clone()
-            };
+                    ))),
+                }
+            })?;
 
             let entry: LogEntry = match cached_entry {
                 Some(entry) => entry,
@@ -1995,17 +2048,16 @@ impl<T: Transport + 'static> Agent<T> {
     }
 
     fn maybe_role_changed(&self, realm: RealmId, group: GroupId, role_now: RoleStatus) {
-        let starting_info = {
-            let mut locked = self.0.state.lock().unwrap();
+        let starting_info = with_lock!(&self.0.state, |locked| {
             let group_state = group_state_mut(&mut locked.groups, realm, group);
 
             if role_now.at < group_state.role.at {
                 warn!(%role_now, %group_state.role, "skipping stale state update");
-                return;
+                return None;
             }
             if role_now.at == group_state.role.at {
                 assert_eq!(role_now.role, group_state.role.role);
-                return;
+                return None;
             }
 
             info!(?group, from=%group_state.role, to=%role_now, "HSM role transitioned");
@@ -2045,7 +2097,8 @@ impl<T: Transport + 'static> Agent<T> {
                     }
                 }
             }
-        };
+        });
+
         if let Some((config, starting_index)) = starting_info {
             info!(name=?self.0.name, ?realm, ?group, "Starting group committer");
             tokio::spawn(
