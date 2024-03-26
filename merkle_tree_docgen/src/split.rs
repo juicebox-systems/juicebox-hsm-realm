@@ -4,9 +4,9 @@ use super::{DocTree, TreeIndex};
 use bitvec::bitvec;
 use bitvec::Bits;
 use hsm_api::merkle::{Dir, KeyVec, Node};
-use hsm_api::OwnedRange;
+use hsm_api::{OwnedRange, RecordId};
 use hsm_core::merkle::dot::{hash_id, DotAttributes, DotGraph};
-use hsm_core::merkle::testing::{rec_id, TestHash};
+use hsm_core::merkle::testing::TestHash;
 
 pub fn doc_splits_intro(dir: &Path) {
     let dir = dir.join("splits");
@@ -23,7 +23,7 @@ pub fn doc_splits_intro(dir: &Path) {
         .set("fillcolor", "gold1");
     dot.write(&dir, "intro_before.dot").unwrap();
 
-    let (left_tree, right_tree) = tree.split(rec_id(&[0b00001011]));
+    let (left_tree, right_tree) = tree.split(RecordId::min_id().with(&[0b00001011]));
 
     left_tree.write_dot(&dir, "intro_after_left.dot");
 
@@ -32,14 +32,14 @@ pub fn doc_splits_intro(dir: &Path) {
 
 pub(crate) fn make_split_tree() -> DocTree {
     let mut tree = DocTree::new(OwnedRange::full());
-    tree.insert(rec_id(&[0]), vec![1]);
-    tree.insert(rec_id(&[0b00001000]), vec![2]);
-    tree.insert(rec_id(&[0b00001010]), vec![3]);
-    tree.insert(rec_id(&[0b00001111]), vec![4]);
-    tree.insert(rec_id(&[0b00111011]), vec![5]);
-    tree.insert(rec_id(&[0b11001000]), vec![6]);
-    tree.insert(rec_id(&[0b11110000]), vec![7]);
-    tree.insert(rec_id(&[0b11111010]), vec![8]);
+    tree.insert(RecordId::min_id().with(&[0]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b00001000]), vec![2]);
+    tree.insert(RecordId::min_id().with(&[0b00001010]), vec![3]);
+    tree.insert(RecordId::min_id().with(&[0b00001111]), vec![4]);
+    tree.insert(RecordId::min_id().with(&[0b00111011]), vec![5]);
+    tree.insert(RecordId::min_id().with(&[0b11001000]), vec![6]);
+    tree.insert(RecordId::min_id().with(&[0b11110000]), vec![7]);
+    tree.insert(RecordId::min_id().with(&[0b11111010]), vec![8]);
     tree
 }
 
@@ -108,7 +108,7 @@ pub fn doc_splits_details(dir: &Path) {
     // Show the 2 trees with the right hashes and the 3 recalculated nodes highlighted.
     // We'll do an actual split and show the results rather than trying to mutate
     // the last dot version.
-    let (left_tree, right_tree) = tree.split(rec_id(split_key.as_bytes()));
+    let (left_tree, right_tree) = tree.split(RecordId::min_id().with(split_key.as_bytes()));
 
     let mut left = left_tree.as_dot();
     left.node_mut(&hash_id(&left_tree.root))

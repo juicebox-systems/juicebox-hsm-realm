@@ -11,9 +11,7 @@ use bitvec::{BitVec, Bits};
 use hsm_api::merkle::{Branch, Dir, HashOutput, KeyVec, Node, ReadProof};
 use hsm_api::{OwnedRange, RecordId};
 use hsm_core::merkle::dot::{hash_id, visit_tree_at, DotGraph, DotVisitor, Visitor};
-use hsm_core::merkle::testing::{
-    new_empty_tree, rec_id, tree_insert, MemStore, TestHash, TestHasher,
-};
+use hsm_core::merkle::testing::{new_empty_tree, tree_insert, MemStore, TestHash, TestHasher};
 use hsm_core::merkle::Tree;
 use juicebox_realm_api::types::RealmId;
 
@@ -64,10 +62,10 @@ fn doc_intro(dir: &Path) {
     let dir = dir.join("intro");
 
     let mut tree = DocTree::new(OwnedRange::full());
-    tree.insert(rec_id(&[0b00000000]), vec![1]);
-    tree.insert(rec_id(&[0b00001000]), vec![2]);
-    tree.insert(rec_id(&[0b00001011]), vec![3]);
-    tree.insert(rec_id(&[0b11001000]), vec![4]);
+    tree.insert(RecordId::min_id().with(&[0b00000000]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b00001000]), vec![2]);
+    tree.insert(RecordId::min_id().with(&[0b00001011]), vec![3]);
+    tree.insert(RecordId::min_id().with(&[0b11001000]), vec![4]);
     tree.write_dot(&dir, "first_example.dot");
 }
 
@@ -77,16 +75,16 @@ fn doc_mutation(dir: &Path) {
     let mut tree = DocTree::new(OwnedRange::full());
     tree.write_dot(&dir, "empty_tree.dot");
 
-    tree.insert(rec_id(&[0b00001000]), vec![2]);
+    tree.insert(RecordId::min_id().with(&[0b00001000]), vec![2]);
     tree.write_dot(&dir, "1_leaf.dot");
 
-    tree.insert(rec_id(&[0]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0]), vec![1]);
     tree.write_dot(&dir, "2_leaves.dot");
 
-    tree.insert(rec_id(&[0b11001000]), vec![3]);
+    tree.insert(RecordId::min_id().with(&[0b11001000]), vec![3]);
     tree.write_dot(&dir, "3_leaves.dot");
 
-    tree.insert(rec_id(&[0b00001010]), vec![4]);
+    tree.insert(RecordId::min_id().with(&[0b00001010]), vec![4]);
     tree.write_dot(&dir, "4_leaves.dot");
 }
 
@@ -94,13 +92,17 @@ fn doc_proofs(dir: &Path) {
     let dir = dir.join("proofs");
 
     let mut tree = DocTree::new(OwnedRange::full());
-    tree.insert(rec_id(&[0]), vec![1]);
-    tree.insert(rec_id(&[8]), vec![2]);
-    tree.insert(rec_id(&[255]), vec![3]);
+    tree.insert(RecordId::min_id().with(&[0]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[8]), vec![2]);
+    tree.insert(RecordId::min_id().with(&[255]), vec![3]);
 
-    tree.highlight_record_id_to_dot(rec_id(&[8]), &dir, "inclusion_proof.dot");
+    tree.highlight_record_id_to_dot(RecordId::min_id().with(&[8]), &dir, "inclusion_proof.dot");
 
-    tree.highlight_record_id_to_dot(rec_id(&[1]), &dir, "noninclusion_proof.dot");
+    tree.highlight_record_id_to_dot(
+        RecordId::min_id().with(&[1]),
+        &dir,
+        "noninclusion_proof.dot",
+    );
 }
 
 struct DocTree {

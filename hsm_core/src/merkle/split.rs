@@ -231,8 +231,8 @@ mod tests {
 
     use crate::merkle::dot::tree_to_dot;
     use crate::merkle::testing::{
-        check_delta_invariants, check_tree_invariants, new_empty_tree, rec_id, tree_insert,
-        TestHash, TestHasher,
+        check_delta_invariants, check_tree_invariants, new_empty_tree, tree_insert, TestHash,
+        TestHasher,
     };
 
     use super::super::tests::tree_size;
@@ -242,51 +242,91 @@ mod tests {
     #[test]
     fn one_bit() {
         // test split where the root has branches with single bit prefixes.
-        let keys = [rec_id(&[0]), rec_id(&[0b11110000])];
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
+        let keys = [
+            RecordId::min_id().with(&[0]),
+            RecordId::min_id().with(&[0b11110000]),
+        ];
+        test_arb_split_merge(
+            OwnedRange::full(),
+            &keys,
+            &RecordId::min_id().with(&[0b1000000]),
+        );
     }
     #[test]
     fn multiple_bits() {
         // test split where the root has branches with multiple bits in the prefixes.
-        let keys = [rec_id(&[0]), rec_id(&[0b00010000])];
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
+        let keys = [
+            RecordId::min_id().with(&[0]),
+            RecordId::min_id().with(&[0b00010000]),
+        ];
+        test_arb_split_merge(
+            OwnedRange::full(),
+            &keys,
+            &RecordId::min_id().with(&[0b1000000]),
+        );
     }
     #[test]
     fn root_one_branch() {
         // test split where the root has only one branch with multiple bits in its prefix.
-        let keys = [rec_id(&[0]), rec_id(&[0, 0, 5]), rec_id(&[0, 0, 6])];
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[0b1000000]));
+        let keys = [
+            RecordId::min_id().with(&[0]),
+            RecordId::min_id().with(&[0, 0, 5]),
+            RecordId::min_id().with(&[0, 0, 6]),
+        ];
+        test_arb_split_merge(
+            OwnedRange::full(),
+            &keys,
+            &RecordId::min_id().with(&[0b1000000]),
+        );
     }
 
     #[test]
     fn on_key_with_record() {
-        let keys: Vec<_> = (0u8..10).map(|k| rec_id(&[k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[5]));
+        let keys: Vec<_> = (0u8..10).map(|k| RecordId::min_id().with(&[k])).collect();
+        test_arb_split_merge(OwnedRange::full(), &keys, &RecordId::min_id().with(&[5]));
     }
 
     #[test]
     fn on_key_with_no_record() {
-        let keys: Vec<_> = (0u8..100).step_by(10).map(|k| rec_id(&[k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[10, 0, 0, 5]));
+        let keys: Vec<_> = (0u8..100)
+            .step_by(10)
+            .map(|k| RecordId::min_id().with(&[k]))
+            .collect();
+        test_arb_split_merge(
+            OwnedRange::full(),
+            &keys,
+            &RecordId::min_id().with(&[10, 0, 0, 5]),
+        );
     }
 
     #[test]
     fn one_side_ends_up_empty() {
-        let keys: Vec<_> = (10u8..100).step_by(10).map(|k| rec_id(&[k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[5]));
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[101]));
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[200]));
+        let keys: Vec<_> = (10u8..100)
+            .step_by(10)
+            .map(|k| RecordId::min_id().with(&[k]))
+            .collect();
+        test_arb_split_merge(OwnedRange::full(), &keys, &RecordId::min_id().with(&[5]));
+        test_arb_split_merge(OwnedRange::full(), &keys, &RecordId::min_id().with(&[101]));
+        test_arb_split_merge(OwnedRange::full(), &keys, &RecordId::min_id().with(&[200]));
     }
 
     #[test]
     fn one_key_only() {
-        test_arb_split_merge(OwnedRange::full(), &[rec_id(&[20])], &rec_id(&[4]));
-        test_arb_split_merge(OwnedRange::full(), &[rec_id(&[20])], &rec_id(&[24]));
+        test_arb_split_merge(
+            OwnedRange::full(),
+            &[RecordId::min_id().with(&[20])],
+            &RecordId::min_id().with(&[4]),
+        );
+        test_arb_split_merge(
+            OwnedRange::full(),
+            &[RecordId::min_id().with(&[20])],
+            &RecordId::min_id().with(&[24]),
+        );
     }
 
     #[test]
     fn empty_tree() {
-        test_arb_split_merge(OwnedRange::full(), &[], &rec_id(&[4]));
+        test_arb_split_merge(OwnedRange::full(), &[], &RecordId::min_id().with(&[4]));
     }
 
     #[test]
@@ -295,8 +335,8 @@ mod tests {
             0u8, 0b11111111, 0b01111111, 0b10111100, 0b10001111, 0b01011100, 0b00111100,
             0b11001100, 0b11100000, 0b11110001,
         ];
-        let keys: Vec<_> = k.iter().map(|k| rec_id(&[*k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[4]));
+        let keys: Vec<_> = k.iter().map(|k| RecordId::min_id().with(&[*k])).collect();
+        test_arb_split_merge(OwnedRange::full(), &keys, &RecordId::min_id().with(&[4]));
         test_arb_split_merge(OwnedRange::full(), &keys, &keys[3]);
     }
 
@@ -305,8 +345,8 @@ mod tests {
         let k = &[
             0u8, 0b11111111, 0b11111110, 0b11111100, 0b11111000, 0b11110000, 0b11110001,
         ];
-        let keys: Vec<_> = k.iter().map(|k| rec_id(&[*k])).collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[4]));
+        let keys: Vec<_> = k.iter().map(|k| RecordId::min_id().with(&[*k])).collect();
+        test_arb_split_merge(OwnedRange::full(), &keys, &RecordId::min_id().with(&[4]));
         test_arb_split_merge(OwnedRange::full(), &keys, &keys[3]);
     }
 
@@ -319,9 +359,9 @@ mod tests {
         };
         let keys: Vec<_> = (2u8..251)
             .step_by(step_size)
-            .map(|k| rec_id(&[k]))
+            .map(|k| RecordId::min_id().with(&[k]))
             .collect();
-        test_arb_split_merge(OwnedRange::full(), &keys, &rec_id(&[1]));
+        test_arb_split_merge(OwnedRange::full(), &keys, &RecordId::min_id().with(&[1]));
         for k in &keys {
             test_arb_split_merge(OwnedRange::full(), &keys, k);
             let mut kk = k.clone();

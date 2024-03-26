@@ -6,7 +6,7 @@ use hsm_api::merkle::{Dir, KeyVec, Node};
 use hsm_api::{OwnedRange, RecordId};
 use hsm_core::merkle::dot::{hash_id, DotAttributes, DotGraph, DotVisitor, Visitor};
 use hsm_core::merkle::proof::VerifiedProof;
-use hsm_core::merkle::testing::{rec_id, TestHash, TestHasher};
+use hsm_core::merkle::testing::{TestHash, TestHasher};
 use hsm_core::merkle::Tree;
 
 pub fn tree_overlay(dir: &Path) {
@@ -20,20 +20,20 @@ fn new_value(dir: &Path) {
     // need to reset to a smaller overlay
     tree.tree = Tree::<TestHasher>::with_existing_root(tree.root, 5);
 
-    let proof_key = rec_id(&[0b00101100]);
-    tree.insert(rec_id(&[0b10000000]), vec![1]);
-    tree.insert(rec_id(&[0b00100110]), vec![1]);
-    tree.insert(rec_id(&[0b00000100]), vec![1]);
-    tree.insert(rec_id(&[0b01110000]), vec![1]);
-    tree.insert(rec_id(&[0b00011100]), vec![1]);
-    tree.insert(rec_id(&[0b00000001]), vec![1]);
-    tree.insert(rec_id(&[0b00101100]), vec![1]);
-    tree.insert(rec_id(&[0b01001000]), vec![2]);
+    let proof_key = RecordId::min_id().with(&[0b00101100]);
+    tree.insert(RecordId::min_id().with(&[0b10000000]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b00100110]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b00000100]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b01110000]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b00011100]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b00000001]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b00101100]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b01001000]), vec![2]);
     let proof = tree.tree.latest_proof(tree.proof(&proof_key)).unwrap();
 
     tree.insert(proof_key.clone(), vec![4]);
-    tree.insert(rec_id(&[0b00101101]), vec![3]);
-    tree.insert(rec_id(&[0b11001000]), vec![4]);
+    tree.insert(RecordId::min_id().with(&[0b00101101]), vec![3]);
+    tree.insert(RecordId::min_id().with(&[0b11001000]), vec![4]);
 
     let mut dot = DotGraph::new("overlay");
     // setting this enables rank=same to work on clusters not just subgraphs
@@ -50,18 +50,18 @@ fn proof_value(dir: &Path) {
     // need to reset to a smaller overlay
     tree.tree = Tree::<TestHasher>::with_existing_root(tree.root, 5);
 
-    let proof_key = rec_id(&[0b00101100]);
+    let proof_key = RecordId::min_id().with(&[0b00101100]);
     tree.insert(proof_key.clone(), vec![1]);
-    tree.insert(rec_id(&[0b10000000]), vec![1]);
-    tree.insert(rec_id(&[0b00100110]), vec![1]);
-    tree.insert(rec_id(&[0b00000100]), vec![1]);
-    tree.insert(rec_id(&[0b01110000]), vec![1]);
-    tree.insert(rec_id(&[0b00000001]), vec![1]);
-    tree.insert(rec_id(&[0b01001000]), vec![2]);
+    tree.insert(RecordId::min_id().with(&[0b10000000]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b00100110]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b00000100]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b01110000]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b00000001]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b01001000]), vec![2]);
     let proof = tree.tree.latest_proof(tree.proof(&proof_key)).unwrap();
 
-    tree.insert(rec_id(&[0b00011100]), vec![1]);
-    tree.insert(rec_id(&[0b11001000]), vec![4]);
+    tree.insert(RecordId::min_id().with(&[0b00011100]), vec![1]);
+    tree.insert(RecordId::min_id().with(&[0b11001000]), vec![4]);
 
     let mut dot = DotGraph::new("overlay");
     // setting this enables rank=same to work on clusters not just subgraphs
