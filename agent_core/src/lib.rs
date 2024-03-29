@@ -68,7 +68,7 @@ use observability::tracing::TracingMiddleware;
 use observability::{metrics, metrics_tag as tag};
 use peers::DiscoveryWatcher;
 use pubsub_api::{Message, Publisher};
-use rate::{PeerId, RateLimiter};
+use rate::{PeerId, RateLimiter, Time};
 use retry_loop::{retry_logging, retry_logging_debug, AttemptError, Retry, RetryError};
 use service_core::http::ReqwestClientMetrics;
 use service_core::rpc::{handle_rpc, HandlerError};
@@ -234,14 +234,13 @@ impl RateLimiters {
     async fn state_updater(self, mc: metrics::Client) {
         loop {
             let start = Instant::now();
-            let now = SystemTime::now();
-            let new_state: Vec<(String, rate::State)> =
-                with_lock!(&self.0.tenants, |tenants_locked| {
-                    tenants_locked
-                        .iter_mut()
-                        .map(|(t, b)| (t.clone(), b.state(now)))
-                        .collect()
-                });
+            let now = Time::now();
+            let new_state: Vec<_> = with_lock!(&self.0.tenants, |tenants_locked| {
+                tenants_locked
+                    .iter_mut()
+                    .map(|(t, b)| (t.clone(), b.state(now)))
+                    .collect()
+            });
             let serialized: Vec<_> = new_state
                 .into_iter()
                 .map(|(t, s)| TenantRateLimitState {
@@ -249,7 +248,7 @@ impl RateLimiters {
                     state: marshalling::to_vec(&s).unwrap(),
                 })
                 .collect();
-            // don't drop the old value while holding the lock
+
             let prev = with_lock!(&self.0.last_state, |cache_locked| {
                 mem::replace(cache_locked, serialized)
             });
@@ -933,7 +932,7 @@ impl<T: Transport + 'static> Agent<T> {
 
                 while let Some((peer, result)) = peer_results.next().await {
                     if let Ok(RateLimitStateResponse::Ok(updates)) = result {
-                        let now = SystemTime::now();
+                        let now = Time::now();
                         for update in updates {
                             match marshalling::from_slice(&update.state) {
                                 Err(err) => {
@@ -955,7 +954,7 @@ impl<T: Transport + 'static> Agent<T> {
                     }
                 }
 
-                let now = SystemTime::now();
+                let now = Time::now();
                 let merged_states: Vec<_> = tenant_states
                     .iter_mut()
                     .map(|(tenant, states)| (tenant.clone(), states.merged(now)))
