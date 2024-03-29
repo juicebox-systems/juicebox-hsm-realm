@@ -14,13 +14,14 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Arguments;
 use std::future::Future;
+use std::mem;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use tokio::time::{sleep, sleep_until};
 use tracing::{debug, info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -211,17 +212,57 @@ impl std::fmt::Debug for LeaderState {
     }
 }
 
+#[derive(Clone, Debug)]
+struct RateLimiters(Arc<RateLimitersInner>);
+
 #[derive(Debug)]
-struct RateLimiters {
-    cached_state: Mutex<(SystemTime, Vec<TenantRateLimitState>)>,
+struct RateLimitersInner {
+    last_state: Mutex<Vec<TenantRateLimitState>>,
     tenants: Mutex<HashMap<String, RateLimiter>>,
 }
 
 impl RateLimiters {
-    fn new() -> Self {
-        Self {
-            cached_state: Mutex::new((SystemTime::UNIX_EPOCH, Vec::new())),
+    fn new(metric: metrics::Client) -> Self {
+        let r = Self(Arc::new(RateLimitersInner {
+            last_state: Mutex::new(Vec::new()),
             tenants: Mutex::new(HashMap::with_capacity(8)),
+        }));
+        tokio::spawn(r.clone().state_updater(metric));
+        r
+    }
+
+    async fn state_updater(self, mc: metrics::Client) {
+        loop {
+            let start = Instant::now();
+            let now = SystemTime::now();
+            let new_state: Vec<(String, rate::State)> =
+                with_lock!(&self.0.tenants, |tenants_locked| {
+                    tenants_locked
+                        .iter_mut()
+                        .map(|(t, b)| (t.clone(), b.state(now)))
+                        .collect()
+                });
+            let serialized: Vec<_> = new_state
+                .into_iter()
+                .map(|(t, s)| TenantRateLimitState {
+                    tenant: t,
+                    state: marshalling::to_vec(&s).unwrap(),
+                })
+                .collect();
+            // don't drop the old value while holding the lock
+            let prev = with_lock!(&self.0.last_state, |cache_locked| {
+                mem::replace(cache_locked, serialized)
+            });
+            drop(prev);
+            mc.timing(
+                "agent.rate_limiter.state_update",
+                start.elapsed(),
+                metrics::NO_TAGS,
+            );
+            sleep_until(tokio::time::Instant::from_std(
+                start + Duration::from_millis(5),
+            ))
+            .await;
         }
     }
 }
@@ -337,7 +378,7 @@ impl<T: Transport + 'static> Agent<T> {
                 hsm_id: None,
                 groups: HashMap::new(),
             }),
-            tenant_limiters: RateLimiters::new(),
+            tenant_limiters: RateLimiters::new(config.metrics.clone()),
             metrics: config.metrics.clone(),
             accountant: UserAccountingWriter::new(config.store, config.metrics),
             event_publisher: config.event_publisher,
@@ -920,7 +961,7 @@ impl<T: Transport + 'static> Agent<T> {
                     .map(|(tenant, states)| (tenant.clone(), states.merged(now)))
                     .collect();
 
-                with_lock!(&agent.tenant_limiters.tenants, |locked| {
+                with_lock!(&agent.tenant_limiters.0.tenants, |locked| {
                     for (tenant, state) in merged_states {
                         locked
                             .entry(tenant)
@@ -970,7 +1011,7 @@ impl<T: Transport + 'static> Agent<T> {
                 if tenants == last {
                     return Ok(ReloadTenantConfigResult::NotChanged);
                 }
-                with_lock!(&self.0.tenant_limiters.tenants, |locked| {
+                with_lock!(&self.0.tenant_limiters.0.tenants, |locked| {
                     for (tenant, config) in &tenants {
                         locked
                             .entry(tenant.clone())
@@ -1152,29 +1193,8 @@ impl<T: Transport + 'static> Agent<T> {
         &self,
         _request: RateLimitStateRequest,
     ) -> Result<RateLimitStateResponse, HandlerError> {
-        let now = SystemTime::now();
-        let states = with_lock!(&self.0.tenant_limiters.cached_state, |locked| {
-            if now < locked.0 {
-                locked.1.clone()
-            } else {
-                let new_state: Vec<(String, rate::State)> =
-                    with_lock!(&self.0.tenant_limiters.tenants, |tenants_locked| {
-                        tenants_locked
-                            .iter_mut()
-                            .map(|(t, b)| (t.clone(), b.state(now)))
-                            .collect()
-                    });
-                let serialized: Vec<_> = new_state
-                    .into_iter()
-                    .map(|(t, s)| TenantRateLimitState {
-                        tenant: t,
-                        state: marshalling::to_vec(&s).unwrap(),
-                    })
-                    .collect();
-                locked.0 = SystemTime::now() + Duration::from_millis(5);
-                locked.1 = serialized.clone();
-                serialized
-            }
+        let states = with_lock!(&self.0.tenant_limiters.0.last_state, |locked| {
+            locked.clone()
         });
         Ok(RateLimitStateResponse::Ok(states))
     }
@@ -1769,7 +1789,7 @@ impl<T: Transport + 'static> Agent<T> {
                             | AppResultType::Register1
                     ) {
                         let record_id = record_id.clone();
-                        with_lock!(&self.0.tenant_limiters.tenants, |locked| {
+                        with_lock!(&self.0.tenant_limiters.0.tenants, |locked| {
                             locked
                             .get_mut(&tenant)
                             .expect(
@@ -1877,7 +1897,7 @@ impl<T: Transport + 'static> Agent<T> {
         let rate_limit_result = {
             let tenant = request.tenant.clone();
             let rec_id = request.record_id.clone();
-            with_lock!(&self.0.tenant_limiters.tenants, move |locked| {
+            with_lock!(&self.0.tenant_limiters.0.tenants, move |locked| {
                 let bucket = locked
                     .entry(tenant)
                     .or_insert_with(|| RateLimiter::new(self.0.default_rate_limiter_rate));
