@@ -7,6 +7,9 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
+use cluster_api::{RebalanceRequest, RebalanceSuccess};
+use juicebox_networking::reqwest::{Client, ClientOptions};
+use juicebox_networking::rpc;
 use juicebox_process_group::ProcessGroup;
 use observability::logging;
 use service_core::term::install_termination_handler;
@@ -92,6 +95,18 @@ async fn main() {
     let cluster = create_cluster(config, &mut process_group, 4000)
         .await
         .unwrap();
+
+    let client = Client::new(ClientOptions::default());
+    loop {
+        if RebalanceSuccess::AlreadyBalanced
+            == rpc::send(&client, &cluster.cluster_managers[0], RebalanceRequest {})
+                .await
+                .unwrap()
+                .unwrap()
+        {
+            break;
+        }
+    }
 
     let path = "target/configuration.json";
     fs::write(
