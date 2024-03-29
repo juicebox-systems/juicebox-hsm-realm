@@ -401,7 +401,7 @@ pub enum RateLimitStateResponse {
     Ok(Vec<TenantRateLimitState>),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TenantRateLimitState {
     pub tenant: String,
     #[serde(with = "bytes")]
