@@ -500,7 +500,7 @@ fn merkle_path_lookup_from(
 }
 
 impl TreeStoreReader<DataHash> for StoreClient {
-    #[instrument(level = "trace", skip(self), fields(num_result_nodes))]
+    #[instrument(level = "trace", skip_all, fields(num_result_nodes))]
     async fn path_lookup(
         &self,
         realm: &RealmId,

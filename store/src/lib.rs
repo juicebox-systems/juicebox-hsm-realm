@@ -381,7 +381,7 @@ impl StoreClient {
     #[instrument(
         level = "trace",
         name = "append_log_entries_and_update_merkle_tree",
-        skip(self)
+        skip(self, entries, delta)
     )]
     pub async fn append(
         &self,
