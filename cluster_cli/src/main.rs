@@ -16,13 +16,11 @@ use secret_manager::new_google_secret_manager;
 
 mod cluster;
 mod commands;
-mod statuses;
 
 use cluster::{
     parse_resolvable_group_id, parse_resolvable_realm_id, ClusterInfo, ResolvableGroupId,
     ResolvableRealmId,
 };
-use statuses::get_hsm_statuses;
 
 /// A CLI tool for interacting with the cluster.
 #[derive(Parser)]
