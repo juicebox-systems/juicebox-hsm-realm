@@ -10,11 +10,9 @@ rust-version = { workspace = true }
 bitvec = { workspace = true }
 blake2 = { workspace = true }
 digest = { workspace = true }
+hex = { workspace = true }
 juicebox_marshalling = { workspace = true }
 juicebox_noise = { workspace = true }
 juicebox_realm_api = { workspace = true }
 serde = { workspace = true }
 subtle = { workspace = true }
-
-[dev-dependencies]
-hex = { workspace = true }

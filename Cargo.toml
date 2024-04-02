@@ -136,7 +136,7 @@ hashbrown = { version = "0.14.3", default-features = false, features = [
 ] }
 hdrhistogram = { version = "7.5.4", default-features = false }
 # Google and Mozilla audited hex 0.4.3 (`cargo vet`).
-hex = "=0.4.3"
+hex = { version = "=0.4.3", default-features = false, features=["alloc"] }
 hkdf = "0.12.4"
 hmac = "0.12.1"
 hsm_api = { path = "hsm_api" }

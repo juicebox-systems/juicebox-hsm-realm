@@ -36,10 +36,9 @@ impl fmt::Debug for GroupId {
 
 impl fmt::Display for GroupId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
+        let mut buf = [0u8; 32];
+        hex::encode_to_slice(self.0, &mut buf).unwrap();
+        f.write_str(core::str::from_utf8(&buf).unwrap())
     }
 }
 
@@ -59,10 +58,9 @@ impl fmt::Debug for HsmId {
 
 impl fmt::Display for HsmId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
+        let mut buf = [0u8; 32];
+        hex::encode_to_slice(self.0, &mut buf).unwrap();
+        f.write_str(core::str::from_utf8(&buf).unwrap())
     }
 }
 
@@ -150,10 +148,9 @@ impl RecordId {
 impl fmt::Debug for RecordId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "0x")?;
-        for byte in &self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
+        let mut buf = [0u8; 64];
+        hex::encode_to_slice(self.0, &mut buf).unwrap();
+        f.write_str(core::str::from_utf8(&buf).unwrap())
     }
 }
 
@@ -511,12 +508,12 @@ pub struct DataHash(#[serde(with = "bytes")] pub [u8; 32]);
 
 impl fmt::Debug for DataHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
+        let mut buf = [0u8; 64];
+        hex::encode_to_slice(self.0, &mut buf).unwrap();
+        f.write_str(core::str::from_utf8(&buf).unwrap())
     }
 }
+
 impl HashOutput for DataHash {
     fn zero() -> DataHash {
         DataHash([0; 32])
