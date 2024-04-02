@@ -15,8 +15,7 @@ pub struct TreeOverlay<HO> {
     changes: VecDeque<DeltaCleanup<HO>>,
 }
 impl<HO: HashOutput> TreeOverlay<HO> {
-    // Create a new TreeOverlay given the Tree's latest root hash. For
-    // most efficient memory usage max_deltas should be a power of 2 -1. e.g. 15.
+    // Create a new TreeOverlay given the Tree's latest root hash.
     pub fn new(latest_root: HO, max_deltas: u16) -> Self {
         let mut o = TreeOverlay {
             nodes: HashMap::new(),

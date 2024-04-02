@@ -2,6 +2,8 @@ use anyhow::Context;
 use bytes::Bytes;
 use futures::channel::oneshot;
 use futures::future::join_all;
+use futures::stream::FuturesUnordered;
+use futures::{FutureExt, StreamExt};
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
@@ -12,14 +14,14 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Arguments;
 use std::future::Future;
-use std::iter;
+use std::mem;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use tokio::time::{sleep, sleep_until};
 use tracing::{debug, info, instrument, span, trace, warn, Instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -66,7 +68,7 @@ use observability::tracing::TracingMiddleware;
 use observability::{metrics, metrics_tag as tag};
 use peers::DiscoveryWatcher;
 use pubsub_api::{Message, Publisher};
-use rate::{PeerId, RateLimiter};
+use rate::{PeerId, RateLimiter, Time};
 use retry_loop::{retry_logging, retry_logging_debug, AttemptError, Retry, RetryError};
 use service_core::http::ReqwestClientMetrics;
 use service_core::rpc::{handle_rpc, HandlerError};
@@ -89,7 +91,7 @@ struct AgentInner<T> {
     peer_client: ReqwestClientMetrics,
     discovery: DiscoveryWatcher,
     state: Mutex<State>,
-    tenant_limiters: Mutex<HashMap<String, RateLimiter>>,
+    tenant_limiters: RateLimiters,
     metrics: metrics::Client,
     accountant: UserAccountingWriter,
     event_publisher: Box<dyn Publisher>,
@@ -210,6 +212,60 @@ impl std::fmt::Debug for LeaderState {
     }
 }
 
+#[derive(Clone, Debug)]
+struct RateLimiters(Arc<RateLimitersInner>);
+
+#[derive(Debug)]
+struct RateLimitersInner {
+    last_state: Mutex<Vec<TenantRateLimitState>>,
+    tenants: Mutex<HashMap<String, RateLimiter>>,
+}
+
+impl RateLimiters {
+    fn new(metric: metrics::Client) -> Self {
+        let r = Self(Arc::new(RateLimitersInner {
+            last_state: Mutex::new(Vec::new()),
+            tenants: Mutex::new(HashMap::with_capacity(8)),
+        }));
+        tokio::spawn(r.clone().state_updater(metric));
+        r
+    }
+
+    async fn state_updater(self, mc: metrics::Client) {
+        loop {
+            let start = Instant::now();
+            let now = Time::now();
+            let new_state: Vec<_> = with_lock!(&self.0.tenants, |tenants_locked| {
+                tenants_locked
+                    .iter_mut()
+                    .map(|(t, b)| (t.clone(), b.state(now)))
+                    .collect()
+            });
+            let serialized: Vec<_> = new_state
+                .into_iter()
+                .map(|(t, s)| TenantRateLimitState {
+                    tenant: t,
+                    state: marshalling::to_vec(&s).unwrap(),
+                })
+                .collect();
+
+            let prev = with_lock!(&self.0.last_state, |cache_locked| {
+                mem::replace(cache_locked, serialized)
+            });
+            drop(prev);
+            mc.timing(
+                "agent.rate_limiter.state_update",
+                start.elapsed(),
+                metrics::NO_TAGS,
+            );
+            sleep_until(tokio::time::Instant::from_std(
+                start + Duration::from_millis(5),
+            ))
+            .await;
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct HashableEntryMac(EntryMac);
 
@@ -321,7 +377,7 @@ impl<T: Transport + 'static> Agent<T> {
                 hsm_id: None,
                 groups: HashMap::new(),
             }),
-            tenant_limiters: Mutex::new(HashMap::new()),
+            tenant_limiters: RateLimiters::new(config.metrics.clone()),
             metrics: config.metrics.clone(),
             accountant: UserAccountingWriter::new(config.store, config.metrics),
             event_publisher: config.event_publisher,
@@ -849,6 +905,7 @@ impl<T: Transport + 'static> Agent<T> {
         let mut disco_rx = self.0.discovery.subscribe(ServiceKind::Agent);
         tokio::spawn(async move {
             let mut urls = disco_rx.borrow_and_update().excluding(&our_url);
+            let mut tenant_states: HashMap<String, rate::PeerStates> = HashMap::new();
             info!(peers=?urls, "starting rate limit collector");
             loop {
                 if matches!(disco_rx.has_changed(), Ok(true)) {
@@ -858,48 +915,57 @@ impl<T: Transport + 'static> Agent<T> {
                         urls = new_urls;
                     }
                 }
-                let updates: Vec<(PeerId, String, rate::State)> = iter::zip(
-                    urls.0.iter(),
-                    join_all(urls.0.iter().map(|url| {
+
+                let mut peer_results: FuturesUnordered<_> = urls
+                    .0
+                    .iter()
+                    .map(|url| {
                         rpc::send_with_options(
                             &agent.peer_client,
                             url,
                             RateLimitStateRequest {},
                             SendOptions::default().with_timeout(Duration::from_millis(500)),
                         )
-                    }))
-                    .await,
-                )
-                .filter_map(|(url, r)| match r {
-                    Ok(RateLimitStateResponse::Ok(state)) => Some((url, state)),
-                    Err(_) => {
-                        // Already logged by peer_client.
-                        None
-                    }
-                })
-                .flat_map(|(url, updates)| {
-                    updates.into_iter().filter_map(move |tenant_state| {
-                        match marshalling::from_slice(&tenant_state.state) {
-                            Err(err) => {
-                                warn!(%url, ?err, "failed to deserialize rate limiter state from peer");
-                                None
-                            },
-                            Ok(state)=> Some(
-                                (
-                                    PeerId(url.to_string()),
-                                    tenant_state.tenant,
-                                    state
-                                ))
-                        }
+                        .map(move |r| (PeerId(url.to_string()), r))
                     })
-                })
-                .collect();
-                with_lock!(&agent.tenant_limiters, |locked| {
-                    for (peer, tenant, state) in updates {
+                    .collect();
+
+                while let Some((peer, result)) = peer_results.next().await {
+                    if let Ok(RateLimitStateResponse::Ok(updates)) = result {
+                        let now = Time::now();
+                        for update in updates {
+                            match marshalling::from_slice(&update.state) {
+                                Err(err) => {
+                                    warn!(
+                                        ?peer,
+                                        ?err,
+                                        "failed to deserialize rate limiter state from peer"
+                                    );
+                                }
+                                Ok(state) => {
+                                    tenant_states.entry(update.tenant).or_default().update(
+                                        now,
+                                        peer.clone(),
+                                        state,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let now = Time::now();
+                let merged_states: Vec<_> = tenant_states
+                    .iter_mut()
+                    .map(|(tenant, states)| (tenant.clone(), states.merged(now)))
+                    .collect();
+
+                with_lock!(&agent.tenant_limiters.0.tenants, |locked| {
+                    for (tenant, state) in merged_states {
                         locked
                             .entry(tenant)
                             .or_insert_with(|| RateLimiter::new(agent.default_rate_limiter_rate))
-                            .update_from_other(peer, state);
+                            .update_from_peers(state);
                     }
                 });
                 sleep(Duration::from_millis(10)).await;
@@ -944,7 +1010,7 @@ impl<T: Transport + 'static> Agent<T> {
                 if tenants == last {
                     return Ok(ReloadTenantConfigResult::NotChanged);
                 }
-                with_lock!(&self.0.tenant_limiters, |locked| {
+                with_lock!(&self.0.tenant_limiters.0.tenants, |locked| {
                     for (tenant, config) in &tenants {
                         locked
                             .entry(tenant.clone())
@@ -1126,21 +1192,10 @@ impl<T: Transport + 'static> Agent<T> {
         &self,
         _request: RateLimitStateRequest,
     ) -> Result<RateLimitStateResponse, HandlerError> {
-        let now = SystemTime::now();
-        let states: Vec<(String, rate::State)> = with_lock!(&self.0.tenant_limiters, |locked| {
-            locked
-                .iter_mut()
-                .map(|(t, b)| (t.clone(), b.state(now)))
-                .collect()
+        let states = with_lock!(&self.0.tenant_limiters.0.last_state, |locked| {
+            locked.clone()
         });
-        let serialized = states
-            .into_iter()
-            .map(|(t, s)| TenantRateLimitState {
-                tenant: t,
-                state: marshalling::to_vec(&s).unwrap(),
-            })
-            .collect();
-        Ok(RateLimitStateResponse::Ok(serialized))
+        Ok(RateLimitStateResponse::Ok(states))
     }
 
     async fn handle_livez(&self, _request: Request<IncomingBody>) -> Response<Full<Bytes>> {
@@ -1733,7 +1788,7 @@ impl<T: Transport + 'static> Agent<T> {
                             | AppResultType::Register1
                     ) {
                         let record_id = record_id.clone();
-                        with_lock!(&self.0.tenant_limiters, |locked| {
+                        with_lock!(&self.0.tenant_limiters.0.tenants, |locked| {
                             locked
                             .get_mut(&tenant)
                             .expect(
@@ -1841,7 +1896,7 @@ impl<T: Transport + 'static> Agent<T> {
         let rate_limit_result = {
             let tenant = request.tenant.clone();
             let rec_id = request.record_id.clone();
-            with_lock!(&self.0.tenant_limiters, move |locked| {
+            with_lock!(&self.0.tenant_limiters.0.tenants, move |locked| {
                 let bucket = locked
                     .entry(tenant)
                     .or_insert_with(|| RateLimiter::new(self.0.default_rate_limiter_rate));

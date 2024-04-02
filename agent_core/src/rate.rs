@@ -3,12 +3,52 @@ use std::cmp::{max, Ordering};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
-use std::ops::Deref;
-use std::time::{Duration, SystemTime};
+use std::ops::{Add, Deref, Sub};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use hsm_api::RecordId;
 
 const RESERVATION_LIFETIME: Duration = Duration::from_secs(2);
+
+/// Milliseconds since EPOCH.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct Time(u64);
+impl Time {
+    pub fn now() -> Self {
+        Time::from(SystemTime::now())
+    }
+}
+
+impl From<SystemTime> for Time {
+    fn from(value: SystemTime) -> Self {
+        let d = value.duration_since(UNIX_EPOCH).unwrap().as_millis();
+        Time(d.try_into().unwrap())
+    }
+}
+
+impl Add<Duration> for Time {
+    type Output = Self;
+
+    fn add(self, rhs: Duration) -> Self::Output {
+        Time(
+            self.0
+                .checked_add(rhs.as_millis().try_into().unwrap())
+                .unwrap(),
+        )
+    }
+}
+
+impl Sub<Duration> for Time {
+    type Output = Self;
+
+    fn sub(self, rhs: Duration) -> Self::Output {
+        Time(
+            self.0
+                .checked_sub(rhs.as_millis().try_into().unwrap())
+                .unwrap(),
+        )
+    }
+}
 
 #[derive(Debug)]
 pub struct RateLimitResult {
@@ -24,8 +64,8 @@ pub struct PeerId(pub String);
 #[derive(Debug)]
 pub struct RateLimiter {
     rate: usize, // reqs / second
-    my_reqs: OrderedVecDeque<SystemTime>,
-    others_reqs: HashMap<PeerId, OrderedVecDeque<SystemTime>>,
+    my_reqs: OrderedVecDeque<Time>,
+    others_reqs: OrderedVecDeque<Time>,
     reservations: Reservations,
 }
 
@@ -33,7 +73,7 @@ impl RateLimiter {
     pub fn new(http_reqs_per_second: usize) -> Self {
         RateLimiter {
             my_reqs: OrderedVecDeque::default(),
-            others_reqs: HashMap::new(),
+            others_reqs: OrderedVecDeque::default(),
             rate: http_reqs_per_second,
             reservations: Reservations::default(),
         }
@@ -44,17 +84,14 @@ impl RateLimiter {
     }
 
     pub fn allow(&mut self, id: RecordId) -> RateLimitResult {
-        self.allow_inner(SystemTime::now(), id)
+        self.allow_inner(Time::now(), id)
     }
 
-    fn allow_inner(&mut self, now: SystemTime, rec: RecordId) -> RateLimitResult {
+    fn allow_inner(&mut self, now: Time, rec: RecordId) -> RateLimitResult {
         let window_start = now - Duration::from_secs(1);
         self.my_reqs.remove_smaller(&window_start);
-        self.others_reqs.retain(|_, v| {
-            v.remove_smaller(&window_start);
-            !v.is_empty()
-        });
-        let used = self.my_reqs.len() + self.others_reqs.values().map(|o| o.len()).sum::<usize>();
+        self.others_reqs.remove_smaller(&window_start);
+        let used = self.my_reqs.len() + self.others_reqs.len();
         let ok = used < self.rate;
 
         let reservation = self.reservations.use_reservation(now, rec);
@@ -70,15 +107,15 @@ impl RateLimiter {
     }
 
     pub fn add_reservation(&mut self, id: RecordId) {
-        self.add_reservation_inner(SystemTime::now(), id)
+        self.add_reservation_inner(Time::now(), id)
     }
 
-    fn add_reservation_inner(&mut self, now: SystemTime, id: RecordId) {
+    fn add_reservation_inner(&mut self, now: Time, id: RecordId) {
         self.reservations.add(now + RESERVATION_LIFETIME, id)
     }
 
     /// Returns the current state such that it can be serialized and given to other nodes.
-    pub fn state(&mut self, now: SystemTime) -> State {
+    pub fn state(&mut self, now: Time) -> State {
         let expire_before = now - RESERVATION_LIFETIME * 2;
         self.reservations
             .used
@@ -91,49 +128,99 @@ impl RateLimiter {
         }
     }
 
-    pub fn update_from_other(&mut self, node: PeerId, state: State) {
-        self.others_reqs.insert(node.clone(), state.reqs);
-        self.reservations.others.insert(node, state.reservations);
-        self.reservations.used.extend(state.reservations_used);
+    pub fn update_from_peers(&mut self, state: MergedStates) {
+        self.others_reqs = state.0.reqs;
+        self.reservations.others = state.0.reservations;
+        self.reservations.used_others = state.0.reservations_used;
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Default)]
+pub struct PeerStates(HashMap<PeerId, (Time, State)>);
+
+impl PeerStates {
+    pub fn update(&mut self, now: Time, from: PeerId, state: State) {
+        self.0.insert(from, (now, state));
+    }
+
+    pub fn merged(&mut self, now: Time) -> MergedStates {
+        let exp = now - RESERVATION_LIFETIME;
+        self.0.retain(|_peer, (when, _state)| *when > exp);
+        let states: Vec<_> = self.0.values().map(|(_, s)| s.clone()).collect();
+        MergedStates::merge(states)
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct State {
-    reqs: OrderedVecDeque<SystemTime>,
+    reqs: OrderedVecDeque<Time>,
     reservations: ReservationSet,
-    reservations_used: HashSet<(SystemTime, RecordId)>,
+    reservations_used: HashSet<(Time, RecordId)>,
+}
+
+pub struct MergedStates(State);
+
+impl MergedStates {
+    pub fn merge(mut peers: Vec<State>) -> Self {
+        if peers.is_empty() {
+            return MergedStates(State::default());
+        }
+        if peers.len() == 1 {
+            return MergedStates(peers.pop().unwrap());
+        }
+        let mut reqs = Vec::with_capacity(peers.len());
+        let mut res = Vec::with_capacity(peers.len());
+        let mut used =
+            HashSet::with_capacity(peers.iter().map(|p| p.reservations_used.len()).sum());
+        for peer in peers {
+            reqs.push(peer.reqs);
+            res.push(peer.reservations);
+            used.extend(peer.reservations_used);
+        }
+        let r = State {
+            reqs: OrderedVecDeque::merge(reqs),
+            reservations: ReservationSet::merge(res),
+            reservations_used: used,
+        };
+        MergedStates(r)
+    }
 }
 
 #[derive(Debug, Default)]
 struct Reservations {
     mine: ReservationSet,
-    others: HashMap<PeerId, ReservationSet>,
-    // recent reservations that were used. These are kept an additional
+    others: ReservationSet,
+    // recent reservations that were used locally. These are kept an additional
     // RESERVATION_LIFETIME amount of time. We expect all nodes to trade state
     // multiple times within that time period. This allows all the nodes a
     // chance to spot that a reservation was consumed.
-    used: HashSet<(SystemTime, RecordId)>,
+    used: HashSet<(Time, RecordId)>,
+    // Generally reservations will be used on the agent which made the
+    // reservation but events like leadership transfer can lead to the
+    // reservation being used on a different agent.
+    used_others: HashSet<(Time, RecordId)>,
 }
 
 impl Reservations {
-    fn add(&mut self, expires: SystemTime, id: RecordId) {
+    fn add(&mut self, expires: Time, id: RecordId) {
         self.mine.add_reservation(expires, id);
     }
 
-    fn use_reservation(&mut self, now: SystemTime, id: RecordId) -> bool {
+    fn use_reservation(&mut self, now: Time, id: RecordId) -> bool {
         let mut reserved = self.mine.use_reservation(&now, &id);
         if reserved.is_none() {
-            reserved = self
-                .others
-                .values_mut()
-                .filter_map(|rs| rs.use_reservation(&now, &id))
-                .next();
+            reserved = self.others.use_reservation(&now, &id);
         }
         if let Some(tm) = reserved {
-            if !self.used.insert((tm, id)) {
+            if !self.used.insert((tm, id.clone())) {
                 // this reservation was already used
                 reserved = None;
+            } else {
+                // check it wasn't used elsewhere
+                let key = (tm, id);
+                if self.used_others.contains(&key) {
+                    reserved = None;
+                }
             }
         }
         reserved.is_some()
@@ -143,12 +230,12 @@ impl Reservations {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct ReservationSet {
     expiry: OrderedVecDeque<Expiry>,
-    ids: HashMap<RecordId, SystemTime>,
+    ids: HashMap<RecordId, Time>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct Expiry {
-    when: SystemTime,
+    when: Time,
     id: RecordId,
 }
 
@@ -165,8 +252,21 @@ impl Ord for Expiry {
 }
 
 impl ReservationSet {
+    fn merge(items: Vec<ReservationSet>) -> ReservationSet {
+        let mut exp = Vec::with_capacity(items.len());
+        let mut ids = HashMap::with_capacity(items.iter().map(|r| r.ids.len()).sum());
+        for i in items {
+            exp.push(i.expiry);
+            ids.extend(i.ids);
+        }
+        ReservationSet {
+            expiry: OrderedVecDeque::merge(exp),
+            ids,
+        }
+    }
+
     // expire all entries that are before 'upto'
-    fn expire(&mut self, upto: &SystemTime) {
+    fn expire(&mut self, upto: &Time) {
         while self.expiry.front().is_some_and(|e| e.when < *upto) {
             let expiry = self.expiry.pop_front().unwrap();
             if let Occupied(e) = self.ids.entry(expiry.id) {
@@ -177,12 +277,12 @@ impl ReservationSet {
         }
     }
 
-    fn use_reservation(&mut self, now: &SystemTime, id: &RecordId) -> Option<SystemTime> {
+    fn use_reservation(&mut self, now: &Time, id: &RecordId) -> Option<Time> {
         self.expire(now);
         self.ids.remove(id)
     }
 
-    fn add_reservation(&mut self, exp: SystemTime, id: RecordId) {
+    fn add_reservation(&mut self, exp: Time, id: RecordId) {
         match self.ids.entry(id.clone()) {
             Occupied(mut e) => {
                 // If there's an existing reservation, move the time forward
@@ -214,6 +314,15 @@ impl<T> Deref for OrderedVecDeque<T> {
 }
 
 impl<T: Ord> OrderedVecDeque<T> {
+    fn merge(items: Vec<OrderedVecDeque<T>>) -> Self {
+        let mut r = VecDeque::with_capacity(items.iter().map(|q| q.len()).sum());
+        for mut i in items {
+            r.append(&mut i.0);
+        }
+        r.make_contiguous().sort();
+        OrderedVecDeque(r)
+    }
+
     fn pop_front(&mut self) -> Option<T> {
         self.0.pop_front()
     }
@@ -241,15 +350,19 @@ impl<T: Ord> OrderedVecDeque<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, SystemTime};
+    use std::iter::zip;
+    use std::time::Duration;
 
-    use super::{OrderedVecDeque, PeerId, RateLimiter, ReservationSet, RESERVATION_LIFETIME};
+    use super::{
+        MergedStates, OrderedVecDeque, PeerId, RateLimiter, ReservationSet, State, Time,
+        RESERVATION_LIFETIME,
+    };
     use hsm_api::RecordId;
 
     #[test]
     fn remove_smaller() {
         let mut r = OrderedVecDeque::default();
-        let n = SystemTime::now();
+        let n = Time::now();
         r.add(n);
         r.add(n);
         r.add(millis(n, 10));
@@ -271,7 +384,7 @@ mod tests {
     #[test]
     fn ordered_add() {
         let mut r = OrderedVecDeque::default();
-        let n = SystemTime::now();
+        let n = Time::now();
         r.add(n);
         r.add(millis(n, 10));
         r.add(n);
@@ -290,7 +403,7 @@ mod tests {
     fn reservations_use() {
         let mut r = ReservationSet::default();
         let id = RecordId([3; 32]);
-        let now = SystemTime::now();
+        let now = Time::now();
         let exp = now + RESERVATION_LIFETIME;
         assert_eq!(None, r.use_reservation(&now, &id));
 
@@ -324,7 +437,7 @@ mod tests {
     #[test]
     fn local_allow() {
         let mut rl = RateLimiter::new(5);
-        let now = SystemTime::now();
+        let now = Time::now();
 
         assert!(rl.allow_inner(now, rid(1)).allowed);
         assert!(rl.allow_inner(millis(now, 10), rid(2)).allowed);
@@ -352,7 +465,7 @@ mod tests {
         assert!(rl.allow_inner(millis(now, 1025), rid(11)).allowed);
     }
 
-    fn millis(t: SystemTime, millis: u64) -> SystemTime {
+    fn millis(t: Time, millis: u64) -> Time {
         t + Duration::from_millis(millis)
     }
 
@@ -363,7 +476,7 @@ mod tests {
             .into_iter()
             .map(|s| PeerId(String::from(s)))
             .collect();
-        let now = SystemTime::now();
+        let now = Time::now();
 
         for rl in &mut limiters {
             assert!(rl.allow_inner(now, rid(32)).allowed);
@@ -403,7 +516,7 @@ mod tests {
             .into_iter()
             .map(|s| PeerId(String::from(s)))
             .collect();
-        let now = SystemTime::now();
+        let now = Time::now();
 
         for rl in &mut limiters {
             assert!(rl.allow_inner(now, rid(1)).allowed);
@@ -443,27 +556,25 @@ mod tests {
         }
     }
 
-    fn trade_limiter_state(now: SystemTime, ids: &[PeerId], limiters: &mut [RateLimiter]) {
+    fn trade_limiter_state(now: Time, ids: &[PeerId], limiters: &mut [RateLimiter]) {
         assert_eq!(ids.len(), limiters.len());
-        let states: Vec<_> = limiters
-            .iter_mut()
-            .map(|b| b.state(now))
-            .map(|s| juicebox_marshalling::to_vec(&s).unwrap())
-            .collect();
+        let states: Vec<(&PeerId, Vec<u8>)> = zip(
+            ids,
+            limiters
+                .iter_mut()
+                .map(|b| b.state(now))
+                .map(|s| juicebox_marshalling::to_vec(&s).unwrap()),
+        )
+        .collect();
 
         for i in 0..ids.len() {
-            for j in 0..ids.len() {
-                if i != j {
-                    limiters[i].update_from_other(
-                        ids[j].clone(),
-                        juicebox_marshalling::from_slice(&states[j]).unwrap(),
-                    );
-                    limiters[j].update_from_other(
-                        ids[i].clone(),
-                        juicebox_marshalling::from_slice(&states[i]).unwrap(),
-                    );
-                }
-            }
+            let other_stats: Vec<State> = states
+                .iter()
+                .filter(|(id, _)| **id != ids[i])
+                .map(|(_, s)| juicebox_marshalling::from_slice(s).unwrap())
+                .collect();
+            let merged = MergedStates::merge(other_stats);
+            limiters[i].update_from_peers(merged);
         }
     }
 }

@@ -124,8 +124,8 @@ impl HttpHsm {
         Ok(HttpHsm(Arc::new(Mutex::new(Hsm::new(
             HsmOptions {
                 name,
-                tree_overlay_size: 511,
-                max_sessions: 511,
+                tree_overlay_size: 1024,
+                max_sessions: 8192,
                 metrics: MetricsReporting::Enabled,
             },
             StdPlatform { state_file },

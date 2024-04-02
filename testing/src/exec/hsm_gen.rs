@@ -124,6 +124,8 @@ impl HsmGenerator {
                 .arg(&self.secret)
                 .arg("--listen")
                 .arg(agent_address)
+                .arg("--merkle-cache-size")
+                .arg("65535")
                 .arg("--default-rate-limit")
                 .arg("1000");
             if let Some(d) = &hsm_dir {
