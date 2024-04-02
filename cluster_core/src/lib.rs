@@ -19,11 +19,13 @@ use juicebox_realm_api::types::RealmId;
 use retry_loop::{retry_logging_debug, AttemptError, RetryError};
 use store::{Lease, LeaseKey, LeaseType, ServiceKind, StoreClient};
 
+mod assimilate;
 mod leader;
 mod realm;
 mod transfer;
 pub mod workload;
 
+pub use assimilate::{assimilate, AssimilateError};
 pub use leader::{discover_hsm_ids, find_leaders, hsm_ids};
 pub use realm::{join_realm, new_group, new_realm, JoinRealmError, NewGroupError, NewRealmError};
 pub use transfer::{

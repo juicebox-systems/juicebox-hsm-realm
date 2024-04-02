@@ -1,19 +1,17 @@
 use clap::Parser;
-use futures::StreamExt;
+use std::cmp::min;
 use std::env::current_dir;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use std::process::Command;
+use std::time::Duration;
 use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
-use async_util::ScopedTask;
-use juicebox_networking::reqwest;
+use cluster_api::{RebalanceRequest, RebalanceSuccess};
+use juicebox_networking::reqwest::{Client, ClientOptions};
+use juicebox_networking::rpc;
 use juicebox_process_group::ProcessGroup;
-use juicebox_realm_api::types::Policy;
-use juicebox_sdk::{Client, Pin, UserInfo, UserSecret};
 use observability::logging;
 use service_core::term::install_termination_handler;
 use testing::exec::cluster_gen::{create_cluster, ClusterConfig, RealmConfig};
@@ -61,6 +59,10 @@ struct Args {
     /// Keep the cluster alive until Ctrl-C is input
     #[arg(short, long, default_value_t = false)]
     keep_alive: bool,
+
+    /// Number of agents to run in the realm.
+    #[arg(long, conflicts_with = "entrust", default_value_t = 5)]
+    num_agents: u8,
 }
 
 #[tokio::main]
@@ -83,14 +85,14 @@ async fn main() {
                 // the same secret keys.
                 1
             } else {
-                5
+                args.num_agents
             },
-            groups: 1,
+            groups: 0,
             state_dir: args.state.clone(),
         }],
-        bigtable: args.bigtable,
+        bigtable: args.bigtable.clone(),
         local_pubsub: args.pubsub_emulator,
-        secrets_file: args.secrets_file,
+        secrets_file: args.secrets_file.clone(),
         entrust: Entrust(args.entrust),
         path_to_target: current_dir().unwrap(),
     };
@@ -99,89 +101,76 @@ async fn main() {
         .await
         .unwrap();
 
-    info!(clients = args.concurrency, "creating clients");
-    let clients: Vec<Arc<Mutex<Client<_, reqwest::Client, _>>>> = (0..args.concurrency)
-        .map(|i| Arc::new(Mutex::new(cluster.client_for_user(&format!("mario{i}")))))
-        .collect();
+    let client = Client::new(ClientOptions::default());
 
-    info!("main: Running test register");
-    clients[0]
-        .lock()
-        .await
-        .register(
-            &Pin::from(b"pin-test".to_vec()),
-            &UserSecret::from(b"secret-test".to_vec()),
-            &UserInfo::from(b"info-test".to_vec()),
-            Policy { num_guesses: 2 },
+    if !args.entrust {
+        cluster_core::assimilate(
+            None,
+            min(5, args.num_agents as usize),
+            &client,
+            &cluster.store,
+            &None,
         )
         .await
         .unwrap();
+    }
 
-    info!(
-        concurrency = args.concurrency,
-        count = args.count,
-        "main: Running concurrent registers"
-    );
-    let start = Instant::now();
-
-    let mut stream = futures::stream::iter((0..args.count).map(|i| {
-        ScopedTask::spawn({
-            let client = clients[i % args.concurrency].clone();
-            async move {
-                client
-                    .lock()
-                    .await
-                    .register(
-                        &Pin::from(format!("pin{i}").into_bytes()),
-                        &UserSecret::from(format!("secret{i}").into_bytes()),
-                        &UserInfo::from(format!("info{i}").into_bytes()),
-                        Policy { num_guesses: 2 },
-                    )
-                    .await
-            }
-        })
-    }))
-    .buffer_unordered(args.concurrency);
-
-    let mut completed = 0;
-    let mut errors = 0;
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(Ok(_)) => {
-                debug!(completed, "ok");
-                completed += 1;
-            }
-            Ok(Err(err)) => {
-                warn!(?err, "client got error");
-                errors += 1;
-            }
-            Err(err) => {
-                warn!(?err, "tokio::spawn got error");
-                errors += 1;
-            }
+    loop {
+        if RebalanceSuccess::AlreadyBalanced
+            == rpc::send(&client, &cluster.cluster_managers[0], RebalanceRequest {})
+                .await
+                .unwrap()
+                .unwrap()
+        {
+            break;
         }
     }
 
-    let elapsed = start.elapsed().as_secs_f64();
-    info!(
-        registrations = args.count,
-        seconds = elapsed,
-        registrations_per_s = (args.count as f64) / elapsed,
-        concurrency = args.concurrency,
-        "completed benchmark"
+    let path = "target/configuration.json";
+    fs::write(
+        path,
+        serde_json::to_string(&cluster.configuration()).unwrap(),
+    )
+    .unwrap_or_else(|e| panic!("failed to write to {path:?}: {e}"));
+    info!("wrote configuration to {path:?}");
+
+    info!("starting cluster_bench");
+    let mut cluster_bench = Command::new(
+        current_dir()
+            .unwrap()
+            .join("target")
+            .join(if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            })
+            .join("cluster_bench"),
     );
-    if errors > 0 {
-        warn!(errors, "There were errors reported by the client");
+    cluster_bench
+        .arg("--configuration")
+        .arg(serde_json::to_string(&cluster.configuration()).unwrap())
+        .arg("--concurrency")
+        .arg(args.concurrency.to_string())
+        .arg("--count")
+        .arg(args.count.to_string())
+        .arg("--tls-certificate")
+        .arg("target/localhost.cert.der")
+        .arg("--reporting-interval")
+        .arg("1m")
+        .arg("--conn-pool")
+        .arg("10");
+    if let Some(f) = args.secrets_file {
+        cluster_bench.arg("--secrets-file").arg(f);
+    } else {
+        cluster_bench
+            .arg("--gcp-project")
+            .arg(args.bigtable.project);
+    }
+    if let Err(err) = cluster_bench.status() {
+        warn!(?err, "error running cluster_bench");
     }
 
     if args.keep_alive {
-        let path = "target/configuration.json";
-        fs::write(
-            path,
-            serde_json::to_string(&cluster.configuration()).unwrap(),
-        )
-        .unwrap_or_else(|e| panic!("failed to write to {path:?}: {e}"));
-        info!("wrote configuration to {path:?}");
         info!("sleeping forever due to --keep-alive");
         sleep(Duration::MAX).await;
     }

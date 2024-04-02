@@ -12,6 +12,7 @@ agent_api = { workspace = true }
 async_util = { workspace = true }
 build_info = { workspace = true }
 clap = { workspace = true }
+cluster_api = { workspace = true }
 cluster_core = { workspace = true }
 futures = { workspace = true }
 google = { workspace = true }
