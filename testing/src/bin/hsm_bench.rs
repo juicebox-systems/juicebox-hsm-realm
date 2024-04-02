@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::cmp::min;
 use std::env::current_dir;
 use std::fs;
 use std::path::PathBuf;
@@ -58,6 +59,10 @@ struct Args {
     /// Keep the cluster alive until Ctrl-C is input
     #[arg(short, long, default_value_t = false)]
     keep_alive: bool,
+
+    /// Number of agents to run in the realm.
+    #[arg(long, conflicts_with = "entrust", default_value_t = 5)]
+    num_agents: u8,
 }
 
 #[tokio::main]
@@ -80,9 +85,9 @@ async fn main() {
                 // the same secret keys.
                 1
             } else {
-                5
+                args.num_agents
             },
-            groups: 1,
+            groups: 0,
             state_dir: args.state.clone(),
         }],
         bigtable: args.bigtable.clone(),
@@ -97,6 +102,19 @@ async fn main() {
         .unwrap();
 
     let client = Client::new(ClientOptions::default());
+
+    if !args.entrust {
+        cluster_core::assimilate(
+            None,
+            min(5, args.num_agents as usize),
+            &client,
+            &cluster.store,
+            &None,
+        )
+        .await
+        .unwrap();
+    }
+
     loop {
         if RebalanceSuccess::AlreadyBalanced
             == rpc::send(&client, &cluster.cluster_managers[0], RebalanceRequest {})
