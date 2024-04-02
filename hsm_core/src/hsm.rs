@@ -727,11 +727,11 @@ impl<P: Platform> Hsm<P> {
         }
     }
 
-    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
+    #[instrument(level = "trace", skip(self, _metrics, _request), fields(hsm=self.options.name), ret)]
     fn handle_status_request(
         &mut self,
         _metrics: &mut Metrics<P>,
-        request: StatusRequest,
+        _request: StatusRequest,
     ) -> StatusResponse {
         StatusResponse {
             id: self.persistent.id,
@@ -1215,11 +1215,11 @@ impl<P: Platform> Hsm<P> {
         }
     }
 
-    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
+    #[instrument(level = "trace", skip(self, _metrics, _request), fields(hsm=self.options.name), ret)]
     fn handle_persist_state(
         &mut self,
         _metrics: &mut Metrics<P>,
-        request: PersistStateRequest,
+        _request: PersistStateRequest,
     ) -> PersistStateResponse {
         type Response = PersistStateResponse;
 
@@ -1270,7 +1270,7 @@ impl<P: Platform> Hsm<P> {
         }
     }
 
-    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
+    #[instrument(level = "trace", skip(self, _metrics, request), fields(hsm=self.options.name), ret)]
     fn handle_handshake(
         &mut self,
         _metrics: &mut Metrics<P>,
@@ -1316,7 +1316,7 @@ impl<P: Platform> Hsm<P> {
         }
     }
 
-    #[instrument(level = "trace", skip(self, metrics), fields(hsm=self.options.name), ret)]
+    #[instrument(level = "trace", skip(self, metrics, request), fields(hsm=self.options.name), ret)]
     fn handle_app(&mut self, metrics: &mut Metrics<P>, request: AppRequest) -> AppResponse {
         type Response = AppResponse;
 

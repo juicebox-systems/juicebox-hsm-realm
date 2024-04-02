@@ -1710,7 +1710,7 @@ impl<T: Transport + 'static> Agent<T> {
     /// Called by `handle_app` to process [`AppRequest`]s of type Handshake
     /// that don't have a payload. Unlike other [`AppRequest`]s, these don't
     /// require dealing with the log or Merkle tree.
-    #[instrument(level = "trace", skip(self))]
+    #[instrument(level = "trace", skip(self, request))]
     async fn handle_handshake(&self, request: AppRequest) -> Result<AppResponse, HandlerError> {
         type Response = AppResponse;
         type HsmResponse = hsm_api::HandshakeResponse;
@@ -1884,7 +1884,7 @@ impl<T: Transport + 'static> Agent<T> {
         }
     }
 
-    #[instrument(level = "trace", skip(self))]
+    #[instrument(level = "trace", skip(self, request))]
     async fn start_app_request(
         &self,
         request: AppRequest,

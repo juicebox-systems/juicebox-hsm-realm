@@ -135,7 +135,7 @@ where
 
     #[instrument(
         level = "trace",
-        skip(bigtable, request, row_fn),
+        skip(bigtable, retry, request, row_fn),
         fields(
             num_request_items,
             num_response_chunks,

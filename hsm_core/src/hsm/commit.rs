@@ -19,7 +19,7 @@ use hsm_api::{
 };
 
 impl<P: Platform> Hsm<P> {
-    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
+    #[instrument(level = "trace", skip(self, _metrics, request), fields(hsm=self.options.name), ret)]
     pub(super) fn handle_capture_jump(
         &mut self,
         _metrics: &mut Metrics<P>,
@@ -73,7 +73,7 @@ impl<P: Platform> Hsm<P> {
         Response::Ok
     }
 
-    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
+    #[instrument(level = "trace", skip(self, _metrics, request), fields(hsm=self.options.name), ret)]
     pub(super) fn handle_capture_next(
         &mut self,
         _metrics: &mut Metrics<P>,
@@ -209,7 +209,7 @@ impl<P: Platform> Hsm<P> {
         )
     }
 
-    #[instrument(level = "trace", skip(self, _metrics), fields(hsm=self.options.name), ret)]
+    #[instrument(level = "trace", skip(self, _metrics, request), fields(hsm=self.options.name), ret)]
     pub(super) fn handle_commit(
         &mut self,
         _metrics: &mut Metrics<P>,
