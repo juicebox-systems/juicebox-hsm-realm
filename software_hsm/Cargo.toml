@@ -13,7 +13,7 @@ blake2 = { workspace = true }
 build_info = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
-hex = { workspace = true }
+hex = { workspace = true, features=["std"] }
 hkdf = { workspace = true }
 hsm_api = { workspace = true }
 hsm_core = { workspace = true }
