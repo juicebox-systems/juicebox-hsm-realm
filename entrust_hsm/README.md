@@ -131,18 +131,16 @@ cryptography is currently done inside the SEEMachine software)
 
 ## Rust bindings to the seelib library
 
-The `bindgen.sh` script will run the [bindgen](https://rust-lang.github.io/rust-bindgen/)
-tool to generate rust binding to the C based seelib headers and libraries. You'll need
-the entrust SDK and the bindgen tool installed to run this script. Bindgen can be installed
-with `cargo install bindgen-cli`. You only need to run this script if you need to adjust
-the bindgen script to import more of the library.
+The `build.rs` script will use [bindgen](https://rust-lang.github.io/rust-bindgen/)
+to generate rust binding to the C based seelib headers and libraries. You'll need
+the entrust codesafe SDK installed to run the build.
 
 ## CPU
 
 The HSM uses a PowerPC CPU, the e5500 in 32bit mode. This CPU does not have Altivec
 support. The standard Rust builds for the powerpc-unknown-linux-gnu target are
 compiled with a powerPC CPU target that includes Altivec. For this reason the compile
-scripts build their own versions or core and/or std.
+scripts build their own versions of core and/or std.
 
 
 ## ncipherxc target
@@ -160,9 +158,8 @@ target using `compile_linux.sh` which is handy for debugging.
 
 ## Debugging
 
-The entrust_agent supports a --trace flag which'll collect and print logging
+The entrust_agent supports a `--trace` flag which'll collect and print logging
 written to the trace buffer on the HSM. This requires that the security world
 was created with the 'dseeall' feature enabled. On the HSM side, stdout and stderr are
 routed to the trace buffer. The linux target includes the rust std library so
-can support having `println!()` in the HSM code. In a future version the ncipherxc
-target should also support this.
+can support having `println!()` in the HSM code.

@@ -14,6 +14,7 @@ pub struct TreeOverlay<HO> {
     pub nodes: HashMap<HO, Node<HO>>,
     changes: VecDeque<DeltaCleanup<HO>>,
 }
+
 impl<HO: HashOutput> TreeOverlay<HO> {
     // Create a new TreeOverlay given the Tree's latest root hash.
     pub fn new(latest_root: HO, max_deltas: u16) -> Self {

@@ -97,14 +97,10 @@ requests.
 
 ## Code Structure
 
-This repo started out with everything in a single crate and is in a confusing
-state of transition as we iteratively split and reorganize the code. We are
-also transitioning to naming crates using underscores. This repo also depends
-on a few crates from the [Juicebox SDK] repo (which is included as a Git
-submodule at the path `sdk`).
+This repo depends on a few crates from the [Juicebox SDK] repo (which is
+included as a Git submodule at the path `sdk`).
 
-This is a diagram of the current crates, excluding tooling, showing their
-local dependencies:
+This is a diagram of the current crates, showing their local dependencies:
 
 ![Dependency Graph](crate_graph.png)
 <!--- regenerate with scripts/dep_graph.sh ---->
@@ -146,8 +142,8 @@ System dependencies:
 
 Then:
 
-* `cargo test --all` to run the unit tests
-* to run the rust demo aka "integration test":
+* `cargo test --all` to run the tests
+* to run the client rust demo:
 ```sh
 cd sdk
 cargo build -p juicebox_demo_cli

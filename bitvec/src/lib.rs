@@ -58,7 +58,7 @@ pub trait Bits<'a>: Sized {
         v.extend(self);
         v
     }
-    /// Returns a new KeyVec consisting of our sequence followed by the bit sequence
+    /// Returns a new BitVec consisting of our sequence followed by the bit sequence
     /// from other.
     fn concat<'o, O: Bits<'o>>(&'a self, other: &'o O) -> BitVec {
         let mut r = self.to_bitvec();

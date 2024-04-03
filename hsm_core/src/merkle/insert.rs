@@ -21,7 +21,6 @@ impl<H: NodeHasher> Tree<H> {
         mut proof: VerifiedProof<H::Output>,
         v: Vec<u8>,
     ) -> Result<(H::Output, StoreDelta<H::Output>), ProofError> {
-        //
         if proof.root_hash() != &self.overlay.latest_root {
             return Err(ProofError::Stale);
         }

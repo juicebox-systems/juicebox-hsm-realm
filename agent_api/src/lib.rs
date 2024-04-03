@@ -439,9 +439,9 @@ pub struct AppRequest {
     pub user: HashedUserId,
 }
 
-/// A hashed version of the user id that is used for the tenant recovery event
-/// log. The tenant needs to be able to calculate the same hash to map back to
-/// their users so this needs to be stable & published.
+/// A hashed version of the user id that is used for the tenant event log. The
+/// tenant needs to be able to calculate the same hash to map back to their
+/// users so this needs to be stable & published.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HashedUserId(String);
 

@@ -874,7 +874,7 @@ pub struct LeaderStatus {
     pub committed: Option<LogIndex>,
 
     /// The last known log index. This is either the index of the log entry
-    /// provided during begin_leader, or the index or the most recently generated
+    /// provided during begin_leader, or the index of the most recently generated
     /// log entry while leader.
     ///
     /// # Warning
@@ -1583,7 +1583,7 @@ pub enum TransferOutResponse {
         /// The transfer process should wait for this log index to be committed
         /// before proceeding.
         wait_til_committed: LogIndex,
-        /// The leader role clock at the time it decided on `after`.
+        /// The leader role clock at the time it decided on `wait_til_committed`.
         clock: RoleLogicalClock,
     },
     /// This HSM is not a member of this realm.

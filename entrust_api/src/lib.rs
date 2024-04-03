@@ -1,4 +1,5 @@
-//! Entrust specific types dealing with initialization and startup of the hsmcore implementation.
+//! Entrust specific types dealing with initialization and startup of the
+//! hsm_core implementation.
 
 #![no_std]
 
