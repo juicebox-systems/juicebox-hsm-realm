@@ -25,7 +25,6 @@ impl<H: NodeHasher> Tree<H> {
         my_proof: ReadProof<H::Output>,
         other_proof: ReadProof<H::Output>,
     ) -> Result<MergeResult<H::Output>, MergeError> {
-        //
         let mine = proof::verify::<H>(my_proof, &self.overlay).map_err(MergeError::Proof)?;
         let other = proof::verify_foreign_proof::<H>(other_proof).map_err(MergeError::Proof)?;
 

@@ -17,7 +17,7 @@ use hsm_api::rpc::Nanos;
 use hsm_core::hal::{Clock, IOError, NVRam, MAX_NVRAM_SIZE};
 
 /// NCipher implements the Platform trait, which provides platform specific
-/// functionality to the hsmcore library.
+/// functionality to the hsm_core library.
 #[derive(Clone)]
 pub struct NCipher {
     // The hash of the key used to sign the SEEMachine/Userdata. We need this

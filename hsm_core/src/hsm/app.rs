@@ -30,7 +30,6 @@ use super::CryptoRng;
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct UserRecord {
     registration_state: RegistrationState,
-    // TODO: audit log
 }
 
 impl UserRecord {

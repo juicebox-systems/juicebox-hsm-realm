@@ -216,8 +216,7 @@ fn await_job(buf: &mut Vec<u8>) -> (M_Word, usize) {
             buf.resize(min(len as usize, MAX_JOB_SIZE_BYTES), 0);
             continue;
         }
-        // Everything is executed on the same one thread, so Ordering::Relaxed is
-        // fine. The only reason its an atomic is to keep the borrow checker happy.
+        // The only reason its an atomic is to keep the borrow checker happy.
         ACTIVE_JOB_TAG.store(tag, Ordering::Relaxed);
         return (tag, len as usize);
     }

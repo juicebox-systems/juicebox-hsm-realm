@@ -372,7 +372,7 @@ name: {name}
                 // verify that major.minor is >= to our major.minor
                 // patch and bugfix versions can be out-of-sync
                 // to allow the SDK and realm software to make
-                // changes that don't break protocol compatability
+                // changes that don't break protocol compatibility
                 semver.major > self.0.semver.major
                     || (semver.major == self.0.semver.major && semver.minor >= self.0.semver.minor)
             });

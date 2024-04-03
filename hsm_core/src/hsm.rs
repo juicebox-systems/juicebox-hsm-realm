@@ -61,9 +61,9 @@ use juicebox_realm_api::{
     types::{RealmId, SessionId},
 };
 
-// TODO: This is susceptible to DoS attacks. One user could create many
-// sessions to evict all other users' Noise connections, or one attacker could
-// collect many (currently 511) user accounts to evict all other connections.
+// Unless sized correctly this is susceptible to DoS attacks. One user could
+// create many sessions to evict all other users' Noise connections, or one
+// attacker could collect many user accounts to evict all other connections.
 type SessionCache = lru_cache::Cache<
     (RecordId, SessionId),
     noise::Transport,
