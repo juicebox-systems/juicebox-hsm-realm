@@ -76,8 +76,8 @@ implementation support the following features:
   read or write operation, requests to the storage for the entire path is done
   concurrently, further improving performance.
 
-While this paper focuses on the tree itself, Juicebox uses the Authenticated
-Consensus Protocol@acp to recover from hardware failures. The ability to
+While this paper focuses on the tree itself, Juicebox uses an Authenticated
+Consensus Protocol to recover from hardware failures. The ability to
 authenticate an entire tree with a single hash allows the consensus protocol to
 reach agreement on just a small amount of metadata as the tree evolves, making
 operations simpler and more efficient.
@@ -943,8 +943,7 @@ higher in the tree that are no longer reachable from the latest root.
 
 In the Juicebox application, the Merkle tree is managed in conjunction with a
 log that tracks the history of changes to the tree. The log allows for other
-HSMs to take over in the event of a failure. This is described in more detail
-in Authenticated Consensus Protocol@acp.
+HSMs to take over in the event of a failure.
 
 
 = Storage <Storage>
