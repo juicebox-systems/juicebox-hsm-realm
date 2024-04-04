@@ -86,7 +86,7 @@ resolver = "2"
 
 [workspace.package]
 rust-version = "1.75"
-version = "0.2.3"
+version = "0.3.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [workspace.dependencies]
@@ -235,7 +235,7 @@ x509-cert = { version = "0.2.5", default-features = false }
 # like cargo-upgrade (from the cargo-edit project) to report when the forked
 # versions fall behind the crates.io versions.
 #
-# Using Git submodules instead of poining Cargo to the Git repositories works
+# Using Git submodules instead of pointing Cargo to the Git repositories works
 # better for offline reproducible builds (for key ceremonies). If we tell Cargo
 # about the Git repos, the Git information ends up in Cargo.lock, and we don't
 # want to need the full Git repo for offline builds. This also simplifies the
