@@ -154,6 +154,7 @@ impl LoadBalancer {
                                         let result = match protocol {
                                             "h2" => {
                                                 let c = http2::Builder::new(TokioExecutor)
+                                                    .max_header_list_size(4096)
                                                     .serve_connection(io, lb);
                                                 let c = mgr.manage(c).await;
                                                 c.await
