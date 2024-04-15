@@ -13,9 +13,9 @@ use google::bigtable::v2::{
     ValueRange,
 };
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use thiserror::Error;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::{BigtableTableAdminClient, Instance, StoreClient};
 use bigtable::bigtable_retries;
@@ -279,8 +279,19 @@ impl StoreClient {
             reversed: false,
         };
         let mut bigtable = self.0.bigtable.clone();
+
         let mut results = Vec::new();
-        match Reader::read_rows_stream(&mut bigtable, Retry::disabled(), read_req, |key, _cells| {
+        let mut row_count = 0usize;
+        let mut last_report = Instant::now();
+        let retry = Retry::new("reading users table")
+            .with(bigtable_retries)
+            .with_deadline(None);
+        match Reader::read_rows_stream(&mut bigtable, retry, read_req, |key, _cells| {
+            row_count += 1;
+            if row_count % 1000 == 0 && last_report.elapsed() > Duration::from_secs(2) {
+                debug!(row_count, ?key, "reading user accounting rows");
+                last_report = Instant::now();
+            }
             if let Some(t) = parse_tenant(&key.0) {
                 match results.last_mut() {
                     Some((last_tenant, count)) if last_tenant == t => *count += 1,
