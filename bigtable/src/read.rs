@@ -3,12 +3,12 @@ use google::bigtable::v2::read_rows_response::cell_chunk::RowStatus;
 use google::bigtable::v2::read_rows_response::CellChunk;
 use google::bigtable::v2::row_range::EndKey::{EndKeyClosed, EndKeyOpen};
 use google::bigtable::v2::row_range::StartKey::{StartKeyClosed, StartKeyOpen};
-use google::bigtable::v2::ReadRowsRequest;
+use google::bigtable::v2::{ReadRowsRequest, RowRange, RowSet};
 use std::fmt;
 use std::marker::PhantomData;
 use tokio::sync::Mutex;
 use tonic::codegen::{Body, Bytes, StdError};
-use tracing::{instrument, Span};
+use tracing::{info, instrument, Span};
 
 use super::inspect_grpc_error;
 use retry_loop::{retry_logging, Retry, RetryError};
@@ -153,7 +153,7 @@ where
     where
         F: FnMut(RowKey, Vec<Cell>),
     {
-        validate_request_rows(&request);
+        validate_request_rows(&request.rows);
         Span::current().record(
             "num_request_items",
             match &request.rows {
@@ -185,9 +185,15 @@ where
 
         let run = |_| async {
             let mut state = state.lock().await;
+            let mut req = request.clone();
+            if let Some(rowkey) = &state.last_completed_row {
+                if !request.reversed {
+                    clamp_rowset_forward(&mut req.rows, rowkey);
+                }
+            }
             let mut stream = bigtable
                 .clone()
-                .read_rows(request.clone())
+                .read_rows(req)
                 .await
                 .map_err(inspect_grpc_error)?
                 .into_inner();
@@ -241,15 +247,58 @@ where
     }
 }
 
-fn validate_request_rows(request: &ReadRowsRequest) {
-    let Some(rows) = &request.rows else {
+fn clamp_rowset_forward(rows: &mut Option<RowSet>, last_read: &RowKey) {
+    match rows {
+        None => {
+            info!(start=?last_read, "read_rows_stream retry, adding RowRange to set new start key");
+            *rows = Some(RowSet {
+                row_keys: Vec::new(),
+                row_ranges: vec![RowRange {
+                    start_key: Some(StartKeyOpen(last_read.0.clone())),
+                    end_key: None,
+                }],
+            });
+        }
+        Some(rowset) => {
+            rowset.row_keys.retain(|k| k > &last_read.0);
+            rowset.row_ranges.retain(|r| match &r.end_key {
+                None => true,
+                Some(EndKeyOpen(k)) | Some(EndKeyClosed(k)) => k > &last_read.0,
+            });
+            for row_range in &mut rowset.row_ranges {
+                match &mut row_range.start_key {
+                    None => {
+                        let start = StartKeyOpen(last_read.0.clone());
+                        info!(
+                            ?start,
+                            "read_rows_stream retry, setting start key on RowRange"
+                        );
+                        row_range.start_key = Some(start);
+                    }
+                    Some(StartKeyClosed(k)) | Some(StartKeyOpen(k)) => {
+                        if &last_read.0 >= k {
+                            let start = StartKeyOpen(last_read.0.clone());
+                            info!(from=?row_range.start_key, to=?start,
+                                "read_rows_stream retry, updating start key on RowRange");
+                            row_range.start_key = Some(start);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    validate_request_rows(rows);
+}
+
+fn validate_request_rows(rows: &Option<RowSet>) {
+    let Some(rows) = rows else {
         // `None` indicates to return all rows, which is valid.
         return;
     };
 
     assert!(
         !rows.row_keys.is_empty() || !rows.row_ranges.is_empty(),
-        "Bigtable read request missing row keys or ranges: {request:#?}"
+        "Bigtable read request missing row keys or ranges: {rows:#?}"
     );
 
     // Cloud Bigtable can return errors like this when the range given is
@@ -289,7 +338,7 @@ fn validate_request_rows(request: &ReadRowsRequest) {
                 (StartKeyOpen(start), EndKeyClosed(end)) => start < end,
                 (StartKeyOpen(start), EndKeyOpen(end)) => start < end,
             }),
-        "Bigtable read row range cannot be trivially empty: {request:#?}"
+        "Bigtable read row range cannot be trivially empty: {rows:#?}"
     );
 }
 
@@ -411,6 +460,219 @@ fn process_read_chunk(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clamp_rowset_from_full_table_read() {
+        let mut r: Option<RowSet> = None;
+        clamp_rowset_forward(&mut r, &RowKey(vec![22]));
+        assert_eq!(
+            Some(RowSet {
+                row_keys: Vec::new(),
+                row_ranges: vec![RowRange {
+                    start_key: Some(StartKeyOpen(vec![22])),
+                    end_key: None
+                }]
+            }),
+            r
+        );
+    }
+
+    #[test]
+    fn clamp_rowset_row_keys() {
+        let r = Some(RowSet {
+            row_keys: vec![vec![22, 23], vec![5], vec![100, 100, 100]],
+            row_ranges: Vec::new(),
+        });
+        let mut x = r.clone();
+        clamp_rowset_forward(&mut x, &RowKey(vec![3]));
+        assert_eq!(x, r);
+
+        let mut x = r.clone();
+        clamp_rowset_forward(&mut x, &RowKey(vec![5]));
+        assert_eq!(
+            x,
+            Some(RowSet {
+                row_keys: vec![vec![22, 23], vec![100, 100, 100]],
+                row_ranges: Vec::new()
+            })
+        );
+
+        let mut x = r.clone();
+        clamp_rowset_forward(&mut x, &RowKey(vec![5, 0]));
+        assert_eq!(
+            x,
+            Some(RowSet {
+                row_keys: vec![vec![22, 23], vec![100, 100, 100]],
+                row_ranges: Vec::new()
+            })
+        );
+
+        let mut x = r.clone();
+        clamp_rowset_forward(&mut x, &RowKey(vec![10]));
+        assert_eq!(
+            x,
+            Some(RowSet {
+                row_keys: vec![vec![22, 23], vec![100, 100, 100]],
+                row_ranges: Vec::new()
+            })
+        );
+
+        let mut x = r.clone();
+        clamp_rowset_forward(&mut x, &RowKey(vec![22, 22]));
+        assert_eq!(
+            x,
+            Some(RowSet {
+                row_keys: vec![vec![22, 23], vec![100, 100, 100]],
+                row_ranges: Vec::new()
+            })
+        );
+
+        let mut x = r.clone();
+        clamp_rowset_forward(&mut x, &RowKey(vec![22, 23]));
+        assert_eq!(
+            x,
+            Some(RowSet {
+                row_keys: vec![vec![100, 100, 100]],
+                row_ranges: Vec::new()
+            })
+        );
+        let mut x = r.clone();
+        clamp_rowset_forward(&mut x, &RowKey(vec![55]));
+        assert_eq!(
+            x,
+            Some(RowSet {
+                row_keys: vec![vec![100, 100, 100]],
+                row_ranges: Vec::new()
+            })
+        );
+    }
+
+    #[test]
+    fn clamp_rowset_ranges() {
+        let mut r = Some(RowSet {
+            row_keys: Vec::new(),
+            row_ranges: vec![RowRange {
+                start_key: None,
+                end_key: None,
+            }],
+        });
+        clamp_rowset_forward(&mut r, &RowKey(vec![1, 2, 3]));
+        assert_eq!(
+            r,
+            Some(RowSet {
+                row_keys: Vec::new(),
+                row_ranges: vec![RowRange {
+                    start_key: Some(StartKeyOpen(vec![1, 2, 3])),
+                    end_key: None
+                }]
+            })
+        );
+
+        let r = Some(RowSet {
+            row_keys: Vec::new(),
+            row_ranges: vec![RowRange {
+                start_key: Some(StartKeyClosed(vec![12])),
+                end_key: Some(EndKeyClosed(vec![22])),
+            }],
+        });
+        let mut x = r.clone();
+        clamp_rowset_forward(&mut x, &RowKey(vec![5]));
+        assert_eq!(x, r);
+
+        clamp_rowset_forward(&mut x, &RowKey(vec![12]));
+        assert_eq!(
+            x,
+            Some(RowSet {
+                row_keys: Vec::new(),
+                row_ranges: vec![RowRange {
+                    start_key: Some(StartKeyOpen(vec![12])),
+                    end_key: Some(EndKeyClosed(vec![22]))
+                }]
+            })
+        );
+
+        clamp_rowset_forward(&mut x, &RowKey(vec![15]));
+        assert_eq!(
+            x,
+            Some(RowSet {
+                row_keys: Vec::new(),
+                row_ranges: vec![RowRange {
+                    start_key: Some(StartKeyOpen(vec![15])),
+                    end_key: Some(EndKeyClosed(vec![22]))
+                }]
+            })
+        );
+
+        let mut x = Some(RowSet {
+            row_keys: vec![vec![200]],
+            row_ranges: vec![RowRange {
+                start_key: Some(StartKeyClosed(vec![1])),
+                end_key: Some(EndKeyClosed(vec![2])),
+            }],
+        });
+        clamp_rowset_forward(&mut x, &RowKey(vec![2]));
+        assert_eq!(
+            x,
+            Some(RowSet {
+                row_keys: vec![vec![200]],
+                row_ranges: Vec::new()
+            })
+        );
+    }
+
+    #[test]
+    fn clamp_rowset_at_end_of_range() {
+        let mut r = Some(RowSet {
+            row_keys: Vec::new(),
+            row_ranges: vec![
+                RowRange {
+                    start_key: Some(StartKeyClosed(vec![2])),
+                    end_key: Some(EndKeyClosed(vec![3])),
+                },
+                RowRange {
+                    start_key: Some(StartKeyClosed(vec![2])),
+                    end_key: Some(EndKeyOpen(vec![3])),
+                },
+                RowRange {
+                    start_key: Some(StartKeyClosed(vec![2])),
+                    end_key: Some(EndKeyClosed(vec![4])),
+                },
+            ],
+        });
+        validate_request_rows(&r);
+        clamp_rowset_forward(&mut r, &RowKey(vec![2, 2]));
+        assert_eq!(
+            r,
+            Some(RowSet {
+                row_keys: Vec::new(),
+                row_ranges: vec![
+                    RowRange {
+                        start_key: Some(StartKeyOpen(vec![2, 2])),
+                        end_key: Some(EndKeyClosed(vec![3])),
+                    },
+                    RowRange {
+                        start_key: Some(StartKeyOpen(vec![2, 2])),
+                        end_key: Some(EndKeyOpen(vec![3])),
+                    },
+                    RowRange {
+                        start_key: Some(StartKeyOpen(vec![2, 2])),
+                        end_key: Some(EndKeyClosed(vec![4])),
+                    },
+                ]
+            })
+        );
+        clamp_rowset_forward(&mut r, &RowKey(vec![3]));
+        assert_eq!(
+            r,
+            Some(RowSet {
+                row_keys: Vec::new(),
+                row_ranges: vec![RowRange {
+                    start_key: Some(StartKeyOpen(vec![3])),
+                    end_key: Some(EndKeyClosed(vec![4]))
+                }]
+            })
+        );
+    }
 
     fn process_read_chunks(
         chunks: Vec<CellChunk>,

@@ -21,7 +21,7 @@ clap = { workspace = true }
 cluster_api = { workspace = true }
 cluster_core = { workspace = true }
 futures = { workspace = true }
-hex = { workspace = true }
+hex = { workspace = true, features=["std"] }
 hsm_api = { workspace = true }
 google = { workspace = true }
 jburl = { workspace = true }
