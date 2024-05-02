@@ -20,7 +20,7 @@ use tracing::{debug, warn};
 use super::{BigtableTableAdminClient, Instance, StoreClient};
 use bigtable::bigtable_retries;
 use bigtable::mutate::{mutate_rows, MutateRowsError};
-use bigtable::read::Reader;
+use bigtable::read::{Reader, RowKey};
 use hsm_api::RecordId;
 use juicebox_realm_api::types::RealmId;
 use observability::metrics_tag as tag;
@@ -283,10 +283,7 @@ impl StoreClient {
         let mut results = Vec::new();
         let mut row_count = 0usize;
         let mut last_report = Instant::now();
-        let retry = Retry::new("reading users table")
-            .with(bigtable_retries)
-            .with_deadline(None);
-        match Reader::read_rows_stream(&mut bigtable, retry, read_req, |key, _cells| {
+        let row_fn = |key: RowKey, _cells| {
             row_count += 1;
             if row_count % 1000 == 0 && last_report.elapsed() > Duration::from_secs(2) {
                 debug!(row_count, ?key, "reading user accounting rows");
@@ -300,9 +297,11 @@ impl StoreClient {
             } else {
                 warn!(key=?key, "invalid row key, expecting tenant:recordId")
             }
-        })
-        .await
-        {
+        };
+        let retry = Retry::new("reading users table")
+            .with(bigtable_retries)
+            .with_deadline(None);
+        match Reader::read_rows_stream(&mut bigtable, retry, read_req, row_fn).await {
             Err(err) => {
                 warn!(?err, "couldn't read from bigtable");
                 Err(CountRealmUsersError::StoreRpc(err.last().unwrap()))

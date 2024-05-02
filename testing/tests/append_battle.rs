@@ -148,6 +148,7 @@ async fn leader_battle() {
 #[derive(Debug)]
 enum AgentAppRequestError {
     NotOk(AppResponse),
+    #[allow(dead_code)]
     Rpc(RpcError),
 }
 

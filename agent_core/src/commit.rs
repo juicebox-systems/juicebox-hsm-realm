@@ -673,7 +673,7 @@ impl AgentDiscoveryCache {
                 let agents = disco_rx.borrow_and_update().clone();
                 let new_peers: HashMap<HsmId, Url> = hsm_ids(&client, &agents.0).await.collect();
                 if new_peers != last {
-                    last = new_peers.clone();
+                    last.clone_from(&new_peers);
                     info!(?new_peers, "updated peers in AgentDiscoveryCache");
                     let mut locked = clone.inner.lock().unwrap();
                     locked.peers = new_peers;
