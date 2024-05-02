@@ -338,26 +338,6 @@ fn run_typst(installation: Installation) {
     }
 }
 
-// This truncates the path labels so that it looks like an 8 bit tree.
-struct TruncPathLabels<'a, HO> {
-    dot: &'a mut DotGraph,
-    id_builder: fn(&HO) -> String,
-}
-
-impl<'a, HO: HashOutput> Visitor<HO> for TruncPathLabels<'a, HO> {
-    fn visit_node(&mut self, _prefix: &KeyVec, _hash: &HO, _node: &Node<HO>) {}
-    fn visit_missing_node(&mut self, _prefix: &KeyVec, _node_hash: &HO) {}
-    fn visit_branch(&mut self, prefix: &KeyVec, node_hash: &HO, dir: Dir, branch: &Branch<HO>) {
-        if let Some(edge) = self.dot.edge_mut(
-            &(self.id_builder)(node_hash),
-            &(self.id_builder)(&branch.hash),
-        ) {
-            edge.2
-                .set("label", format_branch_label(prefix, dir, branch));
-        }
-    }
-}
-
 fn format_branch_label<HO: HashOutput>(prefix: &KeyVec, dir: Dir, branch: &Branch<HO>) -> String {
     let display_path = if prefix.len() + branch.prefix.len() > 8 {
         // this will blow up if you incorrectly have a key with a non-zero value after the first byte.

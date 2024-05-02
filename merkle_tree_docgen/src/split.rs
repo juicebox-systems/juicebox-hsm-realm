@@ -193,18 +193,18 @@ fn split_dot_tree_at(
     let found = match dir {
         Dir::Left => match dot.edge_mut(&node_name, &format!("{}_2", hash_id(&child_hash))) {
             Some(e) => {
-                e.0 = split_node_name.clone();
+                e.0.clone_from(&split_node_name);
                 true
             }
             None => false,
         },
         Dir::Right => match dot.edge_mut(&node_name, &format!("{}_2", hash_id(&child_hash))) {
             Some(e) => {
-                e.0 = split_node_name.clone();
+                e.0.clone_from(&split_node_name);
                 // we also need to move the left branch in this case
                 let child_hash = int.branch(Dir::Left).as_ref().unwrap().hash;
                 if let Some(e) = dot.edge_mut(&node_name, &hash_id(&child_hash)) {
-                    e.0 = split_node_name.clone();
+                    e.0.clone_from(&split_node_name);
                 }
                 true
             }
@@ -213,7 +213,10 @@ fn split_dot_tree_at(
     };
     if !found {
         // This happens for the first level that's split.
-        dot.edge_mut(&node_name, &hash_id(&child_hash)).unwrap().0 = split_node_name.clone()
+        dot.edge_mut(&node_name, &hash_id(&child_hash))
+            .unwrap()
+            .0
+            .clone_from(&split_node_name);
     }
 
     // copy the edge leading to the node. (which won't exist for the root node)
