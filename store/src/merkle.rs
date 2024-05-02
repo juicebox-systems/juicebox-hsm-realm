@@ -833,6 +833,7 @@ impl StoreKey {
     }
 }
 
+#[allow(dead_code)] // the contained slice is used in tests.
 pub struct EncodedRecordPrefix<'a>(&'a [u8]);
 // When/If we have a need to decode this back to the prefix, we can write the base128 decoder.
 
