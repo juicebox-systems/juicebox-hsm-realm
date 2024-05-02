@@ -864,9 +864,7 @@ impl StoreKeyStart {
 
 // Generates the encoded version of each prefix for this recordId. starts at
 // prefix[..0] and end with at prefix[..=RecordId::NUM_BITS]
-pub fn all_store_key_starts(
-    k: &RecordId,
-) -> impl Iterator<Item = StoreKeyStart> + ExactSizeIterator + '_ {
+pub fn all_store_key_starts(k: &RecordId) -> impl ExactSizeIterator<Item = StoreKeyStart> + '_ {
     // `ExactSizeIterator` is not implemented for `RangeInclusive<usize>`, so
     // awkwardly cast back and forth.
     let range = 0..=u16::try_from(RecordId::NUM_BITS).unwrap();
