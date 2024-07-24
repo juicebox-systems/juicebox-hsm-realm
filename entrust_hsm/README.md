@@ -1,8 +1,8 @@
 # Entrust HSM
 
-This builds a nCipher seemachine executable that can be run on an Entrust HSM.
+This builds a "see machine" executable that can be run on an Entrust Solo XC HSM.
 
-You'll need the Entrust/nCipher SDK to be installed (On linux)
+You'll need the Entrust CodeSafe SDK to be installed (On linux)
 
 `./compile_linux.sh` will compile using the powerpc / linux target
 
@@ -25,7 +25,7 @@ the insecure features (currently just per request metrics) enabled you add
 The HSM and Security World need to be configured so that our HSM software can
 access the NVRAM and realm keys. Both the NVRAM and realm keys should have ACL's
 on them that restrict access to just the seemachine. (this is called seeinteg
-in the entrust tools). This requires that both the seemachine image and userdata
+in the Entrust tools). This requires that both the seemachine image and userdata
 file are signed.
 
 Our `entrust_init` tool is used to configure NVRAM access and create realm keys.
