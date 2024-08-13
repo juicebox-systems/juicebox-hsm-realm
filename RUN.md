@@ -7,10 +7,10 @@ Entrust HSMs. Its recommended that you read both [`README.md`](./README.md) and
 
 ## Hardware
 
-* 3 or more [Entrust nShield Solo XC HSM's](https://www.entrust.com/products/hsm/nshield-solo) (The base model is fine)
-* A CodeSafe license for each HSM
-* A Pack of Entrust blank smart cards
-* x64 servers of your choice to host the HSM PCIe cards
+* 3 or more [Entrust nShield Solo XC HSM's](https://www.entrust.com/products/hsm/nshield-solo). The base model is fine.
+* A CodeSafe license for each HSM.
+* A Pack of Entrust blank smart cards.
+* x64 servers of your choice to host the HSM PCIe cards.
 * x64 servers to run the load balancer and cluster manager services.
   Alternatively these services can be run in a virtualized environment that is
   located in the same facility as the HSM servers.
@@ -31,20 +31,30 @@ In our testing a 5 HSM cluster (with 3 replication groups) should be able to
 perform approx 240 recover operations a second. This throughput drops off
 slightly as the size of the merkle tree increases. We observed a 5% drop in
 throughput going from a tree with 10M leaves to a tree with 500M leaves. If more
-throughput is required, you will need more HSMs in your realm.
+throughput is required, you will need more HSMs and replication groups in your
+realm.
 
 ## GCP
 
 The GCP services Bigtable, Secret Manager and Cloud Pub/Sub are used by the
 realm services. Credentials to access these will be needed for all hosts
-(regardless of role) in the cluster.
+(regardless of role) in the cluster. Bigtable should be configured for a single
+zone as multi-zone configurations change the semantics of write operations. If
+you are concerned about uptime with only a single zone, then you should run
+multiple independent realms with a N of M client configuration. e.g. 2 HSM
+realms and 1 software realm with a 2 of 3 client configuration.
+
+Ideally your HSM servers are located in a facility that is close to the GCP zone
+you plan to use.
 
 ## HSM Initialization
 
 For test clusters the `entrust_ops` tool that is part of this repo can be used
 to initialize the NVRAM and create the Security World and relevant keys. The
 [`entrust_hsm/README.md`](./entrust_hsm/README.md) has more information about
-this process.
+this process. Unless you've purchased the remote card readers, then physical
+access to the HSMs will be required during this process in order to connect the
+card reader and swap cards at the appropriate times.
 
 For production clusters a more rigorous key ceremony should be performed before
 the HSMs are installed in the servers. The key ceremony allows external parties
@@ -145,12 +155,20 @@ python3 -c \
         --labels kind=tenant_auth_key
 ```
 
-RsaPkcs1Sha256 and Edwards25519 algorithms are also supported and better choices
-for production tenants.
+`RsaPkcs1Sha256` and `Edwards25519` algorithms are also supported and are better
+choices for production tenants.
 
 By default each tenant is rate limited to 10 requests a second. The `cluster
 tenant` command can be used to set a different rate limit for a tenant.
 
+## Tenant Event Log Service
+
+The tenant event log service contained in the software realm repo is used for
+both software realms and HSM realms. You will need to the tenant event log
+service with it configured to use the same GCP zone/project as the HSM realm.
+The ['tenant-log-client'](../tenant-log-client) repo contains a sample client
+application as well as [documentation](../tenant-log-client/API.md) on the
+exposed API.
 
 ## Client Configuration
 
