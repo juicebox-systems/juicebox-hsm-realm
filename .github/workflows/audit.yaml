@@ -14,7 +14,4 @@ jobs:
       - uses: actions/checkout@v3
         with:
             submodules: recursive
-            token: ${{ secrets.ACCESS_TOKEN }}
       - uses: rustsec/audit-check@v1.4.1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}

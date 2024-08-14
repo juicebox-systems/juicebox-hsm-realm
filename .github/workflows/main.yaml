@@ -30,7 +30,6 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: recursive
-        token: ${{ secrets.ACCESS_TOKEN }}
 
     - name: Free up some space on image
       # see https://github.com/actions/runner-images/issues/2840
@@ -69,7 +68,6 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: recursive
-        token: ${{ secrets.ACCESS_TOKEN }}
 
     - name: Check out sdk client sources
       uses: actions/checkout@v4
@@ -78,7 +76,6 @@ jobs:
         ref: ${{ matrix.sdk_version }}
         path: "sdk_client"
         submodules: recursive
-        token: ${{ secrets.ACCESS_TOKEN }}
 
     - name: setup environment
       uses: ./.github/actions/setup
@@ -107,7 +104,7 @@ jobs:
         # with the deployed and un-updatable hsm code.
         name: HSM Cross version test
         # Use same runner as Lint & Test. See comment there.
-        runs-on: ubuntu-latest-m
+        runs-on: ubuntu-latest
         timeout-minutes: 20
         strategy:
           matrix:
@@ -118,7 +115,6 @@ jobs:
           uses: actions/checkout@v4
           with:
             submodules: recursive
-            token: ${{ secrets.ACCESS_TOKEN }}
 
         - name: Check out versioned hsm
           uses: actions/checkout@v4
@@ -126,7 +122,6 @@ jobs:
             ref: ${{ matrix.hsm_version }}
             path: "versioned_hsm"
             submodules: recursive
-            token: ${{ secrets.ACCESS_TOKEN }}
 
         - name: Setup environment
           uses: ./.github/actions/setup
@@ -152,88 +147,15 @@ jobs:
             RUST_BACKTRACE: '1'
             SOFTWARE_HSM_DIR: ${{ github.workspace }}/versioned_hsm/target/debug
 
-  swift_demo:
-    name: Swift Demo
-    # macos-12-large is an Intel x86_64-based runner with 12 vCPUs, 30 GB RAM,
-    # and 14 GB SSD running Mac OS 12.
-    #
-    # The default macos-12 runner (with 3 vCPUs) was overloaded during this
-    # test (experiencing lots of timeout issues), so we switched to a larger
-    # runner in 2023-11.
-    #
-    # Currently, the macos-13 runners (in beta) don't include Colima or Go, and
-    # installing Colima with brew takes a few minutes. Using an ARM-based
-    # runner (macos-13-xlarge) would be nice for coverage on that architecture,
-    # but even after installing Colima with brew, Colima fails to start (as of
-    # 2023-11).
-    runs-on: macos-12-large
-    timeout-minutes: 20
-    steps:
-    - name: Check out sources
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-        token: ${{ secrets.ACCESS_TOKEN }}
-
-    - name: Setup docker
-      # Colima is a container runtime. It's part of the base MacOS 12 github
-      # runner image but not MacOS 13 (as of 2023-11).
-      shell: bash
-      run: |
-        brew install docker
-        colima version
-        colima start
-
-    - name: Remove android emulator
-      # This is on the path and clashes with the bigtable emulator which is also
-      # called emulator.
-      shell: bash
-      run: |
-        rm /Users/runner/Library/Android/sdk/tools/emulator || true
-
-    - name: Setup environment
-      uses: ./.github/actions/setup
-      with:
-        rust_version: ${{ env.INSTALL_RUST_VERSION }}
-
-    - name: Run cargo build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-
-    - name: Build FFI
-      run: cd sdk && ./swift/ffi.sh
-
-    - name: Use Swift Cache
-      uses: actions/cache@v3
-      with:
-        path: sdk/swift/demo/.build
-        key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
-        restore-keys: |
-          ${{ runner.os }}-spm-
-
-    - name: Build Swift Demo
-      run: cd sdk/swift/demo && swift build --verbose
-
-    - name: Run demo
-      run: |
-        RUST_BACKTRACE=1 target/debug/demo_runner --minimal --demo sdk/swift/demo/.build/debug/demo
-      shell: bash
-
   lint_and_test:
     name: Lint & Test
-    # The tests are resource intensive and may benefit from a slightly larger
-    # runner. As of 2023-11, "ubuntu-latest-m" is a runner configured in our
-    # organization meaning Ubuntu 22.04 with 4 cores, 16 GB RAM, 150 GB SSD.
-    # For comparison, the standard runners are 2 cores, 7 GB RAM, 14 GB SSD.
-    runs-on: ubuntu-latest-m
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
     - name: Check out sources
       uses: actions/checkout@v4
       with:
         submodules: recursive
-        token: ${{ secrets.ACCESS_TOKEN }}
 
     - name: setup environment
       uses: ./.github/actions/setup
@@ -298,134 +220,92 @@ jobs:
     - name: Check SDK dependency versions agree
       run: ./scripts/check-sdk-deps.py
 
-  wasm_demo:
-    name: WASM Demo
-    runs-on: ubuntu-22.04
-    timeout-minutes: 20
-    steps:
-    - name: Check out sources
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-        token: ${{ secrets.ACCESS_TOKEN }}
+  # Disabled, as the ncipher-shield-firmware is not proprietary and no longer hosted by us
+  # in a way that Github Actions can access.
+  # entrust:
+  #   name: Build Entrust
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 20
+  #   steps:
+  #   - name: Check out sources
+  #     uses: actions/checkout@v4
+  #     with:
+  #       submodules: recursive
 
-    - name: setup environment
-      uses: ./.github/actions/setup
-      with:
-        rust_version: ${{ env.INSTALL_RUST_VERSION }}
+  #   - name: Install Rust
+  #     uses: actions-rs/toolchain@v1
+  #     with:
+  #       components: clippy, rustfmt, rust-src
+  #       default: true
+  #       profile: minimal
+  #       toolchain: ${{ env.INSTALL_RUST_VERSION }}
 
-    - uses: actions/setup-node@v3
-      with:
-        # it's not possible to pin certs yet with the experimental fetch in node 18,
-        # and our polyfill doesn't work well in 18. stick with 16 for now.
-        node-version: 16
+  #   - name: Use Rust Cache
+  #     uses: Swatinem/rust-cache@v2
 
-    - uses: jetli/wasm-pack-action@v0.4.0
+  #   - name: Authenticate to Google Cloud
+  #     uses: google-github-actions/auth@v1
+  #     with:
+  #       credentials_json: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
 
-    - name: Build WASM
-      run: wasm-pack build sdk/rust/sdk/bridge/wasm --out-dir ../../../../javascript/juicebox-sdk --out-name juicebox-sdk --target nodejs
+  #   - name: Download Codesafe from Google Cloud Storage
+  #     run: |
+  #       gcloud storage cp 'gs://ncipher-nshield-firmware/2023-08 v13.4 codesafe firmware secworld/Codesafe_Lin64-13.4.3.iso.zip' .
+  #       echo '7d6eaff0548d90143d35834f1ea1cf092321e9003e10e14895a01a6f412adadb  Codesafe_Lin64-13.4.3.iso.zip' | sha256sum -c -
 
-    - name: NPM Install
-      run: |
-        cd sdk/javascript/demo
-        npm install
-        npm install -g ts-node
+  #   - name: Install Codesafe
+  #     run: |
+  #       unzip Codesafe_Lin64-13.4.3.iso.zip
+  #       7z e Codesafe_Lin64-13.4.3.iso linux/amd64/csd.tar.gz
+  #       sudo tar -C / -xf csd.tar.gz
+  #       rm Codesafe_Lin64-13.4.3.iso.zip Codesafe_Lin64-13.4.3.iso csd.tar.gz
 
-    - name: Run cargo build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
+  #   - name: Run clippy (entrust* crates)
+  #     uses: actions-rs/cargo@v1
+  #     with:
+  #       args: --tests --package 'entrust*' -- -D warnings
+  #       command: clippy
 
-    - name: Run demo
-      run: |
-        RUST_BACKTRACE=1 target/debug/demo_runner --demo sdk/javascript/demo/demo.ts
-      shell: bash
+  #   - name: Run cargo build (entrust* crates)
+  #     uses: actions-rs/cargo@v1
+  #     with:
+  #       args: --package 'entrust*'
+  #       command: build
 
-  entrust:
-    name: Build Entrust
-    runs-on: ubuntu-latest-m
-    timeout-minutes: 20
-    steps:
-    - name: Check out sources
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-        token: ${{ secrets.ACCESS_TOKEN }}
+  #   - name: Run cargo test (entrust* crates)
+  #     uses: actions-rs/cargo@v1
+  #     with:
+  #       args: --package 'entrust*'
+  #       command: test
+  #     env:
+  #       RUST_BACKTRACE: '1'
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        components: clippy, rustfmt, rust-src
-        default: true
-        profile: minimal
-        toolchain: ${{ env.INSTALL_RUST_VERSION }}
+  #   - name: Run release build
+  #     uses: actions-rs/cargo@v1
+  #     with:
+  #       args: --all --release
+  #       command: build
 
-    - name: Use Rust Cache
-      uses: Swatinem/rust-cache@v2
+  #   - name: Run cargo build (PPC entrust_hsm.elf)
+  #     run: ./entrust_hsm/compile_linux.sh --features insecure
 
-    - name: Authenticate to Google Cloud
-      uses: google-github-actions/auth@v1
-      with:
-        credentials_json: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
-
-    - name: Download Codesafe from Google Cloud Storage
-      run: |
-        gcloud storage cp 'gs://ncipher-nshield-firmware/2023-08 v13.4 codesafe firmware secworld/Codesafe_Lin64-13.4.3.iso.zip' .
-        echo '7d6eaff0548d90143d35834f1ea1cf092321e9003e10e14895a01a6f412adadb  Codesafe_Lin64-13.4.3.iso.zip' | sha256sum -c -
-
-    - name: Install Codesafe
-      run: |
-        unzip Codesafe_Lin64-13.4.3.iso.zip
-        7z e Codesafe_Lin64-13.4.3.iso linux/amd64/csd.tar.gz
-        sudo tar -C / -xf csd.tar.gz
-        rm Codesafe_Lin64-13.4.3.iso.zip Codesafe_Lin64-13.4.3.iso csd.tar.gz
-
-    - name: Run clippy (entrust* crates)
-      uses: actions-rs/cargo@v1
-      with:
-        args: --tests --package 'entrust*' -- -D warnings
-        command: clippy
-
-    - name: Run cargo build (entrust* crates)
-      uses: actions-rs/cargo@v1
-      with:
-        args: --package 'entrust*'
-        command: build
-
-    - name: Run cargo test (entrust* crates)
-      uses: actions-rs/cargo@v1
-      with:
-        args: --package 'entrust*'
-        command: test
-      env:
-        RUST_BACKTRACE: '1'
-
-    - name: Run release build
-      uses: actions-rs/cargo@v1
-      with:
-        args: --all --release
-        command: build
-
-    - name: Run cargo build (PPC entrust_hsm.elf)
-      run: ./entrust_hsm/compile_linux.sh --features insecure
-
-    - name: Publish build to GCP bucket
-      if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-      run: |
-        PROJECT='juicebox-infra'
-        # bucket is sha1("ci-builds\n")
-        GSPATH="9c39e3ca5fca69f058b9e673aef193b10d9e8c48/${{github.sha}}/"
-        gcloud storage cp \
-          "target/release/cluster" \
-          "target/release/cluster_bench" \
-          "target/release/cluster_manager" \
-          "target/release/load_balancer" \
-          "target/release/service_checker" \
-          "target/release/software_agent" \
-          "target/release/software_hsm" \
-          "target/release/chaos" \
-          "target/release/entrust_agent" \
-          "target/release/entrust_init" \
-          "target/release/entrust_ops" \
-          "target/powerpc-unknown-linux-gnu/release/entrust_hsm.elf" \
-          "gs://$GSPATH/"
+  #   - name: Publish build to GCP bucket
+  #     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+  #     run: |
+  #       PROJECT='juicebox-infra'
+  #       # bucket is sha1("ci-builds\n")
+  #       GSPATH="9c39e3ca5fca69f058b9e673aef193b10d9e8c48/${{github.sha}}/"
+  #       gcloud storage cp \
+  #         "target/release/cluster" \
+  #         "target/release/cluster_bench" \
+  #         "target/release/cluster_manager" \
+  #         "target/release/load_balancer" \
+  #         "target/release/service_checker" \
+  #         "target/release/software_agent" \
+  #         "target/release/software_hsm" \
+  #         "target/release/chaos" \
+  #         "target/release/entrust_agent" \
+  #         "target/release/entrust_init" \
+  #         "target/release/entrust_ops" \
+  #         "target/powerpc-unknown-linux-gnu/release/entrust_hsm.elf" \
+  #         "gs://$GSPATH/"
