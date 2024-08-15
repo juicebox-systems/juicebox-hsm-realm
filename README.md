@@ -103,6 +103,7 @@ included as a Git submodule at the path `sdk`).
 This is a diagram of the current crates, showing their local dependencies:
 
 ![Dependency Graph](crate_graph.png)
+
 <!--- regenerate with scripts/dep_graph.sh ---->
 
 Entrust is an HSM vendor, and the Entrust-specific code is named accordingly.
@@ -131,26 +132,29 @@ There are also various tools in this repository:
 
 System dependencies:
 
-* [Rust](https://rustup.rs/)
-* [Protocol Buffers compiler](https://github.com/protocolbuffers/protobuf#protocol-compiler-installation),
+- [Rust](https://rustup.rs/)
+- [Protocol Buffers compiler](https://github.com/protocolbuffers/protobuf#protocol-compiler-installation),
   as located and used by
   [prost-build](https://docs.rs/prost-build/latest/prost_build/#sourcing-protoc).
   This is needed for `opentelemetry-otlp` and can also be used to regenerate
-  the Google Cloud API messages.  On Debian, `apt install protobuf-compiler` is
+  the Google Cloud API messages. On Debian, `apt install protobuf-compiler` is
   sufficient.
-* See the section on the Bigtable emulator below, which you'll also need.
+- See the section on the Bigtable emulator below, which you'll also need.
 
 Then:
 
-* `cargo test --all` to run the tests
-* to run the client rust demo:
+- `cargo test --all` to run the tests
+- to run the client rust demo:
+
 ```sh
 cd sdk
 cargo build -p juicebox_demo_cli
 cd ..
 cargo run --bin demo_runner -- --demo sdk/target/debug/demo
 ```
-* to run the swift demo:
+
+- to run the swift demo:
+
 ```sh
 cd sdk/swift
 ./ffi.sh
@@ -182,10 +186,8 @@ sudo apt install qemu-user qemu-user-binfmt gcc-12-powerpc-linux-gnu
 
 The `build-ppc.sh` and `test-ppc.sh` scripts build and test the PowerPC version.
 
-
 In addition to the options set in the scripts, the `.cargo/config.toml` file is
 used to set the linker and CPU target.
-
 
 ## Local Bigtable emulator
 
@@ -236,11 +238,13 @@ alias lbt='BIGTABLE_EMULATOR_HOST=localhost:9000 cbt -creds /dev/null -project p
 ```
 
 List tables:
+
 ```sh
 lbt ls
 ```
 
 You can create tables like this:
+
 ```sh
 lbt createtable tab families=fam
 ```
@@ -308,10 +312,9 @@ when done. Or you can copy this and paste it at the top of the file.
 otlp_config:
   receiver:
     protocols:
-        grpc:
-          endpoint: 0.0.0.0:4317
+      grpc:
+        endpoint: 0.0.0.0:4317
 ```
-
 
 ## TLS Certificates
 
@@ -320,3 +323,10 @@ to specify where the key & cert files are.
 
 Demo and hsm_bench will generate a self signed cert for use during these runs. This requires you to have
 `openssl` in your `$PATH`.
+
+## Further Reading
+
+- Blog post: [Running a Juicebox hardware realm](https://juicebox.xyz/blog/running-a-hsm-realm)
+- Whitepaper: [Juicebox Merkle-Radix Tree](https://juicebox.xyz/assets/whitepapers/merkleradix_revision1_20230629.pdf)
+- Whitepaper: [Juicebox protocol](https://juicebox.xyz/assets/whitepapers/juiceboxprotocol_revision7_20230807.pdf)
+- Blog Post: [Key to Simplicity: Squeezing the hassle out of encryption key recovery](https://juicebox.xyz/blog/key-to-simplicity-squeezing-the-hassle-out-of-encryption-key-recovery)
